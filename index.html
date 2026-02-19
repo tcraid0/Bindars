@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var themes = ["light", "sepia", "dark", "deep-dark"];
+        var theme = "light";
+        var bgMap = { light: "#FAFAF8", sepia: "#F3EACE", dark: "#1A1816", "deep-dark": "#0C0A09" };
+
+        try {
+          var stored = localStorage.getItem("binder-theme") || localStorage.getItem("markdown-reader-theme");
+          if (stored && themes.indexOf(stored) !== -1) {
+            theme = stored;
+          } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            theme = "dark";
+          }
+        } catch (_error) {
+          if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            theme = "dark";
+          }
+        }
+
+        document.documentElement.setAttribute("data-theme", theme === "light" ? "" : theme);
+        document.documentElement.style.backgroundColor = bgMap[theme] || bgMap.light;
+      })();
+    </script>
+    <style>
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--ls-bg, #FAFAF8);
+        transition: opacity 200ms ease-out;
+      }
+      #loading-screen.fade-out { opacity: 0; }
+      #loading-screen-title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-style: italic;
+        font-size: 2.5rem;
+        color: var(--ls-text, #A8A29E);
+        margin: 0 0 0.5rem;
+        letter-spacing: 0.12em;
+        animation: ls-settle 800ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+      }
+      @keyframes ls-settle {
+        to { letter-spacing: 0.02em; }
+      }
+      #loading-screen-tagline {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 0.85rem;
+        color: var(--ls-text, #A8A29E);
+        margin: 0 0 1.5rem;
+        letter-spacing: 0.08em;
+        opacity: 0;
+        animation: ls-fade-in 400ms ease-out 400ms forwards;
+      }
+      @keyframes ls-fade-in {
+        to { opacity: 1; }
+      }
+      #loading-screen-track {
+        width: 120px;
+        height: 2px;
+        border-radius: 1px;
+        background: var(--ls-track, rgba(168,162,158,0.2));
+        overflow: hidden;
+        opacity: 0;
+        animation: ls-fade-in 400ms ease-out 500ms forwards;
+      }
+      #loading-screen-bar {
+        width: 100%;
+        height: 100%;
+        border-radius: 1px;
+        background: var(--ls-accent, #BD9264);
+        position: relative;
+        overflow: hidden;
+      }
+      #loading-screen-bar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+        animation: ls-shimmer 1.5s ease-in-out infinite;
+      }
+      @keyframes ls-shimmer {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(200%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #loading-screen-title {
+          animation: none;
+          letter-spacing: 0.02em;
+        }
+        #loading-screen-tagline {
+          animation: none;
+          opacity: 1;
+        }
+        #loading-screen-track {
+          animation: none;
+          opacity: 1;
+        }
+        #loading-screen-bar {
+          animation: ls-pulse 1.5s ease-in-out infinite;
+          width: 100%;
+        }
+        #loading-screen-bar::after {
+          animation: none;
+          opacity: 0;
+        }
+        @keyframes ls-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.8; }
+        }
+      }
+    </style>
+    <title>Binder</title>
+  </head>
+  <body>
+    <div id="loading-screen">
+      <p id="loading-screen-title">Binder</p>
+      <p id="loading-screen-tagline">read well</p>
+      <div id="loading-screen-track"><div id="loading-screen-bar"></div></div>
+    </div>
+    <script>
+      (function () {
+        var t = document.documentElement.getAttribute("data-theme") || "light";
+        var colors = {
+          light:     { bg: "#FAFAF8", text: "#A8A29E", accent: "#BD9264", track: "rgba(168,162,158,0.2)" },
+          sepia:     { bg: "#F3EACE", text: "#A99B8A", accent: "#C8956C", track: "rgba(169,155,138,0.2)" },
+          dark:      { bg: "#1A1816", text: "#6B6560", accent: "#D4A373", track: "rgba(107,101,96,0.2)" },
+          "deep-dark": { bg: "#0C0A09", text: "#57534E", accent: "#DAA97A", track: "rgba(87,83,78,0.2)" }
+        };
+        var c = colors[t] || colors.light;
+        var el = document.getElementById("loading-screen");
+        el.style.setProperty("--ls-bg", c.bg);
+        el.style.setProperty("--ls-text", c.text);
+        el.style.setProperty("--ls-accent", c.accent);
+        el.style.setProperty("--ls-track", c.track);
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

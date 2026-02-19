@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noEmit": false,
+    "outDir": ".tmp/workspace-tests",
+    "rootDir": ".",
+    "jsx": "react-jsx",
+    "lib": ["ES2021", "DOM"]
+  },
+  "include": [
+    "src/types/index.ts",
+    "src/lib/paths.ts",
+    "src/lib/frontmatter.ts",
+    "src/lib/code-text.ts",
+    "src/lib/print-state.ts",
+    "src/lib/reader-settings.ts",
+    "src/lib/fountain.ts",
+    "src/lib/workspace-index.ts",
+    "src/lib/workspace-search.ts",
+    "src/hooks/useWorkspaceInsights.ts",
+    "src/lib/slide-parser.ts",
+    "src/lib/reading-stats.ts"
+  ]
+}

@@ -1,0 +1,1908 @@
+@import "tailwindcss";
+@import "@fontsource-variable/outfit";
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/source-sans-3";
+@import "@fontsource-variable/dm-sans";
+@import "@fontsource-variable/roboto-slab";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/700.css";
+
+/* highlight.js themes — import both, scope with CSS layers won't work well,
+   so we import light by default and override hljs colors in dark themes below */
+@import "highlight.js/styles/github.css";
+
+/* KaTeX math rendering */
+@import "katex/dist/katex.min.css";
+
+/* ── Theme tokens ── */
+
+:root {
+  --bg-primary: #FAFAF8;
+  --bg-secondary: #F5F4F2;
+  --bg-tertiary: #EDECEB;
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-muted: #A8A29E;
+  --accent: #BD9264;
+  --accent-hover: #AD8358;
+  --border: #E8E7E6;
+  --code-bg: #F5F4F2;
+  --highlight-yellow: #fef08a;
+  --highlight-green: #bbf7d0;
+  --highlight-blue: #bfdbfe;
+  --highlight-pink: #fbcfe8;
+}
+
+[data-theme="sepia"] {
+  --bg-primary: #F3EACE;
+  --bg-secondary: #EAE0C4;
+  --bg-tertiary: #E0D6B8;
+  --text-primary: #5B4636;
+  --text-secondary: #7D6B5D;
+  --text-muted: #A99B8A;
+  --accent: #C8956C;
+  --accent-hover: #B8855C;
+  --border: #D9CEBC;
+  --code-bg: #EDE5D1;
+  --highlight-yellow: #fde68a;
+  --highlight-green: #a7f3d0;
+  --highlight-blue: #a5d8ff;
+  --highlight-pink: #f9a8d4;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1A1816;
+  --bg-secondary: #231F1C;
+  --bg-tertiary: #2C2724;
+  --text-primary: #EEEBE6;
+  --text-secondary: #A39E98;
+  --text-muted: #6B6560;
+  --accent: #D4A373;
+  --accent-hover: #E0B48A;
+  --border: #352F2B;
+  --code-bg: #221E1B;
+  --highlight-yellow: rgba(250, 204, 21, 0.3);
+  --highlight-green: rgba(74, 222, 128, 0.3);
+  --highlight-blue: rgba(96, 165, 250, 0.3);
+  --highlight-pink: rgba(244, 114, 182, 0.3);
+}
+
+[data-theme="deep-dark"] {
+  --bg-primary: #0C0A09;
+  --bg-secondary: #1A1816;
+  --bg-tertiary: #231F1C;
+  --text-primary: #E7E5E4;
+  --text-secondary: #87817C;
+  --text-muted: #57534E;
+  --accent: #DAA97A;
+  --accent-hover: #E5B88E;
+  --border: #292524;
+  --code-bg: #161412;
+  --highlight-yellow: rgba(250, 204, 21, 0.25);
+  --highlight-green: rgba(74, 222, 128, 0.25);
+  --highlight-blue: rgba(96, 165, 250, 0.25);
+  --highlight-pink: rgba(244, 114, 182, 0.25);
+}
+
+/* ── Tailwind theme mapping ── */
+
+@theme inline {
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-border: var(--border);
+  --color-code-bg: var(--code-bg);
+
+  --font-ui: "Outfit Variable", "Outfit", system-ui, sans-serif;
+  --font-reading: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --font-reading-newsreader: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --font-reading-source-sans-3: "Source Sans 3 Variable", "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
+  --font-reading-dm-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
+  --font-reading-roboto-slab: "Roboto Slab Variable", "Roboto Slab", Georgia, serif;
+  --paragraph-spacing: 1.25em;
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
+}
+
+/* ── Global styles ── */
+
+/* Keep theme transitions on chrome surfaces only to avoid full-document text animation jank. */
+body,
+header,
+aside,
+nav,
+main,
+button,
+input,
+textarea,
+select,
+.workspace-panel,
+.search-bar,
+.command-palette-shell,
+.command-palette-input-wrap,
+.drop-zone-overlay,
+.toc-active-item,
+.sidebar-active-item {
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+code, pre, pre * {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .drop-zone-border,
+  .file-content-enter,
+  .empty-state-title,
+  .empty-state-subtitle,
+  .empty-state-content {
+    animation: none !important;
+  }
+
+  button:active:not(:disabled),
+  [role="button"]:active:not(:disabled) {
+    transform: none !important;
+  }
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.ui-section-label {
+  font-size: 0.72rem;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.ui-subsection-label {
+  font-size: 0.68rem;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.ui-chip-label {
+  font-size: 0.62rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.workspace-panel {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-secondary) 92%, transparent) 0%,
+    color-mix(in srgb, var(--bg-secondary) 74%, transparent) 100%
+  );
+}
+
+.workspace-path {
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+}
+
+.workspace-pill-btn {
+  padding: 0.28rem 0.52rem;
+  font-size: 0.72rem;
+  border-radius: 0.4rem;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  transition: color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.workspace-pill-btn:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, var(--accent) 15%);
+}
+
+.workspace-link-btn:hover {
+  color: var(--text-primary);
+}
+
+.workspace-status {
+  letter-spacing: 0.01em;
+}
+
+.command-palette-shell {
+  border-color: color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+}
+
+.command-palette-input-wrap {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
+}
+
+.command-palette-input-wrap:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border) 30%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* ── Reduced effects mode ── */
+
+.reduced-effects .reading-surface {
+  background-image: none !important;
+}
+
+.reduced-effects .command-palette-backdrop,
+.reduced-effects .drop-zone-overlay {
+  backdrop-filter: none !important;
+}
+
+.reduced-effects .file-content-enter,
+.reduced-effects .empty-state-title,
+.reduced-effects .empty-state-subtitle,
+.reduced-effects .empty-state-content {
+  animation: none !important;
+}
+
+.reduced-effects .workspace-panel,
+.reduced-effects .search-bar,
+.reduced-effects .command-palette-shell,
+.reduced-effects .command-palette-input-wrap {
+  transition: none !important;
+}
+
+.reduced-effects button:active:not(:disabled),
+.reduced-effects [role="button"]:active:not(:disabled) {
+  transform: none !important;
+}
+
+/* ── Sepia paper texture ── */
+
+[data-theme="sepia"] .reading-surface {
+  background-image: url("/noise-texture.png");
+  background-repeat: repeat;
+  background-size: 128px 128px;
+}
+
+[data-theme="dark"] .reading-surface,
+[data-theme="deep-dark"] .reading-surface {
+  background-image: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.15) 100%);
+}
+
+/* ── Focus-visible styles for keyboard accessibility ── */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Restrained press feedback — buttons press in, not float up */
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* ── Scrollbar styling ── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* ── Markdown prose styles ── */
+
+.markdown-body {
+  font-family: var(--font-reading);
+  font-size: 17px;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  scroll-margin-top: var(--heading-scroll-margin, 4.5rem);
+  margin-top: 2.5em;
+  margin-bottom: 0.75em;
+}
+
+.markdown-body h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin-top: 0;
+  padding-bottom: 0.5em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body h2 {
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.markdown-body h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.markdown-body h6 {
+  color: var(--text-secondary);
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: var(--paragraph-spacing, 1.25em);
+}
+
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 2px;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+.markdown-body a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: var(--accent-hover);
+}
+
+.markdown-body strong {
+  font-weight: 700;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1.5em 0;
+}
+
+.markdown-body blockquote {
+  margin: 1.5em 0;
+  padding: 0.5em 1.25em;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-secondary);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 1em 0;
+  padding-left: 1.75em;
+}
+
+.markdown-body li {
+  margin-bottom: 0.35em;
+}
+
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin-top: 0.35em;
+  margin-bottom: 0;
+}
+
+.markdown-body ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.5em;
+}
+
+.markdown-body li.task-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.markdown-body li.task-list-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.markdown-body hr {
+  border: none;
+  height: 1px;
+  background: var(--border);
+  margin: 2.5em 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5em 0;
+  font-size: 0.9em;
+}
+
+.markdown-body thead th {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.75em 1em;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-primary);
+}
+
+.markdown-body tbody td {
+  padding: 0.6em 1em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.markdown-body code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.markdown-body pre {
+  position: relative;
+  margin: 1.5em 0;
+  padding: 20px;
+  background: var(--code-bg);
+  border-radius: 10px;
+  border-left: 3px solid var(--accent);
+  overflow-x: auto;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);
+}
+
+[data-theme="dark"] .markdown-body pre,
+[data-theme="deep-dark"] .markdown-body pre {
+  box-shadow: none;
+}
+
+.markdown-body pre code {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Custom reader code blocks: wrap long lines so trailing comments stay visible. */
+.code-block-wrapper {
+  margin: 1.5em 0;
+}
+
+.code-block-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0 0.2rem;
+}
+
+.code-block-toolbar:not(.has-language) {
+  justify-content: flex-end;
+}
+
+.code-block-toolbar .code-lang-chip {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.code-copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.code-copy-button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.code-copy-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.code-copy-button svg {
+  flex-shrink: 0;
+}
+
+.code-block-wrapper pre {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+.code-block-wrapper .code-block-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Prevent highlight.js base theme from drawing a second inner panel. */
+.markdown-body .code-block-wrapper pre code.hljs {
+  padding: 0;
+  background: transparent;
+  overflow-x: visible;
+}
+
+.markdown-body .code-block-wrapper .hljs {
+  background: transparent;
+}
+
+/* ── Drop zone ── */
+
+.drop-zone-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 200ms ease;
+}
+
+.drop-zone-border {
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  padding: 3rem;
+  animation: pulse-border 1.5s ease infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  70% { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--accent); }
+  50% { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+}
+
+/* ── File appear animation ── */
+
+.file-content-enter {
+  animation: contentAppear 250ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes contentAppear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Empty state staggered entrance ── */
+
+.empty-state-title {
+  animation: emptyFadeIn 400ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.empty-state-subtitle {
+  animation: emptyFadeIn 400ms cubic-bezier(0.2, 0, 0, 1) 150ms both;
+}
+
+.empty-state-content {
+  animation: emptyFadeIn 400ms cubic-bezier(0.2, 0, 0, 1) 300ms both;
+}
+
+@keyframes emptyFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── TOC active item accent background ── */
+
+.toc-active-item {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ── Sidebar active file accent background ── */
+
+.sidebar-active-item {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ── Shortcut card editorial styling ── */
+
+.shortcut-card {
+  background-image: url("/noise-texture.png");
+  background-repeat: repeat;
+  background-size: 128px 128px;
+}
+
+/* ── Search bar ── */
+
+@keyframes searchBarIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Search highlights ── */
+
+mark.search-highlight {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 2px;
+  padding: 1px 0;
+  color: inherit;
+}
+
+mark.search-highlight-active {
+  background: var(--accent);
+  color: white;
+  border-radius: 2px;
+  padding: 1px 0;
+}
+
+/* ── Annotation highlights ── */
+
+mark.annotation-highlight-yellow {
+  background: var(--highlight-yellow);
+  border-radius: 2px;
+  padding: 1px 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+mark.annotation-highlight-green {
+  background: var(--highlight-green);
+  border-radius: 2px;
+  padding: 1px 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+mark.annotation-highlight-blue {
+  background: var(--highlight-blue);
+  border-radius: 2px;
+  padding: 1px 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+mark.annotation-highlight-pink {
+  background: var(--highlight-pink);
+  border-radius: 2px;
+  padding: 1px 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ── Dark theme syntax highlighting overrides ── */
+/* Override github-light hljs with dark-dimmed colors for dark themes */
+
+[data-theme="dark"] .hljs,
+[data-theme="deep-dark"] .hljs {
+  color: #adbac7;
+  background: var(--code-bg);
+}
+
+[data-theme="dark"] .hljs-comment,
+[data-theme="dark"] .hljs-quote,
+[data-theme="deep-dark"] .hljs-comment,
+[data-theme="deep-dark"] .hljs-quote {
+  color: #768390;
+}
+
+[data-theme="dark"] .hljs-keyword,
+[data-theme="dark"] .hljs-selector-tag,
+[data-theme="dark"] .hljs-type,
+[data-theme="deep-dark"] .hljs-keyword,
+[data-theme="deep-dark"] .hljs-selector-tag,
+[data-theme="deep-dark"] .hljs-type {
+  color: #f47067;
+}
+
+[data-theme="dark"] .hljs-string,
+[data-theme="dark"] .hljs-addition,
+[data-theme="deep-dark"] .hljs-string,
+[data-theme="deep-dark"] .hljs-addition {
+  color: #96d0ff;
+}
+
+[data-theme="dark"] .hljs-number,
+[data-theme="dark"] .hljs-literal,
+[data-theme="deep-dark"] .hljs-number,
+[data-theme="deep-dark"] .hljs-literal {
+  color: #6cb6ff;
+}
+
+[data-theme="dark"] .hljs-built_in,
+[data-theme="dark"] .hljs-title,
+[data-theme="dark"] .hljs-section,
+[data-theme="deep-dark"] .hljs-built_in,
+[data-theme="deep-dark"] .hljs-title,
+[data-theme="deep-dark"] .hljs-section {
+  color: #dcbdfb;
+}
+
+[data-theme="dark"] .hljs-attr,
+[data-theme="dark"] .hljs-attribute,
+[data-theme="deep-dark"] .hljs-attr,
+[data-theme="deep-dark"] .hljs-attribute {
+  color: #6cb6ff;
+}
+
+[data-theme="dark"] .hljs-variable,
+[data-theme="dark"] .hljs-template-variable,
+[data-theme="deep-dark"] .hljs-variable,
+[data-theme="deep-dark"] .hljs-template-variable {
+  color: #f69d50;
+}
+
+[data-theme="dark"] .hljs-deletion,
+[data-theme="deep-dark"] .hljs-deletion {
+  color: #f47067;
+}
+
+/* ── Sidebar animation ── */
+
+@keyframes sidebarIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tocIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Mermaid diagrams ── */
+
+.mermaid-diagram {
+  margin: 1.5em 0;
+  display: flex;
+  justify-content: center;
+  padding: 1em;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-loading {
+  min-height: 60px;
+  align-items: center;
+}
+
+.mermaid-error {
+  margin: 1.5em 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.mermaid-error-label {
+  display: block;
+  padding: 0.5em 1em;
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.mermaid-error pre {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border-left: none !important;
+}
+
+/* ── Frontmatter header ── */
+
+.frontmatter-header {
+  margin-bottom: 2.5em;
+  padding-bottom: 1.5em;
+  border-bottom: 1px solid var(--border);
+}
+
+.frontmatter-title {
+  font-family: var(--font-ui);
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: 0 0 0.5em;
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+.frontmatter-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75em;
+}
+
+.frontmatter-separator {
+  color: var(--text-muted);
+}
+
+.frontmatter-description {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 0.75em;
+}
+
+.frontmatter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.frontmatter-tag {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.2em 0.65em;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+/* ── Footnotes ── */
+
+.markdown-body section.footnotes {
+  margin-top: 3em;
+  padding-top: 1.5em;
+  border-top: 1px solid var(--border);
+  font-size: 0.875em;
+  color: var(--text-secondary);
+}
+
+.markdown-body section.footnotes h2.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.markdown-body section.footnotes ol {
+  padding-left: 1.5em;
+}
+
+.markdown-body section.footnotes li {
+  margin-bottom: 0.5em;
+}
+
+.markdown-body sup a[data-footnote-ref] {
+  font-family: var(--font-ui);
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 0 0.15em;
+}
+
+.markdown-body sup a[data-footnote-ref]:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+.markdown-body a[data-footnote-backref] {
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  text-decoration: none;
+  color: var(--accent);
+  margin-left: 0.25em;
+}
+
+.markdown-body a[data-footnote-backref]:hover {
+  color: var(--accent-hover);
+}
+
+/* ── KaTeX overrides ── */
+
+.markdown-body .katex-display {
+  margin: 1.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+.markdown-body .katex {
+  font-size: 1.1em;
+}
+
+/* ── Fountain screenplay styles ── */
+
+.fountain-body {
+  color: var(--text-primary);
+}
+
+.fountain-title-page {
+  text-align: center;
+  padding: 4em 0 3em;
+  margin-bottom: 2em;
+  border-bottom: 1px solid var(--border);
+}
+
+.fountain-title {
+  font-size: 2rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin: 0 0 1em;
+  color: var(--text-primary);
+}
+
+.fountain-credit {
+  font-size: 1rem;
+  margin: 0 0 0.25em;
+  color: var(--text-secondary);
+}
+
+.fountain-author {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 1em;
+  color: var(--text-primary);
+}
+
+.fountain-draft-date,
+.fountain-title-entry {
+  font-size: 0.9rem;
+  margin: 0 0 0.25em;
+  color: var(--text-secondary);
+}
+
+.fountain-scene-heading {
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-top: 2em;
+  margin-bottom: 1em;
+  font-size: 1em;
+  scroll-margin-top: var(--heading-scroll-margin, 4.5rem);
+  color: var(--text-primary);
+}
+
+.fountain-scene-number {
+  float: right;
+  font-weight: 400;
+}
+
+.fountain-action {
+  margin: var(--paragraph-spacing, 1em) 0;
+}
+
+.fountain-character {
+  text-align: center;
+  text-transform: uppercase;
+  margin-top: 1em;
+  margin-bottom: 0;
+  font-weight: 700;
+}
+
+.fountain-dialogue {
+  max-width: 35ch;
+  margin: 0 auto;
+}
+
+.fountain-parenthetical {
+  max-width: 25ch;
+  margin: 0 auto;
+  font-style: italic;
+}
+
+.fountain-transition {
+  text-align: right;
+  text-transform: uppercase;
+  margin-top: var(--paragraph-spacing, 1em);
+  margin-bottom: var(--paragraph-spacing, 1em);
+}
+
+.fountain-centered {
+  text-align: center;
+  margin: var(--paragraph-spacing, 1em) 0;
+}
+
+.fountain-section {
+  font-weight: 700;
+  margin-top: 2em;
+  margin-bottom: 1em;
+  color: var(--text-secondary);
+}
+
+.fountain-synopsis {
+  font-style: italic;
+  color: var(--text-muted);
+  margin: 0.5em 0;
+}
+
+.fountain-note {
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 0.5em 1em;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+
+.fountain-lyrics {
+  font-style: italic;
+  margin: 1em 0;
+}
+
+.fountain-page-break {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+
+.fountain-dual-dialogue {
+  display: flex;
+  gap: 2em;
+  margin-top: 1em;
+}
+
+.fountain-dual-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.fountain-dual-column .fountain-character {
+  text-align: center;
+}
+
+.fountain-dual-column .fountain-dialogue {
+  max-width: none;
+  margin: 0;
+}
+
+/* ── Character focus mode ── */
+.fountain-body[data-focus-character] .fountain-action,
+.fountain-body[data-focus-character] .fountain-scene-heading,
+.fountain-body[data-focus-character] .fountain-transition,
+.fountain-body[data-focus-character] .fountain-centered,
+.fountain-body[data-focus-character] .fountain-note,
+.fountain-body[data-focus-character] .fountain-lyrics,
+.fountain-body[data-focus-character] .fountain-page-break {
+  opacity: 0.2;
+  transition: opacity 200ms ease;
+}
+
+.fountain-body[data-focus-character] .fountain-character,
+.fountain-body[data-focus-character] .fountain-dialogue,
+.fountain-body[data-focus-character] .fountain-parenthetical {
+  opacity: 0.2;
+  transition: opacity 200ms ease;
+}
+
+.fountain-body[data-focus-character] [data-character-match] {
+  opacity: 1;
+}
+
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-action,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-scene-heading,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-transition,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-centered,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-note,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-lyrics,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-page-break,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-character,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-dialogue,
+[data-reduced-effects] .fountain-body[data-focus-character] .fountain-parenthetical {
+  transition: none;
+}
+
+/* ── Presentation mode ── */
+
+.presentation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  background: var(--bg-primary);
+  overflow-y: auto;
+  padding: 2rem 0;
+  cursor: default;
+}
+
+.presentation-slide {
+  max-width: 85ch;
+  width: 100%;
+  padding: 3rem 4rem;
+  min-height: 0;
+}
+
+.presentation-slide .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.presentation-slide .markdown-body {
+  font-size: 1.25em;
+}
+
+.presentation-slide .markdown-body h1 {
+  font-size: 3rem;
+}
+
+.presentation-slide .markdown-body h2 {
+  font-size: 2.25rem;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.presentation-slide .markdown-body h3 {
+  font-size: 1.75rem;
+}
+
+/* ── Print: hide app chrome via data-printing attribute ── */
+/* Outside print media query so it overrides Tailwind v4 utility layers in WebKit2GTK */
+body[data-printing] .print-hide {
+  display: none !important;
+}
+
+body[data-printing]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: var(--bg-primary);
+  pointer-events: none;
+}
+
+/* ── Print stylesheet ── */
+
+@media print {
+  @page {
+    margin: 2cm;
+  }
+
+  * {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    overflow: visible !important;
+  }
+
+  body::before {
+    display: none !important;
+  }
+
+  html,
+  #root,
+  #root > div {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Reset viewport constraints for full-document pagination */
+  #root > div {
+    height: auto !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+  }
+
+  /* Reset flex wrapper that constrains content height */
+  #root > div > .flex {
+    height: auto !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    display: block !important;
+  }
+
+  body[data-printing] .reading-surface {
+    background: white !important;
+    background-image: none !important;
+  }
+
+  /* Keep printable surface neutral unless themed print is explicitly enabled. */
+  body[data-printing] #root,
+  body[data-printing] #root > div,
+  body[data-printing] .reading-surface {
+    background-color: white !important;
+    color: black !important;
+  }
+
+  /* When print-with-theme is active, preserve theme colors */
+  body[data-printing][data-print-themed] {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body[data-printing][data-print-themed] #root,
+  body[data-printing][data-print-themed] #root > div,
+  body[data-printing][data-print-themed] .reading-surface {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+  }
+
+  /* Hide all chrome */
+  .print-hide {
+    display: none !important;
+  }
+
+  /* Make main content fill the page */
+  main {
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* ── Frontmatter: standard layout is compact and continuous ── */
+  .frontmatter-header {
+    page-break-after: auto;
+    min-height: auto;
+    display: block;
+    border-bottom: 1px solid #ddd !important;
+    padding-bottom: 0.6cm !important;
+    margin-bottom: 0.8cm !important;
+  }
+
+  /* Book layout retains title-page behavior and section pagination. */
+  body[data-printing][data-print-layout="book"] .frontmatter-header {
+    page-break-after: always;
+    min-height: 170mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .frontmatter-title {
+    font-size: 28pt !important;
+    color: black !important;
+    letter-spacing: -0.02em;
+  }
+
+  body[data-printing][data-print-themed] .frontmatter-title {
+    color: var(--text-primary) !important;
+  }
+
+  .frontmatter-meta {
+    font-size: 14pt !important;
+    color: #444 !important;
+  }
+
+  body[data-printing][data-print-themed] .frontmatter-meta {
+    color: var(--text-secondary) !important;
+  }
+
+  .frontmatter-description {
+    font-size: 13pt !important;
+    color: #555 !important;
+    margin-top: 1em;
+  }
+
+  body[data-printing][data-print-themed] .frontmatter-description {
+    color: var(--text-secondary) !important;
+  }
+
+  .frontmatter-tag {
+    background: none !important;
+    border: 1px solid #ccc;
+    color: #333 !important;
+  }
+
+  body[data-printing][data-print-themed] .frontmatter-tag {
+    border-color: var(--border) !important;
+    color: var(--accent) !important;
+  }
+
+  /* ── Body typography ── */
+  .markdown-body {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 11pt !important;
+    line-height: 1.65 !important;
+    color: black !important;
+    hyphens: auto;
+    hanging-punctuation: first;
+    text-rendering: optimizeLegibility;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body {
+    color: var(--text-primary) !important;
+  }
+
+  /* Widow/orphan control */
+  .markdown-body p {
+    widows: 3;
+    orphans: 3;
+  }
+
+  .markdown-body li {
+    page-break-inside: avoid;
+  }
+
+  /* ── Heading hierarchy ── */
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    color: black !important;
+    page-break-after: avoid;
+    break-after: avoid;
+    font-weight: 700 !important;
+  }
+
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    font-weight: 600 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body h1,
+  body[data-printing][data-print-themed] .markdown-body h2,
+  body[data-printing][data-print-themed] .markdown-body h3,
+  body[data-printing][data-print-themed] .markdown-body h4,
+  body[data-printing][data-print-themed] .markdown-body h5,
+  body[data-printing][data-print-themed] .markdown-body h6 {
+    color: var(--text-primary) !important;
+  }
+
+  .markdown-body h1:not(.frontmatter-title) {
+    font-size: 22pt !important;
+    margin-top: 2cm !important;
+  }
+
+  .markdown-body h2 {
+    font-size: 16pt !important;
+    page-break-before: auto;
+    break-before: auto;
+  }
+
+  body[data-printing][data-print-layout="book"] .markdown-body h2 {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* In book mode, frontmatter already breaks to a new page. */
+  body[data-printing][data-print-layout="book"] .markdown-body .frontmatter-header ~ h2:first-of-type {
+    page-break-before: auto;
+    break-before: auto;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2 {
+    border-bottom-color: #999 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body h1,
+  body[data-printing][data-print-themed] .markdown-body h2 {
+    border-bottom-color: var(--border) !important;
+  }
+
+  .markdown-body h3 {
+    font-size: 13pt !important;
+  }
+
+  .markdown-body h4 {
+    font-size: 12pt !important;
+  }
+
+  .markdown-body h5 {
+    font-size: 11pt !important;
+    font-style: italic;
+  }
+
+  .markdown-body h6 {
+    font-size: 11pt !important;
+    color: #555 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body h6 {
+    color: var(--text-secondary) !important;
+  }
+
+  /* ── Code blocks ── */
+  .markdown-body pre {
+    font-size: 9pt !important;
+    line-height: 1.4 !important;
+    padding: 0.5cm !important;
+    background: #f8f8f8 !important;
+    border: 1px solid #ddd !important;
+    border-left: 3px solid #888 !important;
+    border-radius: 4px !important;
+    page-break-inside: avoid;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body pre {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border) !important;
+    border-left-color: var(--accent) !important;
+  }
+
+  /* Force github-light hljs colors in standard (non-themed) print */
+  body:not([data-print-themed]) .hljs {
+    color: #24292e !important;
+  }
+
+  body:not([data-print-themed]) .hljs-keyword,
+  body:not([data-print-themed]) .hljs-selector-tag,
+  body:not([data-print-themed]) .hljs-type {
+    color: #d73a49 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-built_in,
+  body:not([data-print-themed]) .hljs-title,
+  body:not([data-print-themed]) .hljs-section {
+    color: #6f42c1 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-string,
+  body:not([data-print-themed]) .hljs-addition {
+    color: #032f62 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-comment,
+  body:not([data-print-themed]) .hljs-quote {
+    color: #6a737d !important;
+  }
+
+  body:not([data-print-themed]) .hljs-number,
+  body:not([data-print-themed]) .hljs-literal {
+    color: #005cc5 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-attr,
+  body:not([data-print-themed]) .hljs-attribute {
+    color: #005cc5 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-variable,
+  body:not([data-print-themed]) .hljs-template-variable {
+    color: #e36209 !important;
+  }
+
+  body:not([data-print-themed]) .hljs-deletion {
+    color: #d73a49 !important;
+  }
+
+  /* ── Blockquotes ── */
+  .markdown-body blockquote {
+    page-break-inside: avoid;
+    background: none !important;
+    border-left: 3pt solid #ccc !important;
+    padding-left: 0.5cm !important;
+    font-style: italic;
+    color: #444 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body blockquote {
+    border-left-color: var(--accent) !important;
+    color: var(--text-secondary) !important;
+  }
+
+  /* ── Tables ── */
+  .markdown-body table {
+    page-break-inside: avoid;
+    font-size: 10pt !important;
+    border-collapse: collapse !important;
+  }
+
+  .markdown-body th {
+    border-bottom: 2pt solid black !important;
+    font-weight: 700 !important;
+    padding: 4pt 8pt !important;
+    color: black !important;
+  }
+
+  .markdown-body td {
+    border-bottom: 0.5pt solid #ddd !important;
+    padding: 4pt 8pt !important;
+    color: black !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body th {
+    border-bottom-color: var(--text-primary) !important;
+    color: var(--text-primary) !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body td {
+    border-bottom-color: var(--border) !important;
+    color: var(--text-primary) !important;
+  }
+
+  /* ── Images ── */
+  .markdown-body img {
+    page-break-inside: avoid;
+    max-width: 100% !important;
+    max-height: 150mm;
+    display: block;
+    margin: 1cm auto !important;
+    border-radius: 0 !important;
+  }
+
+  /* ── Links ── */
+  .markdown-body a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #666;
+    font-style: italic;
+  }
+
+  .markdown-body a[href^="#"]::after {
+    content: none;
+  }
+
+  .markdown-body a {
+    color: black !important;
+    text-decoration: underline !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body a {
+    color: var(--accent) !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body a[href^="http"]::after {
+    color: var(--text-muted) !important;
+  }
+
+  /* Hide copy buttons, language labels */
+  .code-block-wrapper button,
+  .code-lang-chip {
+    display: none !important;
+  }
+
+  /* Search highlights should not appear in print */
+  mark.search-highlight,
+  mark.search-highlight-active {
+    background: none !important;
+    color: inherit !important;
+    padding: 0 !important;
+  }
+
+  /* Annotation highlights: subtle in print */
+  mark[data-highlight-id] {
+    background: #fef9c3 !important;
+    color: inherit !important;
+  }
+
+  /* ── Horizontal rules ── */
+  .markdown-body hr {
+    border: none !important;
+    height: 1px !important;
+    background: #ccc !important;
+    margin: 1.5em 0 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body hr {
+    background: var(--border) !important;
+  }
+
+  /* ── Inline code ── */
+  .markdown-body code:not(pre code) {
+    font-family: "Courier New", monospace !important;
+    font-size: 0.9em !important;
+    background: transparent !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    color: black !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body code:not(pre code) {
+    background: var(--code-bg) !important;
+    color: var(--text-primary) !important;
+  }
+
+  /* ── KaTeX math ── */
+  .markdown-body .katex-display {
+    page-break-inside: avoid;
+    overflow: visible !important;
+  }
+
+  /* ── Task list checkboxes ── */
+  .markdown-body input[type="checkbox"] {
+    appearance: none !important;
+    width: 10pt !important;
+    height: 10pt !important;
+    border: 1.5pt solid #666 !important;
+    border-radius: 2pt !important;
+    vertical-align: middle !important;
+    margin-right: 4pt !important;
+    position: relative !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body input[type="checkbox"] {
+    border-color: var(--text-secondary) !important;
+  }
+
+  .markdown-body input[type="checkbox"]:checked::after {
+    content: "\2713";
+    position: absolute;
+    top: -1pt;
+    left: 1pt;
+    font-size: 8pt;
+    color: #333;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body input[type="checkbox"]:checked::after {
+    color: var(--text-primary) !important;
+  }
+
+  /* ── Mermaid diagrams ── */
+  .mermaid-diagram {
+    background: none !important;
+    page-break-inside: avoid;
+  }
+
+  .mermaid-diagram svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Footnotes: keep visible */
+  .markdown-body section.footnotes {
+    border-top-color: #ccc !important;
+    color: #333 !important;
+  }
+
+  body[data-printing][data-print-themed] .markdown-body section.footnotes {
+    border-top-color: var(--border) !important;
+    color: var(--text-secondary) !important;
+  }
+
+  /* ── Fountain: screenplay-standard print formatting ── */
+  .fountain-body {
+    max-width: none !important;
+    margin: 0 !important;
+    padding-left: 0.7in !important;
+    padding-right: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    color: black !important;
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 12pt !important;
+    line-height: 1.0 !important;
+  }
+
+  .fountain-title-page {
+    border-bottom: none !important;
+    page-break-after: always;
+    padding-top: 3in;
+    text-align: center;
+  }
+
+  .fountain-scene-heading {
+    color: black !important;
+    page-break-after: avoid;
+    break-after: avoid;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-top: 2em;
+  }
+
+  .fountain-character {
+    text-align: left !important;
+    margin-left: 37ch;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-top: 1em;
+  }
+
+  .fountain-dialogue {
+    max-width: 35ch;
+    margin-left: 25ch;
+    margin-right: 0;
+  }
+
+  .fountain-parenthetical {
+    max-width: 25ch;
+    margin-left: 31ch;
+    font-style: normal !important;
+  }
+
+  .fountain-transition {
+    text-align: right;
+    text-transform: uppercase;
+  }
+
+  .fountain-note,
+  .fountain-synopsis,
+  .fountain-section {
+    display: none !important;
+  }
+
+  .fountain-page-break {
+    page-break-after: always;
+    border: none;
+    height: 0;
+    margin: 0;
+  }
+
+  .fountain-dual-dialogue {
+    page-break-inside: avoid;
+  }
+
+  .fountain-dual-column .fountain-character {
+    margin-left: 0;
+    text-align: center !important;
+  }
+
+  .fountain-dual-column .fountain-dialogue {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .fountain-dual-column .fountain-parenthetical {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .fountain-action {
+    margin: 1em 0 !important;
+  }
+
+  .fountain-centered {
+    text-align: center;
+    margin: 1em 0 !important;
+  }
+
+  .fountain-lyrics {
+    font-style: italic;
+    margin: 1em 0 !important;
+  }
+
+  .fountain-transition {
+    text-align: right;
+    text-transform: uppercase;
+    margin: 1em 0 !important;
+  }
+
+  /* Reset character focus dimming for print */
+  .fountain-body[data-focus-character] .fountain-action,
+  .fountain-body[data-focus-character] .fountain-scene-heading,
+  .fountain-body[data-focus-character] .fountain-transition,
+  .fountain-body[data-focus-character] .fountain-centered,
+  .fountain-body[data-focus-character] .fountain-note,
+  .fountain-body[data-focus-character] .fountain-lyrics,
+  .fountain-body[data-focus-character] .fountain-character,
+  .fountain-body[data-focus-character] .fountain-dialogue,
+  .fountain-body[data-focus-character] .fountain-parenthetical {
+    opacity: 1 !important;
+    transition: none !important;
+  }
+}

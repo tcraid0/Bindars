@@ -1,0 +1,54 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package-lock.json'
+      - 'src-tauri/Cargo.lock'
+      - '.cargo/audit.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package-lock.json'
+      - 'src-tauri/Cargo.lock'
+      - '.cargo/audit.toml'
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am UTC
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      # lodash-es prototype pollution via mermaid -> langium -> chevrotain chain.
+      # Parser internals not exposed to user input; not exploitable with securityLevel: 'strict'.
+      # See CLAUDE.md security section for details.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      # Allowlist in .cargo/audit.toml covers known Tauri transitive deps.
+      - name: Audit Cargo dependencies
+        working-directory: src-tauri
+        run: cargo audit
