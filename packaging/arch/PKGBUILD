@@ -22,7 +22,15 @@ prepare() {
 }
 
 package() {
-    install -Dm755 "${srcdir}/squashfs-root/usr/bin/binder" "${pkgdir}/usr/bin/binder"
+    # Install the actual binary with a different name
+    install -Dm755 "${srcdir}/squashfs-root/usr/bin/binder" "${pkgdir}/usr/bin/binder.bin"
+
+    # Wrapper script that sets WEBKIT_DISABLE_DMABUF_RENDERER for Wayland
+    install -Dm755 /dev/stdin "${pkgdir}/usr/bin/binder" <<'WRAPPER'
+#!/bin/sh
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+exec /usr/bin/binder.bin "$@"
+WRAPPER
 
     # Desktop file is capitalized in the AppImage
     install -Dm644 "${srcdir}/squashfs-root/usr/share/applications/Binder.desktop" \
