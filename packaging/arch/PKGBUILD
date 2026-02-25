@@ -1,0 +1,39 @@
+# Maintainer: tcraid0
+pkgname=binder-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='The reading app for markdown. Drop a file in, read it well.'
+arch=('x86_64')
+url='https://github.com/tcraid0/binder-app'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'librsvg')
+optdepends=('libayatana-appindicator: system tray support')
+provides=('binder')
+conflicts=('binder')
+options=('!strip')
+source=("${pkgname}-${pkgver}.AppImage::https://github.com/tcraid0/binder-app/releases/download/v${pkgver}/binder_${pkgver}_amd64.AppImage"
+        "LICENSE-${pkgver}::https://raw.githubusercontent.com/tcraid0/binder-app/v${pkgver}/LICENSE")
+sha256sums=('SKIP'
+            'SKIP')
+
+prepare() {
+    chmod +x "${srcdir}/${pkgname}-${pkgver}.AppImage"
+    "${srcdir}/${pkgname}-${pkgver}.AppImage" --appimage-extract
+}
+
+package() {
+    install -Dm755 "${srcdir}/squashfs-root/usr/bin/binder" "${pkgdir}/usr/bin/binder"
+    install -Dm644 "${srcdir}/squashfs-root/usr/share/applications/binder.desktop" "${pkgdir}/usr/share/applications/binder.desktop"
+
+    for size in 32x32 64x64 128x128 256x256; do
+        icon="${srcdir}/squashfs-root/usr/share/icons/hicolor/${size}/apps/binder.png"
+        if [ -f "$icon" ]; then
+            install -Dm644 "$icon" "${pkgdir}/usr/share/icons/hicolor/${size}/apps/binder.png"
+        fi
+    done
+
+    install -Dm644 "${srcdir}/squashfs-root/usr/share/icons/hicolor/128x128@2x/apps/binder.png" \
+        "${pkgdir}/usr/share/icons/hicolor/128x128@2x/apps/binder.png" 2>/dev/null || true
+
+    install -Dm644 "${srcdir}/LICENSE-${pkgver}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

@@ -21,6 +21,56 @@ Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux target (Ap
 - Print and HTML export
 - Keyboard-driven workflow - press `?` for the full shortcut list
 
+## Install
+
+### Debian / Ubuntu
+
+Download the `.deb` from the [latest release](https://github.com/tcraid0/binder-app/releases/latest) and install:
+
+```bash
+sudo dpkg -i binder_*_amd64.deb
+```
+
+### Arch Linux
+
+Option 1 — build and install the package:
+
+```bash
+git clone https://github.com/tcraid0/binder-app.git
+cd binder-app/packaging/arch
+makepkg -si
+```
+
+Option 2 — run the AppImage directly:
+
+```bash
+chmod +x binder_*_amd64.AppImage
+./binder_*_amd64.AppImage
+```
+
+If the AppImage fails with a FUSE error, install `fuse2`:
+
+```bash
+sudo pacman -S fuse2
+```
+
+Or bypass FUSE entirely:
+
+```bash
+./binder_*_amd64.AppImage --appimage-extract-and-run
+```
+
+### AppImage (any distro)
+
+Download the `.AppImage` from the [latest release](https://github.com/tcraid0/binder-app/releases/latest), make it executable, and run:
+
+```bash
+chmod +x binder_*_amd64.AppImage
+./binder_*_amd64.AppImage
+```
+
+If it fails with a FUSE error, install FUSE 2 for your distro (e.g. `sudo apt install libfuse2` on Debian/Ubuntu, `sudo pacman -S fuse2` on Arch).
+
 ## Build from source
 
 Requires Node 20+ and Rust.
@@ -31,12 +81,6 @@ npm run tauri -- build
 ```
 
 Artifacts land in `src-tauri/target/release/bundle/`. Install the `.deb` or run the AppImage directly.
-
-If the AppImage fails with a FUSE error:
-
-```bash
-sudo apt install libfuse2
-```
 
 ## Development
 
