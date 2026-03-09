@@ -302,7 +302,11 @@ fn watch_file(
                 use notify::EventKind;
                 match event.kind {
                     EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
-                        if event.paths.iter().any(|p| p == &watched_path) {
+                        if event
+                            .paths
+                            .iter()
+                            .any(|path| dunce::simplified(path) == watched_path.as_path())
+                        {
                             let _ = event_tx.send(());
                         }
                     }
@@ -414,7 +418,7 @@ fn list_workspace_markdown_files(
         }
 
         // Resolve to the true target and ensure it stays inside the workspace root.
-        let canonical_file = match fs::canonicalize(path) {
+        let canonical_file = match dunce::canonicalize(path) {
             Ok(p) => p,
             Err(_) => {
                 skipped_count += 1;
@@ -493,7 +497,7 @@ fn canonicalize_markdown_path(path: &Path) -> Result<PathBuf, String> {
     }
 
     let canonical_path =
-        fs::canonicalize(path).map_err(|e| format!("Failed to resolve file path: {}", e))?;
+        dunce::canonicalize(path).map_err(|e| format!("Failed to resolve file path: {}", e))?;
     let metadata = fs::metadata(&canonical_path)
         .map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
 
@@ -513,8 +517,8 @@ fn canonicalize_directory_path(path: &Path) -> Result<PathBuf, String> {
         return Err(format!("Workspace not found: {}", path.display()));
     }
 
-    let canonical_path =
-        fs::canonicalize(path).map_err(|e| format!("Failed to resolve workspace path: {}", e))?;
+    let canonical_path = dunce::canonicalize(path)
+        .map_err(|e| format!("Failed to resolve workspace path: {}", e))?;
     let metadata = fs::metadata(&canonical_path)
         .map_err(|e| format!("Failed to inspect workspace metadata: {}", e))?;
 
@@ -664,7 +668,7 @@ pub fn run() {
                 if args.len() > 1 {
                     let path = PathBuf::from(&args[1]);
                     if path.exists() && is_markdown_path(&path) {
-                        path.canonicalize()
+                        dunce::canonicalize(&path)
                             .ok()
                             .and_then(|p| p.to_str().map(String::from))
                     } else {
