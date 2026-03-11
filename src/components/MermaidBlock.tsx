@@ -8,7 +8,7 @@ const MAX_MERMAID_CHARS = 50_000;
 const MERMAID_RENDER_TIMEOUT_MS = 5_000;
 
 let mermaidCounter = 0;
-let lastInitializedTheme: string | null = null;
+let lastInitializedConfig: string | null = null;
 let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
 
 function getMermaid() {
@@ -16,21 +16,90 @@ function getMermaid() {
   return mermaidPromise;
 }
 
+function getCurrentThemeName() {
+  return document.documentElement.getAttribute("data-theme") || "light";
+}
+
+function readThemeToken(styles: CSSStyleDeclaration, name: string, fallback: string) {
+  return styles.getPropertyValue(name).trim() || fallback;
+}
+
+function getMermaidThemeConfig(themeName: string) {
+  const rootStyles = getComputedStyle(document.documentElement);
+  const isDark = themeName === "dark" || themeName === "deep-dark";
+  const bgPrimary = readThemeToken(rootStyles, "--bg-primary", isDark ? "#1A1816" : "#FAFAF8");
+  const bgSecondary = readThemeToken(rootStyles, "--bg-secondary", isDark ? "#231F1C" : "#F5F4F2");
+  const bgTertiary = readThemeToken(rootStyles, "--bg-tertiary", isDark ? "#2C2724" : "#EDECEB");
+  const textPrimary = readThemeToken(rootStyles, "--text-primary", isDark ? "#EEEBE6" : "#1C1917");
+  const textSecondary = readThemeToken(rootStyles, "--text-secondary", isDark ? "#A39E98" : "#57534E");
+  const fontFamily = getComputedStyle(document.body).fontFamily || "sans-serif";
+
+  const themeVariables = {
+    darkMode: isDark,
+    background: bgSecondary,
+    fontFamily,
+    primaryColor: bgTertiary,
+    primaryTextColor: textPrimary,
+    primaryBorderColor: textSecondary,
+    secondaryColor: bgSecondary,
+    secondaryTextColor: textPrimary,
+    secondaryBorderColor: textSecondary,
+    tertiaryColor: bgPrimary,
+    tertiaryTextColor: textPrimary,
+    tertiaryBorderColor: textSecondary,
+    lineColor: textSecondary,
+    textColor: textPrimary,
+    mainBkg: bgTertiary,
+    nodeBorder: textSecondary,
+    clusterBkg: bgSecondary,
+    clusterBorder: textSecondary,
+    defaultLinkColor: textSecondary,
+    titleColor: textPrimary,
+    edgeLabelBackground: bgPrimary,
+    nodeTextColor: textPrimary,
+    noteBkgColor: bgPrimary,
+    noteTextColor: textPrimary,
+    noteBorderColor: textSecondary,
+    labelColor: textPrimary,
+    actorBkg: bgTertiary,
+    actorBorder: textSecondary,
+    actorTextColor: textPrimary,
+    actorLineColor: textSecondary,
+    signalColor: textPrimary,
+    signalTextColor: textPrimary,
+    labelBoxBkgColor: bgTertiary,
+    labelBoxBorderColor: textSecondary,
+    labelTextColor: textPrimary,
+    loopTextColor: textPrimary,
+    activationBorderColor: textSecondary,
+    activationBkgColor: bgSecondary,
+    sequenceNumberColor: textSecondary,
+    classText: textPrimary,
+  };
+
+  return {
+    configKey: JSON.stringify({ themeName, fontFamily, themeVariables }),
+    mermaidConfig: {
+      startOnLoad: false,
+      theme: "base" as const,
+      themeVariables,
+      securityLevel: "strict" as const,
+      fontFamily,
+    },
+  };
+}
+
 export const MermaidBlock = memo(function MermaidBlock({ chart }: MermaidBlockProps) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const idRef = useRef(`mermaid-${++mermaidCounter}`);
 
-  // Observe data-theme for dark/light mermaid theme switching
-  const [isDark, setIsDark] = useState(() => {
-    const t = document.documentElement.getAttribute("data-theme");
-    return t === "dark" || t === "deep-dark";
-  });
+  // Observe data-theme for Mermaid theme switching.
+  const [themeName, setThemeName] = useState(getCurrentThemeName);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      const t = document.documentElement.getAttribute("data-theme");
-      setIsDark(t === "dark" || t === "deep-dark");
+      setThemeName(getCurrentThemeName());
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observer.disconnect();
@@ -41,20 +110,15 @@ export const MermaidBlock = memo(function MermaidBlock({ chart }: MermaidBlockPr
 
     // Generate a fresh ID per render to avoid mermaid ID collisions
     const id = `${idRef.current}-${Date.now()}`;
-    const mermaidTheme = isDark ? "dark" : "default";
+    const { configKey, mermaidConfig } = getMermaidThemeConfig(themeName);
 
     getMermaid()
       .then(({ default: mermaid }) => {
         if (cancelled) return;
 
-        if (lastInitializedTheme !== mermaidTheme) {
-          mermaid.initialize({
-            startOnLoad: false,
-            theme: mermaidTheme,
-            securityLevel: "strict",
-            fontFamily: "var(--font-ui)",
-          });
-          lastInitializedTheme = mermaidTheme;
+        if (lastInitializedConfig !== configKey) {
+          mermaid.initialize(mermaidConfig);
+          lastInitializedConfig = configKey;
         }
 
         // Size guard — reject before rendering
@@ -85,7 +149,7 @@ export const MermaidBlock = memo(function MermaidBlock({ chart }: MermaidBlockPr
     return () => {
       cancelled = true;
     };
-  }, [chart, isDark]);
+  }, [chart, themeName]);
 
   if (error) {
     return (
