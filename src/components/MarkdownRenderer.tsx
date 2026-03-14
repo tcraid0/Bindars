@@ -168,7 +168,7 @@ const MarkdownContent = memo(function MarkdownContent({
             if (el) {
               el.scrollIntoView({ behavior: "auto" });
             } else {
-              toast(`Heading "${targetId}" not found in this document`, "error");
+              toast(`Heading "#${targetId}" not found in this document. Check for typos in the link target.`, "error");
             }
             return;
           }
@@ -190,12 +190,31 @@ const MarkdownContent = memo(function MarkdownContent({
             }
           }
 
-          toast(`Cannot open "${href}" — only .md and .markdown links are supported`, "error");
+          const extMatch = href.match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
+          const ext = extMatch?.[1]?.toLowerCase();
+          if (ext && ext !== "md" && ext !== "markdown") {
+            toast(`Cannot open .${ext} files — only .md and .markdown links are supported`, "error");
+          } else {
+            toast(`Cannot open "${href}" — only .md and .markdown links are supported`, "error");
+          }
         };
 
         return (
           <a {...props} href={href} onClick={handleClick}>
             {children}
+            {isExternal && (
+              <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            )}
+            {isMailto && (
+              <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+              </svg>
+            )}
           </a>
         );
       },

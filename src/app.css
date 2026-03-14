@@ -1359,6 +1359,11 @@ body[data-printing]::before {
     display: none !important;
   }
 
+  /* Hide external-link / mailto icons in print */
+  .markdown-body a svg[aria-hidden] {
+    display: none !important;
+  }
+
   /* Make main content fill the page */
   main {
     overflow: visible !important;

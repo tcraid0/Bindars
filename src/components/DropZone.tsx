@@ -17,7 +17,7 @@ function DropZoneComponent({ visible }: DropZoneProps) {
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
         </div>
-        <p className="text-lg font-ui font-medium text-text-primary">Drop .md file here</p>
+        <p className="text-lg font-ui font-medium text-text-primary">Drop .md, .markdown, or .fountain file here</p>
         <p className="text-sm text-text-muted mt-1">Release to open</p>
       </div>
     </div>

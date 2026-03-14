@@ -7,11 +7,12 @@ interface FocusBarProps {
   onExit: () => void;
   readingStats: ReadingStats | null;
   progressTextRef: React.RefObject<HTMLSpanElement | null>;
+  reducedEffects: boolean;
 }
 
 const PROXIMITY_PX = 60;
 
-function FocusBarComponent({ fileName, onExit, readingStats, progressTextRef }: FocusBarProps) {
+function FocusBarComponent({ fileName, onExit, readingStats, progressTextRef, reducedEffects }: FocusBarProps) {
   const [nearTop, setNearTop] = useState(false);
   const rafRef = useRef<number | null>(null);
 
@@ -38,13 +39,24 @@ function FocusBarComponent({ fileName, onExit, readingStats, progressTextRef }: 
   }, []);
 
   return (
+    <>
+    <div
+      className="print-hide fixed top-0 left-0 right-0 z-[39] pointer-events-none"
+      aria-hidden="true"
+      style={{
+        height: nearTop ? 0 : 3,
+        opacity: nearTop ? 0 : 0.5,
+        background: "var(--accent)",
+        transition: reducedEffects ? "none" : "opacity 200ms ease, height 200ms ease",
+      }}
+    />
     <div
       data-tauri-drag-region
       className="print-hide fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
       style={{
         opacity: nearTop ? 1 : 0,
         pointerEvents: nearTop ? "auto" : "none",
-        transition: "opacity 200ms ease",
+        transition: reducedEffects ? "none" : "opacity 200ms ease",
       }}
     >
       {fileName && (
@@ -67,6 +79,7 @@ function FocusBarComponent({ fileName, onExit, readingStats, progressTextRef }: 
         Exit
       </button>
     </div>
+    </>
   );
 }
 

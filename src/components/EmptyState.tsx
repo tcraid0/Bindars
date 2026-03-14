@@ -75,6 +75,11 @@ function EmptyStateComponent({ onOpenFile, recentFiles, onOpenRecent }: EmptySta
           </>
         )}
       </div>
+
+      <div className="text-xs text-text-muted mt-8 space-y-1.5 empty-state-content">
+        <p>Drag .md, .markdown, or .fountain files here to open</p>
+        <p>Press <kbd className="inline-block px-1.5 py-0.5 rounded border border-border bg-bg-tertiary font-mono text-[11px] leading-none">?</kbd> for keyboard shortcuts</p>
+      </div>
     </div>
   );
 }

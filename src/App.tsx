@@ -98,7 +98,13 @@ function App() {
 
   const { highlights, bookmarks, addHighlight, removeHighlight, updateHighlight, toggleBookmark, isBookmarked } = useAnnotations(filePath);
 
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(() => {
+    try {
+      return localStorage.getItem("binder-sidebar-visible") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
   const [tocVisible, setTocVisible] = useState(true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
@@ -117,6 +123,19 @@ function App() {
   const [focusedCharacter, setFocusedCharacter] = useState<string | null>(null);
   const slidesRef = useRef<Slide[]>([]);
   const presentationDeferredReloadRef = useRef(false);
+
+  // Restore sidebar state from Tauri store as async backup (if localStorage had no entry)
+  useEffect(() => {
+    let active = true;
+    try {
+      if (localStorage.getItem("binder-sidebar-visible") !== null) return;
+    } catch { /* noop */ }
+    storeGet<boolean>("sidebar-visible").then((stored) => {
+      if (!active || stored === null) return;
+      setSidebarVisible(stored);
+    });
+    return () => { active = false; };
+  }, []);
 
   // Pending action to run after confirm dialog resolves.
   const pendingActionRef = useRef<PendingAction | null>(null);
@@ -639,7 +658,7 @@ function App() {
         el.scrollIntoView({ behavior: "auto" });
       }
     } else {
-      toast(`Heading "${targetId}" not found in this document`, "error");
+      toast(`Heading "${targetId}" not found — it may have been renamed or removed.`, "error");
     }
     pendingScrollRef.current = null;
   }, [headings, toast]);
@@ -869,7 +888,12 @@ function App() {
   );
 
   const toggleSidebar = useCallback(() => {
-    setSidebarVisible((v) => !v);
+    setSidebarVisible((v) => {
+      const next = !v;
+      try { localStorage.setItem("binder-sidebar-visible", String(next)); } catch { /* noop */ }
+      void storeSet("sidebar-visible", next);
+      return next;
+    });
   }, []);
 
   const toggleToc = useCallback(() => {
@@ -1454,7 +1478,7 @@ function App() {
           onHighlight={handleHighlight}
         />
       )}
-      {focusMode && <FocusBar fileName={fileName} onExit={exitFocusMode} readingStats={readingStats} progressTextRef={progressTextRef} />}
+      {focusMode && <FocusBar fileName={fileName} onExit={exitFocusMode} readingStats={readingStats} progressTextRef={progressTextRef} reducedEffects={settings.reducedEffects} />}
       {focusedCharacter && fileType === "fountain" && !focusMode && !presentationMode && (
         <div
           role="status"
