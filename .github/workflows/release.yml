@@ -51,6 +51,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Binder ${{ github.ref_name }}'
           releaseBody: 'See the assets below to download and install Binder on Linux and Windows.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
