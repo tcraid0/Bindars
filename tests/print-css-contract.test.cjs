@@ -73,6 +73,16 @@ test("print CSS hides chrome via data-printing attribute outside @media print", 
   );
 });
 
+test("print CSS keeps the print handoff overlay scoped to active print state", () => {
+  const printStart = css.indexOf("@media print");
+  const beforePrintBlock = css.slice(0, printStart);
+
+  assert.ok(
+    beforePrintBlock.includes("body[data-printing]::before"),
+    "body[data-printing]::before overlay selector must exist outside @media print",
+  );
+});
+
 test("frontmatter title-page break is scoped to book layout", () => {
   assert.equal(
     css.includes("body[data-printing][data-print-layout=\"book\"] .frontmatter-header"),
@@ -145,5 +155,35 @@ test("print css makes h1/h2 border-bottom visible", () => {
   assert.ok(
     printBlock.includes("border-bottom-color: #999 !important"),
     "h1/h2 must override border-bottom-color to a visible value in print",
+  );
+});
+
+test("print css keeps large printable blocks together where possible", () => {
+  const printStart = css.indexOf("@media print");
+  const printBlock = css.slice(printStart);
+
+  for (const selector of [
+    ".markdown-body blockquote",
+    ".markdown-body pre",
+    ".markdown-body table",
+    ".markdown-body img",
+    ".mermaid-diagram",
+    ".markdown-body section.footnotes",
+  ]) {
+    assert.ok(
+      printBlock.includes(selector) && printBlock.includes("break-inside: avoid;"),
+      `${selector} must opt into break-inside avoidance in print`,
+    );
+  }
+});
+
+test("print css repeats table headers across page breaks", () => {
+  const printStart = css.indexOf("@media print");
+  const printBlock = css.slice(printStart);
+
+  assert.ok(
+    printBlock.includes(".markdown-body thead") &&
+      printBlock.includes("display: table-header-group;"),
+    "print CSS should promote table headers to repeat across pages",
   );
 });

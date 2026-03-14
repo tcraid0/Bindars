@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "tauri": "npx tauri",
-    "test:workspace": "rm -rf .tmp/workspace-tests && npx tsc -p tsconfig.workspace-tests.json && mkdir -p .tmp/workspace-tests && printf '{\"type\":\"commonjs\"}' > .tmp/workspace-tests/package.json && node --test tests/workspace-search.test.cjs tests/workspace-insights.test.cjs tests/fountain-workspace-index.test.cjs tests/reader-settings.test.cjs tests/reading-stats.test.cjs tests/code-text.test.cjs tests/print-state.test.cjs tests/print-css-contract.test.cjs tests/slide-parser.test.cjs"
+    "test:workspace": "rm -rf .tmp/workspace-tests && npx tsc -p tsconfig.workspace-tests.json && mkdir -p .tmp/workspace-tests && printf '{\"type\":\"commonjs\"}' > .tmp/workspace-tests/package.json && node --test tests/workspace-search.test.cjs tests/workspace-insights.test.cjs tests/fountain-workspace-index.test.cjs tests/reader-settings.test.cjs tests/reading-stats.test.cjs tests/code-text.test.cjs tests/print-export.test.cjs tests/print-state.test.cjs tests/print-css-contract.test.cjs tests/slide-parser.test.cjs"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.2.8",

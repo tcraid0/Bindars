@@ -46,6 +46,7 @@ import { toPathIdentityKey } from "./lib/paths";
 import { computeReadingStats } from "./lib/reading-stats";
 import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
 import { applyPrintState } from "./lib/print-state";
+import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
 import { useToast } from "./components/ToastProvider";
 import { storeGet, storeSet } from "./lib/store";
 import { signalAppReady } from "./lib/app-ready";
@@ -156,6 +157,7 @@ function App() {
   const showConfirmDialogRef = useRef(showConfirmDialog);
   const showConflictDialogRef = useRef(showConflictDialog);
   const isProgrammaticCloseRef = useRef(false);
+  const printCleanupControllerRef = useRef<ReturnType<typeof createPrintCleanupController> | null>(null);
 
   // In-document search
   const search = useSearch(contentRef);
@@ -185,16 +187,33 @@ function App() {
     [settings.printLayout, settings.printWithTheme],
   );
 
-  const handlePrint = useCallback(() => {
+  const clearPrintSession = useCallback(() => {
+    printCleanupControllerRef.current?.disarm();
+    setPrinting(false);
+    setPrintAttributes(false);
+  }, [setPrintAttributes]);
+
+  const armPrintCleanup = useCallback(() => {
+    if (!printCleanupControllerRef.current) {
+      printCleanupControllerRef.current = createPrintCleanupController(clearPrintSession);
+    }
+    printCleanupControllerRef.current.arm();
+  }, [clearPrintSession]);
+
+  const handlePrint = useCallback(async () => {
     setPrintAttributes(true);
     setPrinting(true);
-    requestAnimationFrame(() => {
-      // Small delay after RAF to ensure print CSS has fully painted
-      setTimeout(() => {
-        window.print();
-      }, 50);
-    });
-  }, [setPrintAttributes]);
+    armPrintCleanup();
+
+    try {
+      await preparePrintDocument({ root: contentRef.current });
+      window.print();
+    } catch (err) {
+      console.warn("[print] Failed to prepare document for print:", err);
+      clearPrintSession();
+      toast("Couldn't prepare document for print.", "error");
+    }
+  }, [armPrintCleanup, clearPrintSession, setPrintAttributes, toast]);
 
   const saveVirtualContent = useCallback(async (): Promise<"saved" | "cancelled" | "error"> => {
     const buffer = editor.buffer;
@@ -1276,20 +1295,17 @@ function App() {
     const beforePrint = () => {
       setPrintAttributes(true);
       setPrinting(true);
+      armPrintCleanup();
     };
-    const afterPrint = () => {
-      setPrinting(false);
-      setPrintAttributes(false);
-    };
+    const afterPrint = () => clearPrintSession();
     window.addEventListener("beforeprint", beforePrint);
     window.addEventListener("afterprint", afterPrint);
     return () => {
-      setPrinting(false);
-      setPrintAttributes(false);
+      clearPrintSession();
       window.removeEventListener("beforeprint", beforePrint);
       window.removeEventListener("afterprint", afterPrint);
     };
-  }, [setPrintAttributes]);
+  }, [armPrintCleanup, clearPrintSession, setPrintAttributes]);
 
   // Signal app readiness once session restore and recent files are loaded
   const appReady = sessionRestored && recentFilesLoaded;

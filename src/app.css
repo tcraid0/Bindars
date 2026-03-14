@@ -1272,6 +1272,7 @@ body[data-printing] .print-hide {
   display: none !important;
 }
 
+/* Fixed overlay masks app chrome during the handoff into the native print dialog. */
 body[data-printing]::before {
   content: "";
   position: fixed;
@@ -1455,8 +1456,19 @@ body[data-printing]::before {
     orphans: 3;
   }
 
+  .markdown-body blockquote,
+  .markdown-body pre,
+  .markdown-body table,
+  .markdown-body img,
+  .mermaid-diagram,
+  .markdown-body section.footnotes {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
   .markdown-body li {
     page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   /* ── Heading hierarchy ── */
@@ -1624,8 +1636,13 @@ body[data-printing]::before {
   /* ── Tables ── */
   .markdown-body table {
     page-break-inside: avoid;
+    break-inside: avoid;
     font-size: 10pt !important;
     border-collapse: collapse !important;
+  }
+
+  .markdown-body thead {
+    display: table-header-group;
   }
 
   .markdown-body th {
@@ -1838,11 +1855,6 @@ body[data-printing]::before {
     max-width: 25ch;
     margin-left: 31ch;
     font-style: normal !important;
-  }
-
-  .fountain-transition {
-    text-align: right;
-    text-transform: uppercase;
   }
 
   .fountain-note,
