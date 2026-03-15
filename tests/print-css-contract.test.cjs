@@ -115,7 +115,7 @@ test("markdown css styles strikethrough explicitly", () => {
 
 test("mermaid config disables flowchart max-width on screen", () => {
   assert.ok(
-    mermaidBlock.includes("flowchart: { useMaxWidth: false }"),
+    mermaidBlock.includes("useMaxWidth: false"),
     "MermaidBlock should disable flowchart max-width responsive shrinking",
   );
 });

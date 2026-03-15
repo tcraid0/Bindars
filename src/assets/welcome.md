@@ -35,11 +35,11 @@ $$
 
 ```mermaid
 graph LR
-    A[Open File] --> B[Read & Render]
+    A[Open] --> B[Read]
     B --> C{Enjoy}
-    C --> D[Highlight]
-    C --> E[Bookmark]
-    C --> F[Export]
+    C --> D[Mark]
+    C --> E[Save]
+    C --> F[Share]
 ```
 
 ### Highlights & Annotations
@@ -72,6 +72,6 @@ Cycle through Light, Sepia, Dark, and Midnight themes with **Ctrl+Shift+T**, or 
 
 ---
 
-Happy reading!
+Read well.
 
 [^1]: Footnotes are rendered at the bottom, like this one.

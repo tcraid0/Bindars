@@ -52,6 +52,15 @@ const EXPORT_CSS_VAR_NAMES = [
   "--accent-hover",
   "--border",
   "--code-bg",
+  "--syntax-base",
+  "--syntax-comment",
+  "--syntax-keyword",
+  "--syntax-string",
+  "--syntax-number",
+  "--syntax-builtin",
+  "--syntax-attr",
+  "--syntax-variable",
+  "--syntax-deletion",
 ];
 
 function HeaderComponent({

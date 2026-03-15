@@ -31,6 +31,15 @@
   --highlight-green: #bbf7d0;
   --highlight-blue: #bfdbfe;
   --highlight-pink: #fbcfe8;
+  --syntax-base: #24292e;
+  --syntax-comment: #6a737d;
+  --syntax-keyword: #d73a49;
+  --syntax-string: #032f62;
+  --syntax-number: #005cc5;
+  --syntax-builtin: #6f42c1;
+  --syntax-attr: #005cc5;
+  --syntax-variable: #e36209;
+  --syntax-deletion: #b31d28;
 }
 
 [data-theme="sepia"] {
@@ -48,6 +57,15 @@
   --highlight-green: #a7f3d0;
   --highlight-blue: #a5d8ff;
   --highlight-pink: #f9a8d4;
+  --syntax-base: #5B4636;
+  --syntax-comment: #9C8B7A;
+  --syntax-keyword: #9E4A3A;
+  --syntax-string: #5C6D29;
+  --syntax-number: #8B6834;
+  --syntax-builtin: #7B5C8A;
+  --syntax-attr: #8B6834;
+  --syntax-variable: #B07330;
+  --syntax-deletion: #A0392B;
 }
 
 [data-theme="dark"] {
@@ -65,6 +83,15 @@
   --highlight-green: rgba(74, 222, 128, 0.3);
   --highlight-blue: rgba(96, 165, 250, 0.3);
   --highlight-pink: rgba(244, 114, 182, 0.3);
+  --syntax-base: #adbac7;
+  --syntax-comment: #768390;
+  --syntax-keyword: #f47067;
+  --syntax-string: #96d0ff;
+  --syntax-number: #6cb6ff;
+  --syntax-builtin: #dcbdfb;
+  --syntax-attr: #6cb6ff;
+  --syntax-variable: #f69d50;
+  --syntax-deletion: #f47067;
 }
 
 [data-theme="deep-dark"] {
@@ -82,6 +109,15 @@
   --highlight-green: rgba(74, 222, 128, 0.25);
   --highlight-blue: rgba(96, 165, 250, 0.25);
   --highlight-pink: rgba(244, 114, 182, 0.25);
+  --syntax-base: #9DA5AE;
+  --syntax-comment: #636C76;
+  --syntax-keyword: #E06058;
+  --syntax-string: #7EB8E0;
+  --syntax-number: #5A9FD6;
+  --syntax-builtin: #C5A4E0;
+  --syntax-attr: #5A9FD6;
+  --syntax-variable: #D98F48;
+  --syntax-deletion: #E06058;
 }
 
 /* ── Tailwind theme mapping ── */
@@ -779,71 +815,58 @@ mark.annotation-highlight-pink {
   cursor: pointer;
 }
 
-/* ── Dark theme syntax highlighting overrides ── */
-/* Override github-light hljs with dark-dimmed colors for dark themes */
+/* ── Syntax highlighting (variable-driven, all themes) ── */
 
-[data-theme="dark"] .hljs,
-[data-theme="deep-dark"] .hljs {
-  color: #adbac7;
+.hljs {
+  color: var(--syntax-base);
   background: var(--code-bg);
 }
 
-[data-theme="dark"] .hljs-comment,
-[data-theme="dark"] .hljs-quote,
-[data-theme="deep-dark"] .hljs-comment,
-[data-theme="deep-dark"] .hljs-quote {
-  color: #768390;
+.hljs-subst,
+.hljs-comment,
+.hljs-quote {
+  color: var(--syntax-base);
 }
 
-[data-theme="dark"] .hljs-keyword,
-[data-theme="dark"] .hljs-selector-tag,
-[data-theme="dark"] .hljs-type,
-[data-theme="deep-dark"] .hljs-keyword,
-[data-theme="deep-dark"] .hljs-selector-tag,
-[data-theme="deep-dark"] .hljs-type {
-  color: #f47067;
+.hljs-comment,
+.hljs-quote {
+  color: var(--syntax-comment);
 }
 
-[data-theme="dark"] .hljs-string,
-[data-theme="dark"] .hljs-addition,
-[data-theme="deep-dark"] .hljs-string,
-[data-theme="deep-dark"] .hljs-addition {
-  color: #96d0ff;
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type {
+  color: var(--syntax-keyword);
 }
 
-[data-theme="dark"] .hljs-number,
-[data-theme="dark"] .hljs-literal,
-[data-theme="deep-dark"] .hljs-number,
-[data-theme="deep-dark"] .hljs-literal {
-  color: #6cb6ff;
+.hljs-string,
+.hljs-addition {
+  color: var(--syntax-string);
 }
 
-[data-theme="dark"] .hljs-built_in,
-[data-theme="dark"] .hljs-title,
-[data-theme="dark"] .hljs-section,
-[data-theme="deep-dark"] .hljs-built_in,
-[data-theme="deep-dark"] .hljs-title,
-[data-theme="deep-dark"] .hljs-section {
-  color: #dcbdfb;
+.hljs-number,
+.hljs-literal {
+  color: var(--syntax-number);
 }
 
-[data-theme="dark"] .hljs-attr,
-[data-theme="dark"] .hljs-attribute,
-[data-theme="deep-dark"] .hljs-attr,
-[data-theme="deep-dark"] .hljs-attribute {
-  color: #6cb6ff;
+.hljs-built_in,
+.hljs-title,
+.hljs-section {
+  color: var(--syntax-builtin);
 }
 
-[data-theme="dark"] .hljs-variable,
-[data-theme="dark"] .hljs-template-variable,
-[data-theme="deep-dark"] .hljs-variable,
-[data-theme="deep-dark"] .hljs-template-variable {
-  color: #f69d50;
+.hljs-attr,
+.hljs-attribute {
+  color: var(--syntax-attr);
 }
 
-[data-theme="dark"] .hljs-deletion,
-[data-theme="deep-dark"] .hljs-deletion {
-  color: #f47067;
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--syntax-variable);
+}
+
+.hljs-deletion {
+  color: var(--syntax-deletion);
 }
 
 /* ── Sidebar animation ── */
@@ -877,6 +900,7 @@ mark.annotation-highlight-pink {
   display: flex;
   justify-content: center;
   padding: 1em;
+  font-family: var(--font-ui);
   background: var(--bg-secondary);
   border-radius: 10px;
   overflow-x: auto;
