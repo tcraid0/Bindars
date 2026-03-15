@@ -1,6 +1,6 @@
 # Print Test Matrix
 
-Use this checklist when validating Binder PDF export changes.
+Use this checklist when validating Bindars PDF export changes.
 
 ## Platforms
 
@@ -41,7 +41,7 @@ Use one Fountain document that includes:
 
 ## Validation Checklist
 
-- [ ] Print dialog opens without leaving Binder stuck in print mode afterward
+- [ ] Print dialog opens without leaving Bindars stuck in print mode afterward
 - [ ] Header, sidebar, overlays, and controls do not appear in the PDF
 - [ ] Fonts look correct in the exported PDF
 - [ ] Slow or broken images do not block print for more than a few seconds

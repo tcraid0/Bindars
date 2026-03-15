@@ -201,7 +201,7 @@ fn export_html_file(path: String, content: String) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let tmp_name = format!(".binder-export-{}-{}", std::process::id(), nanos);
+    let tmp_name = format!(".bindars-export-{}-{}", std::process::id(), nanos);
     let tmp_path = parent.join(&tmp_name);
 
     let mut tmp_file = fs::File::create(&tmp_path)
@@ -253,7 +253,7 @@ fn export_markdown_file(path: String, content: String) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let tmp_name = format!(".binder-export-md-{}-{}", std::process::id(), nanos);
+    let tmp_name = format!(".bindars-export-md-{}-{}", std::process::id(), nanos);
     let tmp_path = parent.join(&tmp_name);
 
     let mut tmp_file = fs::File::create(&tmp_path)
@@ -597,7 +597,7 @@ fn write_markdown_contents_atomic(path: &Path, content: &str) -> Result<(), Stri
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let tmp_name = format!(".binder-tmp-{}-{}", std::process::id(), nanos);
+    let tmp_name = format!(".bindars-tmp-{}-{}", std::process::id(), nanos);
     let tmp_path = parent.join(&tmp_name);
 
     let mut tmp_file = fs::File::create(&tmp_path)
@@ -1204,7 +1204,7 @@ mod tests {
 
     #[test]
     fn export_markdown_rejects_nonexistent_parent() {
-        let path = PathBuf::from("/nonexistent-dir-binder-test/annotations.md");
+        let path = PathBuf::from("/nonexistent-dir-bindars-test/annotations.md");
         let result =
             export_markdown_file(path.to_string_lossy().into_owned(), "content".to_string());
         assert!(result
@@ -1218,7 +1218,7 @@ mod tests {
             .expect("clock drift")
             .as_nanos();
         env::temp_dir().join(format!(
-            "binder-test-{}-{}.{}",
+            "bindars-test-{}-{}.{}",
             std::process::id(),
             nanos,
             ext

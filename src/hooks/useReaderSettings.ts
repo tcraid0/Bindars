@@ -5,7 +5,7 @@ import type { ReaderSettings } from "../types";
 
 const STORE_KEY = "reader-settings";
 const STORE_DEBOUNCE_MS = 300;
-const PRIMARY_LOCAL_STORAGE_KEY = "binder-settings";
+const PRIMARY_LOCAL_STORAGE_KEY = "bindars-settings";
 const LEGACY_LOCAL_STORAGE_KEY = "markdown-reader-settings";
 
 const DEFAULTS: ReaderSettings = {

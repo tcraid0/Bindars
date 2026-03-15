@@ -18,7 +18,7 @@ function EmptyStateComponent({ onOpenFile, recentFiles, onOpenRecent }: EmptySta
       <h1
         className="font-reading text-[2.5rem] font-normal text-text-primary leading-tight tracking-tight empty-state-title"
       >
-        Binder
+        Bindars
       </h1>
       <div className="w-12 h-px bg-border mt-3 mb-3 empty-state-subtitle" aria-hidden="true" />
       <p

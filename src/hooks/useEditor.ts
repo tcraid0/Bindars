@@ -79,7 +79,7 @@ export function useEditor() {
         setState((prev) => ({
           ...prev,
           saving: false,
-          saveError: "This file changed outside Binder. Reload or overwrite to continue.",
+          saveError: "This file changed outside Bindars. Reload or overwrite to continue.",
         }));
         return "conflict";
       }

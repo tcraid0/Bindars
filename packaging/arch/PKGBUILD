@@ -1,18 +1,18 @@
 # Maintainer: tcraid0
-pkgname=binder-bin
+pkgname=bindars-bin
 pkgver=1.0.0
 pkgrel=1
 pkgdesc='The reading app for markdown. Drop a file in, read it well.'
 arch=('x86_64')
-url='https://github.com/tcraid0/binder-app'
+url='https://github.com/tcraid0/bindars'
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'librsvg')
 optdepends=('libayatana-appindicator: system tray support')
-provides=('binder')
-conflicts=('binder')
+provides=('bindars')
+conflicts=('bindars')
 options=('!strip')
-source=("${pkgname}-${pkgver}.AppImage::https://github.com/tcraid0/binder-app/releases/download/v${pkgver}/Binder_${pkgver}_amd64.AppImage"
-        "LICENSE-${pkgver}::https://raw.githubusercontent.com/tcraid0/binder-app/v${pkgver}/LICENSE")
+source=("${pkgname}-${pkgver}.AppImage::https://github.com/tcraid0/bindars/releases/download/v${pkgver}/Bindars_${pkgver}_amd64.AppImage"
+        "LICENSE-${pkgver}::https://raw.githubusercontent.com/tcraid0/bindars/v${pkgver}/LICENSE")
 sha256sums=('SKIP'
             'SKIP')
 
@@ -23,27 +23,27 @@ prepare() {
 
 package() {
     # Install the actual binary with a different name
-    install -Dm755 "${srcdir}/squashfs-root/usr/bin/binder" "${pkgdir}/usr/bin/binder.bin"
+    install -Dm755 "${srcdir}/squashfs-root/usr/bin/bindars" "${pkgdir}/usr/bin/bindars.bin"
 
     # Wrapper script that sets WEBKIT_DISABLE_DMABUF_RENDERER for Wayland
-    install -Dm755 /dev/stdin "${pkgdir}/usr/bin/binder" <<'WRAPPER'
+    install -Dm755 /dev/stdin "${pkgdir}/usr/bin/bindars" <<'WRAPPER'
 #!/bin/sh
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
-exec /usr/bin/binder.bin "$@"
+exec /usr/bin/bindars.bin "$@"
 WRAPPER
 
     # Desktop file is capitalized in the AppImage
-    install -Dm644 "${srcdir}/squashfs-root/usr/share/applications/Binder.desktop" \
-        "${pkgdir}/usr/share/applications/binder.desktop"
+    install -Dm644 "${srcdir}/squashfs-root/usr/share/applications/Bindars.desktop" \
+        "${pkgdir}/usr/share/applications/bindars.desktop"
 
     for size in 32x32 128x128; do
-        install -Dm644 "${srcdir}/squashfs-root/usr/share/icons/hicolor/${size}/apps/binder.png" \
-            "${pkgdir}/usr/share/icons/hicolor/${size}/apps/binder.png"
+        install -Dm644 "${srcdir}/squashfs-root/usr/share/icons/hicolor/${size}/apps/bindars.png" \
+            "${pkgdir}/usr/share/icons/hicolor/${size}/apps/bindars.png"
     done
 
     # HiDPI icon
-    install -Dm644 "${srcdir}/squashfs-root/usr/share/icons/hicolor/256x256@2/apps/binder.png" \
-        "${pkgdir}/usr/share/icons/hicolor/256x256@2/apps/binder.png"
+    install -Dm644 "${srcdir}/squashfs-root/usr/share/icons/hicolor/256x256@2/apps/bindars.png" \
+        "${pkgdir}/usr/share/icons/hicolor/256x256@2/apps/bindars.png"
 
     install -Dm644 "${srcdir}/LICENSE-${pkgver}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

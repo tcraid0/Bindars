@@ -1,6 +1,6 @@
 ---
-title: Welcome to Binder
-author: Binder
+title: Welcome to Bindars
+author: Bindars
 description: Your reading app for Markdown. Local-first, private, and distraction-free.
 tags: [welcome, getting-started]
 ---
@@ -9,13 +9,13 @@ tags: [welcome, getting-started]
 
 Open any `.md` or `.markdown` file with **Ctrl+O**, or drag and drop it onto the window.
 
-Binder remembers your recently opened files in the sidebar (**Ctrl+B**), and restores your last reading position when you reopen a file.
+Bindars remembers your recently opened files in the sidebar (**Ctrl+B**), and restores your last reading position when you reopen a file.
 
 ## Features
 
 ### Rich Markdown Rendering
 
-Binder renders GitHub Flavored Markdown with full support for tables, task lists, footnotes[^1], and syntax-highlighted code:
+Bindars renders GitHub Flavored Markdown with full support for tables, task lists, footnotes[^1], and syntax-highlighted code:
 
 ```javascript
 function greet(name) {
@@ -48,7 +48,7 @@ Select any text to highlight it in one of four colors. Open the annotations pane
 
 ### Workspace
 
-Set a workspace folder to search across all your Markdown files with the command palette (**Ctrl+K**). Binder indexes headings, content, and links for fast full-text search.
+Set a workspace folder to search across all your Markdown files with the command palette (**Ctrl+K**). Bindars indexes headings, content, and links for fast full-text search.
 
 ## Keyboard Shortcuts
 

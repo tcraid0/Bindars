@@ -214,7 +214,7 @@ function HeaderComponent({
           </svg>
         </button>
         <span className="font-ui font-semibold text-[15px] text-text-primary tracking-tight ml-2">
-          Binder
+          Bindars
         </span>
       </div>
 

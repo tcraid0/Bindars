@@ -10,7 +10,7 @@ function getInitialTheme(): Theme {
   // Sync check from localStorage for instant render; async Tauri store load follows
   let stored: string | null = null;
   try {
-    stored = localStorage.getItem("binder-theme") || localStorage.getItem("markdown-reader-theme");
+    stored = localStorage.getItem("bindars-theme") || localStorage.getItem("markdown-reader-theme");
   } catch {
     stored = null;
   }
@@ -39,7 +39,7 @@ export function useTheme() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme === "light" ? "" : theme);
     try {
-      localStorage.setItem("binder-theme", theme);
+      localStorage.setItem("bindars-theme", theme);
     } catch {
       // Storage may be unavailable in restricted environments.
     }

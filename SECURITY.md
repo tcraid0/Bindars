@@ -2,7 +2,7 @@
 
 ## Threat Model
 
-Binder is a **local-only** desktop application. It reads and renders markdown files from the user's filesystem. There are zero outbound network requests — no `fetch`, `XMLHttpRequest`, `WebSocket`, or HTTP client usage anywhere in the codebase. CSP enforces `connect-src 'none'`.
+Bindars is a **local-only** desktop application. It reads and renders markdown files from the user's filesystem. There are zero outbound network requests — no `fetch`, `XMLHttpRequest`, `WebSocket`, or HTTP client usage anywhere in the codebase. CSP enforces `connect-src 'none'`.
 
 The primary trust boundary is **untrusted markdown content**: a malicious `.md` file should not be able to execute code, access files outside its directory, or crash the application.
 
@@ -48,6 +48,6 @@ Please include:
 
 - Attacks requiring physical access to the machine
 - Social engineering the user into opening a malicious file (that's the OS's job)
-- Vulnerabilities in upstream dependencies with no reachable code path in Binder
+- Vulnerabilities in upstream dependencies with no reachable code path in Bindars
 - Visual rendering bugs or UI glitches
 - Issues that require the user to modify application source code

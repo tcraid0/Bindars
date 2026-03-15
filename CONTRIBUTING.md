@@ -1,4 +1,4 @@
-# Contributing to Binder
+# Contributing to Bindars
 
 ## Reporting Bugs
 

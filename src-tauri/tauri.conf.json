@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Binder",
+  "productName": "Bindars",
   "version": "1.1.2",
-  "identifier": "com.binder.app",
+  "identifier": "dev.bindars.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Binder",
+        "title": "Bindars",
         "width": 1200,
         "height": 800,
         "minWidth": 600,
@@ -46,7 +46,7 @@
     "resources": ["../LICENSE", "../THIRD-PARTY-NOTICES"],
     "category": "Utility",
     "shortDescription": "Read markdown beautifully",
-    "longDescription": "Binder is the reading app for markdown. Drop a file in, read it beautifully. Features Mermaid diagrams, LaTeX math, syntax-highlighted code blocks, GFM support, table of contents, four themes, and a keyboard-driven workflow. No cloud, no subscription.",
+    "longDescription": "Bindars is the reading app for markdown. Drop a file in, read it beautifully. Features Mermaid diagrams, LaTeX math, syntax-highlighted code blocks, GFM support, table of contents, four themes, and a keyboard-driven workflow. No cloud, no subscription.",
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],

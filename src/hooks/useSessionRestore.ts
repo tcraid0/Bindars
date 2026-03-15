@@ -4,7 +4,7 @@ import { storeGet, storeSet } from "../lib/store";
 import type { SessionData } from "../types";
 
 const STORE_KEY = "session";
-const LS_KEY = "binder-session";
+const LS_KEY = "bindars-session";
 const DEBOUNCE_MS = 2000;
 
 interface UseSessionRestoreArgs {

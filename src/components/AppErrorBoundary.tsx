@@ -33,7 +33,7 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
     return (
       <div className="h-screen flex items-center justify-center bg-bg-primary text-text-primary px-6">
         <div className="max-w-[560px] w-full rounded-xl border border-border bg-bg-secondary p-6">
-          <h1 className="text-xl font-semibold">Binder hit an unexpected error</h1>
+          <h1 className="text-xl font-semibold">Bindars hit an unexpected error</h1>
           <p className="mt-2 text-sm text-text-secondary">
             The view crashed while rendering. Reload to recover.
           </p>

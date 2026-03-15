@@ -1,10 +1,10 @@
 [package]
-name = "binder"
+name = "bindars"
 version = "1.1.2"
 description = "Read markdown beautifully"
 authors = ["you"]
 license = "MIT"
-repository = "https://github.com/tcraid0/binder-app"
+repository = "https://github.com/tcraid0/bindars"
 edition = "2021"
 rust-version = "1.77.2"
 

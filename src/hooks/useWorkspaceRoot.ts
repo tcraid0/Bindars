@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { storeGet, storeSet } from "../lib/store";
 
 const STORE_KEY = "workspace:root";
-const LS_KEY = "binder-workspace-root";
+const LS_KEY = "bindars-workspace-root";
 const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v1";
 
 export function useWorkspaceRoot() {

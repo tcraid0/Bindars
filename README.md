@@ -1,8 +1,8 @@
-# Binder
+# Bindars
 
 The reading app for markdown. Drop a file in, read it well.
 
-Binder is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
+Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
 Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux target (AppImage + .deb).
 
@@ -25,10 +25,10 @@ Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux target (Ap
 
 ### Debian / Ubuntu
 
-Download the `.deb` from the [latest release](https://github.com/tcraid0/binder-app/releases/latest) and install:
+Download the `.deb` from the [latest release](https://github.com/tcraid0/bindars/releases/latest) and install:
 
 ```bash
-sudo dpkg -i Binder_*_amd64.deb
+sudo dpkg -i Bindars_*_amd64.deb
 ```
 
 ### Arch Linux
@@ -36,16 +36,16 @@ sudo dpkg -i Binder_*_amd64.deb
 Option 1 — build and install the package:
 
 ```bash
-git clone https://github.com/tcraid0/binder-app.git
-cd binder-app/packaging/arch
+git clone https://github.com/tcraid0/bindars.git
+cd bindars/packaging/arch
 makepkg -si
 ```
 
 Option 2 — run the AppImage directly:
 
 ```bash
-chmod +x Binder_*_amd64.AppImage
-./Binder_*_amd64.AppImage
+chmod +x Bindars_*_amd64.AppImage
+./Bindars_*_amd64.AppImage
 ```
 
 If the AppImage fails with a FUSE error, install `fuse2`:
@@ -57,16 +57,16 @@ sudo pacman -S fuse2
 Or bypass FUSE entirely:
 
 ```bash
-./Binder_*_amd64.AppImage --appimage-extract-and-run
+./Bindars_*_amd64.AppImage --appimage-extract-and-run
 ```
 
 ### AppImage (any distro)
 
-Download the `.AppImage` from the [latest release](https://github.com/tcraid0/binder-app/releases/latest), make it executable, and run:
+Download the `.AppImage` from the [latest release](https://github.com/tcraid0/bindars/releases/latest), make it executable, and run:
 
 ```bash
-chmod +x Binder_*_amd64.AppImage
-./Binder_*_amd64.AppImage
+chmod +x Bindars_*_amd64.AppImage
+./Bindars_*_amd64.AppImage
 ```
 
 If it fails with a FUSE error, install FUSE 2 for your distro (e.g. `sudo apt install libfuse2` on Debian/Ubuntu, `sudo pacman -S fuse2` on Arch).

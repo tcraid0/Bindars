@@ -101,7 +101,7 @@ function App() {
 
   const [sidebarVisible, setSidebarVisible] = useState(() => {
     try {
-      return localStorage.getItem("binder-sidebar-visible") === "true";
+      return localStorage.getItem("bindars-sidebar-visible") === "true";
     } catch {
       return false;
     }
@@ -129,7 +129,7 @@ function App() {
   useEffect(() => {
     let active = true;
     try {
-      if (localStorage.getItem("binder-sidebar-visible") !== null) return;
+      if (localStorage.getItem("bindars-sidebar-visible") !== null) return;
     } catch { /* noop */ }
     storeGet<boolean>("sidebar-visible").then((stored) => {
       if (!active || stored === null) return;
@@ -682,7 +682,7 @@ function App() {
     let cancelled = false;
     storeGet<boolean>("hasSeenWelcome").then((seen) => {
       if (cancelled || seen) return;
-      setVirtualContent(welcomeContent, "Welcome to Binder.md");
+      setVirtualContent(welcomeContent, "Welcome to Bindars.md");
       storeSet("hasSeenWelcome", true);
     });
     return () => { cancelled = true; };
@@ -864,7 +864,7 @@ function App() {
   // Update window title with current filename
   useEffect(() => {
     const appWindow = getCurrentWindow();
-    const title = fileName ? `${fileName} — Binder` : "Binder";
+    const title = fileName ? `${fileName} — Bindars` : "Bindars";
     void appWindow.setTitle(title).catch((err) => {
       console.warn("[window-title] Failed to set window title:", err);
     });
@@ -932,7 +932,7 @@ function App() {
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((v) => {
       const next = !v;
-      try { localStorage.setItem("binder-sidebar-visible", String(next)); } catch { /* noop */ }
+      try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
       void storeSet("sidebar-visible", next);
       return next;
     });
@@ -1585,7 +1585,7 @@ function App() {
       <ConfirmDialog
         visible={showConflictDialog}
         title="File changed on disk"
-        message={`"${fileName || "This file"}" was modified outside Binder while you were editing.`}
+        message={`"${fileName || "This file"}" was modified outside Bindars while you were editing.`}
         confirmLabel="Reload"
         secondaryLabel="Overwrite"
         secondaryTone="danger"

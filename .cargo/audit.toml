@@ -1,6 +1,6 @@
 # Reviewed allowlist for cargo-audit.
 # All entries are transitive dependencies from the Tauri v2 runtime (GTK3/glib/reqwest/hyper).
-# Binder makes zero network requests and does not use the affected APIs directly.
+# Bindars makes zero network requests and does not use the affected APIs directly.
 # These will resolve when Tauri ships GTK4 support.
 #
 # Last reviewed: 2026-02-18
@@ -19,10 +19,10 @@ ignore = [
     "RUSTSEC-2024-0419", # gtk
     "RUSTSEC-2024-0420", # gtk-sys
 
-    # glib unsoundness (VariantStrIter) — Binder does not use this API
+    # glib unsoundness (VariantStrIter) — Bindars does not use this API
     "RUSTSEC-2024-0429", # glib
 
-    # reqwest/hyper/h2 — Binder makes no network requests; these are Tauri runtime deps
+    # reqwest/hyper/h2 — Bindars makes no network requests; these are Tauri runtime deps
     "RUSTSEC-2024-0370", # proc-macro-crate (unmaintained, build dep only)
     "RUSTSEC-2024-0384", # instant (unmaintained, Tauri transitive)
     "RUSTSEC-2025-0057", # fxhash (unmaintained, wry/selectors transitive)

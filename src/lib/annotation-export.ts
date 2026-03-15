@@ -15,7 +15,7 @@ export function buildAnnotationMarkdown(
 
   lines.push(`# Annotations: ${fileName}`);
   lines.push("");
-  lines.push(`*Exported from Binder on ${date}*`);
+  lines.push(`*Exported from Bindars on ${date}*`);
   lines.push("");
 
   if (bookmarks.length > 0) {
