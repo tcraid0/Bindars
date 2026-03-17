@@ -4,7 +4,7 @@ The reading app for markdown. Drop a file in, read it well.
 
 Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
-Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux target (AppImage + .deb).
+Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Available on Linux, macOS, and Windows.
 
 ## What it does
 
@@ -71,6 +71,19 @@ chmod +x Bindars_*_amd64.AppImage
 
 If it fails with a FUSE error, install FUSE 2 for your distro (e.g. `sudo apt install libfuse2` on Debian/Ubuntu, `sudo pacman -S fuse2` on Arch).
 
+### macOS
+
+Download the `.dmg` for your architecture from the [latest release](https://github.com/tcraid0/bindars/releases/latest):
+
+- **Apple Silicon** (M1/M2/M3/M4): `Bindars_*_aarch64.dmg`
+- **Intel**: `Bindars_*_x64.dmg`
+
+Open the DMG and drag Bindars to Applications. On first launch you may see an "unidentified developer" warning — right-click the app and select Open to bypass it.
+
+### Windows
+
+Download the `.exe` installer from the [latest release](https://github.com/tcraid0/bindars/releases/latest) and run it. SmartScreen may show a warning — click "More info" then "Run anyway".
+
 ## Build from source
 
 Requires Node 20+ and Rust.
@@ -80,7 +93,7 @@ npm install
 npm run tauri -- build
 ```
 
-Artifacts land in `src-tauri/target/release/bundle/`. Install the `.deb` or run the AppImage directly.
+Artifacts land in `src-tauri/target/release/bundle/` — `.deb` and `.AppImage` on Linux, `.dmg` on macOS, `.exe` on Windows.
 
 ## Development
 

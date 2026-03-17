@@ -15,6 +15,10 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ''
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
           - platform: windows-latest
             args: ''
     runs-on: ${{ matrix.platform }}
@@ -35,6 +39,12 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add Rust targets (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -50,7 +60,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Bindars ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install Bindars on Linux and Windows.'
+          releaseBody: 'See the assets below to download and install Bindars.'
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
