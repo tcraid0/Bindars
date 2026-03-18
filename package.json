@@ -14,12 +14,14 @@
     "test:workspace": "rm -rf .tmp/workspace-tests && npx tsc -p tsconfig.workspace-tests.json && mkdir -p .tmp/workspace-tests && printf '{\"type\":\"commonjs\"}' > .tmp/workspace-tests/package.json && node --test tests/workspace-search.test.cjs tests/workspace-insights.test.cjs tests/fountain-workspace-index.test.cjs tests/fountain-stats.test.cjs tests/reader-settings.test.cjs tests/reading-stats.test.cjs tests/code-text.test.cjs tests/print-export.test.cjs tests/print-state.test.cjs tests/print-css-contract.test.cjs tests/markdown-render.test.mjs tests/export-html.test.cjs tests/slide-parser.test.cjs"
   },
   "dependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.2.6",
     "@fontsource-variable/dm-sans": "^5.2.8",
     "@fontsource-variable/newsreader": "^5.2.10",
     "@fontsource-variable/outfit": "^5.2.8",
     "@fontsource-variable/roboto-slab": "^5.2.8",
     "@fontsource-variable/source-sans-3": "^5.2.9",
     "@fontsource/geist-mono": "^5.2.7",
+    "@fontsource/opendyslexic": "^5.2.5",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.3",

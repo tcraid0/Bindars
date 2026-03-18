@@ -7,7 +7,13 @@ export interface HeadingItem {
   level: number;
 }
 
-export type FontFamily = "newsreader" | "source-sans-3" | "dm-sans" | "roboto-slab";
+export type FontFamily =
+  | "newsreader"
+  | "source-sans-3"
+  | "dm-sans"
+  | "roboto-slab"
+  | "atkinson"
+  | "opendyslexic";
 export type ParagraphSpacing = "compact" | "comfortable" | "spacious";
 export type PrintLayout = "standard" | "book";
 

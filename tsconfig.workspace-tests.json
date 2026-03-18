@@ -17,6 +17,7 @@
     "src/lib/paths.ts",
     "src/lib/frontmatter.ts",
     "src/lib/code-text.ts",
+    "src/lib/embed-images.ts",
     "src/lib/print-export.ts",
     "src/lib/print-state.ts",
     "src/lib/reader-settings.ts",

@@ -120,6 +120,13 @@ test("mermaid config disables flowchart max-width on screen", () => {
   );
 });
 
+test("mermaid config enables root html labels", () => {
+  assert.ok(
+    mermaidBlock.includes("htmlLabels: true"),
+    "MermaidBlock should enable Mermaid htmlLabels at the root config level",
+  );
+});
+
 test("frontmatter title-page break is scoped to book layout", () => {
   assert.equal(
     css.includes("body[data-printing][data-print-layout=\"book\"] .frontmatter-header"),

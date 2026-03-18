@@ -5,6 +5,8 @@ export const VALID_FONTS: readonly FontFamily[] = [
   "source-sans-3",
   "dm-sans",
   "roboto-slab",
+  "atkinson",
+  "opendyslexic",
 ];
 
 export const VALID_SPACINGS: readonly ParagraphSpacing[] = [
@@ -23,6 +25,8 @@ export const FONT_CSS_MAP: Record<FontFamily, string> = {
   "source-sans-3": "var(--font-reading-source-sans-3)",
   "dm-sans": "var(--font-reading-dm-sans)",
   "roboto-slab": "var(--font-reading-roboto-slab)",
+  atkinson: "var(--font-reading-atkinson)",
+  opendyslexic: "var(--font-reading-opendyslexic)",
 };
 
 export const PARAGRAPH_SPACING_MAP: Record<ParagraphSpacing, string> = {

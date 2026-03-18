@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type { Theme, FileType } from "../types";
+import { embedImages } from "../lib/embed-images";
 import { buildExportHtml } from "../lib/export-html";
 import { waitForMermaidDiagrams } from "../lib/print-export";
 import { useToast } from "./ToastProvider";
@@ -130,8 +131,8 @@ function HeaderComponent({
     try {
       await openPath(filePath);
     } catch (err) {
-      console.warn("[open-external] Failed to open in external editor:", err);
-      toast("Couldn't open external editor", "error");
+      console.warn("[open-external] Failed to open with default app:", err);
+      toast("Couldn't open with default app", "error");
     }
   }, [filePath, toast]);
 
@@ -156,7 +157,7 @@ function HeaderComponent({
         .map((name) => `${name}: ${computedStyles.getPropertyValue(name)};`)
         .join("\n      ");
 
-      const bodyHtml = el.outerHTML;
+      const { html: bodyHtml, failedCount } = await embedImages(el.outerHTML);
       const hasMath = el.querySelector(".katex") !== null;
       const katexCss = hasMath
         ? (await import("../lib/generated/katex-css-embedded")).katexCssEmbedded
@@ -170,6 +171,14 @@ function HeaderComponent({
       });
 
       await invoke("export_html_file", { path: savePath, content: html });
+      if (failedCount > 0) {
+        toast(
+          failedCount === 1
+            ? "Exported HTML, but 1 local image could not be embedded."
+            : `Exported HTML, but ${failedCount} local images could not be embedded.`,
+          "info",
+        );
+      }
     } catch (err) {
       console.warn("[export] Failed to export HTML:", err);
       toast("Couldn't export HTML", "error");
@@ -273,9 +282,9 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={handleOpenExternal}
-                aria-label="Open in external editor"
+                aria-label="Open with default app"
                 className="p-1 rounded-md hover:bg-bg-tertiary text-text-muted transition-colors duration-120 shrink-0"
-                title="Open in external editor"
+                title="Open with default app"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />

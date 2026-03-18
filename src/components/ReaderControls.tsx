@@ -6,6 +6,8 @@ const FONT_OPTIONS: { value: FontFamily; label: string; style: string }[] = [
   { value: "source-sans-3", label: "Source Sans", style: "'Source Sans 3 Variable', system-ui, sans-serif" },
   { value: "dm-sans", label: "DM Sans", style: "'DM Sans Variable', system-ui, sans-serif" },
   { value: "roboto-slab", label: "Roboto Slab", style: "'Roboto Slab Variable', Georgia, serif" },
+  { value: "atkinson", label: "Atkinson", style: "'Atkinson Hyperlegible Next Variable', system-ui, sans-serif" },
+  { value: "opendyslexic", label: "OpenDyslexic", style: "'OpenDyslexic', system-ui, sans-serif" },
 ];
 
 const SPACING_OPTIONS: { value: ParagraphSpacing; label: string }[] = [
@@ -63,7 +65,7 @@ function ReaderControlsComponent({ visible, settings, theme, fileType, onSetThem
 
   return (
     <div
-      className="print-hide absolute right-4 z-50 w-[240px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2"
+      className="print-hide absolute right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2"
       style={{
         top: "var(--header-height, 52px)",
         animation: "fadeIn 150ms ease",
@@ -117,12 +119,13 @@ function ReaderControlsComponent({ visible, settings, theme, fileType, onSetThem
               key={opt.value}
               type="button"
               onClick={() => onUpdate({ fontFamily: opt.value })}
-              className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left truncate ${
+              className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left leading-tight ${
                 settings.fontFamily === opt.value
                   ? "bg-accent text-white font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
               }`}
               style={{ fontFamily: opt.style }}
+              title={opt.label}
             >
               {opt.label}
             </button>

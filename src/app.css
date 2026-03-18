@@ -4,6 +4,9 @@
 @import "@fontsource-variable/source-sans-3";
 @import "@fontsource-variable/dm-sans";
 @import "@fontsource-variable/roboto-slab";
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+@import "@fontsource/opendyslexic/400.css";
+@import "@fontsource/opendyslexic/700.css";
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/700.css";
 
@@ -140,6 +143,8 @@
   --font-reading-source-sans-3: "Source Sans 3 Variable", "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
   --font-reading-dm-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
   --font-reading-roboto-slab: "Roboto Slab Variable", "Roboto Slab", Georgia, serif;
+  --font-reading-atkinson: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
+  --font-reading-opendyslexic: "OpenDyslexic", system-ui, sans-serif;
   --paragraph-spacing: 1.25em;
   --font-mono: "Geist Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
 }

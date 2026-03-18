@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use notify::{self, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -22,6 +23,10 @@ struct FileWatcher(Mutex<Option<WatcherState>>);
 
 const MAX_MARKDOWN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_MARKDOWN_SIZE_MIB: u64 = MAX_MARKDOWN_BYTES / (1024 * 1024);
+const MAX_EXPORT_HTML_BYTES: u64 = 30 * 1024 * 1024;
+const MAX_EXPORT_HTML_SIZE_MIB: u64 = MAX_EXPORT_HTML_BYTES / (1024 * 1024);
+const MAX_EXPORT_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_EXPORT_IMAGE_SIZE_MIB: u64 = MAX_EXPORT_IMAGE_BYTES / (1024 * 1024);
 const DEFAULT_WORKSPACE_MAX_FILES: usize = 5_000;
 const ABSOLUTE_WORKSPACE_MAX_FILES: usize = 20_000;
 const MAX_WORKSPACE_DEPTH: usize = 32;
@@ -181,10 +186,10 @@ fn export_html_file(path: String, content: String) -> Result<(), String> {
         _ => return Err("Export file must have .html or .htm extension.".to_string()),
     }
 
-    if content.len() as u64 > MAX_MARKDOWN_BYTES {
+    if content.len() as u64 > MAX_EXPORT_HTML_BYTES {
         return Err(format!(
             "Content is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+            MAX_EXPORT_HTML_SIZE_MIB
         ));
     }
 
@@ -221,6 +226,37 @@ fn export_html_file(path: String, content: String) -> Result<(), String> {
     })?;
 
     Ok(())
+}
+
+#[tauri::command]
+fn read_image_file_as_base64(path: String) -> Result<String, String> {
+    let requested_path = PathBuf::from(&path);
+    if !requested_path.exists() {
+        return Err(format!("File not found: {}", requested_path.display()));
+    }
+
+    let canonical_path = dunce::canonicalize(&requested_path)
+        .map_err(|e| format!("Failed to resolve file path: {}", e))?;
+    let metadata = fs::metadata(&canonical_path)
+        .map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
+
+    if !metadata.is_file() {
+        return Err("Path is not a file.".to_string());
+    }
+
+    if !is_supported_export_image_path(&canonical_path) {
+        return Err("Not a supported image type.".to_string());
+    }
+
+    if metadata.len() > MAX_EXPORT_IMAGE_BYTES {
+        return Err(format!(
+            "Image is too large. Maximum supported size is {} MiB.",
+            MAX_EXPORT_IMAGE_SIZE_MIB
+        ));
+    }
+
+    let bytes = fs::read(&canonical_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    Ok(STANDARD.encode(bytes))
 }
 
 #[tauri::command]
@@ -630,6 +666,16 @@ fn is_markdown_path(path: &Path) -> bool {
     }
 }
 
+fn is_supported_export_image_path(path: &Path) -> bool {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) => matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif"
+        ),
+        None => false,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(error) = tauri::Builder::default()
@@ -644,6 +690,7 @@ pub fn run() {
             write_markdown_file,
             write_markdown_file_if_unmodified,
             export_html_file,
+            read_image_file_as_base64,
             export_markdown_file,
             get_cli_file_path,
             watch_file,
@@ -692,10 +739,12 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        export_markdown_file, is_markdown_path, list_workspace_markdown_files, open_markdown_file,
-        read_markdown_file, resolve_markdown_path, write_markdown_file,
-        write_markdown_file_if_unmodified, MAX_MARKDOWN_BYTES,
+        export_html_file, export_markdown_file, is_markdown_path, list_workspace_markdown_files,
+        open_markdown_file, read_image_file_as_base64, read_markdown_file, resolve_markdown_path,
+        write_markdown_file, write_markdown_file_if_unmodified, STANDARD,
+        MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES,
     };
+    use base64::Engine;
     use std::env;
     use std::fs::{self, File};
     #[cfg(unix)]
@@ -1210,6 +1259,106 @@ mod tests {
         assert!(result
             .expect_err("missing parent should error")
             .contains("Parent directory does not exist"));
+    }
+
+    #[test]
+    fn export_html_accepts_html_extension() {
+        let path = temp_path("html");
+        let result =
+            export_html_file(path.to_string_lossy().into_owned(), "<p>export</p>".to_string());
+        assert!(result.is_ok());
+
+        let content = fs::read_to_string(&path).expect("read back");
+        assert_eq!(content, "<p>export</p>");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn export_html_rejects_non_html_extension() {
+        let path = temp_path("md");
+        let result =
+            export_html_file(path.to_string_lossy().into_owned(), "<p>export</p>".to_string());
+        assert!(result
+            .expect_err("non-html extension should be rejected")
+            .contains("Export file must have .html or .htm extension"));
+    }
+
+    #[test]
+    fn export_html_rejects_oversized_content() {
+        let path = temp_path("html");
+        let oversized = "x".repeat((MAX_EXPORT_HTML_BYTES + 1) as usize);
+        let result = export_html_file(path.to_string_lossy().into_owned(), oversized);
+        assert!(result
+            .expect_err("oversized html should error")
+            .contains("too large"));
+    }
+
+    #[test]
+    fn read_image_file_as_base64_reads_supported_image() {
+        let path = temp_path("png");
+        let bytes = [0_u8, 1_u8, 2_u8, 3_u8];
+        fs::write(&path, bytes).expect("write image fixture");
+
+        let result =
+            read_image_file_as_base64(path.to_string_lossy().into_owned()).expect("read image");
+
+        assert_eq!(result, STANDARD.encode(bytes));
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn read_image_file_as_base64_rejects_missing_file() {
+        let path = temp_path("png");
+        let result = read_image_file_as_base64(path.to_string_lossy().into_owned());
+
+        assert!(result
+            .expect_err("missing image should error")
+            .contains("File not found"));
+    }
+
+    #[test]
+    fn read_image_file_as_base64_rejects_directory() {
+        let path = temp_dir("image-dir");
+        fs::create_dir_all(&path).expect("create directory fixture");
+        let result = read_image_file_as_base64(path.to_string_lossy().into_owned());
+
+        assert!(result
+            .expect_err("directory should error")
+            .contains("Path is not a file"));
+
+        cleanup_dir(&path);
+    }
+
+    #[test]
+    fn read_image_file_as_base64_rejects_unsupported_extension() {
+        let path = temp_path("txt");
+        fs::write(&path, "not an image").expect("write fixture");
+
+        let result = read_image_file_as_base64(path.to_string_lossy().into_owned());
+
+        assert!(result
+            .expect_err("unsupported image extension should error")
+            .contains("Not a supported image type"));
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn read_image_file_as_base64_rejects_oversized_image() {
+        let path = temp_path("png");
+        let file = File::create(&path).expect("create fixture");
+        file.set_len(MAX_EXPORT_IMAGE_BYTES + 1)
+            .expect("expand fixture");
+
+        let result = read_image_file_as_base64(path.to_string_lossy().into_owned());
+
+        assert!(result
+            .expect_err("oversized image should error")
+            .contains("Image is too large"));
+
+        cleanup(&path);
     }
 
     fn temp_path(ext: &str) -> PathBuf {
