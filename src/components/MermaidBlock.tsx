@@ -6,6 +6,7 @@ interface MermaidBlockProps {
 
 const MAX_MERMAID_CHARS = 50_000;
 const MERMAID_RENDER_TIMEOUT_MS = 5_000;
+const MERMAID_FONT_SIZE = "14px";
 
 let mermaidCounter = 0;
 let lastInitializedConfig: string | null = null;
@@ -37,6 +38,39 @@ function readThemeToken(styles: CSSStyleDeclaration, name: string, fallback: str
   return styles.getPropertyValue(name).trim() || fallback;
 }
 
+function parseHexColor(color: string): [number, number, number] | null {
+  const match = color.trim().match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
+  const hex = match?.groups?.hex;
+  if (!hex) return null;
+
+  const normalized = hex.length === 3
+    ? hex.split("").map((char) => char + char).join("")
+    : hex;
+
+  return [
+    Number.parseInt(normalized.slice(0, 2), 16),
+    Number.parseInt(normalized.slice(2, 4), 16),
+    Number.parseInt(normalized.slice(4, 6), 16),
+  ];
+}
+
+function toHexChannel(value: number) {
+  return Math.round(value).toString(16).padStart(2, "0");
+}
+
+function mixHexColor(baseColor: string, overlayColor: string, overlayRatio: number) {
+  const base = parseHexColor(baseColor);
+  const overlay = parseHexColor(overlayColor);
+  if (!base || !overlay) return baseColor;
+
+  const clampedRatio = Math.min(Math.max(overlayRatio, 0), 1);
+  const mixed = base.map((baseChannel, index) =>
+    baseChannel * (1 - clampedRatio) + overlay[index] * clampedRatio
+  );
+
+  return `#${mixed.map(toHexChannel).join("")}`;
+}
+
 function getMermaidThemeConfig(themeName: string) {
   const rootStyles = getComputedStyle(document.documentElement);
   const isDark = themeName === "dark" || themeName === "deep-dark";
@@ -51,6 +85,7 @@ function getMermaidThemeConfig(themeName: string) {
     darkMode: isDark,
     background: bgSecondary,
     fontFamily,
+    fontSize: MERMAID_FONT_SIZE,
     primaryColor: bgTertiary,
     primaryTextColor: textPrimary,
     primaryBorderColor: textSecondary,
@@ -62,13 +97,13 @@ function getMermaidThemeConfig(themeName: string) {
     tertiaryBorderColor: textSecondary,
     lineColor: textSecondary,
     textColor: textPrimary,
-    mainBkg: bgTertiary,
+    mainBkg: mixHexColor(bgTertiary, textPrimary, isDark ? 0.08 : 0.04),
     nodeBorder: textSecondary,
     clusterBkg: bgSecondary,
     clusterBorder: textSecondary,
     defaultLinkColor: textSecondary,
     titleColor: textPrimary,
-    edgeLabelBackground: bgPrimary,
+    edgeLabelBackground: bgSecondary,
     nodeTextColor: textPrimary,
     noteBkgColor: bgPrimary,
     noteTextColor: textPrimary,

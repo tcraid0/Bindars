@@ -118,6 +118,9 @@ pre code {
   display: flex;
   justify-content: center;
   padding: 1em;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
   background: var(--bg-secondary);
   border-radius: 10px;
   overflow-x: auto;
