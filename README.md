@@ -4,7 +4,9 @@ The reading app for markdown. Drop a file in, read it well.
 
 Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
-Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Available on Linux, macOS, and Windows.
+Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux is
+the currently supported release platform. Windows and macOS builds are on
+hold until they receive native testing and code signing.
 
 ## What it does
 
@@ -25,12 +27,19 @@ Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Available on Lin
 
 ## Install
 
-### Debian / Ubuntu
+### Linux support
+
+Bindars is currently released for x86_64 Linux. This release is manually
+tested on Omarchy (Arch-based Linux) and built in CI on Ubuntu 22.04.
+Ubuntu, Linux Mint, and Debian 12 or newer are expected to work, but have
+not been manually verified for this release.
+
+### Debian / Ubuntu / Linux Mint
 
 Download the `.deb` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest) and install:
 
 ```bash
-sudo dpkg -i Bindars_*_amd64.deb
+sudo apt install ./Bindars_*_amd64.deb
 ```
 
 ### Arch Linux
@@ -62,7 +71,7 @@ Or bypass FUSE entirely:
 ./Bindars_*_amd64.AppImage --appimage-extract-and-run
 ```
 
-### AppImage (any distro)
+### AppImage (most modern x86_64 distributions)
 
 Download the `.AppImage` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest), make it executable, and run:
 
@@ -73,18 +82,8 @@ chmod +x Bindars_*_amd64.AppImage
 
 If it fails with a FUSE error, install FUSE 2 for your distro (e.g. `sudo apt install libfuse2` on Debian/Ubuntu, `sudo pacman -S fuse2` on Arch).
 
-### macOS
-
-Download the `.dmg` for your architecture from the [latest release](https://github.com/tcraid0/Bindars/releases/latest):
-
-- **Apple Silicon** (M1/M2/M3/M4): `Bindars_*_aarch64.dmg`
-- **Intel**: `Bindars_*_x64.dmg`
-
-Open the DMG and drag Bindars to Applications. On first launch you may see an "unidentified developer" warning — right-click the app and select Open to bypass it.
-
-### Windows
-
-Download the `.exe` installer from the [latest release](https://github.com/tcraid0/Bindars/releases/latest) and run it. SmartScreen may show a warning — click "More info" then "Run anyway".
+Windows and macOS release builds are planned after native testing and
+code signing are in place. They are not included as stable downloads yet.
 
 ## Build from source
 
