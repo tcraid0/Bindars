@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+.tmp/
+
+# Generated
+src-tauri/gen/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Build artifacts
+*.AppImage
+*.deb
+*.rpm
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Agent/tool configs
+.agents/
+.claude/skills/
+.codex
+.codex/
+.github/skills/
+.goose/
+.opencode/
+
+# Markdown docs (keep standard project files, ignore the rest)
+/*.md
+!README.md
+!CONTRIBUTING.md
+!SECURITY.md
+!LICENSE.md
+
+# Private project notes
+/docs/bugfix-brief.md
+/docs/editor-vision.md
+/docs/platform-distribution.md
+/docs/review-and-brainstorm-*.md
+/docs/webkit-verification-checklist.md
+
+# Test fixtures
+test-fixtures/
+
+# Misc artifacts
+Gemini_Generated_Image_*
+markdown-reader@*
+tsc
