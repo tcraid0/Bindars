@@ -17,6 +17,22 @@ cd .. && npm run test:workspace            # Workspace integration tests
 
 Node >= 20.19.0 and Rust >= 1.88 on the stable toolchain are required.
 
+## Release Verification
+
+Normal development does not exercise Tauri's packaged-asset CSP
+transformation (nonce injection into the bundled HTML), so production-only
+nonce interactions are invisible until an app is packaged. Before a release,
+verify the packaged CSP against the built frontend in real WebKitGTK:
+
+```bash
+npm run build
+python3 scripts/verify-webkit-csp-styles.py   # needs webkit2gtk-4.1 + python-gobject
+```
+
+The script fails if runtime-injected stylesheets (CodeMirror themes, Mermaid)
+would be blocked in the packaged app. `tests/csp-style-policy.test.cjs` guards
+the underlying configuration invariant in CI.
+
 ## Pull Requests
 
 Before submitting a PR, all three checks must pass:
