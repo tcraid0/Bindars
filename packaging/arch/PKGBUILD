@@ -1,6 +1,6 @@
 # Maintainer: tcraid0
 pkgname=bindars-bin
-pkgver=1.4.1
+pkgver=1.4.2
 pkgrel=1
 pkgdesc='The reading app for markdown. Drop a file in, read it well.'
 arch=('x86_64')
