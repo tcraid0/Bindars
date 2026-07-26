@@ -158,8 +158,8 @@ test("syntax highlighting emits highlight.js classes for fenced code", () => {
   assert.match(html, /hljs-number/);
 });
 
-test("KaTeX renders inline math", () => {
-  const html = renderMarkdown("Inline $E = mc^2$");
+test("KaTeX renders inline math with double-dollar delimiters", () => {
+  const html = renderMarkdown("Inline $$E = mc^2$$");
 
   assert.match(html, /class="katex"/);
   assert.doesNotMatch(html, /class="katex-display"/);
@@ -172,11 +172,69 @@ test("KaTeX renders display math", () => {
 });
 
 test("invalid KaTeX input renders without throwing", () => {
-  assert.doesNotThrow(() => renderMarkdown("Bad $\\notacommand$"));
+  assert.doesNotThrow(() => renderMarkdown("Bad $$\\notacommand$$"));
 
-  const html = renderMarkdown("Bad $\\notacommand$");
+  const html = renderMarkdown("Bad $$\\notacommand$$");
   assert.match(html, /class="katex"/);
   assert.match(html, /\\notacommand/);
+});
+
+test("single-dollar delimiters render as literal text, not math", () => {
+  const html = renderMarkdown("Inline $E = mc^2$ stays literal");
+
+  assert.doesNotMatch(html, /class="katex"/);
+  assert.match(html, /\$E = mc\^2\$/);
+});
+
+test("currency amounts in prose are never parsed as math", () => {
+  const samples = [
+    "A typical engineer ran somewhere between $150 to $250 per month in tokens.",
+    "The heaviest users were anywhere from $500 to $2,000 a month.",
+    "the CTO spent about $1,200 running a single two-hour demo.",
+    "a subscription: $20/$100/$200 per month",
+    "a $200 plan could translate to roughly $8,000 of usage in a month.",
+  ];
+
+  for (const sample of samples) {
+    const html = renderMarkdown(sample);
+    assert.doesNotMatch(html, /class="katex"/, `unexpected math in: ${sample}`);
+    const dollarCount = (html.match(/\$/g) || []).length;
+    const sourceDollarCount = (sample.match(/\$/g) || []).length;
+    assert.equal(dollarCount, sourceDollarCount, `lost dollar signs in: ${sample}`);
+  }
+});
+
+test("currency amounts across a soft line break stay literal", () => {
+  const html = renderMarkdown("between $150\nand $250 per month");
+
+  assert.doesNotMatch(html, /class="katex"/);
+  assert.match(html, /\$150/);
+  assert.match(html, /\$250/);
+});
+
+test("escaped and code-span dollar amounts stay literal", () => {
+  const html = renderMarkdown("Escaped \\$150 and `$150 to $250` in code");
+
+  assert.doesNotMatch(html, /class="katex"/);
+  assert.match(html, /\$150 to \$250/);
+});
+
+test("dollar amounts in GFM table cells stay literal", () => {
+  const html = renderMarkdown(
+    ["| plan | price |", "| --- | --- |", "| range | $10 to $20 |", "| $10 | $20 |"].join("\n"),
+  );
+
+  assert.doesNotMatch(html, /class="katex"/);
+  assert.match(html, /\$10 to \$20/);
+});
+
+test("double-dollar inline math works inside a GFM table cell", () => {
+  const html = renderMarkdown(
+    ["| formula |", "| --- |", "| $$x^2$$ |"].join("\n"),
+  );
+
+  assert.match(html, /class="katex"/);
+  assert.doesNotMatch(html, /class="katex-display"/);
 });
 
 test("MarkdownRenderer routes mermaid fenced blocks to MermaidBlock", () => {

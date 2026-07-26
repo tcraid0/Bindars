@@ -13,7 +13,9 @@ import { rehypeSourcePositions } from "./markdown-source-position";
 export const remarkPlugins: PluggableList = [
   remarkGfm,
   remarkSmartypants,
-  remarkMath,
+  // singleDollarTextMath off: single $...$ stays literal text so currency in
+  // prose ("$150 to $250") never parses as math; inline math uses $$...$$
+  [remarkMath, { singleDollarTextMath: false }],
   remarkFrontmatter,
 ];
 
@@ -26,7 +28,9 @@ export const remarkPlugins: PluggableList = [
 export function createRehypePlugins(lineOffset = 0): PluggableList {
   return [
     rehypeSlug,
-    rehypeHighlight,
+    // plainText math: remark-math emits `language-math` code blocks, which the
+    // highlighter has no grammar for and would flag with a file message
+    [rehypeHighlight, { plainText: ["math"] }],
     [rehypeSourcePositions, { lineOffset }],
     [rehypeSanitize, sanitizeSchema],
     rehypeKatex,

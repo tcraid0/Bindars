@@ -11,7 +11,7 @@ hold until they receive native testing and code signing.
 ## What it does
 
 - GFM tables, task lists, footnotes, and smart typography
-- Mermaid diagrams and KaTeX math rendering
+- Mermaid diagrams and KaTeX math rendering (`$$x^2$$` inline, `$$` blocks for display math; single `$` is reserved for plain text so dollar amounts in prose render as written)
 - Syntax-highlighted code blocks (highlight.js)
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
