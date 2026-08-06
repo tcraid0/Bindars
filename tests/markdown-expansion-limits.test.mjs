@@ -33,6 +33,7 @@ const {
 const {
   inlineNestingBypasses,
   splitCodeSpanBypasses,
+  whitespaceOnlyLineBypasses,
 } = require("./markdown-complexity-fixtures.cjs");
 
 function renderMarkdown(markdown, { remark = remarkPlugins, rehype = rehypePlugins } = {}) {
@@ -381,7 +382,11 @@ test("cross-delimiter bypasses are rejected before the renderer can recurse", ()
   // preflight and then threw `RangeError: Maximum call stack size exceeded`
   // out of `mdast-util-to-hast`, so preflight is the only thing that may ever
   // run on them — which is why this suite asserts rejection and never renders.
-  const bypasses = { ...inlineNestingBypasses(), ...splitCodeSpanBypasses() };
+  const bypasses = {
+    ...inlineNestingBypasses(),
+    ...splitCodeSpanBypasses(),
+    ...whitespaceOnlyLineBypasses(),
+  };
 
   for (const [label, source] of Object.entries(bypasses)) {
     assert.equal(checkDocumentComplexity(source, "markdown").ok, false, label);

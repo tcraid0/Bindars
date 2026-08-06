@@ -19,6 +19,8 @@ const {
 const {
   inlineNestingBypasses,
   splitCodeSpanBypasses,
+  whitespaceOnlyLineBypasses,
+  blankLineControls,
   fencedCodeLookalike,
 } = require("./markdown-complexity-fixtures.cjs");
 const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
@@ -438,6 +440,23 @@ test("an empty list item does not end the paragraph that holds open delimiters",
     checkDocumentComplexity(blankLines, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
     true,
   );
+});
+
+test("only spaces and tabs make a line blank enough to reset inline state", () => {
+  // CommonMark counts a line blank only when it holds nothing but spaces or
+  // tabs. A line holding one NBSP, ideographic space, U+FEFF, vertical tab or
+  // form feed is paragraph content, so the parser carries every delimiter
+  // across it — measured emphasis depth 129 where the scanner once saw a
+  // block boundary and reset to zero.
+  for (const [label, source] of Object.entries(whitespaceOnlyLineBypasses())) {
+    assert.equal(checkDocumentComplexity(source, "markdown").ok, false, label);
+  }
+
+  // The whitespace that genuinely does end a paragraph must still reset, or
+  // ordinary documents would accumulate nesting they never had.
+  for (const [label, source] of Object.entries(blankLineControls())) {
+    assert.equal(checkDocumentComplexity(source, "markdown").ok, true, label);
+  }
 });
 
 test("a code span cannot be paired across a line that ends the paragraph", () => {

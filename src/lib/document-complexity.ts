@@ -342,6 +342,11 @@ function countStructuralUnits(
         textRunLength = 0;
         lineHasContent = true;
       } else if (isWhitespaceCodeUnit(code)) {
+        // Only spaces and tabs make a line blank in CommonMark. Every other
+        // whitespace character — NBSP, ideographic space, U+FEFF, vertical
+        // tab, form feed — is ordinary paragraph content, so a line holding
+        // just one of them does not end the block the delimiters live in.
+        if (!isBlankLineWhitespace(code)) lineHasContent = true;
         textRunLength = 0;
       } else {
         lineHasContent = true;
@@ -768,6 +773,15 @@ function markdownDelimiterRunLength(content: string, start: number, code: number
   let length = 1;
   while (content.charCodeAt(start + length) === code) length += 1;
   return length;
+}
+
+/**
+ * Space and tab are the only whitespace CommonMark counts toward a blank line.
+ * Deliberately narrower than `isWhitespaceCodeUnit`, which answers the
+ * different question of what separates words.
+ */
+function isBlankLineWhitespace(code: number): boolean {
+  return code === 0x20 || code === 0x09;
 }
 
 function isAsciiPunctuation(code: number): boolean {
