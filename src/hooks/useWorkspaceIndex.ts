@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { WorkspaceDocIndex, WorkspaceFileMeta, WorkspaceState } from "../types";
 import { storeGet, storeSet } from "../lib/store";
 import {
-  buildWorkspaceDoc,
   buildWorkspaceRefreshErrorState,
   buildWorkspaceStateFromCache,
   LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   normalizeWorkspaceIndexCache,
+  tryBuildWorkspaceDoc,
   type WorkspaceIndexCache,
   WORKSPACE_INDEX_CACHE_KEY,
   WORKSPACE_INDEX_CACHE_VERSION,
@@ -29,6 +29,7 @@ const EMPTY_STATE: WorkspaceState = {
   error: null,
   listSkippedCount: 0,
   readFailedCount: 0,
+  complexitySkippedCount: 0,
   limitHit: false,
 };
 
@@ -91,6 +92,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
       error: null,
       listSkippedCount: sameRootAsCurrent ? prev.listSkippedCount : 0,
       readFailedCount: sameRootAsCurrent ? prev.readFailedCount : 0,
+      complexitySkippedCount: sameRootAsCurrent ? prev.complexitySkippedCount : 0,
       limitHit: sameRootAsCurrent ? prev.limitHit : false,
     }));
 
@@ -159,6 +161,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
         error: null,
         listSkippedCount: prev.listSkippedCount,
         readFailedCount: 0,
+        complexitySkippedCount: 0,
         limitHit: prev.limitHit,
       }));
 
@@ -180,24 +183,38 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
           error: null,
           listSkippedCount: listed.skippedCount,
           readFailedCount: 0,
+          complexitySkippedCount: 0,
           limitHit: listed.limitHit,
         }));
 
         const nextDocs: WorkspaceDocIndex[] = [];
         let processedCount = 0;
         let readFailedCount = 0;
+        let complexitySkippedCount = 0;
         let lastProgressUpdateAt = Date.now();
 
         for (let i = 0; i < listed.files.length; i += READ_BATCH_SIZE) {
           const batch = listed.files.slice(i, i + READ_BATCH_SIZE);
           const parsed = await Promise.all(
             batch.map(async (meta) => {
+              let content: string;
               try {
-                const content = await invoke<string>("read_markdown_file", { path: meta.path });
-                return { doc: buildWorkspaceDoc(meta, content), failed: false as const };
+                content = await invoke<string>("read_markdown_file", { path: meta.path });
               } catch (err) {
                 console.warn(`[workspace-index] Failed to read ${meta.path}:`, err);
-                return { doc: null, failed: true as const };
+                return { doc: null, failure: "read" as const };
+              }
+
+              try {
+                const result = tryBuildWorkspaceDoc(meta, content);
+                if (result.status === "too-complex") {
+                  console.warn(`[workspace-index] Skipped overly complex document ${meta.path}.`);
+                  return { doc: null, failure: "complexity" as const };
+                }
+                return { doc: result.doc, failure: null };
+              } catch (err) {
+                console.warn(`[workspace-index] Failed to index ${meta.path}:`, err);
+                return { doc: null, failure: "read" as const };
               }
             }),
           );
@@ -206,7 +223,8 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
 
           for (const result of parsed) {
             if (result.doc) nextDocs.push(result.doc);
-            if (result.failed) readFailedCount += 1;
+            if (result.failure === "read") readFailedCount += 1;
+            if (result.failure === "complexity") complexitySkippedCount += 1;
           }
 
           processedCount += batch.length;
@@ -224,6 +242,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
               indexedCount: nextDocs.length,
               error: null,
               readFailedCount,
+              complexitySkippedCount,
             }));
             lastProgressUpdateAt = now;
           }
@@ -245,6 +264,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
           error: null,
           listSkippedCount: listed.skippedCount,
           readFailedCount,
+          complexitySkippedCount,
           limitHit: listed.limitHit,
         };
         setState(readyState);
@@ -259,6 +279,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
             docs: nextDocs,
             processedCount: listed.files.length,
             readFailedCount,
+            complexitySkippedCount,
             listSkippedCount: listed.skippedCount,
             limitHit: listed.limitHit,
           };

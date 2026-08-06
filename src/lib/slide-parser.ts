@@ -1,5 +1,7 @@
 import { extractFrontmatter } from "./frontmatter";
 import { updateMarkdownFenceState, type MarkdownFenceState } from "./markdown-fences";
+import type { DocumentComplexityOptions } from "./document-complexity";
+import { assertDocumentComplexity } from "./document-complexity";
 
 export interface Slide {
   content: string;
@@ -13,7 +15,11 @@ export interface Slide {
  * Fallback: if only one slide after HR split, split on `## ` h2 headings instead.
  * Frontmatter: if present and has a title, generate a title slide from it.
  */
-export function parseSlides(rawContent: string): Slide[] {
+export function parseSlides(
+  rawContent: string,
+  complexityOptions: DocumentComplexityOptions = {},
+): Slide[] {
+  assertDocumentComplexity(rawContent, "markdown", complexityOptions);
   if (!rawContent.trim()) return [];
 
   const { frontmatter, body } = extractFrontmatter(rawContent);

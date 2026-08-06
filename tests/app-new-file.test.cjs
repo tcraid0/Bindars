@@ -1083,6 +1083,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
 async function renderContinuityApp({
   requestedPath = "/tmp/continuity.md",
   canonicalPath = requestedPath,
+  initialContent = null,
+  readySelector = "#second",
   restoreHeadingId,
   storedHighlights = [],
   snapshotEntries = [],
@@ -1099,7 +1101,7 @@ async function renderContinuityApp({
     disconnect() {}
   };
   mockWindows("main");
-  let diskContent = [
+  let diskContent = initialContent ?? [
     "# First",
     "",
     "Opening words.",
@@ -1311,7 +1313,7 @@ async function renderContinuityApp({
   }
 
   flushSync(() => root.render(React.createElement(ToastProvider, null, React.createElement(App))));
-  await waitFor(() => assert.ok(host.querySelector("#second")));
+  await waitFor(() => assert.ok(host.querySelector(readySelector)));
   positionReaderAtFirst();
 
   return {
@@ -1367,6 +1369,258 @@ async function renderContinuityApp({
     },
   };
 }
+
+test("overly complex documents keep editing and print available without entering presentation", async () => {
+  await installDom();
+  const { DOCUMENT_COMPLEXITY_MESSAGE, DOCUMENT_COMPLEXITY_POLICY } = require(
+    "../.tmp/workspace-tests/src/lib/document-complexity.js"
+  );
+  const slideParser = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
+  const originalParseSlides = slideParser.parseSlides;
+  const originalPrint = window.print;
+  let slideParseCount = 0;
+  let printCount = 0;
+  slideParser.parseSlides = (...args) => {
+    slideParseCount += 1;
+    return originalParseSlides(...args);
+  };
+  window.print = () => {
+    printCount += 1;
+  };
+
+  const initialContent = `a${"#".repeat(DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits)}`;
+  const rendered = await renderContinuityApp({
+    initialContent,
+    readySelector: '[role="alert"]',
+  });
+
+  try {
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.match(notice.textContent, /Document too complex/);
+    assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
+    assert.doesNotMatch(rendered.host.textContent, /Opening file/);
+
+    dispatchWindowKey("F5");
+    assert.equal(slideParseCount, 0);
+    assert.ok(!rendered.host.querySelector(".presentation-overlay"));
+
+    dispatchShortcut("p");
+    await waitFor(() => assert.equal(printCount, 1));
+    assert.ok(rendered.host.querySelector('main [role="alert"]'));
+    flushSync(() => window.dispatchEvent(new window.Event("afterprint")));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    slideParser.parseSlides = originalParseSlides;
+    window.print = originalPrint;
+    await rendered.cleanup();
+  }
+});
+
+test("deeply nested Markdown containers are rejected before the renderer grows them", async () => {
+  await installDom();
+  const {
+    DOCUMENT_COMPLEXITY_MESSAGE,
+    DOCUMENT_COMPLEXITY_POLICY,
+    MARKDOWN_MAX_CONTAINER_DEPTH,
+  } = require("../.tmp/workspace-tests/src/lib/document-complexity.js");
+  const slideParser = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
+  const originalParseSlides = slideParser.parseSlides;
+  const originalPrint = window.print;
+  let slideParseCount = 0;
+  let printCount = 0;
+  slideParser.parseSlides = (...args) => {
+    slideParseCount += 1;
+    return originalParseSlides(...args);
+  };
+  window.print = () => {
+    printCount += 1;
+  };
+
+  // About 130 structural units: far below the unit ceiling, so only the new
+  // container-depth limit rejects this document before ReactMarkdown can
+  // recurse into it.
+  const initialContent = `${"> ".repeat(MARKDOWN_MAX_CONTAINER_DEPTH + 1)}deep`;
+  assert.ok(
+    MARKDOWN_MAX_CONTAINER_DEPTH * 2 + 4 < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits,
+    "fixture must stay far below the structural-unit ceiling",
+  );
+  const rendered = await renderContinuityApp({
+    initialContent,
+    readySelector: '[role="alert"]',
+  });
+
+  try {
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.match(notice.textContent, /Document too complex/);
+    assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
+    assert.doesNotMatch(rendered.host.textContent, /Opening file/);
+    assert.ok(!rendered.host.querySelector("blockquote"), "no nested structure was rendered");
+
+    dispatchWindowKey("F5");
+    assert.equal(slideParseCount, 0);
+    assert.ok(!rendered.host.querySelector(".presentation-overlay"));
+
+    dispatchShortcut("p");
+    await waitFor(() => assert.equal(printCount, 1));
+    assert.ok(rendered.host.querySelector('main [role="alert"]'));
+    flushSync(() => window.dispatchEvent(new window.Event("afterprint")));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    slideParser.parseSlides = originalParseSlides;
+    window.print = originalPrint;
+    await rendered.cleanup();
+  }
+});
+
+test("deeply nested inline Markdown is rejected before recursive rendering", async () => {
+  await installDom();
+  const {
+    DOCUMENT_COMPLEXITY_MESSAGE,
+    DOCUMENT_COMPLEXITY_POLICY,
+    MARKDOWN_MAX_INLINE_NESTING,
+  } = require("../.tmp/workspace-tests/src/lib/document-complexity.js");
+  const slideParser = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
+  const originalParseSlides = slideParser.parseSlides;
+  let slideParseCount = 0;
+  slideParser.parseSlides = (...args) => {
+    slideParseCount += 1;
+    return originalParseSlides(...args);
+  };
+
+  let initialContent = "x";
+  for (let index = 0; index <= MARKDOWN_MAX_INLINE_NESTING; index += 1) {
+    initialContent = `*a ${initialContent} b*`;
+  }
+  assert.ok(
+    MARKDOWN_MAX_INLINE_NESTING * 2 + 4 < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits,
+    "fixture must stay far below the structural-unit ceiling",
+  );
+  const rendered = await renderContinuityApp({
+    initialContent,
+    readySelector: '[role="alert"]',
+  });
+
+  try {
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
+    assert.doesNotMatch(rendered.host.textContent, /Opening file/);
+    assert.ok(!rendered.host.querySelector("em"), "no nested inline structure was rendered");
+
+    dispatchWindowKey("F5");
+    assert.equal(slideParseCount, 0);
+    assert.ok(!rendered.host.querySelector(".presentation-overlay"));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    slideParser.parseSlides = originalParseSlides;
+    await rendered.cleanup();
+  }
+});
+
+test("mixed-delimiter inline nesting is rejected before the renderer grows a recursive tree", async () => {
+  await installDom();
+  const {
+    DOCUMENT_COMPLEXITY_MESSAGE,
+    DOCUMENT_COMPLEXITY_POLICY,
+    MARKDOWN_MAX_INLINE_NESTING,
+  } = require("../.tmp/workspace-tests/src/lib/document-complexity.js");
+  const slideParser = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
+  const originalParseSlides = slideParser.parseSlides;
+  const originalPrint = window.print;
+  let slideParseCount = 0;
+  let printCount = 0;
+  slideParser.parseSlides = (...args) => {
+    slideParseCount += 1;
+    return originalParseSlides(...args);
+  };
+  window.print = () => {
+    printCount += 1;
+  };
+
+  // `*`, `_`, and `~` share one ceiling, and an inert `~` run between the
+  // openers must not release any of them: this is the shape that reached
+  // `RangeError: Maximum call stack size exceeded` before the fix.
+  const markers = ["*", "_", "~"];
+  let initialContent = "x~ ";
+  for (let index = 0; index <= MARKDOWN_MAX_INLINE_NESTING; index += 1) {
+    initialContent = `${markers[index % markers.length]}a ${initialContent} b${markers[index % markers.length]}`;
+  }
+  assert.ok(
+    initialContent.length < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits,
+    "fixture must stay far below the structural-unit ceiling",
+  );
+  const rendered = await renderContinuityApp({
+    initialContent,
+    readySelector: '[role="alert"]',
+  });
+
+  try {
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.match(notice.textContent, /Document too complex/);
+    assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
+    assert.doesNotMatch(rendered.host.textContent, /Opening file/);
+    assert.ok(!rendered.host.querySelector("em"), "no nested emphasis was rendered");
+    assert.ok(!rendered.host.querySelector("del"), "no nested strikethrough was rendered");
+
+    dispatchWindowKey("F5");
+    assert.equal(slideParseCount, 0);
+    assert.ok(!rendered.host.querySelector(".presentation-overlay"));
+
+    dispatchShortcut("p");
+    await waitFor(() => assert.equal(printCount, 1));
+    assert.ok(rendered.host.querySelector('main [role="alert"]'));
+    flushSync(() => window.dispatchEvent(new window.Event("afterprint")));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    slideParser.parseSlides = originalParseSlides;
+    window.print = originalPrint;
+    await rendered.cleanup();
+  }
+});
+
+test("overly complex Fountain documents get the same rejection notice while editing stays available", async () => {
+  await installDom();
+  const { DOCUMENT_COMPLEXITY_MESSAGE, DOCUMENT_COMPLEXITY_POLICY } = require(
+    "../.tmp/workspace-tests/src/lib/document-complexity.js"
+  );
+
+  const initialContent = `a${"*".repeat(DOCUMENT_COMPLEXITY_POLICY.fountain.maxUnits)}`;
+  const rendered = await renderContinuityApp({
+    requestedPath: "/tmp/continuity.fountain",
+    initialContent,
+    readySelector: '[role="alert"]',
+  });
+
+  try {
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.match(notice.textContent, /Document too complex/);
+    assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
+    assert.doesNotMatch(rendered.host.textContent, /Opening file/);
+    assert.ok(!rendered.host.querySelector(".fountain-scene-heading"));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    await rendered.cleanup();
+  }
+});
 
 test("Save As keeps the draft stream when the adopted-file checkpoint fails", async () => {
   const rendered = await renderContinuityApp();

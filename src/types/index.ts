@@ -115,6 +115,7 @@ export interface WorkspaceState {
   error: string | null;
   listSkippedCount: number;
   readFailedCount: number;
+  complexitySkippedCount: number;
   limitHit: boolean;
 }
 

@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const { remarkPlugins, rehypePlugins } = require("../.tmp/workspace-tests/src/lib/markdown-plugins.js");
 const { MarkdownRenderer } = require("../.tmp/workspace-tests/src/components/MarkdownRenderer.js");
 const { FountainRenderer } = require("../.tmp/workspace-tests/src/components/FountainRenderer.js");
+const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { buildWorkspaceDoc } = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
 
@@ -107,8 +108,7 @@ function renderMarkdownRenderer(content) {
 function renderFountainRenderer(content) {
   return renderToStaticMarkup(
     React.createElement(FountainRenderer, {
-      content,
-      filePath: "/workspace/current.fountain",
+      parsed: parseFountain(content),
       settings: readerSettings,
       contentRef: React.createRef(),
     }),

@@ -8,6 +8,9 @@ import type {
   ScriptStats,
 } from "../types";
 import type { SourcePoint } from "./source-lines";
+import type { DocumentComplexityOptions } from "./document-complexity";
+import { assertDocumentComplexity } from "./document-complexity";
+import { countWords, isWhitespaceCodeUnit } from "./word-count";
 
 export interface FountainToken {
   type: string;
@@ -58,7 +61,11 @@ function normalizeTitleKey(type: string): string {
   return type.replace(/_/g, " ").trim();
 }
 
-export function parseFountain(text: string): ParsedFountain {
+export function parseFountain(
+  text: string,
+  complexityOptions: DocumentComplexityOptions = {},
+): ParsedFountain {
+  assertDocumentComplexity(text, "fountain", complexityOptions);
   const fountain = new Fountain();
   const output = fountain.parse(text, true);
 
@@ -229,11 +236,9 @@ function stripFountainEmphasis(text: string): string {
     .replace(FOUNTAIN_UNDERLINE_RE, "$1");
 }
 
-function countWords(text?: string): number {
+function countTokenWords(text?: string): number {
   if (!text) return 0;
-  const stripped = stripFountainEmphasis(text).trim();
-  if (!stripped) return 0;
-  return stripped.split(/\s+/).filter((part) => part.length > 0).length;
+  return countWords(text);
 }
 
 function shouldCountForScreenplayStats(tokenType: string): boolean {
@@ -393,7 +398,7 @@ export function computeScriptStats(parsed: ParsedFountain): ScriptStats {
   for (const token of parsed.tokens) {
     const tokenWordCount =
       shouldCountForScreenplayStats(token.type)
-        ? countWords(token.text)
+        ? countTokenWords(token.text)
         : 0;
 
     if (token.type === "scene_heading" && token.text) {
@@ -530,25 +535,34 @@ export function extractCharacters(parsed: ParsedFountain): CharacterInfo[] {
     .sort((a, b) => b.dialogueCount - a.dialogueCount);
 }
 
-export function fountainToSearchableText(text: string): string {
-  const { titlePage, tokens } = parseFountain(text);
-  const parts: string[] = [];
+export function fountainToSearchableText(parsed: ParsedFountain): string {
+  const result: string[] = [];
+  let pendingSpace = false;
 
-  for (const entry of titlePage) {
-    parts.push(entry.value);
+  const append = (text: string) => {
+    for (let index = 0; index < text.length && result.length < 30_000; index += 1) {
+      if (isWhitespaceCodeUnit(text.charCodeAt(index))) {
+        pendingSpace = result.length > 0;
+        continue;
+      }
+      if (pendingSpace && result.length < 30_000) result.push(" ");
+      pendingSpace = false;
+      if (result.length < 30_000) result.push(text[index]);
+    }
+    pendingSpace = result.length > 0;
+  };
+
+  for (const entry of parsed.titlePage) {
+    append(stripFountainEmphasis(entry.value));
+    if (result.length >= 30_000) return result.join("");
   }
 
-  for (const token of tokens) {
+  for (const token of parsed.tokens) {
     if (token.text && token.type !== "spaces" && token.type !== "page_break") {
-      parts.push(token.text);
+      append(stripFountainEmphasis(token.text));
+      if (result.length >= 30_000) break;
     }
   }
 
-  let result = parts.join(" ");
-  result = stripFountainEmphasis(result);
-  result = result.replace(/\s+/g, " ").trim();
-  if (result.length > 30_000) {
-    return result.slice(0, 30_000);
-  }
-  return result;
+  return result.join("");
 }

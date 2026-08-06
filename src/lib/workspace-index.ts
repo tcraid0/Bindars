@@ -9,6 +9,8 @@ import type {
   WorkspaceState,
 } from "../types";
 import { extractFrontmatter } from "./frontmatter";
+import type { DocumentComplexityOptions } from "./document-complexity";
+import { assertDocumentComplexity, isDocumentComplexityError } from "./document-complexity";
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
 import { updateMarkdownFenceState, type MarkdownFenceState } from "./markdown-fences";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
@@ -16,13 +18,14 @@ import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 const MAX_BODY_TEXT_CHARS = 30_000;
 // Raw HTML links are intentionally not indexed; the renderer does not enable raw HTML.
 const markdownLinkParser = new MarkdownIt({ html: false, linkify: false });
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v4";
+export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v5";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
   "workspace:index:v2",
   "workspace:index:v3",
+  "workspace:index:v4",
 ] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 4 as const;
+export const WORKSPACE_INDEX_CACHE_VERSION = 5 as const;
 export const WORKSPACE_INDEX_CACHE_KEYS = [
   ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   WORKSPACE_INDEX_CACHE_KEY,
@@ -40,9 +43,14 @@ export interface WorkspaceIndexCache {
   docs: WorkspaceDocIndex[];
   processedCount: number;
   readFailedCount: number;
+  complexitySkippedCount: number;
   listSkippedCount: number;
   limitHit: boolean;
 }
+
+export type WorkspaceDocumentBuildResult =
+  | { status: "indexed"; doc: WorkspaceDocIndex }
+  | { status: "too-complex" };
 
 export function normalizeWorkspaceIndexCache(
   cache: Partial<WorkspaceIndexCache>,
@@ -58,6 +66,7 @@ export function normalizeWorkspaceIndexCache(
     docs,
     processedCount: clampCount(cache.processedCount, 0, files.length),
     readFailedCount: clampCount(cache.readFailedCount, 0, Number.MAX_SAFE_INTEGER),
+    complexitySkippedCount: clampCount(cache.complexitySkippedCount, 0, Number.MAX_SAFE_INTEGER),
     listSkippedCount: clampCount(cache.listSkippedCount, 0, Number.MAX_SAFE_INTEGER),
     limitHit: cache.limitHit === true,
   };
@@ -79,6 +88,7 @@ export function buildWorkspaceStateFromCache(
     error: null,
     listSkippedCount: normalized.listSkippedCount,
     readFailedCount: normalized.readFailedCount,
+    complexitySkippedCount: normalized.complexitySkippedCount,
     limitHit: normalized.limitHit,
   };
 }
@@ -100,6 +110,7 @@ export function buildWorkspaceErrorState(
     error,
     listSkippedCount: preservePrevious ? previous.listSkippedCount : 0,
     readFailedCount: preservePrevious ? previous.readFailedCount : 0,
+    complexitySkippedCount: preservePrevious ? previous.complexitySkippedCount : 0,
     limitHit: preservePrevious ? previous.limitHit : false,
   };
 }
@@ -114,11 +125,16 @@ export function buildWorkspaceRefreshErrorState(
   return buildWorkspaceErrorState(baseState, rootPath, error);
 }
 
-export function buildWorkspaceDoc(meta: WorkspaceFileMeta, content: string): WorkspaceDocIndex {
+export function buildWorkspaceDoc(
+  meta: WorkspaceFileMeta,
+  content: string,
+  complexityOptions: DocumentComplexityOptions = {},
+): WorkspaceDocIndex {
   if (meta.name.toLowerCase().endsWith(".fountain")) {
-    return buildFountainDoc(meta, content);
+    return buildFountainDoc(meta, content, complexityOptions);
   }
 
+  assertDocumentComplexity(content, "markdown", complexityOptions);
   const { frontmatter, body } = extractFrontmatter(content);
   const headingRows = extractHeadings(body);
   const headings = headingRows.map((row) => ({ id: row.id, text: row.text }));
@@ -140,8 +156,25 @@ export function buildWorkspaceDoc(meta: WorkspaceFileMeta, content: string): Wor
   };
 }
 
-function buildFountainDoc(meta: WorkspaceFileMeta, content: string): WorkspaceDocIndex {
-  const parsed = parseFountain(content);
+export function tryBuildWorkspaceDoc(
+  meta: WorkspaceFileMeta,
+  content: string,
+  complexityOptions: DocumentComplexityOptions = {},
+): WorkspaceDocumentBuildResult {
+  try {
+    return { status: "indexed", doc: buildWorkspaceDoc(meta, content, complexityOptions) };
+  } catch (error) {
+    if (isDocumentComplexityError(error)) return { status: "too-complex" };
+    throw error;
+  }
+}
+
+function buildFountainDoc(
+  meta: WorkspaceFileMeta,
+  content: string,
+  complexityOptions: DocumentComplexityOptions,
+): WorkspaceDocIndex {
+  const parsed = parseFountain(content, complexityOptions);
 
   const titleEntry = parsed.titlePage.find((e) => e.key.toLowerCase() === "title");
   const title = titleEntry?.value || meta.name.replace(/\.fountain$/i, "").trim() || null;
@@ -158,7 +191,7 @@ function buildFountainDoc(meta: WorkspaceFileMeta, content: string): WorkspaceDo
     headingId: s.id,
   }));
 
-  const bodyText = fountainToSearchableText(content);
+  const bodyText = fountainToSearchableText(parsed);
 
   return {
     path: meta.path,

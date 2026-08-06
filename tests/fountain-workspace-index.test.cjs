@@ -44,10 +44,18 @@ test("parseFountain extracts normalized title-page fields", () => {
     { key: "contact", value: "jane@example.com" },
   ]);
 
-  const searchable = fountainToSearchableText(content);
+  const searchable = fountainToSearchableText(parsed);
   assert.match(searchable, /\bThe Last Day\b/);
   assert.match(searchable, /\bJane Doe\b/);
   assert.match(searchable, /\bHello\./);
+});
+
+test("searchable Fountain text strips emphasis without dropping literal markers", () => {
+  const literalMarkers = parseFountain("snake_case and 2*3");
+  const emphasized = parseFountain("*emphasis*");
+
+  assert.equal(fountainToSearchableText(literalMarkers), "snake_case and 2*3");
+  assert.equal(fountainToSearchableText(emphasized), "emphasis");
 });
 
 test("scene IDs are deterministic, deduplicated, and non-empty", () => {

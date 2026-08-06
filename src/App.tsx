@@ -7,6 +7,7 @@ import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { DocumentComplexityNotice } from "./components/DocumentComplexityNotice";
 import { MarkdownRenderer } from "./components/MarkdownRenderer";
 import { ReaderControls } from "./components/ReaderControls";
 import { DropZone } from "./components/DropZone";
@@ -14,7 +15,7 @@ import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { FocusBar } from "./components/FocusBar";
 import { SearchBar } from "./components/SearchBar";
 import { FountainRenderer } from "./components/FountainRenderer";
-import { parseFountain, extractCharacters, computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
+import { extractCharacters, computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
 import { MarkdownEditor } from "./components/MarkdownEditor";
 import type { EditorSurfacePosition, MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -52,7 +53,8 @@ import { decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveResult } from "./lib/editor-save";
 import { isDocumentOpen, shouldCloseDocumentAfterOpenFailure } from "./lib/document-state";
 import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode } from "./lib/app-flow";
-import { computeReadingStats, formatReadingStatsSummary } from "./lib/reading-stats";
+import { formatReadingStatsSummary } from "./lib/reading-stats";
+import { prepareReaderDocument } from "./lib/document-processing";
 import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
 import { applyPrintState } from "./lib/print-state";
 import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
@@ -243,7 +245,13 @@ function App() {
   }, [flushPendingBuffer]);
   const { toast } = useToast();
 
-  const readingStats = useMemo(() => isDocumentOpen(content) ? computeReadingStats(content, fileType) : null, [content, fileType]);
+  const preparedDocument = useMemo(
+    () => isDocumentOpen(content) ? prepareReaderDocument(content, fileType) : null,
+    [content, fileType],
+  );
+  const readerDocumentReady = preparedDocument?.status === "ready";
+  const readingStats = readerDocumentReady ? preparedDocument.readingStats : null;
+  const parsedFountain = readerDocumentReady ? preparedDocument.parsedFountain : null;
 
   const {
     status: annotationStatus,
@@ -301,7 +309,7 @@ function App() {
 
   const documentOpen = isDocumentOpen(content);
   const canToggleEdit = canToggleEditMode({ documentOpen, editing, loading });
-  const canPresent = canEnterPresentationMode({
+  const canPresent = readerDocumentReady && canEnterPresentationMode({
     documentOpen,
     editing,
     loading,
@@ -1311,9 +1319,9 @@ function App() {
   }, [content, editing, exitEditMode]);
 
   const openSearch = useCallback(() => {
-    if (!isDocumentOpen(content) || editing) return;
+    if (!isDocumentOpen(content) || editing || !readerDocumentReady) return;
     setSearchVisible(true);
-  }, [content, editing]);
+  }, [content, editing, readerDocumentReady]);
 
   // Close search when content changes (new file opened)
   const prevContentRef = useRef(content);
@@ -1369,7 +1377,7 @@ function App() {
 
   // Extract headings after the reader DOM renders. Active tracking is colocated
   // with the TOC so heading changes do not rerender the full App tree.
-  const headings = useHeadings(contentRef, content, !editing);
+  const headings = useHeadings(contentRef, content, !editing && readerDocumentReady);
 
   const scrollToHeading = useCallback(
     (
@@ -1423,11 +1431,6 @@ function App() {
     [scrollToFragment],
   );
 
-  const parsedFountain = useMemo(() => {
-    if (fileType !== "fountain" || !isDocumentOpen(content)) return null;
-    return parseFountain(content);
-  }, [content, fileType]);
-
   const characters = useMemo(() => {
     if (!parsedFountain) return [];
     return extractCharacters(parsedFountain);
@@ -1470,7 +1473,7 @@ function App() {
   }, []);
 
   const sceneItems = useMemo(() => {
-    if (!settings.sceneLensEnabled) return [];
+    if (!settings.sceneLensEnabled || !readerDocumentReady) return [];
     if (workspaceInsights.scenes.length > 0) return workspaceInsights.scenes;
 
     if (parsedFountain) {
@@ -1494,7 +1497,7 @@ function App() {
       });
     }
     return fallbackScenes;
-  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain]);
+  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain, readerDocumentReady]);
 
   // Pending reader target: set before navigation or reader restoration and
   // consumed once by the newly mounted, correctly scoped reader DOM.
@@ -1689,7 +1692,7 @@ function App() {
 
   // Apply annotation highlights to DOM after content renders
   useEffect(() => {
-    if (editing) return;
+    if (editing || !readerDocumentReady) return;
     const container = contentRef.current;
     if (!container || !isDocumentOpen(content)) return;
 
@@ -1704,7 +1707,7 @@ function App() {
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [content, editing, highlights]);
+  }, [content, editing, highlights, readerDocumentReady]);
 
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {
@@ -1891,7 +1894,7 @@ function App() {
   }, []);
 
   const enterPresentation = useCallback(() => {
-    if (!isDocumentOpen(content) || !canEnterPresentationMode({
+    if (!isDocumentOpen(content) || !readerDocumentReady || !canEnterPresentationMode({
       documentOpen: true,
       editing,
       loading,
@@ -1903,7 +1906,7 @@ function App() {
     slidesRef.current = slides;
     setCurrentSlide(0);
     setPresentationMode(true);
-  }, [content, editing, loading, focusMode, fileType]);
+  }, [content, editing, loading, focusMode, fileType, readerDocumentReady]);
 
   const exitPresentation = useCallback(() => {
     setPresentationMode(false);
@@ -2452,25 +2455,24 @@ function App() {
               onBufferChange={publishEditorBuffer}
               onDismissSaveError={editor.dismissSaveError}
             />
-          ) : isDocumentOpen(content) ? (
-            fileType === "fountain" ? (
-              <FountainRenderer
-                content={content}
-                filePath={filePath || ""}
-                settings={settings}
-                contentRef={contentRef}
-                focusedCharacter={focusedCharacter}
-              />
-            ) : (
-              <MarkdownRenderer
-                content={content}
-                filePath={filePath || ""}
-                settings={settings}
-                contentRef={contentRef}
-                onOpenFragment={openMarkdownFragment}
-                onNavigateToFile={guardedNavigateToFile}
-              />
-            )
+          ) : preparedDocument?.status === "too-complex" ? (
+            <DocumentComplexityNotice contentRef={contentRef} />
+          ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
+            <FountainRenderer
+              parsed={preparedDocument.parsedFountain}
+              settings={settings}
+              contentRef={contentRef}
+              focusedCharacter={focusedCharacter}
+            />
+          ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
+            <MarkdownRenderer
+              content={content}
+              filePath={filePath || ""}
+              settings={settings}
+              contentRef={contentRef}
+              onOpenFragment={openMarkdownFragment}
+              onNavigateToFile={guardedNavigateToFile}
+            />
           ) : (
             <EmptyState
               onNewFile={guardedNewFile}
@@ -2540,7 +2542,7 @@ function App() {
         )}
       </div>
 
-      {!editing && annotationsReady && isDocumentOpen(content) && !presentationMode && (
+      {!editing && readerDocumentReady && annotationsReady && isDocumentOpen(content) && !presentationMode && (
         <HighlightToolbar
           contentRef={contentRef}
           isEditing={editing}
@@ -2563,7 +2565,7 @@ function App() {
           onToggleMarkdownFormatting={markdownFormatting.toggle}
         />
       )}
-      {focusedCharacter && fileType === "fountain" && !focusMode && !presentationMode && (
+      {focusedCharacter && parsedFountain && fileType === "fountain" && !focusMode && !presentationMode && (
         <div
           role="status"
           className="print-hide fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"

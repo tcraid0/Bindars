@@ -176,7 +176,9 @@ function formatStatus(state: WorkspaceState): string {
 }
 
 function hasDiagnostics(state: WorkspaceState): boolean {
-  return state.listSkippedCount > 0 || state.readFailedCount > 0;
+  return state.listSkippedCount > 0
+    || state.readFailedCount > 0
+    || state.complexitySkippedCount > 0;
 }
 
 function formatDiagnostics(state: WorkspaceState): string {
@@ -186,6 +188,10 @@ function formatDiagnostics(state: WorkspaceState): string {
   }
   if (state.readFailedCount > 0) {
     parts.push(`${state.readFailedCount} files failed to read`);
+  }
+  if (state.complexitySkippedCount > 0) {
+    const fileLabel = state.complexitySkippedCount === 1 ? "file was" : "files were";
+    parts.push(`${state.complexitySkippedCount} ${fileLabel} too complex to index safely`);
   }
   return parts.join(" | ");
 }

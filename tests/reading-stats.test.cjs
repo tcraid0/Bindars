@@ -33,6 +33,24 @@ test("computeReadingStats returns minimum 1 page for fountain", () => {
   assert.equal(stats.pageCount, 1);
 });
 
+test("computeReadingStats counts dense tiny words without splitting into a word array", () => {
+  const denseWordCount = 200_000;
+  const content = "a ".repeat(denseWordCount);
+  const originalSplit = String.prototype.split;
+  String.prototype.split = function forbiddenSplit() {
+    throw new Error("word counting must not split the document into an array");
+  };
+
+  let stats;
+  try {
+    stats = computeReadingStats(content, "markdown");
+  } finally {
+    String.prototype.split = originalSplit;
+  }
+
+  assert.equal(stats.wordCount, denseWordCount);
+});
+
 test("computeReadingStats rounds page count correctly", () => {
   // 240 words / 160 = 1.5, rounds to 2
   const words = Array(240).fill("word").join(" ");

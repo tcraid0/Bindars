@@ -34,10 +34,10 @@ function makeDoc(name) {
   };
 }
 
-test("workspace index cache version invalidates old scene semantics", () => {
-  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 4);
-  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v4");
-  assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v3"));
+test("workspace index cache version invalidates entries built without complexity limits", () => {
+  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 5);
+  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v5");
+  assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v4"));
 });
 
 test("buildWorkspaceStateFromCache restores cached diagnostics", () => {
@@ -54,6 +54,7 @@ test("buildWorkspaceStateFromCache restores cached diagnostics", () => {
     docs: [makeDoc("a.md"), makeDoc("b.md"), makeDoc("c.md")],
     processedCount: 4,
     readFailedCount: 1,
+    complexitySkippedCount: 1,
     listSkippedCount: 2,
     limitHit: true,
   }, "/workspace");
@@ -68,6 +69,7 @@ test("buildWorkspaceStateFromCache restores cached diagnostics", () => {
     error: null,
     listSkippedCount: 2,
     readFailedCount: 1,
+    complexitySkippedCount: 1,
     limitHit: true,
   });
 });
@@ -83,6 +85,7 @@ test("buildWorkspaceErrorState preserves diagnostics for the same root", () => {
     error: null,
     listSkippedCount: 2,
     readFailedCount: 1,
+    complexitySkippedCount: 1,
     limitHit: true,
   };
 
@@ -117,6 +120,7 @@ test("buildWorkspaceErrorState clears diagnostics for a different root", () => {
     error: "missing",
     listSkippedCount: 0,
     readFailedCount: 0,
+    complexitySkippedCount: 0,
     limitHit: false,
   });
 });
@@ -132,6 +136,7 @@ test("buildWorkspaceRefreshErrorState prefers last-good diagnostics over in-prog
     error: null,
     listSkippedCount: 2,
     readFailedCount: 0,
+    complexitySkippedCount: 0,
     limitHit: true,
   };
   const lastGood = {
@@ -144,6 +149,7 @@ test("buildWorkspaceRefreshErrorState prefers last-good diagnostics over in-prog
     error: null,
     listSkippedCount: 2,
     readFailedCount: 1,
+    complexitySkippedCount: 1,
     limitHit: true,
   };
 
@@ -165,6 +171,7 @@ test("buildWorkspaceRefreshErrorState ignores last-good diagnostics from another
     error: null,
     listSkippedCount: 0,
     readFailedCount: 0,
+    complexitySkippedCount: 0,
     limitHit: false,
   };
   const lastGood = {
@@ -177,6 +184,7 @@ test("buildWorkspaceRefreshErrorState ignores last-good diagnostics from another
     error: null,
     listSkippedCount: 2,
     readFailedCount: 1,
+    complexitySkippedCount: 1,
     limitHit: true,
   };
 
@@ -190,6 +198,7 @@ test("buildWorkspaceRefreshErrorState ignores last-good diagnostics from another
     error: "missing",
     listSkippedCount: 0,
     readFailedCount: 0,
+    complexitySkippedCount: 0,
     limitHit: false,
   });
 });
@@ -203,6 +212,7 @@ test("normalizeWorkspaceIndexCache clamps malformed persisted diagnostics", () =
     docs: "not docs",
     processedCount: 99,
     readFailedCount: -4,
+    complexitySkippedCount: -2,
     listSkippedCount: "many",
     limitHit: "yes",
   });
@@ -212,6 +222,7 @@ test("normalizeWorkspaceIndexCache clamps malformed persisted diagnostics", () =
   assert.deepEqual(normalized.docs, []);
   assert.equal(normalized.processedCount, 2);
   assert.equal(normalized.readFailedCount, 0);
+  assert.equal(normalized.complexitySkippedCount, 0);
   assert.equal(normalized.listSkippedCount, 0);
   assert.equal(normalized.limitHit, false);
 });
@@ -225,6 +236,7 @@ test("buildWorkspaceStateFromCache normalizes malformed persisted arrays before 
     docs: null,
     processedCount: 4,
     readFailedCount: 2.8,
+    complexitySkippedCount: 3.8,
     listSkippedCount: 1.2,
     limitHit: true,
   }, "/workspace");
@@ -239,6 +251,7 @@ test("buildWorkspaceStateFromCache normalizes malformed persisted arrays before 
     error: null,
     listSkippedCount: 1,
     readFailedCount: 2,
+    complexitySkippedCount: 3,
     limitHit: true,
   });
 });

@@ -1,3 +1,5 @@
+import { countWords } from "./word-count";
+
 export interface ReadingStats {
   wordCount: number;
   readingTimeMinutes: number;
@@ -30,9 +32,7 @@ export function computeReadingStats(content: string, fileType?: string): Reading
   text = text.replace(/```[\s\S]*?```/g, "");
   text = text.replace(/~~~[\s\S]*?~~~/g, "");
 
-  // Split on whitespace, filter empty
-  const words = text.split(/\s+/).filter((w) => w.length > 0);
-  const wordCount = words.length;
+  const wordCount = countWords(text);
   const readingTimeMinutes = Math.max(1, Math.round(wordCount / WORDS_PER_MINUTE));
 
   const WORDS_PER_SCREENPLAY_PAGE = 160;

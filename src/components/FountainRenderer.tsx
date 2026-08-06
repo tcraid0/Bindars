@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { parseFountain, normalizeCharacterName } from "../lib/fountain";
-import type { FountainToken, FountainTitlePageEntry } from "../lib/fountain";
+import { normalizeCharacterName } from "../lib/fountain";
+import type { FountainToken, FountainTitlePageEntry, ParsedFountain } from "../lib/fountain";
 import { resolveParagraphSpacingCss, resolveReaderSurfaceStyle } from "../lib/reader-settings";
 import type { ReaderSettings } from "../types";
 
@@ -60,8 +60,7 @@ function renderFountainText(text: string): ReactNode {
 }
 
 interface FountainRendererProps {
-  content: string;
-  filePath: string;
+  parsed: ParsedFountain;
   settings: ReaderSettings;
   contentRef: React.RefObject<HTMLElement | null>;
   focusedCharacter?: string | null;
@@ -72,12 +71,10 @@ interface FountainRendererProps {
 /* ------------------------------------------------------------------ */
 
 const FountainContent = memo(function FountainContent({
-  content,
+  parsed,
 }: {
-  content: string;
+  parsed: ParsedFountain;
 }) {
-  const parsed = useMemo(() => parseFountain(content), [content]);
-
   // Group tokens, collecting dual-dialogue blocks into paired arrays.
   // Track current character name for data-character attributes.
   type SingleGroup = { kind: "single"; token: FountainToken; index: number; sceneId?: string; sourceLine?: number; sourceColumn?: number; characterName?: string };
@@ -195,7 +192,7 @@ const FountainContent = memo(function FountainContent({
 /* ------------------------------------------------------------------ */
 
 function FountainRendererComponent({
-  content,
+  parsed,
   settings,
   contentRef,
   focusedCharacter,
@@ -234,7 +231,7 @@ function FountainRendererComponent({
         "--paragraph-spacing": resolveParagraphSpacingCss(settings.paragraphSpacing),
       } as React.CSSProperties}
     >
-      <FountainContent content={content} />
+      <FountainContent parsed={parsed} />
     </article>
   );
 }
