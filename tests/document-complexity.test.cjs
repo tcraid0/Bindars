@@ -71,6 +71,49 @@ test("production complexity policy defines explicit provisional safety ceilings"
   });
 });
 
+test("the unit total admits many maximal blocks, which no per-block ceiling bounds", () => {
+  // The depth ceilings are per block: a blank line resets inline nesting, so
+  // a document can repeat a maximal block until the unit total stops it.
+  // Pinning that count makes the aggregate exposure visible. Raising a
+  // per-block ceiling moves this number, and whoever does it then has to
+  // confront what the whole document costs rather than one block.
+  //
+  // This exists because that is exactly the mistake once made here: a single
+  // maximal block was measured, called the worst accepted document, and used
+  // to justify raising the ceilings eightfold. On the supported target the
+  // document below renders in about 5.8 seconds, and the policy has no
+  // aggregate budget at all. See the V-01 and D-02 audit records.
+  const block = nestedEmphasis(MARKDOWN_MAX_INLINE_NESTING);
+  const document = (count) => Array.from({ length: count }, () => block).join("\n\n");
+
+  let accepted = 0;
+  while (checkDocumentComplexity(document(accepted + 1), "markdown").ok) accepted += 1;
+
+  assert.equal(accepted, 116, "aggregate exposure changed: re-measure before accepting it");
+});
+
+test("the Markdown depth ceilings are pinned, so policy cannot drift silently", () => {
+  // Every depth-boundary test below derives its fixture from these constants,
+  // so without this assertion a changed ceiling would keep the suite green.
+  // These are compatibility limits, not a measured performance bound: moving
+  // them is a deliberate policy decision that should fail here first. See the
+  // header comment in document-complexity.ts and the V-01/D-02 audit records.
+  assert.deepEqual(
+    {
+      containerDepth: MARKDOWN_MAX_CONTAINER_DEPTH,
+      indentColumns: MARKDOWN_MAX_INDENT_COLUMNS,
+      indentColumnsPerUnit: MARKDOWN_INDENT_COLUMNS_PER_UNIT,
+      inlineNesting: MARKDOWN_MAX_INLINE_NESTING,
+    },
+    {
+      containerDepth: 128,
+      indentColumns: 256,
+      indentColumnsPerUnit: 4,
+      inlineNesting: 128,
+    },
+  );
+});
+
 for (const format of ["markdown", "fountain"]) {
   test(`${format} complexity accepts immediately below and at the limit, then rejects above it`, () => {
     const maxUnits = DOCUMENT_COMPLEXITY_POLICY[format].maxUnits;
@@ -194,7 +237,10 @@ test("nested blockquotes immediately below and at the depth limit pass, above it
   // The fixture is tiny in structural units, so the depth limit — not the
   // 30,000-unit total — must be what rejects it. The sentinel also proves
   // the scanner exited as soon as the limit was exceeded.
-  assert.ok(at.measurement.units < 300, "fixture must stay far below the unit total");
+  assert.ok(
+    at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
+    "fixture must stay far below the unit total, so only the depth ceiling can reject it",
+  );
   assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
@@ -243,7 +289,10 @@ test("leading spaces immediately below and at the indentation limit pass, above 
   assert.equal(below.ok, true);
   assert.equal(at.ok, true);
   assert.equal(above.ok, false);
-  assert.ok(at.measurement.units < 300, "fixture must stay far below the unit total");
+  assert.ok(
+    at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
+    "fixture must stay far below the unit total, so only the depth ceiling can reject it",
+  );
   assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
@@ -334,7 +383,10 @@ test("nested inline emphasis is bounded immediately below, at, and above its lim
   assert.equal(below.ok, true);
   assert.equal(at.ok, true);
   assert.equal(above.ok, false);
-  assert.ok(at.measurement.units < 300, "fixture must stay far below the structural-unit total");
+  assert.ok(
+    at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
+    "fixture must stay far below the structural-unit total",
+  );
   assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
@@ -539,14 +591,15 @@ test("spending the code-span lookahead budget degrades conservatively", () => {
   const padding = "word ".repeat(1_000);
   let burnBudget = "";
   for (let size = 2; size <= 7; size += 1) burnBudget += `${"`".repeat(size)}${padding}`;
-  const heavyCodeSpan = `\`${"*a ".repeat(200)}\``;
+  const heavyCodeSpan = `\`${"*a ".repeat(MARKDOWN_MAX_INLINE_NESTING + 1)}\``;
 
   // Each half is cheap on its own, and the code span suppresses its delimiters.
   assert.equal(checkDocumentComplexity(burnBudget, "markdown").ok, true);
   assert.equal(checkDocumentComplexity(heavyCodeSpan, "markdown").ok, true);
 
-  // Together, the budget is gone before the span is reached, so its 200
-  // openers are charged and the document is refused rather than mismeasured.
+  // Together, the budget is gone before the span is reached, so the span's
+  // openers — one past the inline ceiling — are charged and the document is
+  // refused rather than mismeasured.
   assert.equal(
     checkDocumentComplexity(`${burnBudget} ${heavyCodeSpan}`, "markdown").ok,
     false,

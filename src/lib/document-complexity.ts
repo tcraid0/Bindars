@@ -65,31 +65,54 @@ export const SMARTYPANTS_MAX_WORDS = 32_768;
 export const SMARTYPANTS_MAX_CHARS = 65_536;
 
 /**
- * Markdown container and indentation ceilings. The structural-unit total
- * alone does not bound parser/renderer recursion or layout depth: a single
- * line of 4,000 nested blockquote markers costs only ~4,001 units but
- * overflowed mdast-util-to-hast's recursive blockquote conversion with
- * `RangeError: Maximum call stack size exceeded`, and ~1 MB of progressively
- * indented nested lists passed at ~2,000 units and rendered for ~12.7 s
- * (Node 25). The scanner therefore additionally enforces:
+ * Markdown container, indentation and inline-nesting ceilings. The
+ * structural-unit total alone does not bound render cost: a single line of
+ * 4,000 nested blockquote markers costs only ~4,001 units, and ~1 MB of
+ * progressively indented nested lists passes at ~2,000 units.
+ *
+ * **These values are compatibility limits, not a measured performance bound.
+ * Do not describe them as one.** They are deliberately far beyond ordinary
+ * documents, where real nesting is a handful of levels, and they are cheap
+ * enough not to matter — but they do not bound what a document costs to
+ * render, for two measured reasons:
+ *
+ * 1. Each is a PER-BLOCK or PER-LINE ceiling, while the structural-unit total
+ *    buys many blocks. About 116 separate paragraphs at the inline
+ *    ceiling fit inside 30,000 units; that document renders in ~5.8 s on the
+ *    target. No per-block number can fix this; it needs an aggregate budget.
+ * 2. Depth is not what makes real documents slow. A valid 5,000-row GFM table
+ *    is accepted at ~25,000 units with depth 4 and renders in ~5.3 s. The
+ *    unit total, which governs that shape, has never been calibrated against
+ *    render cost at all.
+ *
+ * What IS measured, on WebKitGTK 2.52.5 running this application's real
+ * plugin pipeline: every trial that produced a non-empty DOM completed
+ * without a stack overflow, including the 4,096-blockquote line that throws
+ * `RangeError: Maximum call stack size exceeded` under Node. That line
+ * renders on the target in 418 ms. The 16,384-inline trial produced no DOM,
+ * so its outcome is inconclusive. Validated deep shapes stall on a smooth
+ * superlinear curve. Per-shape costs at these ceilings are small (128 inline
+ * levels 39 ms, 128 blockquotes 23 ms, the 128-level progressive list 85 ms),
+ * which is why the ceilings are cheap — not why they are correct.
  *
  * - MARKDOWN_MAX_CONTAINER_DEPTH: markers in one line's leading container
- *   prefix (`>`, `-`/`+`/`*`, `1.`/`1)`, mixed). Tightest valid nesting
- *   needs at least two columns per level (`- `), so the indentation ceiling
- *   below independently bounds progressive nesting to the same depth.
+ *   prefix (`>`, `-`/`+`/`*`, `1.`/`1)`, mixed). Note this governs tight
+ *   list nesting too, which yields two DOM levels per source level, not just
+ *   the cheaper blockquotes.
  * - MARKDOWN_MAX_INDENT_COLUMNS: whitespace width throughout the leading
  *   container prefix, including indentation after `>` or a list marker,
- *   using four-column tab stops.
+ *   using four-column tab stops. At two columns per level this bounds
+ *   progressive list nesting, whose source grows quadratically with depth.
  * - one structural unit per MARKDOWN_INDENT_COLUMNS_PER_UNIT prefix-whitespace
  *   columns, so many moderately indented lines cannot sum to
  *   unbounded container open/close work under the unit ceiling.
  * - MARKDOWN_MAX_INLINE_NESTING: outstanding inline-emphasis delimiters
- *   within one source block. Valid emphasis nesting can recurse just as
- *   deeply as block containers, while consuming only two structural units
- *   per level. See `applyInlineDelimiterRun` for the exact invariant.
+ *   within one source block. See `applyInlineDelimiterRun` for its invariant.
  *
- * All are provisional pending V-01 WebView measurements, and deliberately
- * far beyond ordinary documents (real nesting is a handful of levels).
+ * These were briefly raised to 512/512/1,024 on the strength of a per-shape
+ * worst case that turned out not to be the worst case, and restored here.
+ * V-01 and D-02 record the measurements, their limits, and the aggregate
+ * policy work that has to happen before any of these numbers move again.
  */
 export const MARKDOWN_MAX_CONTAINER_DEPTH = 128;
 export const MARKDOWN_MAX_INDENT_COLUMNS = 256;
