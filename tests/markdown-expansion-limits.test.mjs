@@ -30,6 +30,10 @@ const {
   MARKDOWN_MAX_INLINE_NESTING,
   checkDocumentComplexity,
 } = require("../.tmp/workspace-tests/src/lib/document-complexity.js");
+const {
+  inlineNestingBypasses,
+  splitCodeSpanBypasses,
+} = require("./markdown-complexity-fixtures.cjs");
 
 function renderMarkdown(markdown, { remark = remarkPlugins, rehype = rehypePlugins } = {}) {
   return renderToStaticMarkup(
@@ -371,22 +375,13 @@ test("maximum accepted list and inline nesting render safely when combined", () 
 });
 
 test("cross-delimiter bypasses are rejected before the renderer can recurse", () => {
-  // Every shape here nests emphasis 3,000 deep in the installed parser while
-  // offering a run the scanner must not treat as a closer. Before the fix each
-  // one passed preflight and then threw `RangeError: Maximum call stack size
-  // exceeded` out of `mdast-util-to-hast`, so preflight is the only thing that
-  // may run on them.
-  const bypasses = {
-    "inert `~` run": `${"*a~ ".repeat(3_000)}x${"*".repeat(3_000)}`,
-    "inert `_` run": `${"*a_ ".repeat(3_000)}x${"*".repeat(3_000)}`,
-    "marker-only `+` line": `${"*a\n+\n".repeat(3_000)}x${"*".repeat(3_000)}`,
-    "rule-of-three closer": `${"*a b**c ".repeat(3_000)}x${"*".repeat(3_000)}`,
-    "link-label closer": `${"*a [b*](c) ".repeat(3_000)}x${"*".repeat(3_000)}`,
-    // The two backtick runs cannot pair: the heading ends the first paragraph,
-    // so everything between them is ordinary inline content, not code.
-    "code span split by a heading":
-      `\`\` a\n# h\n${"*a ".repeat(3_000)}x${" b*".repeat(3_000)} \`\``,
-  };
+  // Every shape nests emphasis 3,000 deep in the installed parser while
+  // offering a run the scanner must not treat as a closer, or a pair of
+  // backtick runs that cannot form a code span. Before the fixes each passed
+  // preflight and then threw `RangeError: Maximum call stack size exceeded`
+  // out of `mdast-util-to-hast`, so preflight is the only thing that may ever
+  // run on them — which is why this suite asserts rejection and never renders.
+  const bypasses = { ...inlineNestingBypasses(), ...splitCodeSpanBypasses() };
 
   for (const [label, source] of Object.entries(bypasses)) {
     assert.equal(checkDocumentComplexity(source, "markdown").ok, false, label);

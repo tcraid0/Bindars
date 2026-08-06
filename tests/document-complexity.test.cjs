@@ -16,6 +16,11 @@ const {
 const {
   prepareReaderDocument,
 } = require("../.tmp/workspace-tests/src/lib/document-processing.js");
+const {
+  inlineNestingBypasses,
+  splitCodeSpanBypasses,
+  fencedCodeLookalike,
+} = require("./markdown-complexity-fixtures.cjs");
 const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const { parseSlides } = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
 const {
@@ -410,18 +415,11 @@ test("test-only Markdown limits can lower but never raise production ceilings", 
   assert.equal(checkDocumentComplexity(nestedEmphasis(4), "markdown", { maxMarkdownInlineNesting: 4 }).ok, true);
 });
 
-// The counter-review reproductions. Each drove the pass-7 counter back down
-// with a run the installed parser cannot use as a closer, so emphasis kept
-// nesting: at 3,000 levels every one of these overflowed
-// `mdast-util-to-hast` with `RangeError: Maximum call stack size exceeded`.
-const CROSS_DELIMITER_BYPASSES = {
-  "inert `~` run": `${"*a~ ".repeat(3_000)}x${"*".repeat(3_000)}`,
-  "inert `_` run": `${"*a_ ".repeat(3_000)}x${"*".repeat(3_000)}`,
-  "marker-only `+` line": `${"*a\n+\n".repeat(3_000)}x${"*".repeat(3_000)}`,
-};
-
-test("a run of one delimiter cannot cancel nesting opened by another", () => {
-  for (const [label, source] of Object.entries(CROSS_DELIMITER_BYPASSES)) {
+test("no run the parser cannot use as a closer can release inline nesting", () => {
+  // Cross-delimiter cancellation, a marker-only line, micromark's rule of
+  // three, link and autolink content, escapes, code spans, and tilde runs too
+  // long to be strikethrough. See the shared fixture module for each shape.
+  for (const [label, source] of Object.entries(inlineNestingBypasses())) {
     assert.equal(checkDocumentComplexity(source, "markdown").ok, false, label);
   }
 });
@@ -442,51 +440,97 @@ test("an empty list item does not end the paragraph that holds open delimiters",
   );
 });
 
-test("same-character runs the parser cannot use as closers do not release nesting", () => {
-  // Each shape puts a run where a scanner that only checked the delimiter
-  // character would decrement, but where the installed parser cannot match:
-  // micromark's rule of three (opener 1 + closer 2 is a multiple of three),
-  // link and autolink content, which resolves separately from its
-  // surroundings, an escaped literal, a code span, and a tilde run too long
-  // to be strikethrough.
-  const ruleOfThree = `${"*a b**c ".repeat(200)}x${"*".repeat(200)}`;
-  const linkLabel = `${"*a [b*](c) ".repeat(200)}x${"*".repeat(200)}`;
-  const autolink = `${"*a <http://x/*> ".repeat(200)}x${"*".repeat(200)}`;
-  const escaped = `${"*a\\* ".repeat(200)}x${"*".repeat(200)}`;
-  const codeSpan = `${"*a `*` ".repeat(200)}x${"*".repeat(200)}`;
-  const longTildeRun = `${"*a~~~ ".repeat(200)}x${"*".repeat(200)}`;
-
-  for (const source of [ruleOfThree, linkLabel, autolink, escaped, codeSpan, longTildeRun]) {
-    assert.equal(checkDocumentComplexity(source, "markdown").ok, false);
-  }
-});
-
 test("a code span cannot be paired across a line that ends the paragraph", () => {
-  // Inline parsing happens per block, so the two backtick runs below never
-  // form a code span: the middle line ends the first paragraph. Suppressing
-  // inline accounting between them hid 3,000 levels of real emphasis, which
-  // the installed parser builds and `mdast-util-to-hast` then overflows.
-  const nested = `${"*a ".repeat(3_000)}x${" b*".repeat(3_000)} \`\``;
-  const interrupters = { heading: "# h", thematicBreak: "***", listItem: "- i" };
-
-  for (const [label, interrupter] of Object.entries(interrupters)) {
-    assert.equal(
-      checkDocumentComplexity(`\`\` a\n${interrupter}\n${nested}`, "markdown").ok,
-      false,
-      label,
-    );
+  // Inline parsing happens per block, so the two backtick runs never form a
+  // code span: the middle line ends the first paragraph. Suppressing inline
+  // accounting between them hid 3,000 levels of real emphasis, which the
+  // installed parser builds and `mdast-util-to-hast` then overflows.
+  for (const [label, source] of Object.entries(splitCodeSpanBypasses())) {
+    assert.equal(checkDocumentComplexity(source, "markdown").ok, false, label);
   }
 
   // The same shape with an unclosed fence instead stays accepted, and must:
   // the fence really does run to the end of the document, so the parser sees
   // one shallow code block (measured top-level blocks `paragraph`, `code`).
-  assert.equal(checkDocumentComplexity(`\`\` a\n\`\`\`\n${nested}`, "markdown").ok, true);
+  assert.equal(checkDocumentComplexity(fencedCodeLookalike(), "markdown").ok, true);
 
   // A code span that opens and closes on one line still suppresses its
   // contents, which is what keeps delimiter-heavy inline code accepted.
   assert.equal(
     checkDocumentComplexity(`\`${"*".repeat(500)}\``, "markdown").ok,
     true,
+  );
+});
+
+test("inline nesting survives CRLF and lone-CR soft breaks, and resets on either blank line", () => {
+  // The scanner consumes CRLF as one ending and a lone CR as another, so both
+  // must behave exactly like LF for inline state: a soft break keeps every
+  // opener, and a blank line drops them.
+  for (const ending of ["\n", "\r\n", "\r"]) {
+    const softBreaks = `${`*a${ending}`.repeat(6)}x`;
+    const blankLines = `${`*a${ending}${ending}`.repeat(6)}x`;
+
+    assert.equal(
+      checkDocumentComplexity(softBreaks, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
+      false,
+      `soft breaks with ${JSON.stringify(ending)}`,
+    );
+    assert.equal(
+      checkDocumentComplexity(blankLines, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
+      true,
+      `blank lines with ${JSON.stringify(ending)}`,
+    );
+  }
+});
+
+test("Unicode whitespace and punctuation classify delimiters like the parser does", () => {
+  // Flanking is decided over Unicode classes, not ASCII. An ideographic space
+  // before `*` leaves it opening-only; a Chinese full stop after it is
+  // punctuation, so the run cannot open against a letter on its left.
+  const ideographicSpace = "　";
+  const fullStop = "。";
+
+  assert.equal(
+    checkDocumentComplexity(`${`a${ideographicSpace}*b`.repeat(6)}`, "markdown", {
+      maxMarkdownInlineNesting: 4,
+    }).ok,
+    false,
+    "Unicode whitespace before a run leaves it able to open",
+  );
+  assert.equal(
+    checkDocumentComplexity(`${`a*${fullStop}`.repeat(200)}`, "markdown").ok,
+    true,
+    "a run closed by Unicode punctuation after a letter cannot open",
+  );
+  // Emphasis whose content is non-ASCII still counts, so the ceiling is not
+  // an ASCII-only guard.
+  let nested = "你好";
+  for (let index = 0; index < 6; index += 1) nested = `*あ ${nested} い*`;
+  assert.equal(
+    checkDocumentComplexity(nested, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
+    false,
+  );
+});
+
+test("spending the code-span lookahead budget degrades conservatively", () => {
+  // Unmatched backtick runs sharing one long line are the only shape that can
+  // spend the budget: each scans to the end of that line and finds no partner.
+  // Once spent, code spans stop being recognized and their contents count as
+  // ordinary text, which can only over-count — never hide nesting.
+  const padding = "word ".repeat(1_000);
+  let burnBudget = "";
+  for (let size = 2; size <= 7; size += 1) burnBudget += `${"`".repeat(size)}${padding}`;
+  const heavyCodeSpan = `\`${"*a ".repeat(200)}\``;
+
+  // Each half is cheap on its own, and the code span suppresses its delimiters.
+  assert.equal(checkDocumentComplexity(burnBudget, "markdown").ok, true);
+  assert.equal(checkDocumentComplexity(heavyCodeSpan, "markdown").ok, true);
+
+  // Together, the budget is gone before the span is reached, so its 200
+  // openers are charged and the document is refused rather than mismeasured.
+  assert.equal(
+    checkDocumentComplexity(`${burnBudget} ${heavyCodeSpan}`, "markdown").ok,
+    false,
   );
 });
 

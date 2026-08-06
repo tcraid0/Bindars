@@ -232,11 +232,12 @@ function countStructuralUnits(
   let fenceMarker = 0;
   let fenceLength = 0;
   let suppressInlineUntil = -1;
-  // Code-span detection needs lookahead, and an unclosed backtick run scans to
-  // the end of its block. Every scanned character is charged here so the total
-  // scan stays linear in the document; once spent, backticks are charged as
-  // ordinary structure and their contents keep counting delimiters, which can
-  // only over-count.
+  // Code-span detection needs lookahead, bounded by the line it starts on.
+  // That still leaves one pathological case — many unmatched backtick runs on
+  // a single very long line, each scanning to the end of it — so every scanned
+  // character is charged here and the total stays linear in the document. Once
+  // spent, backticks are charged as ordinary structure and their contents keep
+  // counting delimiters, which can only over-count.
   let codeSpanLookahead = content.length * 2;
 
   for (let index = 0; index < content.length; index += 1) {
@@ -293,68 +294,66 @@ function countStructuralUnits(
       lineStart = scanLinePrefixes;
       if (!lineHasContent) resetInlineNesting(inline);
       lineHasContent = false;
-    } else if (format === "markdown" && code === 0x5c && !inlineSuppressed) {
-      // A backslash escape makes the next ASCII punctuation character literal
-      // text, so it can never act as a delimiter, code-span fence, or barrier.
-      units += 1;
-      const escaped = content.charCodeAt(index + 1);
-      if (isAsciiPunctuation(escaped)) {
-        if (
-          isMarkdownInlineDelimiter(escaped)
-          || isInlineMatchingBarrier(escaped)
-          || isMarkdownStructuralCharacter(escaped)
-          || escaped === 0x60
-        ) {
-          units += 1;
+    } else if (format === "markdown") {
+      if (code === 0x5c && !inlineSuppressed) {
+        // A backslash escape makes the next ASCII punctuation character
+        // literal text, so it can never act as a delimiter, code-span fence,
+        // or barrier.
+        units += 1;
+        const escaped = content.charCodeAt(index + 1);
+        if (isAsciiPunctuation(escaped)) {
+          if (isChargedMarkdownCharacter(escaped)) units += 1;
+          index += 1;
         }
-        index += 1;
+        textRunLength = 0;
+        lineHasContent = true;
+      } else if (code === 0x60) {
+        const runLength = markdownDelimiterRunLength(content, index, code);
+        units += runLength;
+        textRunLength = 0;
+        lineHasContent = true;
+        if (!inlineSuppressed && codeSpanLookahead > 0) {
+          const span = findCodeSpanEnd(content, index + runLength, runLength);
+          codeSpanLookahead -= span.scanned;
+          if (span.end >= 0) suppressInlineUntil = span.end;
+        }
+        index += runLength - 1;
+      } else if (isMarkdownInlineDelimiter(code)) {
+        const runLength = markdownDelimiterRunLength(content, index, code);
+        units += runLength;
+        textRunLength = 0;
+        lineHasContent = true;
+        if (!inlineSuppressed) {
+          const open = applyInlineDelimiterRun(inline, content, index, runLength, code);
+          if (open > markdownLimits.maxInlineNesting) return maxUnits + 1;
+        }
+        index += runLength - 1;
+      } else if (isInlineMatchingBarrier(code)) {
+        // Link labels, autolinks, and raw HTML are separate content regions: a
+        // delimiter inside one cannot close an opener outside it, and vice
+        // versa. Sealing the current openers keeps the estimate conservative
+        // without modelling link resolution.
+        units += 1;
+        textRunLength = 0;
+        lineHasContent = true;
+        if (!inlineSuppressed) sealInlineNesting(inline);
+      } else if (isMarkdownStructuralCharacter(code)) {
+        units += 1;
+        textRunLength = 0;
+        lineHasContent = true;
+      } else if (isWhitespaceCodeUnit(code)) {
+        textRunLength = 0;
+      } else {
+        lineHasContent = true;
+        textRunLength += 1;
+        // Bound very long inline constructs such as math even without delimiters.
+        if (textRunLength % 16 === 0) units += 1;
       }
-      textRunLength = 0;
-      lineHasContent = true;
-    } else if (format === "markdown" && code === 0x60) {
-      const runLength = markdownDelimiterRunLength(content, index, code);
-      units += runLength;
-      textRunLength = 0;
-      lineHasContent = true;
-      if (!inlineSuppressed && codeSpanLookahead > 0) {
-        const span = findCodeSpanEnd(content, index + runLength, runLength);
-        codeSpanLookahead -= span.scanned;
-        if (span.end >= 0) suppressInlineUntil = span.end;
-      }
-      index += runLength - 1;
-    } else if (format === "markdown" && isMarkdownInlineDelimiter(code)) {
-      const runLength = markdownDelimiterRunLength(content, index, code);
-      units += runLength;
-      textRunLength = 0;
-      lineHasContent = true;
-      if (!inlineSuppressed) {
-        const open = applyInlineDelimiterRun(inline, content, index, runLength, code);
-        if (open > markdownLimits.maxInlineNesting) return maxUnits + 1;
-      }
-      index += runLength - 1;
-    } else if (format === "markdown" && isInlineMatchingBarrier(code)) {
-      // Link labels, autolinks, and raw HTML are separate content regions: a
-      // delimiter inside one cannot close an opener outside it, and vice
-      // versa. Sealing the current openers keeps the estimate conservative
-      // without modelling link resolution.
-      units += 1;
-      textRunLength = 0;
-      lineHasContent = true;
-      if (!inlineSuppressed) sealInlineNesting(inline);
-    } else if (format === "markdown" && isMarkdownStructuralCharacter(code)) {
-      units += 1;
-      textRunLength = 0;
-      lineHasContent = true;
-    } else if (format === "fountain" && isFountainInlineStructuralCharacter(code)) {
+    } else if (isFountainInlineStructuralCharacter(code)) {
       units += 1;
       textRunLength = 0;
     } else if (isWhitespaceCodeUnit(code)) {
       textRunLength = 0;
-    } else if (format === "markdown") {
-      lineHasContent = true;
-      textRunLength += 1;
-      // Bound very long inline constructs such as math even without delimiters.
-      if (textRunLength % 16 === 0) units += 1;
     }
 
     if (units > maxUnits) return maxUnits + 1;
@@ -555,7 +554,37 @@ function findCodeSpanEnd(content: string, start: number, size: number): CodeSpan
   return { end: -1, scanned: index - start };
 }
 
+const DELIMITER_ASTERISK = 0x2a;
+const DELIMITER_UNDERSCORE = 0x5f;
+const DELIMITER_TILDE = 0x7e;
+
+/** Each delimiter owns one opener stack; see `delimiterSlot`. */
+const SLOT_ASTERISK = 0;
+const SLOT_UNDERSCORE = 1;
+const SLOT_TILDE = 2;
 const DELIMITER_SLOT_COUNT = 3;
+
+const CHARACTER_OTHER = 0;
+const CHARACTER_WHITESPACE = 1;
+const CHARACTER_PUNCTUATION = 2;
+
+/**
+ * Mirrors micromark-util-classify-character. `/\s/` already covers every code
+ * unit `isWhitespaceCodeUnit` does, including U+FEFF, so it is the single
+ * definition of whitespace here. Input edges count as whitespace.
+ */
+const UNICODE_WHITESPACE_PATTERN = /\s/;
+const UNICODE_PUNCTUATION_PATTERN = /\p{P}|\p{S}/u;
+
+function classifyCharacter(code: number): number {
+  if (Number.isNaN(code)) return CHARACTER_WHITESPACE;
+
+  const character = String.fromCharCode(code);
+  if (UNICODE_WHITESPACE_PATTERN.test(character)) return CHARACTER_WHITESPACE;
+  if (UNICODE_PUNCTUATION_PATTERN.test(character)) return CHARACTER_PUNCTUATION;
+  // An unpaired surrogate lands here, which only makes a run look openable.
+  return CHARACTER_OTHER;
+}
 
 interface InlineOpener {
   /** Delimiter characters still available to open emphasis. */
@@ -596,10 +625,23 @@ function sealInlineNesting(state: InlineNestingState): void {
   }
 }
 
+/**
+ * Slot owned by one inline delimiter, or -1 for anything else. Callers reach
+ * this only behind `isMarkdownInlineDelimiter`, so -1 is unreachable; naming
+ * every case keeps an unexpected character out of the tilde stack instead of
+ * silently sharing it.
+ */
 function delimiterSlot(code: number): number {
-  if (code === 0x2a) return 0; // *
-  if (code === 0x5f) return 1; // _
-  return 2; // ~
+  switch (code) {
+    case DELIMITER_ASTERISK:
+      return SLOT_ASTERISK;
+    case DELIMITER_UNDERSCORE:
+      return SLOT_UNDERSCORE;
+    case DELIMITER_TILDE:
+      return SLOT_TILDE;
+    default:
+      return -1;
+  }
 }
 
 /**
@@ -649,24 +691,26 @@ function applyInlineDelimiterRun(
   let canOpen: boolean;
   let canClose: boolean;
 
-  if (code === 0x7e) {
+  if (code === DELIMITER_TILDE) {
     // GFM strikethrough never uses a run longer than two tildes, so a longer
     // run is literal text that neither opens nor closes.
     if (runLength > 2) return state.totalOpen;
     canOpen = leftFlanking;
     canClose = rightFlanking;
-  } else if (code === 0x5f) {
+  } else if (code === DELIMITER_UNDERSCORE) {
     canOpen = leftFlanking && (before !== CHARACTER_OTHER || !rightFlanking);
     canClose = rightFlanking && (after !== CHARACTER_OTHER || !leftFlanking);
   } else {
-    // GFM registers `~` as an attention marker, which lets a following tilde
-    // force `*`/`_` open. The mirrored rule that forces a run closed is
-    // deliberately not applied, because closing early would under-count.
-    canOpen = leftFlanking || afterCode === 0x7e;
+    // Asterisk. GFM registers `~` as an attention marker, which lets a
+    // following tilde force `*`/`_` open. The mirrored rule that forces a run
+    // closed is deliberately not applied, because closing early would
+    // under-count.
+    canOpen = leftFlanking || afterCode === DELIMITER_TILDE;
     canClose = rightFlanking;
   }
 
   const slot = delimiterSlot(code);
+  if (slot < 0) return state.totalOpen;
   const stack = state.stacks[slot];
   let remaining = runLength;
 
@@ -697,32 +741,27 @@ function applyInlineDelimiterRun(
   return state.totalOpen;
 }
 
-const CHARACTER_OTHER = 0;
-const CHARACTER_WHITESPACE = 1;
-const CHARACTER_PUNCTUATION = 2;
-
-/** Mirrors micromark-util-classify-character; input edges count as whitespace. */
-const UNICODE_WHITESPACE_PATTERN = /\s/;
-const UNICODE_PUNCTUATION_PATTERN = /\p{P}|\p{S}/u;
-
-function classifyCharacter(code: number): number {
-  if (Number.isNaN(code)) return CHARACTER_WHITESPACE;
-  if (isWhitespaceCodeUnit(code)) return CHARACTER_WHITESPACE;
-
-  const character = String.fromCharCode(code);
-  if (UNICODE_WHITESPACE_PATTERN.test(character)) return CHARACTER_WHITESPACE;
-  if (UNICODE_PUNCTUATION_PATTERN.test(character)) return CHARACTER_PUNCTUATION;
-  // An unpaired surrogate lands here, which only makes a run look openable.
-  return CHARACTER_OTHER;
-}
-
 function isMarkdownInlineDelimiter(code: number): boolean {
-  return code === 0x2a || code === 0x5f || code === 0x7e;
+  return code === DELIMITER_ASTERISK
+    || code === DELIMITER_UNDERSCORE
+    || code === DELIMITER_TILDE;
 }
 
 /** `[`, `]`, `<`, `>`: the source edges of separate inline content regions. */
 function isInlineMatchingBarrier(code: number): boolean {
   return code === 0x5b || code === 0x5d || code === 0x3c || code === 0x3e;
+}
+
+/**
+ * Whether a character costs one structural unit anywhere it appears. Used only
+ * to charge an escaped character the same as an unescaped one, so escaping
+ * cannot change a document's measured size.
+ */
+function isChargedMarkdownCharacter(code: number): boolean {
+  return isMarkdownInlineDelimiter(code)
+    || isInlineMatchingBarrier(code)
+    || isMarkdownStructuralCharacter(code)
+    || code === 0x60; // backtick
 }
 
 function markdownDelimiterRunLength(content: string, start: number, code: number): number {
