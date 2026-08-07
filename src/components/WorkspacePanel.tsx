@@ -1,4 +1,5 @@
 import type { BacklinkItem, MentionItem, WorkspaceState } from "../types";
+import { DOCUMENT_COMPLEXITY_REASON } from "../lib/document-complexity";
 
 interface WorkspacePanelProps {
   rootPath: string | null;
@@ -191,7 +192,9 @@ function formatDiagnostics(state: WorkspaceState): string {
   }
   if (state.complexitySkippedCount > 0) {
     const fileLabel = state.complexitySkippedCount === 1 ? "file was" : "files were";
-    parts.push(`${state.complexitySkippedCount} ${fileLabel} too complex to index safely`);
+    parts.push(
+      `${state.complexitySkippedCount} ${fileLabel} ${DOCUMENT_COMPLEXITY_REASON} to index safely`,
+    );
   }
   return parts.join(" | ");
 }

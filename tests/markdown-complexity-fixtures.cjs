@@ -101,6 +101,11 @@ function fencedCodeLookalike(levels = 3_000) {
   return `\`\` a\n\`\`\`\n${"*a ".repeat(levels)}x${" b*".repeat(levels)} \`\``;
 }
 
+function whitespaceSeparatedAscii(codeUnits) {
+  const pairs = Math.floor(codeUnits / 2);
+  return `${"a ".repeat(pairs)}${codeUnits % 2 === 0 ? "" : "a"}`;
+}
+
 module.exports = {
   BYPASS_SEGMENTS,
   PARAGRAPH_INTERRUPTERS,
@@ -110,4 +115,5 @@ module.exports = {
   whitespaceOnlyLineBypasses,
   blankLineControls,
   fencedCodeLookalike,
+  whitespaceSeparatedAscii,
 };

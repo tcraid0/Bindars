@@ -24,6 +24,39 @@ import {
 } from "./document-complexity";
 import { countWords } from "./word-count";
 
+declare const __BINDARS_DOCUMENT_PERFORMANCE_PROBE__: boolean | undefined;
+
+interface DocumentPerformanceProbeEvent {
+  type: "markdown-pipeline";
+  atMs: number;
+  smartypants: {
+    applied: boolean;
+    chars: number;
+    words: number;
+    measureMs: number;
+    transformMs: number;
+  };
+}
+
+type DocumentPerformanceProbeGlobal = typeof globalThis & {
+  __BINDARS_DOCUMENT_PERFORMANCE_EVENTS__?: DocumentPerformanceProbeEvent[];
+};
+
+function documentPerformanceProbeEnabled(): boolean {
+  return typeof __BINDARS_DOCUMENT_PERFORMANCE_PROBE__ !== "undefined"
+    && __BINDARS_DOCUMENT_PERFORMANCE_PROBE__;
+}
+
+function recordDocumentPerformanceEvent(event: DocumentPerformanceProbeEvent): void {
+  if (!documentPerformanceProbeEnabled()) return;
+  const probeGlobal = globalThis as DocumentPerformanceProbeGlobal;
+  const events = probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ ?? [];
+  if (!probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__) {
+    probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = events;
+  }
+  if (events.length < 256) events.push(event);
+}
+
 export interface SmartypantsGateOptions {
   /** Tests may lower the production ceiling to exercise exact boundaries. */
   maxWords?: number;
@@ -97,9 +130,26 @@ export function remarkGatedSmartypants(options: SmartypantsGateOptions = {}) {
   const transform = (remarkSmartypants as unknown as () => (tree: MdastRoot) => void)();
 
   return (tree: MdastRoot): void => {
+    const probeEnabled = documentPerformanceProbeEnabled();
+    const startedAt = probeEnabled ? performance.now() : 0;
     const input = measureSmartypantsInput(tree, maxWords, maxChars);
-    if (input.words > maxWords || input.chars > maxChars) return;
-    transform(tree);
+    const measuredAt = probeEnabled ? performance.now() : 0;
+    const applied = input.words <= maxWords && input.chars <= maxChars;
+    if (applied) transform(tree);
+    if (probeEnabled) {
+      const transformedAt = performance.now();
+      recordDocumentPerformanceEvent({
+        type: "markdown-pipeline",
+        atMs: startedAt,
+        smartypants: {
+          applied,
+          chars: input.chars,
+          words: input.words,
+          measureMs: measuredAt - startedAt,
+          transformMs: transformedAt - measuredAt,
+        },
+      });
+    }
   };
 }
 

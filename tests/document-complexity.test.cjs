@@ -7,7 +7,9 @@ const {
   checkDocumentComplexity,
   DOCUMENT_COMPLEXITY_MESSAGE,
   DOCUMENT_COMPLEXITY_POLICY,
+  DOCUMENT_COMPLEXITY_REASON,
   DocumentComplexityError,
+  MARKDOWN_MAX_SOURCE_CODE_UNITS,
   MARKDOWN_INDENT_COLUMNS_PER_UNIT,
   MARKDOWN_MAX_CONTAINER_DEPTH,
   MARKDOWN_MAX_INDENT_COLUMNS,
@@ -22,6 +24,7 @@ const {
   whitespaceOnlyLineBypasses,
   blankLineControls,
   fencedCodeLookalike,
+  whitespaceSeparatedAscii,
 } = require("./markdown-complexity-fixtures.cjs");
 const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const { parseSlides } = require("../.tmp/workspace-tests/src/lib/slide-parser.js");
@@ -66,9 +69,95 @@ function quotedProgressiveList(lines) {
 
 test("production complexity policy defines explicit provisional safety ceilings", () => {
   assert.deepEqual(DOCUMENT_COMPLEXITY_POLICY, {
-    markdown: { maxUnits: 30_000 },
+    markdown: { maxUnits: 30_000, maxSourceCodeUnits: 1_048_576 },
     fountain: { maxUnits: 20_000 },
   });
+  assert.equal(
+    MARKDOWN_MAX_SOURCE_CODE_UNITS,
+    1_048_576,
+    "the emergency source backstop must not drift with fixtures derived from it",
+  );
+  assert.equal(DOCUMENT_COMPLEXITY_REASON, "too large or complex");
+  assert.equal(
+    DOCUMENT_COMPLEXITY_MESSAGE,
+    "This document is too large or complex to display safely. You can still edit it to reduce or simplify the content.",
+  );
+});
+
+test("Markdown source volume accepts below and at the production backstop, then refuses above it", () => {
+  const below = checkDocumentComplexity(
+    whitespaceSeparatedAscii(1_048_575),
+    "markdown",
+  );
+  const at = checkDocumentComplexity(
+    whitespaceSeparatedAscii(1_048_576),
+    "markdown",
+  );
+  const above = checkDocumentComplexity(
+    whitespaceSeparatedAscii(1_048_577),
+    "markdown",
+  );
+
+  assert.equal(below.ok, true);
+  assert.equal(at.ok, true);
+  assert.equal(above.ok, false);
+  assert.deepEqual(above.error.violation, {
+    kind: "source-volume",
+    format: "markdown",
+    sourceCodeUnits: 1_048_577,
+    maxSourceCodeUnits: 1_048_576,
+  });
+});
+
+test("Markdown source volume counts UTF-16 code units for non-ASCII text", () => {
+  const options = { maxMarkdownSourceCodeUnits: 8 };
+
+  assert.equal(checkDocumentComplexity("é".repeat(8), "markdown", options).ok, true);
+  assert.equal(checkDocumentComplexity(`${"é".repeat(8)}x`, "markdown", options).ok, false);
+  assert.equal(checkDocumentComplexity("😀".repeat(4), "markdown", options).ok, true);
+
+  const astralAbove = checkDocumentComplexity(`${"😀".repeat(4)}x`, "markdown", options);
+  assert.equal(astralAbove.ok, false);
+  assert.equal(astralAbove.error.violation.kind, "source-volume");
+  assert.equal(astralAbove.error.violation.sourceCodeUnits, 9);
+});
+
+test("Markdown source volume counts exact LF and CRLF code units", () => {
+  const options = { maxMarkdownSourceCodeUnits: 4 };
+
+  assert.equal(checkDocumentComplexity("a\nb", "markdown", options).ok, true);
+  assert.equal(checkDocumentComplexity("a\r\nb", "markdown", options).ok, true);
+
+  const above = checkDocumentComplexity("a\r\nb\n", "markdown", options);
+  assert.equal(above.ok, false);
+  assert.deepEqual(above.error.violation, {
+    kind: "source-volume",
+    format: "markdown",
+    sourceCodeUnits: 5,
+    maxSourceCodeUnits: 4,
+  });
+});
+
+test("test-only source limits cannot raise the production Markdown backstop", () => {
+  const result = checkDocumentComplexity(
+    whitespaceSeparatedAscii(1_048_577),
+    "markdown",
+    { maxMarkdownSourceCodeUnits: Number.MAX_SAFE_INTEGER },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.violation.kind, "source-volume");
+  assert.equal(result.error.violation.maxSourceCodeUnits, 1_048_576);
+});
+
+test("Markdown source volume refuses before the structural scanner runs", () => {
+  const result = checkDocumentComplexity("#########", "markdown", {
+    maxMarkdownSourceCodeUnits: 8,
+    maxUnits: 1,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.violation.kind, "source-volume");
 });
 
 test("the unit total admits many maximal blocks, which no per-block ceiling bounds", () => {
@@ -127,7 +216,12 @@ for (const format of ["markdown", "fountain"]) {
     assert.equal(at.measurement.units, maxUnits);
     assert.equal(above.ok, false);
     assert.ok(above.error instanceof DocumentComplexityError);
-    assert.equal(above.error.units, maxUnits + 1);
+    assert.deepEqual(above.error.violation, {
+      kind: "structural",
+      format,
+      units: maxUnits + 1,
+      maxUnits,
+    });
     assert.equal(above.error.message, DOCUMENT_COMPLEXITY_MESSAGE);
   });
 }
@@ -168,7 +262,8 @@ test("long delimiter-free inline constructs still consume bounded structural uni
   const result = checkDocumentComplexity("a".repeat(16), "markdown", { maxUnits: 1 });
 
   assert.equal(result.ok, false);
-  assert.equal(result.error.units, 2);
+  assert.equal(result.error.violation.kind, "structural");
+  assert.equal(result.error.violation.units, 2);
 });
 
 test("reader preparation rejects both formats before statistics or Fountain expansion", () => {
@@ -194,6 +289,25 @@ test("presentation parsing shares the Markdown policy boundary", () => {
   );
 });
 
+test("reader, presentation, and workspace routes share the Markdown source-volume boundary", () => {
+  const content = "a b";
+  const options = { maxMarkdownSourceCodeUnits: 2 };
+
+  assert.deepEqual(prepareReaderDocument(content, "markdown", options), {
+    status: "too-complex",
+    message: DOCUMENT_COMPLEXITY_MESSAGE,
+  });
+  assert.throws(() => parseSlides(content, options), (error) => {
+    assert.ok(error instanceof DocumentComplexityError);
+    assert.equal(error.violation.kind, "source-volume");
+    return true;
+  });
+  assert.deepEqual(
+    tryBuildWorkspaceDoc(makeMeta("large.md"), content, options),
+    { status: "too-complex" },
+  );
+});
+
 test("workspace indexing distinguishes complexity skips for both formats", () => {
   const markdown = tryBuildWorkspaceDoc(
     makeMeta("dense.md"),
@@ -214,11 +328,12 @@ test("the rejection notice uses the shared non-technical message", () => {
   const html = renderToStaticMarkup(
     React.createElement(DocumentComplexityNotice, {
       contentRef: React.createRef(),
+      message: DOCUMENT_COMPLEXITY_MESSAGE,
     }),
   );
 
   assert.match(html, /role="alert"/);
-  assert.match(html, /Document too complex/);
+  assert.match(html, /Document too large or complex/);
   assert.ok(html.includes(DOCUMENT_COMPLEXITY_MESSAGE));
 });
 
@@ -241,7 +356,8 @@ test("nested blockquotes immediately below and at the depth limit pass, above it
     at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
     "fixture must stay far below the unit total, so only the depth ceiling can reject it",
   );
-  assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
+  assert.equal(above.error.violation.kind, "structural");
+  assert.equal(above.error.violation.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
 test("the depth limit covers tight, mixed, ordered, and unordered container prefixes", () => {
@@ -293,7 +409,8 @@ test("leading spaces immediately below and at the indentation limit pass, above 
     at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
     "fixture must stay far below the unit total, so only the depth ceiling can reject it",
   );
-  assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
+  assert.equal(above.error.violation.kind, "structural");
+  assert.equal(above.error.violation.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
 test("leading tabs use four-column tab stops for both the ceiling and the charge", () => {
@@ -387,7 +504,8 @@ test("nested inline emphasis is bounded immediately below, at, and above its lim
     at.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
     "fixture must stay far below the structural-unit total",
   );
-  assert.equal(above.error.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
+  assert.equal(above.error.violation.kind, "structural");
+  assert.equal(above.error.violation.units, DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits + 1);
 });
 
 test("inline nesting is tracked across soft lines and reset by a blank block boundary", () => {
@@ -687,6 +805,6 @@ test("workspace diagnostics explain complexity skips separately from read failur
     onOpenPalette() {},
   }));
 
-  assert.match(html, /1 file was too complex to index safely/);
+  assert.match(html, /1 file was too large or complex to index safely/);
   assert.doesNotMatch(html, /failed to read/);
 });

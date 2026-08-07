@@ -18,14 +18,15 @@ import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 const MAX_BODY_TEXT_CHARS = 30_000;
 // Raw HTML links are intentionally not indexed; the renderer does not enable raw HTML.
 const markdownLinkParser = new MarkdownIt({ html: false, linkify: false });
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v5";
+export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v6";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
   "workspace:index:v2",
   "workspace:index:v3",
   "workspace:index:v4",
+  "workspace:index:v5",
 ] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 5 as const;
+export const WORKSPACE_INDEX_CACHE_VERSION = 6 as const;
 export const WORKSPACE_INDEX_CACHE_KEYS = [
   ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   WORKSPACE_INDEX_CACHE_KEY,

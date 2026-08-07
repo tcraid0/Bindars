@@ -8,6 +8,7 @@ const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
+const { whitespaceSeparatedAscii } = require("./markdown-complexity-fixtures.cjs");
 const {
   markdownFormattingEnabled,
 } = require("../.tmp/workspace-tests/src/components/markdown-decorations.js");
@@ -1370,7 +1371,7 @@ async function renderContinuityApp({
   };
 }
 
-test("overly complex documents keep editing and print available without entering presentation", async () => {
+test("oversized Markdown keeps exact editing and print available without entering presentation", async () => {
   await installDom();
   const { DOCUMENT_COMPLEXITY_MESSAGE, DOCUMENT_COMPLEXITY_POLICY } = require(
     "../.tmp/workspace-tests/src/lib/document-complexity.js"
@@ -1388,7 +1389,9 @@ test("overly complex documents keep editing and print available without entering
     printCount += 1;
   };
 
-  const initialContent = `a${"#".repeat(DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits)}`;
+  const sourceLimit = DOCUMENT_COMPLEXITY_POLICY.markdown.maxSourceCodeUnits;
+  const initialContent = whitespaceSeparatedAscii(sourceLimit + 1);
+  assert.equal(initialContent.length, 1_048_577, "fixture must pin the production boundary independently");
   const rendered = await renderContinuityApp({
     initialContent,
     readySelector: '[role="alert"]',
@@ -1397,7 +1400,7 @@ test("overly complex documents keep editing and print available without entering
   try {
     const notice = rendered.host.querySelector('main [role="alert"]');
     assert.ok(notice);
-    assert.match(notice.textContent, /Document too complex/);
+    assert.match(notice.textContent, /Document too large or complex/);
     assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
     assert.doesNotMatch(rendered.host.textContent, /Opening file/);
 
@@ -1456,7 +1459,7 @@ test("deeply nested Markdown containers are rejected before the renderer grows t
   try {
     const notice = rendered.host.querySelector('main [role="alert"]');
     assert.ok(notice);
-    assert.match(notice.textContent, /Document too complex/);
+    assert.match(notice.textContent, /Document too large or complex/);
     assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
     assert.doesNotMatch(rendered.host.textContent, /Opening file/);
     assert.ok(!rendered.host.querySelector("blockquote"), "no nested structure was rendered");
@@ -1568,7 +1571,7 @@ test("mixed-delimiter inline nesting is rejected before the renderer grows a rec
   try {
     const notice = rendered.host.querySelector('main [role="alert"]');
     assert.ok(notice);
-    assert.match(notice.textContent, /Document too complex/);
+    assert.match(notice.textContent, /Document too large or complex/);
     assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
     assert.doesNotMatch(rendered.host.textContent, /Opening file/);
     assert.ok(!rendered.host.querySelector("em"), "no nested emphasis was rendered");
@@ -1609,7 +1612,7 @@ test("overly complex Fountain documents get the same rejection notice while edit
   try {
     const notice = rendered.host.querySelector('main [role="alert"]');
     assert.ok(notice);
-    assert.match(notice.textContent, /Document too complex/);
+    assert.match(notice.textContent, /Document too large or complex/);
     assert.ok(notice.textContent.includes(DOCUMENT_COMPLEXITY_MESSAGE));
     assert.doesNotMatch(rendered.host.textContent, /Opening file/);
     assert.ok(!rendered.host.querySelector(".fountain-scene-heading"));

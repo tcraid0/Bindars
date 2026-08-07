@@ -8,13 +8,35 @@ import { isWhitespaceCodeUnit } from "./word-count";
  * bypass the line bound. The limits leave substantial room for ordinary books
  * and screenplays; they are safety ceilings, not measured UI latency targets.
  */
-export const DOCUMENT_COMPLEXITY_POLICY = {
-  markdown: { maxUnits: 30_000 },
-  fountain: { maxUnits: 20_000 },
-} as const satisfies Record<FileType, { maxUnits: number }>;
+interface DocumentComplexityPolicy {
+  markdown: {
+    maxUnits: number;
+    maxSourceCodeUnits: number;
+  };
+  fountain: {
+    maxUnits: number;
+  };
+}
 
+export const DOCUMENT_COMPLEXITY_POLICY = {
+  markdown: {
+    maxUnits: 30_000,
+    /**
+     * Emergency backstop for the JavaScript rendering pipeline, measured in
+     * UTF-16 code units (`String.length`). This is not a responsiveness limit:
+     * smaller documents can still render slowly depending on their shape.
+     */
+    maxSourceCodeUnits: 1_048_576,
+  },
+  fountain: { maxUnits: 20_000 },
+} as const satisfies DocumentComplexityPolicy;
+
+export const MARKDOWN_MAX_SOURCE_CODE_UNITS =
+  DOCUMENT_COMPLEXITY_POLICY.markdown.maxSourceCodeUnits;
+
+export const DOCUMENT_COMPLEXITY_REASON = "too large or complex";
 export const DOCUMENT_COMPLEXITY_MESSAGE =
-  "This document has too much formatting to display safely. You can still edit it to simplify the content.";
+  `This document is ${DOCUMENT_COMPLEXITY_REASON} to display safely. You can still edit it to reduce or simplify the content.`;
 
 /**
  * Consumer budgets for the Markdown passes whose output or cost grows much
@@ -144,6 +166,8 @@ export interface DocumentComplexityMeasurement {
 export interface DocumentComplexityOptions {
   /** Tests may lower the production ceiling to exercise exact boundaries. */
   maxUnits?: number;
+  /** Tests may lower the production Markdown source-volume backstop. */
+  maxMarkdownSourceCodeUnits?: number;
   /** Tests may lower the production Markdown container-depth ceiling. */
   maxMarkdownContainerDepth?: number;
   /** Tests may lower the production Markdown indentation ceiling. */
@@ -156,17 +180,27 @@ export type DocumentComplexityResult =
   | { ok: true; measurement: DocumentComplexityMeasurement }
   | { ok: false; error: DocumentComplexityError };
 
-export class DocumentComplexityError extends Error {
-  readonly format: FileType;
-  readonly units: number;
-  readonly maxUnits: number;
+export type DocumentComplexityViolation =
+  | {
+      kind: "source-volume";
+      format: "markdown";
+      sourceCodeUnits: number;
+      maxSourceCodeUnits: number;
+    }
+  | {
+      kind: "structural";
+      format: FileType;
+      units: number;
+      maxUnits: number;
+    };
 
-  constructor(measurement: DocumentComplexityMeasurement) {
+export class DocumentComplexityError extends Error {
+  readonly violation: DocumentComplexityViolation;
+
+  constructor(violation: DocumentComplexityViolation) {
     super(DOCUMENT_COMPLEXITY_MESSAGE);
     this.name = "DocumentComplexityError";
-    this.format = measurement.format;
-    this.units = measurement.units;
-    this.maxUnits = measurement.maxUnits;
+    this.violation = violation;
   }
 }
 
@@ -180,6 +214,24 @@ export function checkDocumentComplexity(
   format: FileType,
   options: DocumentComplexityOptions = {},
 ): DocumentComplexityResult {
+  if (format === "markdown") {
+    const maxSourceCodeUnits = clampToProductionLimit(
+      MARKDOWN_MAX_SOURCE_CODE_UNITS,
+      options.maxMarkdownSourceCodeUnits,
+    );
+    if (content.length > maxSourceCodeUnits) {
+      return {
+        ok: false,
+        error: new DocumentComplexityError({
+          kind: "source-volume",
+          format,
+          sourceCodeUnits: content.length,
+          maxSourceCodeUnits,
+        }),
+      };
+    }
+  }
+
   const maxUnits = effectiveLimit(format, options.maxUnits);
   const maxContainerDepth = clampToProductionLimit(
     MARKDOWN_MAX_CONTAINER_DEPTH,
@@ -201,7 +253,10 @@ export function checkDocumentComplexity(
   const measurement = { format, units, maxUnits };
 
   if (units > maxUnits) {
-    return { ok: false, error: new DocumentComplexityError(measurement) };
+    return {
+      ok: false,
+      error: new DocumentComplexityError({ kind: "structural", ...measurement }),
+    };
   }
 
   return { ok: true, measurement };

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { WorkspaceDocIndex, WorkspaceFileMeta, WorkspaceState } from "../types";
+import { DOCUMENT_COMPLEXITY_REASON } from "../lib/document-complexity";
 import { storeGet, storeSet } from "../lib/store";
 import {
   buildWorkspaceRefreshErrorState,
@@ -208,7 +209,9 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
               try {
                 const result = tryBuildWorkspaceDoc(meta, content);
                 if (result.status === "too-complex") {
-                  console.warn(`[workspace-index] Skipped overly complex document ${meta.path}.`);
+                  console.warn(
+                    `[workspace-index] Skipped document that is ${DOCUMENT_COMPLEXITY_REASON}: ${meta.path}.`,
+                  );
                   return { doc: null, failure: "complexity" as const };
                 }
                 return { doc: result.doc, failure: null };

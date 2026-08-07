@@ -16,6 +16,7 @@
     "src/vite-env.d.ts",
     "src/App.tsx",
     "src/types/index.ts",
+    "src/components/AppErrorBoundary.tsx",
     "src/components/MermaidBlock.tsx",
     "src/components/MarkdownRenderer.tsx",
     "src/components/DocumentComplexityNotice.tsx",

@@ -2456,7 +2456,10 @@ function App() {
               onDismissSaveError={editor.dismissSaveError}
             />
           ) : preparedDocument?.status === "too-complex" ? (
-            <DocumentComplexityNotice contentRef={contentRef} />
+            <DocumentComplexityNotice
+              contentRef={contentRef}
+              message={preparedDocument.message}
+            />
           ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
             <FountainRenderer
               parsed={preparedDocument.parsedFountain}
