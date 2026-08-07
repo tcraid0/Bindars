@@ -8,6 +8,8 @@ src-tauri/target/
 
 # Generated
 src-tauri/gen/
+/bindars-document-performance*.json
+/bindars-smartypants-node*.json
 
 # IDE
 .vscode/

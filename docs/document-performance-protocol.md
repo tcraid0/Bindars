@@ -3,6 +3,9 @@
 This protocol measures Markdown policy behavior through the optimized Tauri app, its native file-open command, and the system WebKitGTK process. It is intentionally narrow: it calibrates the emergency source backstop, smartypants, and Markdown render counts. It does not establish table, heading, Fountain, or general responsiveness ceilings.
 
 Detailed results and corrections belong in private notes outside the repository. Do not commit generated fixtures, raw JSON, screenshots, profiles, binaries, or machine-specific output.
+Both retained verifiers reject `--output` paths inside the repository, including
+paths that enter it through a symbolic link. Shell redirection cannot be checked
+by the verifier and must also target a private location outside the repository.
 
 ## Prerequisites
 
@@ -21,7 +24,7 @@ Build an optimized binary with the compile-time measurement probe enabled:
 BINDARS_DOCUMENT_PERFORMANCE_PROBE=1 npx tauri build --no-bundle
 ```
 
-The probe records one bounded in-memory event per Markdown pipeline execution, including the exact mdast input measured by the existing smartypants gate and the transform duration. A normal build sets the probe to false and Vite removes the enabled branch.
+The probe records one bounded in-memory event per Markdown pipeline execution, including the exact mdast input measured by the existing smartypants gate and the transform duration. It also starts a 16 ms timer before the first React render and records the largest callback gap and delay. A normal build sets the probe to false and Vite removes both enabled branches.
 
 The verifier records:
 
@@ -60,11 +63,24 @@ Environment overrides:
 Record any override with the results. The five-second default is a harness safety bound, not a product responsiveness target. Use a larger explicit timeout only when the additional stall and memory growth are justified by the question being measured.
 Timed-out trials are retained as failures with their last DOM snapshot, last inspector error, process output, observed/live web-process PIDs, and memory sample; the verifier continues to the remaining randomized trials and exits non-zero after writing the result file. If no completed pipeline-event set is available, the summary reports the execution count and total transform time as `null`. A separate field reports how many events were visible in the last pre-timeout snapshot, when one exists; this is an observation before timeout, not a completed-execution count.
 
+## Run the pinned Node comparison
+
+```sh
+npm run verify:smartypants-node -- \
+  --warmups 2 \
+  --trials 5 \
+  --output /tmp/bindars-smartypants-node.json
+```
+
+This runs the exact deterministic 65,536-assembled-character punctuation fixture through the same GFM/Smartypants/math/frontmatter plugin order, records the fixture SHA-256, source-tree identity, runtime/package versions, per-trial transform time, and total server-render time. It exists to reconcile harness discrepancies; Node is not the supported rendering target and must not select the product threshold.
+
 ## Routes and assertions
 
 ### Cold direct-open
 
 Every cold trial starts a fresh optimized Tauri process with the fixture path as the real CLI/file-association argument. Case order is deterministically shuffled from the recorded seed.
+
+A tiny accepted Markdown control runs once per cold repetition to establish the same binary's fixed startup, quiet-window, event-loop-delay, and web-process-memory reference without a large document.
 
 Accepted smartypants fixtures cover 8,000, 9,000, 10,000, 11,000, and 12,000 assembled UTF-16 code units across four shapes: punctuation-dense text, realistic quoted prose, formatting-split text, and inline-code-heavy text. Additional punctuation cases pin the current inclusive 65,536-unit limit and verify readable straight-quote degradation at 65,537 units.
 
@@ -107,6 +123,7 @@ This distinguishes a one-time mount/remount effect from ordinary warm navigation
 - **Commit/open time:** wall time from process launch or in-app action until the first valid, non-empty, end-marked DOM or truthful refusal alert is observed.
 - **Settled time (bounded quiet-window timing):** wall time until the valid DOM remains unchanged across four 100 ms polls after forced layout. The signature includes DOM size, article extent, headings, TOC links, presentation state, notice state, and pipeline-event count. Work that arrives during this window resets it; work that arrives later is not captured. Therefore this timing and its pipeline count do not prove that all delayed heading, observer, annotation, or asset-scope work has finished.
 - **Smartypants transform time:** `performance.now()` duration around the real `remark-smartypants` transformer in the instrumented optimized bundle. Measurement and transformation durations are recorded separately. The result summary reports the per-execution range, total transform time per cold open, pipeline executions per open, and individual trial rows; never present a per-execution median as total work for the open.
+- **Maximum event-loop delay:** the largest observed delay beyond a 16 ms `setInterval` period, started before the first React render and reset immediately before each warm navigation/remount action. It is a lower-bound timer probe, not a complete long-task trace. A stall still in progress at timeout cannot update the browser-side timer, so timeout rows retain only the last value observed before the stall.
 - **Web-process peak:** PID-scoped `/proc/<pid>/status` `VmHWM` for each WebKit web process observed under that fresh app process. The result also records all observed web-process PIDs, which remain live at trial finish, and whether a replacement PID was observed between samples. Sampling cannot exclude a termination and replacement entirely between polls.
 - **End-of-trial process-tree PSS:** a separately labelled, one-time sum from `smaps_rollup`, sampled after a settled DOM or at timeout. It is not a peak and must not be compared or described as `VmHWM`.
 

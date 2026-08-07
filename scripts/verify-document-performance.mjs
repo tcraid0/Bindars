@@ -2,14 +2,15 @@
 /** Measure document rendering through the optimized Tauri app and real open routes. */
 
 import { createHash } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { lstat, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
 
@@ -24,6 +25,9 @@ const DEFAULT_BINARY = path.join(PROJECT_ROOT, "src-tauri", "target", "release",
 const DEFAULT_TIMEOUT_MS = 5_000;
 const STABLE_POLLS = 4;
 const POLL_INTERVAL_MS = 100;
+const EVENT_LOOP_PROBE_INTERVAL_MS = 16;
+const GIT_OUTPUT_MAX_BUFFER = 64 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 function parseArguments(argv) {
   const options = {
@@ -82,6 +86,35 @@ function portableRelativePath(relativePath) {
   return relativePath.split(path.sep).join("/");
 }
 
+function isInsideDirectory(directory, candidatePath) {
+  const relativePath = path.relative(directory, candidatePath);
+  return relativePath === ""
+    || (!relativePath.startsWith(`..${path.sep}`)
+      && relativePath !== ".."
+      && !path.isAbsolute(relativePath));
+}
+
+export async function assertOutputOutsideRepository(
+  outputPath,
+  rootDirectory = PROJECT_ROOT,
+) {
+  const canonicalRoot = await realpath(rootDirectory);
+  let canonicalOutput;
+  try {
+    canonicalOutput = await realpath(outputPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    const canonicalParent = await realpath(path.dirname(outputPath));
+    canonicalOutput = path.join(canonicalParent, path.basename(outputPath));
+  }
+
+  if (isInsideDirectory(canonicalRoot, canonicalOutput)) {
+    throw new Error(
+      `Refusing to write machine-specific performance results inside the repository: ${outputPath}`,
+    );
+  }
+}
+
 export async function buildFileIdentityManifest(rootDirectory, relativePaths) {
   const normalizedPaths = [...new Set(relativePaths.map(portableRelativePath))].sort();
   return Promise.all(normalizedPaths.map(async (relativePath) => {
@@ -115,13 +148,13 @@ export async function buildFileIdentityManifest(rootDirectory, relativePaths) {
   }));
 }
 
-function nonIgnoredUntrackedPaths() {
-  const output = execFileSync(
+async function nonIgnoredUntrackedPaths(rootDirectory = PROJECT_ROOT) {
+  const { stdout } = await execFileAsync(
     "git",
     ["ls-files", "--others", "--exclude-standard", "-z"],
-    { cwd: PROJECT_ROOT },
+    { cwd: rootDirectory, encoding: "buffer", maxBuffer: GIT_OUTPUT_MAX_BUFFER },
   );
-  return output.toString("utf8").split("\0").filter(Boolean);
+  return stdout.toString("utf8").split("\0").filter(Boolean);
 }
 
 function seededRandom(seed) {
@@ -141,9 +174,18 @@ function shuffled(values, random) {
   return result;
 }
 
-function commandOutput(command, args) {
+async function commandOutput(command, args, rootDirectory = PROJECT_ROOT) {
+  const { stdout } = await execFileAsync(command, args, {
+    cwd: rootDirectory,
+    encoding: "utf8",
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER,
+  });
+  return stdout.trim();
+}
+
+async function optionalCommandOutput(command, args, rootDirectory = PROJECT_ROOT) {
   try {
-    return execFileSync(command, args, { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
+    return await commandOutput(command, args, rootDirectory);
   } catch {
     return null;
   }
@@ -467,6 +509,9 @@ function snapshotExpression(marker = null) {
       curlyQuotes: articleText.includes("“hello”"),
       endMarkerPresent: marker === null ? null : articleText.includes(marker),
       errorBoundary: Boolean(document.querySelector('[data-testid="app-error-boundary"]')),
+      eventLoop: globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENT_LOOP__
+        ? { ...globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENT_LOOP__ }
+        : null,
       events: (globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ ?? []).slice(),
       headingCount: article?.querySelectorAll("h1, h2, h3, h4, h5, h6").length ?? 0,
       loading: bodyText.includes("Opening file..."),
@@ -626,9 +671,11 @@ function attachSnapshotTimeoutDiagnostics(result, error) {
   if (!(error instanceof SnapshotTimeoutError)) return;
   result.lastSnapshotBeforeTimeout = error.lastSnapshot;
   result.lastEvaluationError = error.lastEvaluationError;
-  result.observedPipelineEventsBeforeTimeout = Array.isArray(error.lastSnapshot?.events)
+  result.observedPipelineEventCountBeforeTimeout = Array.isArray(error.lastSnapshot?.events)
     ? error.lastSnapshot.events.length
     : null;
+  result.observedEventLoopMaxDelayMsBeforeTimeout =
+    error.lastSnapshot?.eventLoop?.maxDelayMs ?? null;
 }
 
 async function sourceIntegrity(filePath, testCase) {
@@ -639,8 +686,16 @@ async function sourceIntegrity(filePath, testCase) {
   };
 }
 
-function validateAcceptedReaderSnapshot(snapshot) {
+function validatePerformanceProbeSnapshot(snapshot) {
   const failures = [];
+  if (snapshot.eventLoop?.intervalMs !== EVENT_LOOP_PROBE_INTERVAL_MS) {
+    failures.push("instrumented event-loop probe is missing or has an unexpected interval");
+  }
+  return failures;
+}
+
+function validateAcceptedReaderSnapshot(snapshot) {
+  const failures = validatePerformanceProbeSnapshot(snapshot);
   if (!snapshot.readerPresent || !snapshot.endMarkerPresent) failures.push("missing non-empty end-marked reader DOM");
   if (snapshot.loading) failures.push("opening state did not clear");
   if (snapshot.errorBoundary) failures.push("React root error boundary rendered");
@@ -694,6 +749,7 @@ async function runColdTrial(options, fixturesDir, testCase, trialIndex) {
       result.failures.push(...validation.failures);
       result.pipelineEvents = validation.relevantEvents;
     } else if (testCase.expected === "refused") {
+      result.failures.push(...validatePerformanceProbeSnapshot(timing.snapshot));
       if (!timing.snapshot.notice?.includes("too large or complex")) result.failures.push("truthful refusal notice is missing");
       if (timing.snapshot.events.length !== 0) result.failures.push("refused source entered the Markdown pipeline");
       result.pipelineEvents = timing.snapshot.events;
@@ -772,12 +828,16 @@ async function runColdTrial(options, fixturesDir, testCase, trialIndex) {
   }
 }
 
-async function resetProbeEvents(inspector) {
-  await inspector.evaluate("globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = []; true");
+async function resetPerformanceProbe(inspector) {
+  await inspector.evaluate(`(() => {
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_RESET_EVENT_LOOP__?.();
+    return true;
+  })()`);
 }
 
 async function openLinkedFixture(inspector, testCase, timeoutMs) {
-  await resetProbeEvents(inspector);
+  await resetPerformanceProbe(inspector);
   const clicked = await inspector.evaluate(`(() => {
     const link = [...document.querySelectorAll('a')].find((candidate) => candidate.getAttribute('href')?.endsWith(${JSON.stringify(testCase.fileName)}));
     if (!link) return false;
@@ -838,6 +898,7 @@ async function runWarmLifecycle(options, fixturesDir, manifest, orderedCases, tr
         caseId: testCase.id,
         commitMs: timing.committedAt - startedAt,
         settledMs: timing.settledAt - startedAt,
+        eventLoop: timing.snapshot.eventLoop,
         pipelineEvents: validation.relevantEvents,
         pipelineCount: validation.relevantEvents.length,
         failures: validation.failures,
@@ -847,7 +908,7 @@ async function runWarmLifecycle(options, fixturesDir, manifest, orderedCases, tr
       if (testCase.assembledSmartypantsChars === 10_000) {
         await app.inspector.evaluate(keyboardExpression("e", { ctrlKey: true }));
         await waitForCondition(app.inspector, "Boolean(document.querySelector('.cm-editor'))", options.timeoutMs);
-        await resetProbeEvents(app.inspector);
+        await resetPerformanceProbe(app.inspector);
         const remountStartedAt = performance.now();
         await app.inspector.evaluate(keyboardExpression("e", { ctrlKey: true }));
         const remountTiming = await waitForSnapshot(
@@ -862,11 +923,12 @@ async function runWarmLifecycle(options, fixturesDir, manifest, orderedCases, tr
         result.remount = {
           commitMs: remountTiming.committedAt - remountStartedAt,
           settledMs: remountTiming.settledAt - remountStartedAt,
+          eventLoop: remountTiming.snapshot.eventLoop,
           pipelineCount: remountEvents.length,
           pipelineEvents: remountEvents,
         };
 
-        await resetProbeEvents(app.inspector);
+        await resetPerformanceProbe(app.inspector);
         const presentationStartedAt = performance.now();
         await app.inspector.evaluate(keyboardExpression("F5"));
         await waitForCondition(app.inspector, "Boolean(document.querySelector('.presentation-overlay'))", options.timeoutMs);
@@ -882,6 +944,7 @@ async function runWarmLifecycle(options, fixturesDir, manifest, orderedCases, tr
         result.presentationMount = {
           commitMs: presentationTiming.committedAt - presentationStartedAt,
           settledMs: presentationTiming.settledAt - presentationStartedAt,
+          eventLoop: presentationTiming.snapshot.eventLoop,
           pipelineCount: presentationEvents.length,
           pipelineEvents: presentationEvents,
         };
@@ -922,7 +985,7 @@ function median(values) {
     : ordered[middle];
 }
 
-function numericSummary(values) {
+export function numericSummary(values) {
   const finiteValues = values.filter(Number.isFinite);
   if (finiteValues.length === 0) return null;
   return {
@@ -946,9 +1009,12 @@ export function summarizePerformanceResults(results) {
       trial: result.trial,
       commitMs: result.commitMs,
       settledMs: result.settledMs,
+      eventLoopMaxDelayMs: result.snapshot?.eventLoop?.maxDelayMs ?? null,
+      observedEventLoopMaxDelayMsBeforeTimeout:
+        result.observedEventLoopMaxDelayMsBeforeTimeout ?? null,
       pipelineExecutionCount: pipelineEventsObserved ? result.pipelineEvents.length : null,
-      observedPipelineEventsBeforeTimeout:
-        result.observedPipelineEventsBeforeTimeout ?? null,
+      observedPipelineEventCountBeforeTimeout:
+        result.observedPipelineEventCountBeforeTimeout ?? null,
       perExecutionTransformMs,
       totalTransformMs: perExecutionTransformMs === null
         ? null
@@ -962,6 +1028,9 @@ export function summarizePerformanceResults(results) {
     const summary = {
       commitMs: numericSummary(trials.map((trial) => trial.commitMs)),
       settledMs: numericSummary(trials.map((trial) => trial.settledMs)),
+      eventLoopMaxDelayMs: numericSummary(
+        trials.map((trial) => trial.eventLoopMaxDelayMs),
+      ),
       pipelineExecutionsPerOpen: numericSummary(
         trials.map((trial) => trial.pipelineExecutionCount),
       ),
@@ -982,18 +1051,28 @@ export function summarizePerformanceResults(results) {
   }));
 }
 
+export async function sourceTreeIdentity(rootDirectory = PROJECT_ROOT) {
+  const { stdout: trackedDiff } = await execFileAsync(
+    "git",
+    ["diff", "HEAD", "--binary", "--"],
+    { cwd: rootDirectory, encoding: "buffer", maxBuffer: GIT_OUTPUT_MAX_BUFFER },
+  );
+  const untrackedFiles = await buildFileIdentityManifest(
+    rootDirectory,
+    await nonIgnoredUntrackedPaths(rootDirectory),
+  );
+  return {
+    branch: await commandOutput("git", ["branch", "--show-current"], rootDirectory),
+    head: await commandOutput("git", ["rev-parse", "HEAD"], rootDirectory),
+    trackedDiffAgainstHeadSha256: sha256(trackedDiff),
+    nonIgnoredUntrackedFiles: untrackedFiles,
+    nonIgnoredUntrackedFilesManifestSha256: sha256(JSON.stringify(untrackedFiles)),
+  };
+}
+
 async function environmentIdentity(binary) {
   const binaryBytes = await readFile(binary);
   const binaryStat = await stat(binary);
-  const trackedDiff = execFileSync(
-    "git",
-    ["diff", "HEAD", "--binary", "--"],
-    { cwd: PROJECT_ROOT },
-  );
-  const untrackedFiles = await buildFileIdentityManifest(
-    PROJECT_ROOT,
-    nonIgnoredUntrackedPaths(),
-  );
   const osRelease = await readFile("/etc/os-release", "utf8").catch(() => "");
   return {
     binary: {
@@ -1002,13 +1081,7 @@ async function environmentIdentity(binary) {
       modifiedAt: binaryStat.mtime.toISOString(),
       sha256: sha256(binaryBytes),
     },
-    source: {
-      branch: commandOutput("git", ["branch", "--show-current"]),
-      head: commandOutput("git", ["rev-parse", "HEAD"]),
-      trackedDiffAgainstHeadSha256: sha256(trackedDiff),
-      nonIgnoredUntrackedFiles: untrackedFiles,
-      nonIgnoredUntrackedFilesManifestSha256: sha256(JSON.stringify(untrackedFiles)),
-    },
+    source: await sourceTreeIdentity(),
     host: {
       architecture: os.arch(),
       cpu: os.cpus()[0]?.model ?? null,
@@ -1022,7 +1095,10 @@ async function environmentIdentity(binary) {
         return match ? [[match[1], match[2].replace(/^"|"$/g, "")]] : [];
       })),
       sessionType: process.env.XDG_SESSION_TYPE ?? null,
-      webkitGtk: commandOutput("pkg-config", ["--modversion", "webkit2gtk-4.1"]),
+      webkitGtk: await optionalCommandOutput(
+        "pkg-config",
+        ["--modversion", "webkit2gtk-4.1"],
+      ),
     },
   };
 }
@@ -1030,6 +1106,9 @@ async function environmentIdentity(binary) {
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   if (!options) return;
+  if (options.output) {
+    await assertOutputOutsideRepository(options.output);
+  }
 
   const autoFixtures = options.fixtures === null;
   const fixturesDir = options.fixtures
@@ -1049,13 +1128,20 @@ async function main() {
     (testCase) => testCase.kind === "source-volume" && testCase.expected === "accepted",
   );
   const refusedCase = manifest.cases.find((testCase) => testCase.expected === "refused");
-  if (!currentLimitCase || !degradedCase || acceptedSourceCases.length === 0 || !refusedCase) {
+  if (
+    !manifest.coldControl
+    || !currentLimitCase
+    || !degradedCase
+    || acceptedSourceCases.length === 0
+    || !refusedCase
+  ) {
     throw new Error("Generated manifest is incomplete");
   }
 
   const coldSchedule = shuffled(
     Array.from({ length: options.trials }, (_, trialIndex) =>
       [
+        manifest.coldControl,
         ...smartCases,
         currentLimitCase,
         degradedCase,
@@ -1066,7 +1152,7 @@ async function main() {
     random,
   );
   const results = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     protocol: {
       trials: options.trials,
@@ -1074,6 +1160,7 @@ async function main() {
       seed: options.seed,
       quietWindowPolls: STABLE_POLLS,
       quietWindowPollIntervalMs: POLL_INTERVAL_MS,
+      eventLoopProbeIntervalMs: EVENT_LOOP_PROBE_INTERVAL_MS,
       coldOrder: coldSchedule.map(({ testCase, trialIndex }) => `${testCase.id}:${trialIndex}`),
     },
     identity: await environmentIdentity(options.binary),

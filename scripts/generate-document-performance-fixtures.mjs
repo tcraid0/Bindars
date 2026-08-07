@@ -81,7 +81,7 @@ function smartypantsFiller(shape, codeUnits) {
   throw new Error(`Unknown smartypants shape: ${shape}`);
 }
 
-function smartypantsFixture(assembledChars, shape) {
+export function createSmartypantsFixture(assembledChars, shape) {
   const heading = `Smartypants ${shape} ${assembledChars}`;
   const endMarker = `END_SMARTYPANTS_${shape.replaceAll("-", "_").toUpperCase()}_${assembledChars}`;
   const suffix = ` "hello" ${endMarker}`;
@@ -91,6 +91,14 @@ function smartypantsFixture(assembledChars, shape) {
 
   return {
     content: `# ${heading}\n\n${smartypantsFiller(shape, fillerChars)}${suffix}`,
+    endMarker,
+  };
+}
+
+function createTinyColdControlFixture() {
+  const endMarker = "END_TINY_COLD_CONTROL";
+  return {
+    content: `# Tiny cold control\n\nA small Markdown document.\n\n${endMarker}\n`,
     endMarker,
   };
 }
@@ -146,7 +154,7 @@ export async function generateDocumentPerformanceFixtures(outputDirectory) {
     { assembledChars: SMARTYPANTS_DEGRADED_TARGET, shape: "punctuation" },
   );
   for (const { assembledChars, shape } of smartypantsCases) {
-    const fixture = smartypantsFixture(assembledChars, shape);
+    const fixture = createSmartypantsFixture(assembledChars, shape);
     const id = `smartypants-${shape}-${assembledChars}`;
     const fileName = `${id}.md`;
     await writeFile(path.join(outputDir, fileName), fixture.content, "utf8");
@@ -210,8 +218,27 @@ export async function generateDocumentPerformanceFixtures(outputDirectory) {
   const control = `# Document performance control\n\n${links}\n\n${controlMarker}\n`;
   await writeFile(path.join(outputDir, "control.md"), control, "utf8");
 
+  const coldControlFixture = createTinyColdControlFixture();
+  const coldControl = {
+    id: "cold-control-tiny",
+    fileName: "cold-control-tiny.md",
+    kind: "control",
+    shape: "tiny",
+    expected: "accepted",
+    endMarker: coldControlFixture.endMarker,
+    sourceCodeUnits: coldControlFixture.content.length,
+    utf8Bytes: Buffer.byteLength(coldControlFixture.content, "utf8"),
+    sha256: sha256(coldControlFixture.content),
+  };
+  await writeFile(
+    path.join(outputDir, coldControl.fileName),
+    coldControlFixture.content,
+    "utf8",
+  );
+
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    coldControl,
     control: { fileName: "control.md", endMarker: controlMarker },
     cases,
   };
@@ -231,7 +258,7 @@ async function main() {
     return;
   }
   const manifest = await generateDocumentPerformanceFixtures(outputDirectory);
-  console.log(`Generated ${manifest.cases.length + 1} fixtures in ${path.resolve(outputDirectory)}`);
+  console.log(`Generated ${manifest.cases.length + 2} fixtures in ${path.resolve(outputDirectory)}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -38,9 +38,22 @@ interface DocumentPerformanceProbeEvent {
   };
 }
 
+interface DocumentPerformanceEventLoopProbe {
+  intervalMs: number;
+  startedAtMs: number;
+  lastSampleAtMs: number;
+  sampleCount: number;
+  maxGapMs: number;
+  maxDelayMs: number;
+}
+
 type DocumentPerformanceProbeGlobal = typeof globalThis & {
   __BINDARS_DOCUMENT_PERFORMANCE_EVENTS__?: DocumentPerformanceProbeEvent[];
+  __BINDARS_DOCUMENT_PERFORMANCE_EVENT_LOOP__?: DocumentPerformanceEventLoopProbe;
+  __BINDARS_DOCUMENT_PERFORMANCE_RESET_EVENT_LOOP__?: () => void;
 };
+
+const DOCUMENT_PERFORMANCE_EVENT_LOOP_INTERVAL_MS = 16;
 
 function documentPerformanceProbeEnabled(): boolean {
   return typeof __BINDARS_DOCUMENT_PERFORMANCE_PROBE__ !== "undefined"
@@ -56,6 +69,41 @@ function recordDocumentPerformanceEvent(event: DocumentPerformanceProbeEvent): v
   }
   if (events.length < 256) events.push(event);
 }
+
+function resetDocumentPerformanceEventLoopProbe(): void {
+  const now = performance.now();
+  const probeGlobal = globalThis as DocumentPerformanceProbeGlobal;
+  probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_EVENT_LOOP__ = {
+    intervalMs: DOCUMENT_PERFORMANCE_EVENT_LOOP_INTERVAL_MS,
+    startedAtMs: now,
+    lastSampleAtMs: now,
+    sampleCount: 0,
+    maxGapMs: 0,
+    maxDelayMs: 0,
+  };
+}
+
+function startDocumentPerformanceEventLoopProbe(): void {
+  if (!documentPerformanceProbeEnabled()) return;
+  const probeGlobal = globalThis as DocumentPerformanceProbeGlobal;
+  if (probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_RESET_EVENT_LOOP__) return;
+
+  probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_RESET_EVENT_LOOP__ =
+    resetDocumentPerformanceEventLoopProbe;
+  resetDocumentPerformanceEventLoopProbe();
+  globalThis.setInterval(() => {
+    const state = probeGlobal.__BINDARS_DOCUMENT_PERFORMANCE_EVENT_LOOP__;
+    if (!state) return;
+    const now = performance.now();
+    const gapMs = now - state.lastSampleAtMs;
+    state.lastSampleAtMs = now;
+    state.sampleCount += 1;
+    state.maxGapMs = Math.max(state.maxGapMs, gapMs);
+    state.maxDelayMs = Math.max(state.maxDelayMs, gapMs - state.intervalMs);
+  }, DOCUMENT_PERFORMANCE_EVENT_LOOP_INTERVAL_MS);
+}
+
+startDocumentPerformanceEventLoopProbe();
 
 export interface SmartypantsGateOptions {
   /** Tests may lower the production ceiling to exercise exact boundaries. */

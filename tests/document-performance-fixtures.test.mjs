@@ -57,6 +57,7 @@ test("generated performance fixtures pin source and parsed smartypants dimension
   const outputDirectory = await mkdtemp(path.join(os.tmpdir(), "bindars-performance-fixtures-test-"));
   try {
     const manifest = await generateDocumentPerformanceFixtures(outputDirectory);
+    assert.equal(manifest.schemaVersion, 2);
     const smartypantsCases = manifest.cases.filter((entry) => entry.kind === "smartypants");
     assert.deepEqual(
       smartypantsCases.map((entry) => entry.assembledSmartypantsChars),
@@ -127,6 +128,16 @@ test("generated performance fixtures pin source and parsed smartypants dimension
     for (const fixture of smartypantsCases) {
       assert.ok(control.includes(`./${fixture.fileName}`), fixture.id);
     }
+
+    const coldControl = await readFile(
+      path.join(outputDirectory, manifest.coldControl.fileName),
+      "utf8",
+    );
+    assert.equal(coldControl.length, manifest.coldControl.sourceCodeUnits);
+    assert.equal(Buffer.byteLength(coldControl, "utf8"), manifest.coldControl.utf8Bytes);
+    assert.equal(sha256(coldControl), manifest.coldControl.sha256);
+    assert.ok(coldControl.includes(manifest.coldControl.endMarker));
+    assert.equal(checkDocumentComplexity(coldControl, "markdown").ok, true);
   } finally {
     await rm(outputDirectory, { recursive: true, force: true });
   }
