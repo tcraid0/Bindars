@@ -110,7 +110,6 @@ function ReaderControlsComponent({
         // (including Recovery at the bottom) stays reachable at the 400px
         // minimum window height.
         maxHeight: "calc(100dvh - var(--header-height, 52px) - 24px)",
-        animation: "fadeIn 150ms ease",
       }}
     >
       <div className="flex items-center justify-between mb-3">

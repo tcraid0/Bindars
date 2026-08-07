@@ -198,6 +198,11 @@ async function openClearRecoveryDialog(host) {
   assert.match(panelStyle, /max-height/);
   assert.match(panelStyle, /dvh/, "panel height must use dvh for a WebKit-accurate viewport");
   assert.doesNotMatch(panelStyle, /\b100vh\b/, "panel must not fall back to the inflated 100vh");
+  assert.doesNotMatch(
+    panelStyle,
+    /\banimation\s*:/,
+    "reader settings must open immediately instead of feeling delayed",
+  );
   clickButton(host, "Clear recovery history…");
   const dialog = await waitFor(() => {
     const found = host.querySelector('[role="dialog"]');
