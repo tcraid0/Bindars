@@ -47,5 +47,4 @@ jobs:
 
       # Allowlist in .cargo/audit.toml covers known Tauri transitive deps.
       - name: Audit Cargo dependencies
-        working-directory: src-tauri
-        run: cargo audit
+        run: cargo audit --file src-tauri/Cargo.lock

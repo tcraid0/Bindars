@@ -1,13 +1,14 @@
 # Reviewed allowlist for cargo-audit.
-# All entries are legacy transitive dependencies from Tauri's Linux WebKit/GTK
-# stack or its build-time HTML tooling. Bindars does not use the affected APIs
-# directly. These should disappear as those upstream dependency trees modernize.
+# Most entries are legacy transitive dependencies from Tauri's Linux
+# WebKit/GTK stack or its build-time HTML tooling. Bindars does not use the
+# affected APIs directly. Each exception is documented beside its entry, and
+# the entries should disappear as upstream dependency trees modernize.
 #
 # RUSTSEC-2026-0097 (rand 0.7.3) remains visible as an audit warning rather
 # than being hidden here. It is build-only through phf_generator/selectors and
 # Bindars does not install the custom logger required to trigger the advisory.
 #
-# Last reviewed: 2026-07-24
+# Last reviewed: 2026-08-28
 
 [advisories]
 ignore = [
@@ -35,4 +36,11 @@ ignore = [
     "RUSTSEC-2025-0081", # unic-char-property
     "RUSTSEC-2025-0098", # unic-ucd-version
     "RUSTSEC-2025-0100", # unic-ucd-ident
+
+    # Inactive optional dependency declared by rust_decimal. Bindars reaches
+    # rust_decimal through tauri-plugin-log -> byte-unit, but does not enable
+    # rust_decimal's rkyv feature; cargo tree --target all -i rkyv@0.7.46
+    # confirms there is no compiled dependency path. cargo-audit scans every
+    # Cargo.lock entry without resolving enabled features.
+    "RUSTSEC-2026-0235", # rkyv 0.7.46
 ]
