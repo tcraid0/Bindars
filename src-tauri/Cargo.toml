@@ -2,7 +2,7 @@
 name = "bindars"
 version = "1.4.2"
 description = "Read markdown beautifully"
-authors = ["you"]
+authors = ["Thomas Coffman"]
 license = "MIT"
 repository = "https://github.com/tcraid0/bindars"
 edition = "2021"

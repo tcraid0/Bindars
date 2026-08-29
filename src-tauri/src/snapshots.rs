@@ -1036,18 +1036,13 @@ fn retention_bucket(age_ms: u64) -> Option<(u8, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::unique_temp_dir;
 
     struct TestDir(PathBuf);
 
     impl TestDir {
         fn new(prefix: &str) -> Self {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("bindars-{prefix}-{}-{nanos}", std::process::id()));
-            Self(path)
+            Self(unique_temp_dir(prefix))
         }
 
         fn path(&self) -> &Path {

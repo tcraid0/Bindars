@@ -13,6 +13,8 @@ use tauri_plugin_opener::OpenerExt;
 use walkdir::WalkDir;
 
 mod snapshots;
+#[cfg(test)]
+mod test_support;
 
 use snapshots::{
     clear_snapshot_history, get_snapshot_storage_stats, list_document_snapshots,
@@ -1031,13 +1033,12 @@ mod tests {
         FileWatcherState, MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES,
         STANDARD,
     };
+    use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
     use base64::Engine;
-    use std::env;
     use std::fs::{self, File};
     #[cfg(unix)]
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn accepts_markdown_extensions_case_insensitively() {
@@ -1147,10 +1148,13 @@ mod tests {
         file.set_len(MAX_MARKDOWN_BYTES + 1)
             .expect("expand fixture");
 
-        let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
-        assert!(result
-            .expect_err("oversized file should error")
-            .contains("File is too large"));
+        let error = read_markdown_file_impl(path.to_string_lossy().into_owned())
+            .expect_err("oversized file should error");
+        assert!(
+            error.contains("File is too large"),
+            "unexpected error for {}: {error}",
+            path.display()
+        );
 
         cleanup(&path);
     }
@@ -1558,9 +1562,8 @@ mod tests {
         fs::write(&path, "# Init").expect("write fixture");
 
         let unicode = "# Héllo 世界\n\n  indented\ttabs\n\n🎉 emoji";
-        let result =
-            write_markdown_file_impl(path.to_string_lossy().into_owned(), unicode.to_string());
-        assert!(result.is_ok());
+        write_markdown_file_impl(path.to_string_lossy().into_owned(), unicode.to_string())
+            .expect("write Unicode and whitespace");
 
         let content = fs::read_to_string(&path).expect("read back");
         assert_eq!(content, unicode);
@@ -1989,28 +1992,15 @@ mod tests {
     }
 
     fn temp_path(ext: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock drift")
-            .as_nanos();
-        env::temp_dir().join(format!(
-            "bindars-test-{}-{}.{}",
-            std::process::id(),
-            nanos,
-            ext
-        ))
+        unique_temp_path(ext)
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock drift")
-            .as_nanos();
-        env::temp_dir().join(format!("{}-{}-{}", prefix, std::process::id(), nanos))
+        unique_temp_dir(prefix)
     }
 
     fn cleanup(path: &Path) {
-        let _ = fs::remove_file(path);
+        cleanup_temp_path(path);
     }
 
     fn cleanup_dir(path: &Path) {
