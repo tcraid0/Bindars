@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Bindars",
   "version": "1.4.2",
-  "identifier": "dev.bindars.app",
+  "identifier": "io.github.tcraid0.bindars",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -51,11 +51,13 @@
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
+        "name": "Markdown document",
         "mimeType": "text/markdown",
         "description": "Markdown Document"
       },
       {
         "ext": ["fountain"],
+        "name": "Fountain screenplay",
         "mimeType": "text/x-fountain",
         "description": "Fountain Screenplay"
       }
@@ -69,6 +71,9 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "15.0"
     }
   }
 }

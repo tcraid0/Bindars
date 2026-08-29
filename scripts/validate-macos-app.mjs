@@ -139,9 +139,12 @@ export function validatePlistMetadata(plist, config) {
       contentTypes,
       `LSItemContentTypes for ${extensions.join(", ")}`,
     );
+    const name = association.name == null
+      ? defaultName
+      : requireNonEmptyString(association.name, `fileAssociations[${index}].name`);
     assertEqual(
       actual.CFBundleTypeName,
-      association.name ?? defaultName,
+      name,
       `CFBundleTypeName for ${extensions.join(", ")}`,
     );
     assertEqual(
@@ -156,7 +159,11 @@ export function validatePlistMetadata(plist, config) {
     );
     actualByExtensions.delete(key);
 
-    return { extensions, contentTypes: sortedStrings(contentTypes, "contentTypes") };
+    return {
+      name,
+      extensions,
+      contentTypes: sortedStrings(contentTypes, "contentTypes"),
+    };
   });
   if (plist.UTExportedTypeDeclarations != null || plist.UTImportedTypeDeclarations != null) {
     fail("Unexpected macOS UTI declarations need explicit validator support");
@@ -294,6 +301,14 @@ export function validateMachOInventory(machOFiles, expectedExecutable) {
   }
 }
 
+export function validateArm64Architecture(architectures) {
+  const actual = sortedStrings(architectures, "Bundle executable architectures");
+  if (actual.length !== 1 || actual[0] !== "arm64") {
+    fail(`Bundle executable must be exactly arm64; got: ${actual.join(", ") || "none"}`);
+  }
+  return actual;
+}
+
 async function resolveBundlePath(argument, config) {
   if (argument) return path.resolve(argument);
   const productName = requireNonEmptyString(config.productName, "Tauri productName");
@@ -338,11 +353,9 @@ async function validateBundle(appBundle, config) {
   }
   validateMachOInventory(machOFiles, executablePath);
 
-  const architectures = (await commandOutput("lipo", ["-archs", executablePath])).split(/\s+/u);
-  const hostArchitecture = await commandOutput("uname", ["-m"]);
-  if (!architectures.includes(hostArchitecture)) {
-    fail(`Bundle architectures ${architectures.join(", ")} do not include host ${hostArchitecture}`);
-  }
+  const architectures = validateArm64Architecture(
+    (await commandOutput("lipo", ["-archs", executablePath])).split(/\s+/u),
+  );
 
   const buildDetails = await commandOutput("xcrun", ["vtool", "-show-build", executablePath]);
   const executableMinimums = [...buildDetails.matchAll(/^\s*minos\s+(\S+)$/gmu)]
@@ -391,7 +404,7 @@ async function validateBundle(appBundle, config) {
   console.log("Validated credential-free macOS app bundle");
   console.log(`  Bundle: ${appBundle}`);
   console.log(`  Executable: ${executableName}`);
-  console.log(`  Architectures: ${architectures.join(", ")} (host: ${hostArchitecture})`);
+  console.log(`  Architectures: ${architectures.join(", ")}`);
   console.log(`  Identifier: ${metadata.identifier}`);
   console.log(`  Versions: short ${metadata.shortVersion}; build ${metadata.buildVersion}`);
   console.log(
@@ -401,7 +414,9 @@ async function validateBundle(appBundle, config) {
     const contentTypes = documentType.contentTypes.length > 0
       ? documentType.contentTypes.join(", ")
       : "none (extension-only)";
-    console.log(`  Document type: ${documentType.extensions.join(", ")}; content types: ${contentTypes}`);
+    console.log(
+      `  Document type: ${documentType.name}; extensions: ${documentType.extensions.join(", ")}; content types: ${contentTypes}`,
+    );
   }
   console.log(`  Resources: ${resources.join(", ")}`);
   console.log(`  Signing: ${signature}; no additional Mach-O, bundle signature, or provisioning profile`);

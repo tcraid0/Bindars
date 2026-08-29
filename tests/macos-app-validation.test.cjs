@@ -53,6 +53,7 @@ test("bundle validation derives metadata from Tauri config", async () => {
   assert.equal(metadata.minimumSystemVersion, "10.13");
   assert.deepEqual(metadata.documentTypes, [
     {
+      name: "md",
       extensions: ["markdown", "md"],
       contentTypes: ["net.daringfireball.markdown"],
     },
@@ -74,6 +75,28 @@ test("an explicit minimum system version must match the generated plist", async 
       fixtureConfig({ minimumSystemVersion: "13.0" }),
     ),
     /LSMinimumSystemVersion mismatch/,
+  );
+});
+
+test("a configured minimum system version matching the generated plist is accepted", async () => {
+  const { validatePlistMetadata } = await loadValidator();
+
+  const metadata = validatePlistMetadata(
+    fixturePlist("15.0"),
+    fixtureConfig({ minimumSystemVersion: "15.0" }),
+  );
+  assert.equal(metadata.minimumSystemVersion, "15.0");
+});
+
+test("a configured minimum system version must be non-empty", async () => {
+  const { validatePlistMetadata } = await loadValidator();
+
+  assert.throws(
+    () => validatePlistMetadata(
+      fixturePlist("15.0"),
+      fixtureConfig({ minimumSystemVersion: "" }),
+    ),
+    /bundle\.macOS\.minimumSystemVersion must be a non-empty string/,
   );
 });
 
@@ -122,6 +145,47 @@ test("extension-only document declarations do not invent macOS content types", a
 
   const metadata = validatePlistMetadata(plist, config);
   assert.deepEqual(metadata.documentTypes[0].contentTypes, []);
+});
+
+test("configured document names must match the generated plist", async () => {
+  const { validatePlistMetadata } = await loadValidator();
+  const config = fixtureConfig({ minimumSystemVersion: "15.0" });
+  config.bundle.fileAssociations = [
+    { ext: ["md", "markdown"], name: "Markdown document" },
+    { ext: ["fountain"], name: "Fountain screenplay" },
+  ];
+  const plist = fixturePlist("15.0");
+  delete plist.CFBundleDocumentTypes[0].LSItemContentTypes;
+  plist.CFBundleDocumentTypes[0].CFBundleTypeName = "Markdown document";
+  plist.CFBundleDocumentTypes.push({
+    CFBundleTypeExtensions: ["fountain"],
+    CFBundleTypeName: "Fountain screenplay",
+    CFBundleTypeRole: "Editor",
+    LSHandlerRank: "Default",
+  });
+
+  const metadata = validatePlistMetadata(plist, config);
+  assert.deepEqual(
+    metadata.documentTypes.map(({ name }) => name),
+    ["Markdown document", "Fountain screenplay"],
+  );
+
+  plist.CFBundleDocumentTypes[1].CFBundleTypeName = "Fountain document";
+  assert.throws(
+    () => validatePlistMetadata(plist, config),
+    /CFBundleTypeName for fountain mismatch/,
+  );
+});
+
+test("configured document names must be non-empty", async () => {
+  const { validatePlistMetadata } = await loadValidator();
+  const config = fixtureConfig();
+  config.bundle.fileAssociations[0].name = "";
+
+  assert.throws(
+    () => validatePlistMetadata(fixturePlist(), config),
+    /fileAssociations\[0\]\.name must be a non-empty string/,
+  );
 });
 
 test("new UTI declaration forms require an explicit validator extension", async () => {
@@ -201,6 +265,31 @@ test("Mach-O inventory rejects unexpected native executables", async () => {
   assert.throws(
     () => validateMachOInventory([], executable),
     /main executable is not Mach-O/,
+  );
+});
+
+test("arm64 architecture validation accepts exactly one arm64 slice", async () => {
+  const { validateArm64Architecture } = await loadValidator();
+
+  assert.deepEqual(validateArm64Architecture(["arm64"]), ["arm64"]);
+});
+
+test("arm64 architecture validation rejects other or malformed inventories", async () => {
+  const { validateArm64Architecture } = await loadValidator();
+
+  for (const architectures of [
+    ["arm64", "x86_64"],
+    ["x86_64"],
+    [],
+  ]) {
+    assert.throws(
+      () => validateArm64Architecture(architectures),
+      /Bundle executable must be exactly arm64/,
+    );
+  }
+  assert.throws(
+    () => validateArm64Architecture("arm64"),
+    /must be an array of strings/,
   );
 });
 
