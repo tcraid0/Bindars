@@ -16,11 +16,11 @@ hold until they receive native testing and code signing.
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
 - Highlights and bookmarks with text anchoring
-- Workspace search across all your markdown files (Ctrl+K)
+- Workspace search across all your markdown files through the command palette
 - Fountain screenplay rendering with character focus and scene navigation
 - Focus mode and presentation mode
 - Position-continuous CodeMirror editing with undo history and find/replace
-- New documents with Ctrl+N, guarded Save/Save As, and external-change reconciliation
+- New documents with guarded Save/Save As and external-change reconciliation
 - Optional Markdown heading formatting with an instant plain-markup fallback
 - Print and HTML export
 - Keyboard-driven workflow - press `?` for the full shortcut list

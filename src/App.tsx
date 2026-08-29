@@ -69,6 +69,7 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
+import { formatShortcutLabel, renderShortcutTemplate } from "./lib/shortcut-labels";
 import {
   createDraftSnapshotId,
   draftSnapshotDocument,
@@ -90,7 +91,7 @@ import type {
 } from "./lib/snapshots";
 import type { TextAnchor } from "./lib/text-anchoring";
 import type { FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
-import welcomeContent from "./assets/welcome.md?raw";
+import welcomeTemplate from "./assets/welcome.md?raw";
 
 type PendingAction =
   | { kind: "close-window" }
@@ -308,6 +309,10 @@ function App() {
   const presentationDeferredReloadRef = useRef(false);
 
   const documentOpen = isDocumentOpen(content);
+  const welcomeContent = useMemo(
+    () => renderShortcutTemplate(welcomeTemplate),
+    [],
+  );
   const canToggleEdit = canToggleEditMode({ documentOpen, editing, loading });
   const canPresent = readerDocumentReady && canEnterPresentationMode({
     documentOpen,
@@ -1561,7 +1566,7 @@ function App() {
       storeSet("hasSeenWelcome", true);
     });
     return () => { cancelled = true; };
-  }, [sessionRestored, recentFilesLoaded, content, filePath, loading, recentFiles.length, setVirtualContent]);
+  }, [sessionRestored, recentFilesLoaded, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
 
   useLayoutEffect(() => {
     if (editing || !pendingReaderTarget) return;
@@ -2580,7 +2585,7 @@ function App() {
             type="button"
             onClick={() => setFocusedCharacter(null)}
             className="text-xs text-text-secondary hover:text-text-primary cursor-pointer transition-colors duration-120"
-            title="Exit character focus (Esc)"
+            title={`Exit character focus (${formatShortcutLabel("escape")})`}
             aria-label="Exit character focus"
           >
             Exit

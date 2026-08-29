@@ -7,15 +7,15 @@ tags: [welcome, getting-started]
 
 ## Getting Started
 
-Open any `.md`, `.markdown`, or `.fountain` file with **Ctrl+O**, or drag and drop it onto the window. Press **Ctrl+N** to start a new Markdown document.
+Open any `.md`, `.markdown`, or `.fountain` file with **{{shortcut:openFile}}**, or drag and drop it onto the window. Press **{{shortcut:newFile}}** to start a new Markdown document.
 
-Bindars remembers your recently opened files in the sidebar (**Ctrl+B**), and restores your last reading position when you reopen a file.
+Bindars remembers your recently opened files in the sidebar (**{{shortcut:toggleSidebar}}**), and restores your last reading position when you reopen a file.
 
 ### Editing
 
-Press **Ctrl+E** to make the current document editable without losing your reading position. The editor supports undo history and find/replace. Save manually with **Ctrl+S**; Bindars warns before navigation or exit when unsaved work remains.
+Press **{{shortcut:toggleEditMode}}** to make the current document editable without losing your reading position. The editor supports undo history and find/replace. Save manually with **{{shortcut:saveFile}}**; Bindars warns before navigation or exit when unsaved work remains.
 
-Markdown headings receive optional live formatting while editing. Use **Ctrl+Alt+M** to switch instantly between formatted headings and plain markup. Other Markdown syntax remains visible and editable as ordinary text.
+Markdown headings receive optional live formatting while editing. Use **{{shortcut:toggleMarkdownFormatting}}** to switch instantly between formatted headings and plain markup. Other Markdown syntax remains visible and editable as ordinary text.
 
 ## Features
 
@@ -50,34 +50,34 @@ graph LR
 
 ### Highlights & Annotations
 
-Select any text to highlight it in one of four colors. Open the annotations panel (**Ctrl+M**) to review your highlights, add notes, and export everything to Markdown.
+Select any text to highlight it in one of four colors. Open the annotations panel (**{{shortcut:toggleAnnotations}}**) to review your highlights, add notes, and export everything to Markdown.
 
 ### Workspace
 
-Set a workspace folder to search across all your Markdown files with the command palette (**Ctrl+K**). Bindars indexes headings, content, and links for fast full-text search.
+Set a workspace folder to search across all your Markdown files with the command palette (**{{shortcut:workspaceSwitcher}}**). Bindars indexes headings, content, and links for fast full-text search.
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
-| **Ctrl+N** | New Markdown document |
-| **Ctrl+O** | Open file |
-| **Ctrl+S** | Save while editing |
-| **Ctrl+B** | Toggle sidebar |
-| **Ctrl+J** | Toggle table of contents |
-| **Ctrl+F** | Search in document |
-| **Ctrl+K** | Command palette |
-| **Ctrl+M** | Toggle annotations panel |
-| **Ctrl+D** | Bookmark current heading |
-| **Ctrl+E** | Toggle edit mode |
-| **Ctrl+Alt+M** | Toggle Markdown formatting while editing |
-| **Ctrl+Shift+T** | Cycle theme |
-| **Ctrl+Shift+F** | Focus mode |
-| **?** | Keyboard shortcuts overlay |
+| **{{shortcut:newFile}}** | New Markdown document |
+| **{{shortcut:openFile}}** | Open file |
+| **{{shortcut:saveFile}}** | Save while editing |
+| **{{shortcut:toggleSidebar}}** | Toggle sidebar |
+| **{{shortcut:toggleTableOfContents}}** | Toggle table of contents |
+| **{{shortcut:searchDocument}}** | Search in document |
+| **{{shortcut:workspaceSwitcher}}** | Command palette |
+| **{{shortcut:toggleAnnotations}}** | Toggle annotations panel |
+| **{{shortcut:bookmarkHeading}}** | Bookmark current heading |
+| **{{shortcut:toggleEditMode}}** | Toggle edit mode |
+| **{{shortcut:toggleMarkdownFormatting}}** | Toggle Markdown formatting while editing |
+| **{{shortcut:cycleTheme}}** | Cycle theme |
+| **{{shortcut:focusMode}}** | Focus mode |
+| **{{shortcut:showShortcuts}}** | Keyboard shortcuts overlay |
 
 ## Themes
 
-Cycle through Light, Sepia, Dark, and Midnight themes with **Ctrl+Shift+T**, or pick one directly from Reader Settings (the Aa button in the header).
+Cycle through Light, Sepia, Dark, and Midnight themes with **{{shortcut:cycleTheme}}**, or pick one directly from Reader Settings (the Aa button in the header).
 
 ---
 

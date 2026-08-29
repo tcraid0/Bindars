@@ -1,67 +1,10 @@
 import { memo, useRef } from "react";
+import { formatShortcutLabel, SHORTCUT_SECTIONS } from "../lib/shortcut-labels";
 
 interface ShortcutOverlayProps {
   visible: boolean;
   onClose: () => void;
 }
-
-interface ShortcutEntry {
-  keys: string;
-  label: string;
-}
-
-const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
-  {
-    title: "Navigation",
-    shortcuts: [
-      { keys: "Ctrl+N", label: "New file" },
-      { keys: "Ctrl+O", label: "Open file" },
-      { keys: "Ctrl+K", label: "Workspace quick switcher" },
-      { keys: "Alt+\u2190", label: "Go back" },
-      { keys: "Alt+\u2192", label: "Go forward" },
-      { keys: "Alt+\u2191", label: "Previous scene" },
-      { keys: "Alt+\u2193", label: "Next scene" },
-    ],
-  },
-  {
-    title: "View",
-    shortcuts: [
-      { keys: "Ctrl+B", label: "Toggle sidebar" },
-      { keys: "Ctrl+J", label: "Toggle table of contents" },
-      { keys: "Ctrl+\\", label: "Toggle both panels" },
-      { keys: "Ctrl+Shift+F", label: "Focus mode" },
-      { keys: "Ctrl+Shift+T", label: "Cycle theme" },
-    ],
-  },
-  {
-    title: "Reading",
-    shortcuts: [
-      { keys: "Ctrl+F", label: "Search in document" },
-      { keys: "Ctrl+D", label: "Bookmark current heading" },
-      { keys: "Ctrl+M", label: "Toggle annotations panel" },
-      { keys: "Ctrl+P", label: "Print / export PDF" },
-      { keys: "Ctrl++", label: "Increase font size" },
-      { keys: "Ctrl+\u2212", label: "Decrease font size" },
-      { keys: "Ctrl+0", label: "Reset settings" },
-    ],
-  },
-  {
-    title: "Editing",
-    shortcuts: [
-      { keys: "Ctrl+E", label: "Toggle edit mode" },
-      { keys: "Ctrl+S", label: "Save file" },
-      { keys: "Ctrl+Alt+M", label: "Toggle markup formatting" },
-      { keys: "Esc", label: "Exit edit mode" },
-    ],
-  },
-  {
-    title: "General",
-    shortcuts: [
-      { keys: "?", label: "Show keyboard shortcuts" },
-      { keys: "Esc", label: "Close overlay / exit focus" },
-    ],
-  },
-];
 
 function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
   const backdropRef = useRef<HTMLDivElement | null>(null);
@@ -101,17 +44,17 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
           </button>
         </div>
 
-        {sections.map((section) => (
+        {SHORTCUT_SECTIONS.map((section) => (
           <div key={section.title} className="mb-3.5 last:mb-0">
             <h3 className="font-reading italic text-sm text-text-muted mb-1.5">
               {section.title}
             </h3>
             <div className="space-y-1">
-              {section.shortcuts.map((s) => (
-                <div key={s.keys} className="flex items-center justify-between py-0.5">
-                  <span className="text-sm text-text-secondary">{s.label}</span>
+              {section.shortcuts.map((shortcut) => (
+                <div key={shortcut.id} className="flex items-center justify-between py-0.5">
+                  <span className="text-sm text-text-secondary">{shortcut.label}</span>
                   <kbd className="shortcut-kbd px-2 py-0.5 rounded bg-bg-tertiary text-xs font-mono text-text-primary border-b-2 border-border">
-                    {s.keys}
+                    {formatShortcutLabel(shortcut.id)}
                   </kbd>
                 </div>
               ))}

@@ -1,4 +1,5 @@
 import { memo, useState, useEffect, useRef } from "react";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
 
@@ -101,7 +102,7 @@ function FocusBarComponent({
           type="button"
           onClick={onExit}
           className="text-xs text-text-secondary hover:text-text-primary transition-colors duration-120"
-          title="Exit focus mode (Esc)"
+          title={`Exit focus mode (${formatShortcutLabel("escape")})`}
         >
           Exit
         </button>

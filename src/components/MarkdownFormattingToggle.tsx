@@ -1,3 +1,5 @@
+import { formatShortcutLabel } from "../lib/shortcut-labels";
+
 interface MarkdownFormattingToggleProps {
   enabled: boolean;
   onToggle: () => void;
@@ -20,7 +22,7 @@ export function MarkdownFormattingToggle({
           ? "border-accent/40 bg-accent/10 text-accent"
           : "border-border text-text-muted hover:bg-bg-tertiary hover:text-text-secondary"
       } ${className}`.trim()}
-      title={`Use ${enabled ? "plain" : "formatted"} Markdown (Ctrl/Cmd+Alt+M)`}
+      title={`Use ${enabled ? "plain" : "formatted"} Markdown (${formatShortcutLabel("toggleMarkdownFormatting")})`}
     >
       {enabled ? "Styled" : "Plain"}
     </button>

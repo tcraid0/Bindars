@@ -5,6 +5,7 @@ import type { Theme, FileType } from "../types";
 import { embedImages } from "../lib/embed-images";
 import { buildExportHtml, serializeExportRoot } from "../lib/export-html";
 import { waitForMermaidDiagrams } from "../lib/print-export";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
@@ -220,7 +221,7 @@ function HeaderComponent({
           onClick={onToggleSidebar}
           aria-label="Toggle sidebar"
           className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
-          title="Toggle sidebar (Ctrl+B)"
+          title={`Toggle sidebar (${formatShortcutLabel("toggleSidebar")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -233,7 +234,7 @@ function HeaderComponent({
           disabled={!canGoBack}
           aria-label="Go back"
           className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
-          title="Go back (Alt+Left)"
+          title={`Go back (${formatShortcutLabel("goBack")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" />
@@ -246,7 +247,7 @@ function HeaderComponent({
           disabled={!canGoForward}
           aria-label="Go forward"
           className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
-          title="Go forward (Alt+Right)"
+          title={`Go forward (${formatShortcutLabel("goForward")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" />
@@ -283,7 +284,7 @@ function HeaderComponent({
               disabled={!canToggleEdit}
               aria-label={isEditing ? "Switch to read mode" : "Switch to edit mode"}
               className="p-1 rounded-md hover:bg-bg-tertiary text-text-muted transition-colors duration-120 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-              title={isEditing ? "Read mode (Ctrl+E)" : "Edit mode (Ctrl+E)"}
+              title={`${isEditing ? "Read" : "Edit"} mode (${formatShortcutLabel("toggleEditMode")})`}
             >
               {isEditing ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -345,7 +346,7 @@ function HeaderComponent({
             type="button"
             onClick={onSave}
             className="px-2.5 py-1.5 rounded-md text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-            title="Save (Ctrl+S)"
+            title={`Save (${formatShortcutLabel("saveFile")})`}
           >
             Save
           </button>
@@ -354,7 +355,7 @@ function HeaderComponent({
           type="button"
           onClick={onNewFile}
           className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title="New file (Ctrl+N)"
+          title={`New file (${formatShortcutLabel("newFile")})`}
         >
           New
         </button>
@@ -362,7 +363,7 @@ function HeaderComponent({
           type="button"
           onClick={onOpenFile}
           className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title="Open file (Ctrl+O)"
+          title={`Open file (${formatShortcutLabel("openFile")})`}
         >
           Open
         </button>
@@ -394,7 +395,7 @@ function HeaderComponent({
                   className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                     exportOpen ? "text-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
-                  title="Export (Ctrl+P)"
+                  title={`Export (${formatShortcutLabel("print")})`}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="6 9 6 2 18 2 18 9" />
@@ -421,7 +422,7 @@ function HeaderComponent({
                         <rect x="6" y="14" width="12" height="8" />
                       </svg>
                       Print to PDF
-                      <kbd className="ml-auto text-[10px] text-text-muted font-mono">Ctrl+P</kbd>
+                      <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("print")}</kbd>
                     </button>
                     <button
                       type="button"
@@ -449,7 +450,7 @@ function HeaderComponent({
                           <line x1="12" y1="17" x2="12" y2="21" />
                         </svg>
                         Present as Slides
-                        <kbd className="ml-auto text-[10px] text-text-muted font-mono">F5</kbd>
+                        <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("presentation")}</kbd>
                       </button>
                     )}
                     <div className="border-t border-border mt-1 pt-1 px-3 py-1.5">
@@ -468,7 +469,7 @@ function HeaderComponent({
               className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                 hasAnnotations ? "text-accent" : "text-text-secondary hover:text-text-primary"
               }`}
-              title="Annotations (Ctrl+M)"
+              title={`Annotations (${formatShortcutLabel("toggleAnnotations")})`}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -479,7 +480,7 @@ function HeaderComponent({
               onClick={onToggleToc}
               aria-label="Toggle table of contents"
               className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-              title="Toggle table of contents (Ctrl+J)"
+              title={`Toggle table of contents (${formatShortcutLabel("toggleTableOfContents")})`}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="8" y1="6" x2="21" y2="6" />
@@ -497,7 +498,7 @@ function HeaderComponent({
           onClick={onCycleTheme}
           aria-label={`Switch theme (current: ${themeLabels[theme]})`}
           className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title={`Theme: ${themeLabels[theme]} (Ctrl+Shift+T)`}
+          title={`Theme: ${themeLabels[theme]} (${formatShortcutLabel("cycleTheme")})`}
         >
           {theme === "light" ? (
             /* Sun — full sun with rays */
