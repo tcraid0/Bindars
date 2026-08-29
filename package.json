@@ -10,6 +10,7 @@
     "dev": "vite",
     "generate:katex-css": "node scripts/generate-katex-css.mjs",
     "verify:smartypants-node": "node scripts/verify-smartypants-node.mjs",
+    "validate:macos-app": "node scripts/validate-macos-app.mjs",
     "build": "tsc && vite build",
     "tauri": "npx tauri",
     "test:workspace": "rm -rf .tmp/workspace-tests && npx tsc -p tsconfig.workspace-tests.json && mkdir -p .tmp/workspace-tests && printf '{\"type\":\"commonjs\"}' > .tmp/workspace-tests/package.json && node --import=./tests/_helpers/dom-setup.mjs --test"

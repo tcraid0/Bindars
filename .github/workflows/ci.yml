@@ -7,20 +7,29 @@ on:
     branches: [main]
 
 jobs:
-  typecheck:
-    name: TypeScript typecheck
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22", "24"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
+          cache: npm
 
       - run: npm ci
 
-      - run: npx tsc --noEmit
+      - name: Typecheck and build frontend
+        run: npm run build
+
+      - name: Run workspace integration tests
+        run: npm run test:workspace
 
   rust-tests:
     name: Rust unit tests
@@ -55,17 +64,54 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --lib --tests --locked -- -D warnings
 
-  workspace-tests:
-    name: Workspace integration tests
-    runs-on: ubuntu-latest
+  macos:
+    name: macOS 15 arm64
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = arm64
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - run: npm ci
 
-      - run: npm run test:workspace
+      - name: Run workspace integration tests
+        run: npm run test:workspace
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Check Rust sources
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Run Rust lints
+        working-directory: src-tauri
+        run: cargo clippy --locked -- -D warnings
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Typecheck, build, and bundle unsigned app
+        run: npx tauri build --bundles app --no-sign --ci
+
+      - name: Validate app bundle
+        run: npm run validate:macos-app
