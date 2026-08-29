@@ -176,7 +176,7 @@ export function bundledResourcePath(resourcePath) {
     fail("Bundle resource paths must be non-empty strings");
   }
   if (path.isAbsolute(resourcePath)) {
-    fail(`Cannot derive a stable bundle destination for absolute resource: ${resourcePath}`);
+    fail(`Bundle validation requires relative resource paths; absolute resource is unsupported: ${resourcePath}`);
   }
   if (/[*?\[\]{}]/u.test(resourcePath)) {
     fail(`Cannot structurally validate globbed resource without an explicit destination: ${resourcePath}`);
@@ -266,16 +266,32 @@ async function codeSignatureDetails(appBundle) {
   }
 }
 
-async function findNamedEntries(root, forbiddenNames) {
-  const found = [];
+export async function inventoryBundleTree(root, forbiddenNames) {
+  const regularFiles = [];
+  const forbiddenEntries = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const entryPath = path.join(root, entry.name);
-    if (forbiddenNames.has(entry.name)) found.push(entryPath);
-    if (entry.isDirectory() && !entry.isSymbolicLink()) {
-      found.push(...await findNamedEntries(entryPath, forbiddenNames));
+    if (forbiddenNames.has(entry.name)) forbiddenEntries.push(entryPath);
+    if (entry.isFile()) regularFiles.push(entryPath);
+    if (entry.isDirectory()) {
+      const nested = await inventoryBundleTree(entryPath, forbiddenNames);
+      regularFiles.push(...nested.regularFiles);
+      forbiddenEntries.push(...nested.forbiddenEntries);
     }
   }
-  return found;
+  return { regularFiles, forbiddenEntries };
+}
+
+export function validateMachOInventory(machOFiles, expectedExecutable) {
+  const files = sortedStrings(machOFiles, "Mach-O file inventory");
+  if (!files.includes(expectedExecutable)) {
+    fail(`Bundle main executable is not Mach-O: ${expectedExecutable}`);
+  }
+
+  const unexpected = files.filter((filePath) => filePath !== expectedExecutable);
+  if (unexpected.length > 0) {
+    fail(`Unexpected additional Mach-O files need explicit validation: ${unexpected.join(", ")}`);
+  }
 }
 
 async function resolveBundlePath(argument, config) {
@@ -307,8 +323,20 @@ async function validateBundle(appBundle, config) {
   }
   if ((executableStat.mode & 0o111) === 0) fail(`Bundle executable is not executable: ${executablePath}`);
 
-  const fileDescription = await commandOutput("file", [executablePath]);
-  if (!/Mach-O/u.test(fileDescription)) fail(`Bundle executable is not Mach-O: ${fileDescription}`);
+  const tree = await inventoryBundleTree(
+    contents,
+    new Set(["_CodeSignature", "embedded.provisionprofile"]),
+  );
+  if (tree.forbiddenEntries.length > 0) {
+    fail(`Unsigned bundle contains signing material: ${tree.forbiddenEntries.join(", ")}`);
+  }
+
+  const machOFiles = [];
+  for (const filePath of tree.regularFiles) {
+    const fileDescription = await commandOutput("file", ["-b", filePath]);
+    if (/\bMach-O\b/u.test(fileDescription)) machOFiles.push(filePath);
+  }
+  validateMachOInventory(machOFiles, executablePath);
 
   const architectures = (await commandOutput("lipo", ["-archs", executablePath])).split(/\s+/u);
   const hostArchitecture = await commandOutput("uname", ["-m"]);
@@ -358,13 +386,6 @@ async function validateBundle(appBundle, config) {
     fail("Bundled macOS icon differs from its configured source");
   }
 
-  const forbiddenEntries = await findNamedEntries(
-    contents,
-    new Set(["_CodeSignature", "embedded.provisionprofile"]),
-  );
-  if (forbiddenEntries.length > 0) {
-    fail(`Unsigned bundle contains signing material: ${forbiddenEntries.join(", ")}`);
-  }
   const signature = classifyCredentialFreeSignature(await codeSignatureDetails(appBundle));
 
   console.log("Validated credential-free macOS app bundle");
@@ -383,7 +404,7 @@ async function validateBundle(appBundle, config) {
     console.log(`  Document type: ${documentType.extensions.join(", ")}; content types: ${contentTypes}`);
   }
   console.log(`  Resources: ${resources.join(", ")}`);
-  console.log(`  Signing: ${signature}; no bundle signature or provisioning profile`);
+  console.log(`  Signing: ${signature}; no additional Mach-O, bundle signature, or provisioning profile`);
 }
 
 async function main() {

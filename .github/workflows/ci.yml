@@ -104,7 +104,7 @@ jobs:
 
       - name: Run Rust lints
         working-directory: src-tauri
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --lib --tests --locked -- -D warnings
 
       - name: Run Rust tests
         working-directory: src-tauri

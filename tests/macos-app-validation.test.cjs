@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { mkdir, mkdtemp, rm, writeFile } = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 
 const loadValidator = () => import("../scripts/validate-macos-app.mjs");
 
@@ -146,7 +149,59 @@ test("resource destinations mirror Tauri's relative-path layout", async () => {
 
   assert.equal(bundledResourcePath("../LICENSE"), "_up_/LICENSE");
   assert.deepEqual(expectedBundleResources(fixtureConfig()), ["_up_/LICENSE", "icon.icns"]);
+  assert.throws(() => bundledResourcePath("/absolute/LICENSE"), /absolute resource is unsupported/);
   assert.throws(() => bundledResourcePath("docs/**/*.md"), /globbed resource/);
+});
+
+test("bundle tree inventory finds nested signing material", async (t) => {
+  const { inventoryBundleTree } = await loadValidator();
+  const root = await mkdtemp(path.join(os.tmpdir(), "bindars-macos-validator-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const resources = path.join(root, "Resources");
+  const signature = path.join(resources, "Nested.app", "_CodeSignature");
+  await mkdir(signature, { recursive: true });
+  await writeFile(path.join(resources, "plain.txt"), "plain");
+  await writeFile(path.join(signature, "CodeResources"), "signed");
+  await writeFile(path.join(resources, "embedded.provisionprofile"), "profile");
+
+  const inventory = await inventoryBundleTree(
+    root,
+    new Set(["_CodeSignature", "embedded.provisionprofile"]),
+  );
+  assert.deepEqual(
+    inventory.regularFiles.sort(),
+    [
+      path.join(resources, "embedded.provisionprofile"),
+      path.join(resources, "Nested.app", "_CodeSignature", "CodeResources"),
+      path.join(resources, "plain.txt"),
+    ].sort(),
+  );
+  assert.deepEqual(
+    inventory.forbiddenEntries.sort(),
+    [
+      path.join(resources, "embedded.provisionprofile"),
+      path.join(resources, "Nested.app", "_CodeSignature"),
+    ].sort(),
+  );
+});
+
+test("Mach-O inventory rejects unexpected native executables", async () => {
+  const { validateMachOInventory } = await loadValidator();
+  const executable = "/tmp/Bindars.app/Contents/MacOS/bindars";
+
+  assert.doesNotThrow(() => validateMachOInventory([executable], executable));
+  assert.throws(
+    () => validateMachOInventory(
+      [executable, "/tmp/Bindars.app/Contents/MacOS/signed-helper"],
+      executable,
+    ),
+    /Unexpected additional Mach-O files need explicit validation/,
+  );
+  assert.throws(
+    () => validateMachOInventory([], executable),
+    /main executable is not Mach-O/,
+  );
 });
 
 test("only absent or linker ad-hoc signatures are credential-free", async () => {
