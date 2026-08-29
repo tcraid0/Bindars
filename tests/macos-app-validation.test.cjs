@@ -293,6 +293,34 @@ test("arm64 architecture validation rejects other or malformed inventories", asy
   );
 });
 
+test("Mach-O minimum validation accepts every minimum matching configuration", async () => {
+  const { validateMachOMinimumVersions } = await loadValidator();
+
+  assert.deepEqual(
+    validateMachOMinimumVersions(["15.0", "15.0"], "15.0"),
+    ["15.0", "15.0"],
+  );
+});
+
+test("Mach-O minimum validation rejects missing or divergent metadata", async () => {
+  const { validateMachOMinimumVersions } = await loadValidator();
+
+  assert.throws(
+    () => validateMachOMinimumVersions([], "15.0"),
+    /no readable macOS minimum-version load command/,
+  );
+  for (const minimumVersions of [
+    ["16.0"],
+    ["14.0"],
+    ["15.0", "16.0"],
+  ]) {
+    assert.throws(
+      () => validateMachOMinimumVersions(minimumVersions, "15.0"),
+      /Mach-O minimum system version mismatch/,
+    );
+  }
+});
+
 test("only absent or linker ad-hoc signatures are credential-free", async () => {
   const { classifyCredentialFreeSignature } = await loadValidator();
   const linkerSignature = [

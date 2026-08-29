@@ -309,6 +309,23 @@ export function validateArm64Architecture(architectures) {
   return actual;
 }
 
+export function validateMachOMinimumVersions(minimumVersions, configuredMinimum) {
+  const actual = sortedStrings(minimumVersions, "Mach-O minimum versions");
+  if (actual.length === 0) {
+    fail("Mach-O executable has no readable macOS minimum-version load command");
+  }
+  if (configuredMinimum == null) return actual;
+
+  const expected = requireNonEmptyString(
+    configuredMinimum,
+    "bundle.macOS.minimumSystemVersion",
+  );
+  for (const minimumVersion of actual) {
+    assertEqual(minimumVersion, expected, "Mach-O minimum system version");
+  }
+  return actual;
+}
+
 async function resolveBundlePath(argument, config) {
   if (argument) return path.resolve(argument);
   const productName = requireNonEmptyString(config.productName, "Tauri productName");
@@ -358,11 +375,10 @@ async function validateBundle(appBundle, config) {
   );
 
   const buildDetails = await commandOutput("xcrun", ["vtool", "-show-build", executablePath]);
-  const executableMinimums = [...buildDetails.matchAll(/^\s*minos\s+(\S+)$/gmu)]
-    .map((match) => match[1]);
-  if (executableMinimums.length === 0) {
-    fail("Mach-O executable has no readable macOS minimum-version load command");
-  }
+  const executableMinimums = validateMachOMinimumVersions(
+    [...buildDetails.matchAll(/^\s*minos\s+(\S+)$/gmu)].map((match) => match[1]),
+    config.bundle?.macOS?.minimumSystemVersion,
+  );
 
   const resourcesRoot = path.join(contents, "Resources");
   const resources = expectedBundleResources(config);
