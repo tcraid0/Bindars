@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
-use super::{
-    is_markdown_path, read_markdown_contents, stable_hash_hex, write_contents_atomic_private,
-    NativeFileError, NativeFileOperation, MAX_MARKDOWN_BYTES, MAX_MARKDOWN_SIZE_MIB,
+use crate::atomic_write::write_contents_atomic_private;
+use crate::document_io::{
+    is_markdown_path, read_markdown_contents, stable_hash_hex, MAX_MARKDOWN_BYTES,
+    MAX_MARKDOWN_SIZE_MIB,
 };
+use crate::file_errors::{NativeFileError, NativeFileOperation};
 
 const SNAPSHOT_SCHEMA_VERSION: u8 = 1;
 const SNAPSHOT_MERGE_WINDOW_MS: u64 = 10_000;
@@ -1114,7 +1116,10 @@ mod tests {
 
         let error = snapshot_access_error(detail);
 
-        assert_eq!(error.category, crate::NativeFileErrorCategory::Unknown);
+        assert_eq!(
+            error.category,
+            crate::file_errors::NativeFileErrorCategory::Unknown
+        );
         assert_eq!(error.operation, NativeFileOperation::AccessRecoveryData);
         assert_eq!(error.message, SNAPSHOT_ACCESS_ERROR_MESSAGE);
         assert_eq!(error.detail, detail);
