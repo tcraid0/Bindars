@@ -9,6 +9,7 @@ import { formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
+import { replaceOpenableDocumentExtension } from "../lib/openable-files";
 
 interface HeaderProps {
   fileName: string | null;
@@ -161,7 +162,9 @@ function HeaderComponent({
     const el = document.querySelector(".markdown-body, .fountain-body");
     if (!el) return;
 
-    const defaultName = fileName ? fileName.replace(/\.(md|markdown|fountain)$/i, ".html") : "export.html";
+    const defaultName = fileName
+      ? replaceOpenableDocumentExtension(fileName, ".html")
+      : "export.html";
     try {
       const savePath = await save({
         defaultPath: defaultName,

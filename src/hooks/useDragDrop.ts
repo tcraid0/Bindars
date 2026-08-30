@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isOpenableDocumentPath } from "../lib/openable-files";
 
 interface UseDragDropOptions {
   onDragEnter: () => void;
@@ -18,16 +19,7 @@ export function useDragDrop({ onDragEnter, onDragLeave, onDrop }: UseDragDropOpt
         onDragLeave();
       } else if (event.payload.type === "drop") {
         onDragLeave();
-        const paths = event.payload.paths.filter(
-          (p) => {
-            const lower = p.toLowerCase();
-            return (
-              lower.endsWith(".md") ||
-              lower.endsWith(".markdown") ||
-              lower.endsWith(".fountain")
-            );
-          },
-        );
+        const paths = event.payload.paths.filter(isOpenableDocumentPath);
         if (paths.length > 0) {
           onDrop(paths);
         }

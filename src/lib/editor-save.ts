@@ -1,4 +1,9 @@
 import type { FileRevision } from "../types";
+import { isDeletedDocumentError, normalizeFileError } from "./native-file-error";
+import {
+  isOpenableDocumentExtension,
+  OPENABLE_FILE_TYPES_DESCRIPTION,
+} from "./openable-files";
 
 export type EditorSaveResult =
   | "saved"
@@ -54,11 +59,11 @@ export function isSuccessfulSave(result: EditorSaveResult): result is Successful
   return result === "saved" || result === "saved-with-newer-edits";
 }
 
-export type MarkdownSavePathResult =
+export type DocumentSavePathResult =
   | { status: "valid"; path: string }
   | { status: "error"; message: string };
 
-export function normalizeMarkdownSavePath(selectedPath: string): MarkdownSavePathResult {
+export function normalizeDocumentSavePath(selectedPath: string): DocumentSavePathResult {
   const lastSeparatorIndex = Math.max(
     selectedPath.lastIndexOf("/"),
     selectedPath.lastIndexOf("\\"),
@@ -72,21 +77,64 @@ export function normalizeMarkdownSavePath(selectedPath: string): MarkdownSavePat
   if (extensionSeparatorIndex <= 0) {
     return {
       status: "error",
-      message: "File name must end in .md or .markdown.",
+      message: `File name must end in ${OPENABLE_FILE_TYPES_DESCRIPTION}.`,
     };
   }
 
   const extension = fileName.slice(extensionSeparatorIndex + 1).toLowerCase();
-  if (extension === "md" || extension === "markdown") {
+  if (isOpenableDocumentExtension(extension)) {
     return { status: "valid", path: selectedPath };
   }
 
   return {
     status: "error",
-    message: "File name must end in .md or .markdown.",
+    message: `File name must end in ${OPENABLE_FILE_TYPES_DESCRIPTION}.`,
   };
 }
 
-export function isRecoverableDeletedFileSaveError(message: string): boolean {
-  return /^File not found:/i.test(message.trim()) || /No such file or directory/i.test(message);
+export function isRecoverableDeletedFileSaveError(error: unknown): boolean {
+  return isDeletedDocumentError(error);
+}
+
+export type SaveErrorRecovery = "save-as" | null;
+
+export interface SaveErrorDescription {
+  message: string;
+  recovery: SaveErrorRecovery;
+}
+
+export function actionableSaveError(error: unknown): SaveErrorDescription {
+  const normalized = normalizeFileError(error, "Bindars could not save this file.");
+  switch (normalized.native?.category) {
+    case "readOnly":
+      return {
+        message: "This file is read-only and was not changed.",
+        recovery: "save-as",
+      };
+    case "permissionDenied":
+      return {
+        message: "Bindars could not save this file because access was denied.",
+        recovery: "save-as",
+      };
+    case "resourceUnavailable":
+      return {
+        message: "The file resource is temporarily unavailable. Check its volume or provider and try again.",
+        recovery: null,
+      };
+    case "notFound":
+      return {
+        message: normalized.native.operation === "resolveWriteParent"
+          || normalized.native.operation === "inspectWriteParent"
+          || normalized.native.operation === "createTemporaryFile"
+          ? "The destination folder is no longer available."
+          : "This file is no longer available.",
+        recovery: "save-as",
+      };
+    case "invalidInput":
+      return normalized.native.operation === "inspectWriteTarget"
+        ? { message: normalized.message, recovery: "save-as" }
+        : { message: normalized.message, recovery: null };
+    default:
+      return { message: normalized.message, recovery: null };
+  }
 }

@@ -6,6 +6,7 @@ const { act } = React;
 const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
 const { installDom } = require("./_helpers/dom.cjs");
+const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 const {
   SNAPSHOT_INTERVAL_MS,
 } = require("../.tmp/workspace-tests/src/hooks/usePersistenceCoordinator.js");
@@ -101,7 +102,8 @@ async function renderApp({
   const clearCalls = [];
   const storageStatsCalls = [];
   const snapshotWrites = [];
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc();
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -111,8 +113,6 @@ async function renderApp({
         return [null, false];
       case "plugin:store|set":
       case "plugin:window|set_title":
-        return null;
-      case "get_cli_file_path":
         return null;
       case "write_document_snapshot":
         snapshotWrites.push(args);
@@ -139,7 +139,7 @@ async function renderApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");

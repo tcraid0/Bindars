@@ -8,6 +8,7 @@ const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
+const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 const { whitespaceSeparatedAscii } = require("./markdown-complexity-fixtures.cjs");
 const {
   markdownFormattingEnabled,
@@ -57,6 +58,50 @@ async function waitForEditorPublication() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 240));
   });
+}
+
+async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, words) {
+  dispatchShortcut("e");
+  await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+  updateEditor(rendered.host, words);
+  await waitForEditorPublication();
+
+  const failedBoundarySave = deferred();
+  rendered.deferNextWrite(failedBoundarySave);
+  rendered.setPendingNativeOpenPath(targetPath);
+  await act(async () => {
+    await emit("bindars://native-open-available");
+  });
+  await waitFor(() => assert.ok(failedBoundarySave.args));
+  await act(async () => {
+    failedBoundarySave.reject(new Error("Boundary save failed"));
+    await Promise.resolve();
+  });
+
+  return waitFor(() => {
+    const dialog = rendered.host.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.match(dialog.textContent, /Unsaved changes/);
+    return dialog;
+  });
+}
+
+async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
+  rendered.setPendingNativeOpenPath(targetPath);
+  await act(async () => {
+    await emit("bindars://native-open-available");
+  });
+
+  const dialog = await waitFor(() => {
+    if (rendered.openedPaths().includes(targetPath)) return null;
+    const candidate = rendered.host.querySelector('[role="dialog"]');
+    assert.ok(candidate);
+    return candidate;
+  });
+  if (dialog) clickButton(rendered.host, "Discard", dialog);
+  await waitFor(() => assert.ok(rendered.openedPaths().includes(targetPath)));
+  const fileName = targetPath.split("/").at(-1);
+  await waitFor(() => assert.ok(rendered.host.textContent.includes(fileName)));
 }
 
 function loadApp() {
@@ -161,7 +206,8 @@ async function renderEditorApp({
   mockWindows("main");
   const storeWrites = [];
   const snapshotWrites = [];
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc();
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -183,8 +229,6 @@ async function renderEditorApp({
         return null;
       case "plugin:window|set_title":
         return null;
-      case "get_cli_file_path":
-        return null;
       case "write_document_snapshot":
         snapshotWrites.push(args);
         return successfulSnapshotWrite(args);
@@ -200,7 +244,7 @@ async function renderEditorApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
@@ -709,7 +753,8 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
   mockWindows("main");
   const welcomeRead = deferred();
   const writes = [];
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc();
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -718,8 +763,6 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
         if (args.key === "hasSeenWelcome") return welcomeRead.promise;
         return [null, false];
       case "plugin:store|set":
-        return null;
-      case "get_cli_file_path":
         return null;
       case "plugin:window|set_title":
         return null;
@@ -741,7 +784,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
@@ -843,7 +886,8 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
   ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
   let saveDialogCount = 0;
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc();
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -854,8 +898,6 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       case "plugin:store|set":
       case "plugin:window|set_title":
         return null;
-      case "get_cli_file_path":
-        return null;
       case "plugin:dialog|save":
         saveDialogCount += 1;
         return null;
@@ -864,7 +906,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
@@ -955,7 +997,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
   const dialogs = [];
   const writes = [];
   const recoveryOperations = [];
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc();
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -965,8 +1008,6 @@ test("App save-as preserves typing and adopts the canonical path before the next
         return [null, false];
       case "plugin:store|set":
       case "plugin:window|set_title":
-        return null;
-      case "get_cli_file_path":
         return null;
       case "plugin:dialog|save": {
         const operation = deferred();
@@ -987,7 +1028,7 @@ test("App save-as preserves typing and adopts the canonical path before the next
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
@@ -1084,6 +1125,7 @@ test("App save-as preserves typing and adopts the canonical path before the next
 async function renderContinuityApp({
   requestedPath = "/tmp/continuity.md",
   canonicalPath = requestedPath,
+  initialNativePath,
   initialContent = null,
   readySelector = "#second",
   restoreHeadingId,
@@ -1118,8 +1160,11 @@ async function renderContinuityApp({
   let deferredUnwatch = null;
   let deferredSnapshotWrite = null;
   let deferredSnapshotRead = null;
+  let fileWriteError = null;
   let openDialogPath = null;
+  let saveDialogPath = "/tmp/virtual-continuity.md";
   const operationLog = [];
+  const openedPaths = [];
   const snapshotOperationLog = [];
   const snapshotWrites = [];
   const retiredDrafts = [];
@@ -1128,8 +1173,12 @@ async function renderContinuityApp({
   let windowDestroyCount = 0;
   let documentSnapshotListCount = 0;
   let snapshotWriteError = null;
+  let snapshotListError = null;
   let revisionNumber = 1;
-  mockIPC((cmd, args = {}) => {
+  const nativeOpen = createNativeOpenIpc(initialNativePath === undefined
+    ? (restoreHeadingId === undefined ? requestedPath : null)
+    : initialNativePath);
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "plugin:store|load":
         return 1;
@@ -1171,13 +1220,13 @@ async function renderContinuityApp({
           return operation.promise;
         }
         return null;
-      case "get_cli_file_path":
-        return restoreHeadingId === undefined ? requestedPath : null;
       case "open_markdown_file":
         operationLog.push("open");
+        openedPaths.push(args.path);
         if (deferredOpen) {
           const operation = deferredOpen;
           deferredOpen = null;
+          operation.args = args;
           return operation.promise;
         }
         return {
@@ -1188,6 +1237,11 @@ async function renderContinuityApp({
         };
       case "write_markdown_file_if_unmodified":
         fileWrites.push(args);
+        if (fileWriteError) {
+          const error = fileWriteError;
+          fileWriteError = null;
+          throw error;
+        }
         if (deferredWrite) {
           const operation = deferredWrite;
           deferredWrite = null;
@@ -1211,7 +1265,7 @@ async function renderContinuityApp({
           currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
         };
       case "plugin:dialog|save":
-        return "/tmp/virtual-continuity.md";
+        return saveDialogPath;
       case "write_document_snapshot": {
         snapshotWrites.push(args);
         const operation = {
@@ -1243,6 +1297,11 @@ async function renderContinuityApp({
         return null;
       case "list_document_snapshots":
         documentSnapshotListCount += 1;
+        if (snapshotListError) {
+          const error = snapshotListError;
+          snapshotListError = null;
+          throw error;
+        }
         return snapshotEntries;
       case "read_document_snapshot":
         if (deferredSnapshotRead) {
@@ -1258,7 +1317,7 @@ async function renderContinuityApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }, { shouldMockEvents: true });
+  }), { shouldMockEvents: true });
 
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
@@ -1332,8 +1391,13 @@ async function renderContinuityApp({
     deferNextSnapshotWrite(operation) { deferredSnapshotWrite = operation; },
     deferNextSnapshotRead(operation) { deferredSnapshotRead = operation; },
     setOpenDialogPath(path) { openDialogPath = path; },
+    setSaveDialogPath(path) { saveDialogPath = path; },
+    failNextFileWrite(error) { fileWriteError = error; },
+    setPendingNativeOpenPath(path) { nativeOpen.setPendingPath(path); },
     clearOperationLog() { operationLog.length = 0; },
     operationLog: () => [...operationLog],
+    openedPaths: () => [...openedPaths],
+    clearOpenedPaths() { openedPaths.length = 0; },
     clearSnapshotOperationLog() { snapshotOperationLog.length = 0; },
     snapshotOperationLog: () => snapshotOperationLog.map((operation) => ({ ...operation })),
     snapshotWrites: () => [...snapshotWrites],
@@ -1343,6 +1407,7 @@ async function renderContinuityApp({
     windowDestroyCount: () => windowDestroyCount,
     documentSnapshotListCount: () => documentSnapshotListCount,
     failNextSnapshotWrite(error) { snapshotWriteError = error; },
+    failNextSnapshotList(error) { snapshotListError = error; },
     setDiskContent(content) { diskContent = content; },
     openResult(content = diskContent, revision = revisionNumber) {
       return {
@@ -1370,6 +1435,98 @@ async function renderContinuityApp({
     },
   };
 }
+
+test("read-only Fountain document offers Save As and preserves its file type", async () => {
+  const rendered = await renderContinuityApp({
+    requestedPath: "/tmp/continuity.fountain",
+    initialContent: "INT. ORIGINAL ROOM - DAY\n\nALICE\nOriginal words.",
+    readySelector: ".fountain-scene-heading",
+  });
+
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const editedContent = "INT. WRITABLE ROOM - DAY\n\nALICE\nEdited read-only words.";
+    updateEditor(rendered.host, editedContent);
+    await waitForEditorPublication();
+    const originalDiskContent = rendered.diskContent();
+
+    rendered.failNextFileWrite({
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/continuity.fountain has mode 0444",
+    });
+    clickButton(rendered.host, "Save");
+
+    await waitFor(() => {
+      assert.match(rendered.host.textContent, /read-only and was not changed/);
+      assert.equal(rendered.fileWrites().length, 1);
+    });
+    assert.equal(rendered.diskContent(), originalDiskContent);
+
+    rendered.setSaveDialogPath("/tmp/Writable Copy.fountain");
+    clickButton(rendered.host, "Save As…");
+
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 2);
+      assert.match(rendered.host.textContent, /Writable Copy\.fountain/);
+    });
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.fountain");
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.fountain");
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.fileWrites()[1].expectedRevision, null);
+    assert.equal(rendered.diskContent(), editedContent);
+    assert.doesNotMatch(rendered.host.textContent, /bindars-error|mode 0444/);
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".fountain-scene-heading")));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("read-only Markdown document offers Save As and adopts the writable copy", async () => {
+  const rendered = await renderContinuityApp();
+
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Edited read-only words");
+    await waitForEditorPublication();
+    const originalDiskContent = rendered.diskContent();
+
+    rendered.failNextFileWrite({
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/continuity.md has mode 0444",
+    });
+    clickButton(rendered.host, "Save");
+
+    await waitFor(() => {
+      assert.match(rendered.host.textContent, /read-only and was not changed/);
+      assert.equal(rendered.fileWrites().length, 1);
+    });
+    assert.equal(rendered.diskContent(), originalDiskContent);
+
+    rendered.setSaveDialogPath("/tmp/Writable Copy.md");
+    clickButton(rendered.host, "Save As…");
+
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 2);
+      assert.match(rendered.host.textContent, /Writable Copy\.md/);
+    });
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.md");
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.fileWrites()[1].expectedRevision, null);
+    assert.equal(rendered.diskContent(), "Edited read-only words");
+    assert.doesNotMatch(rendered.host.textContent, /bindars-error|mode 0444/);
+  } finally {
+    await rendered.cleanup();
+  }
+});
 
 test("oversized Markdown keeps exact editing and print available without entering presentation", async () => {
   await installDom();
@@ -1711,6 +1868,32 @@ test("restore snapshots the current file first, preserves the boundary, and retu
       assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
     });
     assert.ok(rendered.host.querySelector(".cm-editor"));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("snapshot restore errors show safe native messages without diagnostic detail", async () => {
+  const rendered = await renderContinuityApp();
+
+  try {
+    rendered.failNextSnapshotList({
+      category: "unknown",
+      operation: "accessRecoveryData",
+      message: "Bindars could not access recovery data.",
+      detail: "/private/recovery/snapshots: No such file or directory",
+    });
+    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    assert.ok(restoreButton);
+    flushSync(() => restoreButton.click());
+
+    const dialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /could not access recovery data/);
+      return candidate;
+    });
+    assert.doesNotMatch(dialog.textContent, /private\/recovery|No such file|\[object Object\]/);
   } finally {
     await rendered.cleanup();
   }
@@ -2113,6 +2296,170 @@ test("file switching flushes the pending autosave before opening the next file",
     assert.equal(rendered.fileWrites()[0].content, switchedWords);
     assert.equal(rendered.diskContent(), switchedWords);
     assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("the initial native open wins over stored session restore", async () => {
+  const rendered = await renderContinuityApp({
+    requestedPath: "/tmp/stored-session.md",
+    canonicalPath: "/tmp/stored-session.md",
+    restoreHeadingId: "stored-heading",
+    initialNativePath: "/tmp/finder-launch.md",
+    readySelector: "article",
+  });
+  try {
+    await waitFor(() => assert.match(rendered.host.textContent, /finder-launch\.md/));
+    assert.deepEqual(rendered.openedPaths(), ["/tmp/finder-launch.md"]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native file switching honors Save, Discard, and Cancel for dirty documents", async (context) => {
+  for (const choice of ["Save", "Discard", "Cancel"]) {
+    await context.test(choice, async () => {
+      const rendered = await renderContinuityApp();
+      const targetPath = `/tmp/native-${choice.toLowerCase()}.md`;
+      const localWords = `${rendered.diskContent()}\n\nKeep ${choice} words.`;
+      try {
+        const dialog = await requestNativeOpenAfterFailedBoundarySave(
+          rendered,
+          targetPath,
+          localWords,
+        );
+
+        if (choice === "Cancel") {
+          dispatchWindowKey("Escape");
+          await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+          assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
+          assert.match(rendered.host.textContent, /continuity\.md/);
+          assert.doesNotMatch(rendered.host.textContent, /native-cancel\.md/);
+        } else {
+          clickButton(rendered.host, choice, dialog);
+          await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+          await waitFor(() => assert.match(rendered.host.textContent, new RegExp(`native-${choice.toLowerCase()}\\.md`)));
+          if (choice === "Save") {
+            assert.equal(rendered.diskContent(), localWords);
+          }
+        }
+
+        const retryPath = `/tmp/native-after-${choice.toLowerCase()}.md`;
+        await requestNativeOpenAndDiscardIfPrompted(rendered, retryPath);
+      } finally {
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+test("a failed Save during native file switching preserves the current document", async () => {
+  const rendered = await renderContinuityApp();
+  const localWords = `${rendered.diskContent()}\n\nUnsaved after a failed retry.`;
+  try {
+    const dialog = await requestNativeOpenAfterFailedBoundarySave(
+      rendered,
+      "/tmp/native-failed-save.md",
+      localWords,
+    );
+    const failedRetry = deferred();
+    rendered.deferNextWrite(failedRetry);
+    clickButton(rendered.host, "Save", dialog);
+    await waitFor(() => assert.ok(failedRetry.args));
+    await act(async () => {
+      failedRetry.reject(new Error("Retry failed"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
+    assert.match(rendered.host.textContent, /continuity\.md/);
+    assert.doesNotMatch(rendered.host.textContent, /native-failed-save\.md/);
+
+    await requestNativeOpenAndDiscardIfPrompted(rendered, "/tmp/native-after-failed-save.md");
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native file switching drains the snapshot queue before replacing the document", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const dialog = await requestNativeOpenAfterFailedBoundarySave(
+      rendered,
+      "/tmp/native-after-snapshot.md",
+      `${rendered.diskContent()}\n\nRecover these discarded words.`,
+    );
+    const snapshot = deferred();
+    rendered.clearOperationLog();
+    rendered.clearOpenedPaths();
+    rendered.deferNextSnapshotWrite(snapshot);
+    clickButton(rendered.host, "Discard", dialog);
+
+    await waitFor(() => assert.ok(snapshot.args));
+    assert.ok(
+      !rendered.openedPaths().includes("/tmp/native-after-snapshot.md"),
+      "the replacement open must wait for the queued snapshot write",
+    );
+    const editButton = rendered.host.querySelector('button[aria-label="Switch to edit mode"]');
+    assert.ok(editButton);
+    assert.equal(editButton.disabled, true);
+    assert.ok(!rendered.host.querySelector('button[aria-label="Restore snapshot"]'));
+    dispatchShortcut("e");
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+
+    await act(async () => {
+      snapshot.resolve(successfulSnapshotWrite(snapshot.args));
+      await snapshot.promise;
+    });
+    await waitFor(() => assert.ok(rendered.openedPaths().includes("/tmp/native-after-snapshot.md")));
+    await waitFor(() => assert.match(rendered.host.textContent, /native-after-snapshot\.md/));
+    await waitFor(() => assert.equal(
+      rendered.host.querySelector('button[aria-label="Switch to edit mode"]')?.disabled,
+      false,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a later native open is consumed as busy while an admitted open is still running", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const firstOpen = deferred();
+    rendered.clearOpenedPaths();
+    rendered.deferNextOpen(firstOpen);
+    rendered.setPendingNativeOpenPath("/tmp/first-native.md");
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+    await waitFor(() => assert.equal(firstOpen.args?.path, "/tmp/first-native.md"));
+
+    rendered.setPendingNativeOpenPath("/tmp/second-native.md");
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+    await waitFor(() => assert.match(
+      rendered.host.textContent,
+      /finishing another file action/i,
+    ));
+    assert.deepEqual(rendered.openedPaths(), ["/tmp/first-native.md"]);
+
+    const content = "# First native\n";
+    await act(async () => {
+      firstOpen.resolve({
+        canonicalPath: "/tmp/first-native.md",
+        name: "first-native.md",
+        content,
+        revision: { mtimeMs: 2, size: content.length, contentHash: "first-native" },
+      });
+      await firstOpen.promise;
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /first-native\.md/));
+    assert.deepEqual(rendered.openedPaths(), ["/tmp/first-native.md"]);
+
+    await requestNativeOpenAndDiscardIfPrompted(rendered, "/tmp/after-admitted-open.md");
   } finally {
     await rendered.cleanup();
   }

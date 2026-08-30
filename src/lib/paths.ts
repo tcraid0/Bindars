@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isOpenableDocumentPath } from "./openable-files";
 
 export interface AssetScopeRoots {
   homePath: string | null;
@@ -118,7 +119,7 @@ export function resolveMarkdownLink(
   const decodedPath = decodeUriComponentSafe(pathOnly);
 
   // Only match supported reader file extensions.
-  if (!/\.(md|markdown|fountain)$/i.test(decodedPath)) return null;
+  if (!isOpenableDocumentPath(decodedPath)) return null;
 
   const normalizedFilePath = toPosixPath(currentFilePath);
   const fileDir = getDirectoryPath(normalizedFilePath);

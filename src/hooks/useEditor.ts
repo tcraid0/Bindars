@@ -3,12 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { save as showSaveDialog } from "@tauri-apps/plugin-dialog";
 import {
   isRecoverableDeletedFileSaveError,
-  normalizeMarkdownSavePath,
+  actionableSaveError,
+  normalizeDocumentSavePath,
   successfulSaveOutcome,
 } from "../lib/editor-save";
+import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
 import type {
   EditorSaveOutcome,
   EditorSaveResult,
+  SaveErrorRecovery,
 } from "../lib/editor-save";
 import type { ConditionalWriteResult, FileRevision } from "../types";
 
@@ -17,6 +20,7 @@ interface EditorState {
   dirty: boolean;
   saving: boolean;
   saveError: string | null;
+  saveErrorRecovery: SaveErrorRecovery;
 }
 
 interface SaveOptions {
@@ -44,6 +48,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     dirty: false,
     saving: false,
     saveError: null,
+    saveErrorRecovery: null,
   });
 
   const originalContentRef = useRef<string>("");
@@ -59,7 +64,13 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     originalContentRef.current = content;
     bufferRef.current = content;
     expectedRevisionRef.current = expectedRevision;
-    setState({ buffer: content, dirty: false, saving: false, saveError: null });
+    setState({
+      buffer: content,
+      dirty: false,
+      saving: false,
+      saveError: null,
+      saveErrorRecovery: null,
+    });
   }, []);
 
   const updateBuffer = useCallback((content: string): boolean => {
@@ -70,6 +81,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
       buffer: content,
       dirty,
       saveError: null,
+      saveErrorRecovery: null,
     }));
     return dirty;
   }, []);
@@ -100,7 +112,12 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     if (savingSessionRef.current === editSession || bufferRef.current === null) return null;
 
     savingSessionRef.current = editSession;
-    setState((prev) => ({ ...prev, saving: true, saveError: null }));
+    setState((prev) => ({
+      ...prev,
+      saving: true,
+      saveError: null,
+      saveErrorRecovery: null,
+    }));
     return editSession;
   }, []);
 
@@ -119,6 +136,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         saveError: quiet
           ? null
           : "This file changed outside Bindars. Reload or overwrite to continue.",
+        saveErrorRecovery: null,
       }));
       return "conflict";
     }
@@ -142,22 +160,24 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   ): UnsuccessfulEditorSaveResult => {
     if (!syncCurrentSession(editSession)) return "stale";
 
-    const message = error instanceof Error ? error.message : String(error);
-    if (deletedFileIsConflict && isRecoverableDeletedFileSaveError(message)) {
+    if (deletedFileIsConflict && isRecoverableDeletedFileSaveError(error)) {
       setState((prev) => ({
         ...prev,
         saving: false,
         saveError: quiet
           ? null
           : "This file was deleted outside Bindars. Overwrite to recreate it.",
+        saveErrorRecovery: null,
       }));
       return "conflict";
     }
 
+    const described = actionableSaveError(error);
     setState((prev) => ({
       ...prev,
       saving: false,
-      saveError: quiet ? null : message,
+      saveError: quiet ? null : described.message,
+      saveErrorRecovery: quiet ? null : described.recovery,
     }));
     return "error";
   }, [syncCurrentSession]);
@@ -183,6 +203,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
           ...prev,
           saving: false,
           saveError: "Couldn't verify file revision before save. Reload and try again.",
+          saveErrorRecovery: null,
         }));
         return { status: "error" };
       }
@@ -212,27 +233,35 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   }, [beginSave, completeFailure, completeWrite, releaseSave, syncCurrentSession]);
 
   const saveAs = useCallback(async (defaultPath: string): Promise<EditorSaveAsResult> => {
+    const previousSaveError = state.saveError;
+    const previousSaveErrorRecovery = state.saveErrorRecovery;
     const editSession = beginSave();
     if (editSession === null) return { status: "noop" };
 
     try {
       const selectedPath = await showSaveDialog({
         defaultPath,
-        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+        filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
       });
 
       if (!syncCurrentSession(editSession)) return { status: "stale" };
       if (!selectedPath) {
-        setState((prev) => ({ ...prev, saving: false }));
+        setState((prev) => ({
+          ...prev,
+          saving: false,
+          saveError: previousSaveError,
+          saveErrorRecovery: previousSaveErrorRecovery,
+        }));
         return { status: "cancelled" };
       }
 
-      const normalizedPath = normalizeMarkdownSavePath(selectedPath);
+      const normalizedPath = normalizeDocumentSavePath(selectedPath);
       if (normalizedPath.status === "error") {
         setState((prev) => ({
           ...prev,
           saving: false,
           saveError: normalizedPath.message,
+          saveErrorRecovery: "save-as",
         }));
         return { status: "error" };
       }
@@ -255,18 +284,36 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     } finally {
       releaseSave(editSession);
     }
-  }, [beginSave, completeFailure, completeWrite, releaseSave, syncCurrentSession]);
+  }, [
+    beginSave,
+    completeFailure,
+    completeWrite,
+    releaseSave,
+    state.saveError,
+    state.saveErrorRecovery,
+    syncCurrentSession,
+  ]);
 
   const exitEditMode = useCallback(() => {
     editSessionRef.current += 1;
     originalContentRef.current = "";
     bufferRef.current = null;
     expectedRevisionRef.current = null;
-    setState({ buffer: null, dirty: false, saving: false, saveError: null });
+    setState({
+      buffer: null,
+      dirty: false,
+      saving: false,
+      saveError: null,
+      saveErrorRecovery: null,
+    });
   }, []);
 
   const dismissSaveError = useCallback(() => {
-    setState((prev) => ({ ...prev, saveError: null }));
+    setState((prev) => ({
+      ...prev,
+      saveError: null,
+      saveErrorRecovery: null,
+    }));
   }, []);
 
   return {
@@ -274,6 +321,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     dirty: state.dirty,
     saving: state.saving,
     saveError: state.saveError,
+    saveErrorRecovery: state.saveErrorRecovery,
     enterEditMode,
     updateBuffer,
     flushAndReadBuffer,

@@ -72,11 +72,65 @@ export interface FileAnnotations {
   bookmarks: Bookmark[];
 }
 
-export type ErrorCategory = "not-found" | "too-large" | "not-markdown" | "utf8" | "generic";
+export type ErrorCategory =
+  | "not-found"
+  | "too-large"
+  | "not-markdown"
+  | "utf8"
+  | "read-only"
+  | "permission-denied"
+  | "resource-unavailable"
+  | "generic";
 
 export interface AppError {
   message: string;
   category: ErrorCategory;
+}
+
+export type NativeFileErrorCategory =
+  | "notFound"
+  | "permissionDenied"
+  | "readOnly"
+  | "resourceUnavailable"
+  | "invalidInput"
+  | "unknown";
+
+export type NativeFileOperation =
+  | "fileTask"
+  | "resolveDocument"
+  | "inspectDocument"
+  | "openDocument"
+  | "readDocument"
+  | "decodeDocument"
+  | "validateDocument"
+  | "checkRevision"
+  | "inspectSavedDocument"
+  | "inspectWriteTarget"
+  | "resolveWriteParent"
+  | "inspectWriteParent"
+  | "saveDocument"
+  | "createTemporaryFile"
+  | "writeTemporaryFile"
+  | "preservePermissions"
+  | "syncTemporaryFile"
+  | "replaceFile"
+  | "exportFile"
+  | "resolveWorkspace"
+  | "inspectWorkspace"
+  | "resolveImage"
+  | "inspectImage"
+  | "validateImage"
+  | "readImage"
+  | "watchDocument"
+  | "openExternally"
+  | "saveRecoveryData"
+  | "accessRecoveryData";
+
+export interface NativeFileError {
+  category: NativeFileErrorCategory;
+  operation: NativeFileOperation;
+  message: string;
+  detail: string;
 }
 
 export interface FileRevision {

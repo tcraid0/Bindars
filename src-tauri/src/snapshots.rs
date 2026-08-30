@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use super::{
     is_markdown_path, read_markdown_contents, stable_hash_hex, write_contents_atomic_private,
-    MAX_MARKDOWN_BYTES, MAX_MARKDOWN_SIZE_MIB,
+    NativeFileError, NativeFileOperation, MAX_MARKDOWN_BYTES, MAX_MARKDOWN_SIZE_MIB,
 };
 
 const SNAPSHOT_SCHEMA_VERSION: u8 = 1;
@@ -24,6 +24,17 @@ const SNAPSHOT_MAX_AGE_MS: u64 = 90 * ONE_DAY_MS;
 const SNAPSHOT_MAX_COUNT: usize = 100;
 const SNAPSHOT_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const SNAPSHOT_IDENTITY_MAX_BYTES: u64 = 64 * 1024;
+const SNAPSHOT_ACCESS_ERROR_MESSAGE: &str = "Bindars could not access recovery data.";
+
+fn snapshot_access_error(detail: impl Into<String>) -> NativeFileError {
+    let detail = detail.into();
+    log::warn!("Recovery-data operation failed: {detail}");
+    NativeFileError::unknown(
+        NativeFileOperation::AccessRecoveryData,
+        SNAPSHOT_ACCESS_ERROR_MESSAGE,
+        detail,
+    )
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -153,7 +164,7 @@ pub(crate) async fn write_document_snapshot(
     document: SnapshotDocument,
     content: String,
     preserve_previous: Option<bool>,
-) -> Result<SnapshotWriteResult, String> {
+) -> Result<SnapshotWriteResult, NativeFileError> {
     let root = snapshots_root(&app)?;
     let now_ms = current_time_ms();
     run_blocking_snapshot(move || {
@@ -171,7 +182,7 @@ pub(crate) async fn write_document_snapshot(
 pub(crate) async fn list_document_snapshots(
     app: tauri::AppHandle,
     document: SnapshotDocument,
-) -> Result<Vec<SnapshotEntry>, String> {
+) -> Result<Vec<SnapshotEntry>, NativeFileError> {
     let root = snapshots_root(&app)?;
     run_blocking_snapshot(move || {
         harden_snapshot_data_once(&root);
@@ -186,7 +197,7 @@ pub(crate) async fn read_document_snapshot(
     app: tauri::AppHandle,
     document: SnapshotDocument,
     snapshot_id: String,
-) -> Result<String, String> {
+) -> Result<String, NativeFileError> {
     let root = snapshots_root(&app)?;
     run_blocking_snapshot(move || {
         harden_snapshot_data_once(&root);
@@ -198,7 +209,7 @@ pub(crate) async fn read_document_snapshot(
 #[tauri::command]
 pub(crate) async fn list_snapshot_drafts(
     app: tauri::AppHandle,
-) -> Result<SnapshotDraftList, String> {
+) -> Result<SnapshotDraftList, NativeFileError> {
     let root = snapshots_root(&app)?;
     let now_ms = current_time_ms();
     run_blocking_snapshot(move || {
@@ -211,7 +222,7 @@ pub(crate) async fn list_snapshot_drafts(
 #[tauri::command]
 pub(crate) async fn get_snapshot_storage_stats(
     app: tauri::AppHandle,
-) -> Result<SnapshotStorageStats, String> {
+) -> Result<SnapshotStorageStats, NativeFileError> {
     let root = snapshots_root(&app)?;
     run_blocking_snapshot(move || snapshot_storage_stats_at(&root)).await
 }
@@ -220,34 +231,35 @@ pub(crate) async fn get_snapshot_storage_stats(
 pub(crate) async fn retire_snapshot_draft(
     app: tauri::AppHandle,
     document: SnapshotDocument,
-) -> Result<(), String> {
+) -> Result<(), NativeFileError> {
     let root = snapshots_root(&app)?;
     run_blocking_snapshot(move || retire_draft_at(&root, &document)).await
 }
 
 #[tauri::command]
-pub(crate) async fn clear_snapshot_history(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn clear_snapshot_history(app: tauri::AppHandle) -> Result<(), NativeFileError> {
     let app_data = app_data_root(&app)?;
     run_blocking_snapshot(move || clear_history_under(&app_data)).await
 }
 
-async fn run_blocking_snapshot<T, F>(task: F) -> Result<T, String>
+async fn run_blocking_snapshot<T, F>(task: F) -> Result<T, NativeFileError>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
-    tauri::async_runtime::spawn_blocking(task)
+    let result = tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|error| format!("Snapshot task failed: {error}"))?
+        .map_err(|error| snapshot_access_error(format!("Snapshot task failed: {error}")))?;
+    result.map_err(snapshot_access_error)
 }
 
-fn app_data_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app-data directory: {error}"))
+fn app_data_root(app: &tauri::AppHandle) -> Result<PathBuf, NativeFileError> {
+    app.path().app_data_dir().map_err(|error| {
+        snapshot_access_error(format!("Failed to resolve app-data directory: {error}"))
+    })
 }
 
-fn snapshots_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn snapshots_root(app: &tauri::AppHandle) -> Result<PathBuf, NativeFileError> {
     app_data_root(app).map(|path| path.join("snapshots").join("v1"))
 }
 
@@ -1094,6 +1106,19 @@ mod tests {
                 read_snapshot_at(root, document, &snapshot.entry.id).expect("read snapshot")
             })
             .collect()
+    }
+
+    #[test]
+    fn snapshot_access_error_keeps_native_detail_out_of_its_user_message() {
+        let detail = "/private/recovery/snapshots: No such file or directory";
+
+        let error = snapshot_access_error(detail);
+
+        assert_eq!(error.category, crate::NativeFileErrorCategory::Unknown);
+        assert_eq!(error.operation, NativeFileOperation::AccessRecoveryData);
+        assert_eq!(error.message, SNAPSHOT_ACCESS_ERROR_MESSAGE);
+        assert_eq!(error.detail, detail);
+        assert!(!error.message.contains("/private/recovery"));
     }
 
     #[test]

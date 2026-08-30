@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { RecentFile } from "../types";
+import { OPENABLE_FILE_TYPES_DESCRIPTION } from "../lib/openable-files";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface EmptyStateProps {
@@ -8,6 +9,7 @@ interface EmptyStateProps {
   recentFiles: RecentFile[];
   onOpenRecent: (path: string) => void;
   onRestoreDrafts: () => void;
+  canRestoreDrafts?: boolean;
 }
 
 function EmptyStateComponent({
@@ -16,6 +18,7 @@ function EmptyStateComponent({
   recentFiles,
   onOpenRecent,
   onRestoreDrafts,
+  canRestoreDrafts = true,
 }: EmptyStateProps) {
   const hasRecent = recentFiles.length > 0;
   const topRecent = hasRecent ? recentFiles[0] : null;
@@ -88,14 +91,15 @@ function EmptyStateComponent({
         <button
           type="button"
           onClick={onRestoreDrafts}
-          className="mt-4 text-xs text-text-muted hover:text-text-primary transition-colors duration-120"
+          disabled={!canRestoreDrafts}
+          className="mt-4 text-xs text-text-muted hover:text-text-primary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
         >
           Restore an unsaved draft…
         </button>
       </div>
 
       <div className="text-xs text-text-muted mt-8 space-y-1.5 empty-state-content">
-        <p>Drag .md, .markdown, or .fountain files here to open</p>
+        <p>Drag {OPENABLE_FILE_TYPES_DESCRIPTION} files here to open</p>
         <p>Press <kbd className="inline-block px-1.5 py-0.5 rounded border border-border bg-bg-tertiary font-mono text-[11px] leading-none">{formatShortcutLabel("showShortcuts")}</kbd> for keyboard shortcuts</p>
       </div>
     </div>

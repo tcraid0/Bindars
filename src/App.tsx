@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
@@ -36,6 +37,8 @@ import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSessionRestore } from "./hooks/useSessionRestore";
+import { useNativeOpen } from "./hooks/useNativeOpen";
+import { useNativeQuit } from "./hooks/useNativeQuit";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useSearch } from "./hooks/useSearch";
 import { useFileWatcher } from "./hooks/useFileWatcher";
@@ -51,8 +54,9 @@ import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveResult } from "./lib/editor-save";
+import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen, shouldCloseDocumentAfterOpenFailure } from "./lib/document-state";
-import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode } from "./lib/app-flow";
+import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode, decideNativeCloseRequest, windowClosePolicy } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
 import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
@@ -69,7 +73,7 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
-import { formatShortcutLabel, renderShortcutTemplate } from "./lib/shortcut-labels";
+import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform } from "./lib/shortcut-labels";
 import {
   createDraftSnapshotId,
   draftSnapshotDocument,
@@ -95,6 +99,7 @@ import welcomeTemplate from "./assets/welcome.md?raw";
 
 type PendingAction =
   | { kind: "close-window" }
+  | { kind: "quit-app" }
   | { kind: "new-file" }
   | { kind: "open-file-dialog" }
   | { kind: "open-file-path"; path: string }
@@ -106,6 +111,13 @@ type PendingAction =
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
+type GuardAdmission = "accepted" | "busy";
+type ActionAdmissionId = number;
+
+interface AdmittedAction {
+  action: PendingAction;
+  admissionId: ActionAdmissionId;
+}
 
 type PendingReaderTarget =
   | {
@@ -143,6 +155,12 @@ interface SaveCurrentEditsOutcome {
   draftAdoption: DraftSnapshotAdoption | null;
 }
 
+interface SaveCurrentEditsOptions {
+  forceOverwrite?: boolean;
+  quiet?: boolean;
+  saveAs?: boolean;
+}
+
 type RestoreDialogState =
   | {
       kind: "document";
@@ -166,7 +184,7 @@ function sameSnapshotDocument(left: SnapshotDocument | null, right: SnapshotDocu
 }
 
 function snapshotErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeFileError(error, "Bindars could not access recovery data.").message;
 }
 
 function formatSnapshotTime(timestampMs: number): string {
@@ -303,6 +321,8 @@ function App() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
+  const [actionAdmissionInFlight, setActionAdmissionInFlight] = useState(false);
+  const [documentTransitionInFlight, setDocumentTransitionInFlight] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [focusedCharacter, setFocusedCharacter] = useState<string | null>(null);
   const slidesRef = useRef<Slide[]>([]);
@@ -313,11 +333,17 @@ function App() {
     () => renderShortcutTemplate(welcomeTemplate),
     [],
   );
-  const canToggleEdit = canToggleEditMode({ documentOpen, editing, loading });
+  const canToggleEdit = canToggleEditMode({
+    documentOpen,
+    editing,
+    loading,
+    documentTransitionInFlight,
+  });
   const canPresent = readerDocumentReady && canEnterPresentationMode({
     documentOpen,
     editing,
     loading,
+    actionAdmissionInFlight,
     focusMode,
     fileType,
   });
@@ -346,10 +372,13 @@ function App() {
   }, []);
 
   // Pending action to run after confirm dialog resolves.
-  const pendingActionRef = useRef<PendingAction | null>(null);
+  const pendingActionRef = useRef<AdmittedAction | null>(null);
   // Guards direct-save vs. exit-flow dialog continuations across async writes.
   const saveContinuationIntentRef = useRef<SaveContinuationIntent | null>(null);
-  const executePendingActionRef = useRef<(action: PendingAction) => void>(() => {});
+  const executePendingActionRef = useRef<(action: PendingAction) => Promise<void>>(async () => {});
+  const actionAdmissionOwnerRef = useRef<ActionAdmissionId | null>(null);
+  const documentTransitionInFlightRef = useRef(false);
+  const nextActionAdmissionIdRef = useRef(0);
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
@@ -494,15 +523,17 @@ function App() {
   }, [armPrintCleanup, clearPrintSession, setPrintAttributes, toast]);
 
   const saveCurrentEdits = useCallback(async (
-    forceOverwrite = false,
-    quiet = false,
+    options: SaveCurrentEditsOptions = {},
   ): Promise<SaveCurrentEditsOutcome> => {
     const draftBeforeSaveAs = !filePath && snapshotDocumentRef.current?.kind === "draft"
       ? snapshotDocumentRef.current
       : null;
     let draftAdoption: DraftSnapshotAdoption | null = null;
-    const result = filePath
-      ? await editor.save(filePath, { force: forceOverwrite, quiet })
+    const result = filePath && !options.saveAs
+      ? await editor.save(filePath, {
+        force: options.forceOverwrite ?? false,
+        quiet: options.quiet ?? false,
+      })
       : await editor.saveAs(fileName || "Untitled.md");
     if (result.status === "saved" || result.status === "saved-with-newer-edits") {
       editingFilePathRef.current = result.file.canonicalPath;
@@ -525,7 +556,7 @@ function App() {
   }, [adoptSavedFile, editor, fileName, filePath]);
 
   const performAutosave = useCallback(async () => {
-    const outcome = await saveCurrentEdits(false, true);
+    const outcome = await saveCurrentEdits({ quiet: true });
     if (isSuccessfulSave(outcome.status)) flashSaved();
     return outcome.status;
   }, [flashSaved, saveCurrentEdits]);
@@ -598,14 +629,15 @@ function App() {
   }, [snapshotCurrentState, toast]);
 
   const saveCurrentEditsWithRecovery = useCallback(async (
-    forceOverwrite = false,
+    options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveResult> => {
-    const outcome = await saveCurrentEdits(forceOverwrite);
+    const outcome = await saveCurrentEdits(options);
     await finishDraftSnapshotAdoption(outcome.draftAdoption);
     return outcome.status;
   }, [finishDraftSnapshotAdoption, saveCurrentEdits]);
 
   const handleSave = useCallback(async () => {
+    if (actionAdmissionOwnerRef.current !== null) return;
     const pendingIssue = await cancelAutosaveAndWait();
     if (pendingIssue?.kind === "conflict") {
       openConflictDialog("stay-editing");
@@ -628,6 +660,19 @@ function App() {
       openConflictDialog("stay-editing");
     }
   }, [cancelAutosaveAndWait, clearAutosaveIssue, filePath, flashSaved, flushAndReadDirty, openConflictDialog, recordSaveResult, saveCurrentEditsWithRecovery]);
+
+  const handleSaveAsAfterError = useCallback(async () => {
+    if (actionAdmissionOwnerRef.current !== null) return;
+    await cancelAutosaveAndWait();
+    clearAutosaveIssue();
+
+    const result = await saveCurrentEditsWithRecovery({ saveAs: true });
+    recordSaveResult(result);
+    if (isSuccessfulSave(result)) {
+      clearAutosaveIssue();
+      flashSaved();
+    }
+  }, [cancelAutosaveAndWait, clearAutosaveIssue, flashSaved, recordSaveResult, saveCurrentEditsWithRecovery]);
 
   const reloadOpenDocument = useCallback(
     async (path: string, source: OpenRequestSource) => {
@@ -680,12 +725,21 @@ function App() {
   }, [closeSearch, editor, searchVisible, supersedePendingOpen]);
 
   const enterEditMode = useCallback(() => {
-    if (!isDocumentOpen(content) || !canEnterEditMode({ documentOpen: true, editing, loading })) return;
+    if (
+      documentTransitionInFlightRef.current
+      || !isDocumentOpen(content)
+      || !canEnterEditMode({
+        documentOpen: true,
+        editing,
+        loading,
+        documentTransitionInFlight,
+      })
+    ) return;
     const readerAnchor = contentRef.current && mainScrollRef.current
       ? captureReaderAnchor(contentRef.current, mainScrollRef.current, activeHeadingIdRef.current, content)
       : null;
     beginEditSession(content, fileRevision, filePath, fileName || "Untitled.md", readerAnchor);
-  }, [beginEditSession, content, editing, fileName, filePath, fileRevision, loading]);
+  }, [beginEditSession, content, documentTransitionInFlight, editing, fileName, filePath, fileRevision, loading]);
 
   const resetEditSession = useCallback(() => {
     editor.exitEditMode();
@@ -769,12 +823,56 @@ function App() {
     }
   }, [publishSourceReaderTarget, resetEditSession]);
 
-  const resolvePendingAction = useCallback(() => {
-    const action = pendingActionRef.current;
-    pendingActionRef.current = null;
-    if (!action) return;
-    executePendingActionRef.current(action);
+  // Frozen for the app's lifetime: the running platform cannot change, and
+  // the close guard's window policy must stay stable across re-renders.
+  const closePolicy = useMemo(() => windowClosePolicy(detectShortcutPlatform()), []);
+
+  const beginActionAdmission = useCallback((action: PendingAction): ActionAdmissionId | null => {
+    if (actionAdmissionOwnerRef.current !== null) return null;
+    const admissionId = nextActionAdmissionIdRef.current + 1;
+    nextActionAdmissionIdRef.current = admissionId;
+    actionAdmissionOwnerRef.current = admissionId;
+    const blocksDocumentEntry = action.kind !== "close-window";
+    documentTransitionInFlightRef.current = blocksDocumentEntry;
+    setActionAdmissionInFlight(true);
+    setDocumentTransitionInFlight(blocksDocumentEntry);
+    return admissionId;
   }, []);
+
+  const finishActionAdmission = useCallback((admissionId: ActionAdmissionId) => {
+    if (actionAdmissionOwnerRef.current !== admissionId) return;
+    actionAdmissionOwnerRef.current = null;
+    documentTransitionInFlightRef.current = false;
+    setActionAdmissionInFlight(false);
+    setDocumentTransitionInFlight(false);
+  }, []);
+
+  const cancelPendingAction = useCallback(() => {
+    const admitted = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (admitted) finishActionAdmission(admitted.admissionId);
+  }, [finishActionAdmission]);
+
+  const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
+    void (async () => {
+      try {
+        if (admitted.action.kind !== "close-window") {
+          await waitForSnapshotQueue();
+        }
+        await executePendingActionRef.current(admitted.action);
+      } catch (error) {
+        console.error("[action-guard] Admitted action failed:", error);
+      } finally {
+        finishActionAdmission(admitted.admissionId);
+      }
+    })();
+  }, [finishActionAdmission, waitForSnapshotQueue]);
+
+  const resolvePendingAction = useCallback(() => {
+    const admitted = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (admitted) executeAdmittedAction(admitted);
+  }, [executeAdmittedAction]);
 
   const continueAfterSuccessfulSave = useCallback((intent: SaveContinuationIntent) => {
     saveContinuationIntentRef.current = null;
@@ -801,7 +899,10 @@ function App() {
     boundaryFlushInFlightRef.current = true;
     try {
       const result = await flushAutosave();
-      if (!editingRef.current) return;
+      if (!editingRef.current) {
+        resolvePendingAction();
+        return;
+      }
       if (result === "conflict") {
         openConflictDialog("continue");
         return;
@@ -812,10 +913,14 @@ function App() {
         return;
       }
       openSaveConfirmation("continue");
+    } catch (error) {
+      console.error("[action-guard] Failed to flush before continuing:", error);
+      cancelPendingAction();
+      toast("Couldn't finish the current file action. Your document is still open.", "error");
     } finally {
       boundaryFlushInFlightRef.current = false;
     }
-  }, [continueAfterSuccessfulSave, flashSaved, flushAndReadDirty, flushAutosave, openConflictDialog, openSaveConfirmation]);
+  }, [cancelPendingAction, continueAfterSuccessfulSave, flashSaved, flushAndReadDirty, flushAutosave, openConflictDialog, openSaveConfirmation, resolvePendingAction, toast]);
   // The native close listener is registered once; this mirror keeps its async
   // autosave boundary pointed at the current session and save callbacks.
   flushBeforeContinuationRef.current = () => {
@@ -823,12 +928,15 @@ function App() {
   };
 
   const guardedExitEditMode = useCallback(() => {
-    if (!editing || boundaryFlushInFlightRef.current) return;
+    if (
+      !editing
+      || actionAdmissionOwnerRef.current !== null
+      || boundaryFlushInFlightRef.current
+    ) return;
     if (!flushAndReadDirty()) {
       exitEditMode("clean");
       return;
     }
-    pendingActionRef.current = null;
     void flushBeforeContinuation();
   }, [editing, exitEditMode, flushAndReadDirty, flushBeforeContinuation]);
 
@@ -841,16 +949,28 @@ function App() {
   }, [editing, guardedExitEditMode, enterEditMode]);
 
   // Guard: run an action only if editor is clean, else flush pending autosave.
-  const guardAction = useCallback((action: PendingAction) => {
-    if (boundaryFlushInFlightRef.current) return;
+  const guardAction = useCallback((action: PendingAction): GuardAdmission => {
+    if (
+      actionAdmissionOwnerRef.current !== null
+      || pendingActionRef.current
+      || boundaryFlushInFlightRef.current
+      || showConfirmDialogRef.current
+      || showConflictDialogRef.current
+      || restoreDialogOpenRef.current
+    ) {
+      return "busy";
+    }
     const decision = decideEditNavigation({
-      editing,
+      editing: editingRef.current,
       dirty: flushAndReadDirty(),
-      confirmDialogOpen: showConfirmDialog,
-      conflictDialogOpen: showConflictDialog,
+      confirmDialogOpen: showConfirmDialogRef.current,
+      conflictDialogOpen: showConflictDialogRef.current,
     });
 
-    if (decision === "ignore") return;
+    if (decision === "ignore") return "busy";
+    const admissionId = beginActionAdmission(action);
+    if (admissionId === null) return "busy";
+    const admitted = { action, admissionId };
     if (presentationMode) {
       // Exit presentation inline — navigation will replace content anyway,
       // so no deferred reload needed.
@@ -861,16 +981,21 @@ function App() {
     }
     if (decision === "run-after-exit") {
       resetEditSession();
-      executePendingActionRef.current(action);
-      return;
+      executeAdmittedAction(admitted);
+      return "accepted";
     }
     if (decision === "run") {
-      executePendingActionRef.current(action);
-      return;
+      executeAdmittedAction(admitted);
+      return "accepted";
     }
-    pendingActionRef.current = action;
+    pendingActionRef.current = admitted;
     void flushBeforeContinuation();
-  }, [editing, flushAndReadDirty, showConfirmDialog, showConflictDialog, presentationMode, resetEditSession, flushBeforeContinuation]);
+    return "accepted";
+  }, [beginActionAdmission, executeAdmittedAction, flushAndReadDirty, presentationMode, resetEditSession, flushBeforeContinuation]);
+  // The native close and quit listeners are registered once; these mirrors
+  // keep them pointed at the current guard admission.
+  const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
+  guardActionRef.current = guardAction;
 
   // Discarding is irreversible in the editor, so capture the abandoned buffer
   // first. Best-effort by design: the capture is enqueued synchronously (before
@@ -915,22 +1040,21 @@ function App() {
       openConflictDialog(continuationIntent);
       return;
     }
-    if (result === "stale") return;
     saveContinuationIntentRef.current = null;
-    pendingActionRef.current = null;
-  }, [clearAutosaveIssue, recordSaveResult, saveCurrentEditsWithRecovery, flashSaved, continueAfterSuccessfulSave, openConflictDialog, openSaveConfirmation]);
+    cancelPendingAction();
+  }, [cancelPendingAction, clearAutosaveIssue, recordSaveResult, saveCurrentEditsWithRecovery, flashSaved, continueAfterSuccessfulSave, openConflictDialog, openSaveConfirmation]);
 
   const handleConfirmCancel = useCallback(() => {
     setShowConfirmDialog(false);
     showConfirmDialogRef.current = false;
     saveContinuationIntentRef.current = null;
-    pendingActionRef.current = null;
-  }, []);
+    cancelPendingAction();
+  }, [cancelPendingAction]);
 
   const handleConflictOverwrite = useCallback(async () => {
     const continuationIntent = saveContinuationIntentRef.current ?? "stay-editing";
     clearAutosaveIssue();
-    const result = await saveCurrentEditsWithRecovery(true);
+    const result = await saveCurrentEditsWithRecovery({ forceOverwrite: true });
     recordSaveResult(result);
     const continuationDecision = decideSaveContinuation(result);
     if (continuationDecision === "stop") return;
@@ -966,8 +1090,8 @@ function App() {
     setShowConflictDialog(false);
     showConflictDialogRef.current = false;
     saveContinuationIntentRef.current = null;
-    pendingActionRef.current = null;
-  }, []);
+    cancelPendingAction();
+  }, [cancelPendingAction]);
 
   useEffect(() => {
     editingRef.current = editing;
@@ -1003,6 +1127,7 @@ function App() {
   }, []);
 
   const openDocumentSnapshotRestore = useCallback(async () => {
+    if (actionAdmissionOwnerRef.current !== null) return;
     const document = getCurrentSnapshotDocument();
     if (!document) return;
 
@@ -1042,6 +1167,7 @@ function App() {
   }, [getCurrentSnapshotDocument, waitForSnapshotQueue]);
 
   const openDraftSnapshotRestore = useCallback(async () => {
+    if (actionAdmissionOwnerRef.current !== null) return;
     const request = restoreRequestRef.current + 1;
     restoreRequestRef.current = request;
     setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [] });
@@ -1223,16 +1349,43 @@ function App() {
     guardAction({ kind: "open-file-dialog" });
   }, [guardAction]);
 
-  const guardedOpenFilePath = useCallback(
-    (paths: string[]) => {
-      if (paths.length > 0) {
-        guardAction({ kind: "open-file-path", path: paths[0] });
-      }
-    },
-    [guardAction],
-  );
+  const admitExternalOpenPath = useCallback((path: string): GuardAdmission => {
+    const admission = guardAction({ kind: "open-file-path", path });
+    if (admission === "busy") {
+      toast(
+        "Bindars is finishing another file action. Try opening the file again in a moment.",
+        "error",
+      );
+    }
+    return admission;
+  }, [guardAction, toast]);
 
-  // Tauri window close guard: prevent accidental app close with unsaved edits.
+  const guardedOpenFilePath = useCallback((paths: string[]): GuardAdmission => {
+    const path = paths[0];
+    return path ? admitExternalOpenPath(path) : "busy";
+  }, [admitExternalOpenPath]);
+
+  const { waitForInitialNativeOpen } = useNativeOpen({
+    onOpenPath: admitExternalOpenPath,
+  });
+
+  // Native quit requests (custom macOS Quit menu item / Command-Q) go through
+  // the same admission guard as document actions. The process exits only from
+  // the quit-app continuation, after Save/Discard/Cancel resolves and the
+  // snapshot queue has drained; the native side never terminates on its own.
+  const requestGuardedQuit = useCallback(() => {
+    const admission = guardActionRef.current({ kind: "quit-app" });
+    if (admission === "busy") {
+      toast("Bindars is finishing another file action. Try quitting again in a moment.", "error");
+    }
+  }, [toast]);
+
+  useNativeQuit({ onQuitRequested: requestGuardedQuit });
+
+  // Tauri window close guard. On macOS the main window is hidden instead of
+  // destroyed so the process stays available for Dock reopen; a dirty document
+  // resolves Save/Discard/Cancel first. Other platforms keep the previous
+  // behavior of destroying the window and exiting on the last close.
   // Register once and read live state from refs to avoid stale closures.
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -1240,44 +1393,61 @@ function App() {
     let unlisten: (() => void) | null = null;
 
     const handleCloseRequest = (event: { preventDefault: () => void }) => {
-      if (isProgrammaticCloseRef.current) {
-        isProgrammaticCloseRef.current = false;
-        closeDrainPendingRef.current = false;
-        // `appWindow.close()` crosses the native IPC boundary before this
-        // callback runs. Any editor active now belongs to a newer session and
-        // must cancel the stale close, even if it is not dirty yet.
-        if (editingRef.current) {
-          event.preventDefault();
+      const decision = decideNativeCloseRequest({
+        closePolicy,
+        programmaticCloseInFlight: isProgrammaticCloseRef.current,
+        closeDrainPending: closeDrainPendingRef.current,
+        actionAdmissionInFlight: actionAdmissionOwnerRef.current !== null,
+      });
+
+      switch (decision) {
+        case "complete-programmatic-close": {
+          isProgrammaticCloseRef.current = false;
+          closeDrainPendingRef.current = false;
+          // `appWindow.close()` crosses the native IPC boundary before this
+          // callback runs. Any editor active now belongs to a newer session and
+          // must cancel the stale close, even if it is not dirty yet.
+          if (editingRef.current) {
+            event.preventDefault();
+          }
+          return;
         }
-        return;
+        case "prevent-silently":
+          // A close continuation is draining snapshots, or another admitted
+          // action owns the guard. Repeated native close requests must not
+          // bypass either safety check.
+          event.preventDefault();
+          return;
+        case "prevent-and-guard":
+          // macOS never lets the close request destroy the window. Clean and
+          // dirty requests converge on the same guard: a dirty document
+          // resolves Save/Discard/Cancel, and the continuation hides the
+          // window once the snapshot queue has drained.
+          event.preventDefault();
+          guardActionRef.current({ kind: "close-window" });
+          return;
+        case "allow-native-close": {
+          // Allow native OS close behavior when there are no unsaved edits.
+          if (!editingRef.current || !flushAndReadDirty()) {
+            return;
+          }
+
+          event.preventDefault();
+
+          // Keep unsaved-change protection strict while the confirm dialog is
+          // open and never stack the unsaved-changes dialog under the restore
+          // modal. guardAction refuses those states too; these checks keep
+          // the close request visibly swallowed instead of dropped silently.
+          if (showConfirmDialogRef.current || showConflictDialogRef.current) {
+            return;
+          }
+          if (restoreDialogOpenRef.current) return;
+          if (boundaryFlushInFlightRef.current) return;
+
+          guardActionRef.current({ kind: "close-window" });
+          return;
+        }
       }
-
-      // A programmatic close is already scheduled behind the snapshot-queue
-      // drain. A repeated native close must not destroy the WebView before
-      // the queued discard capture reaches the backend.
-      if (closeDrainPendingRef.current) {
-        event.preventDefault();
-        return;
-      }
-
-      // Allow native OS close behavior when there are no unsaved edits.
-      if (!editingRef.current || !flushAndReadDirty()) {
-        return;
-      }
-
-      event.preventDefault();
-
-      // Keep unsaved-change protection strict while the confirm dialog is open.
-      if (showConfirmDialogRef.current || showConflictDialogRef.current) {
-        return;
-      }
-
-      // Do not stack the unsaved-changes dialog under the restore modal.
-      if (restoreDialogOpenRef.current) return;
-      if (boundaryFlushInFlightRef.current) return;
-
-      pendingActionRef.current = { kind: "close-window" };
-      flushBeforeContinuationRef.current();
     };
 
     const setup = async () => {
@@ -1302,7 +1472,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [flushAndReadDirty]);
+  }, [closePolicy, flushAndReadDirty]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -1548,6 +1718,7 @@ function App() {
     filePath,
     getActiveHeadingId,
     onRestore: handleSessionRestore,
+    waitForInitialNativeOpen,
   });
 
   // First-run: show welcome sample file on first launch
@@ -1899,19 +2070,25 @@ function App() {
   }, []);
 
   const enterPresentation = useCallback(() => {
-    if (!isDocumentOpen(content) || !readerDocumentReady || !canEnterPresentationMode({
-      documentOpen: true,
-      editing,
-      loading,
-      focusMode,
-      fileType,
-    })) return;
+    if (
+      actionAdmissionOwnerRef.current !== null
+      || !isDocumentOpen(content)
+      || !readerDocumentReady
+      || !canEnterPresentationMode({
+        documentOpen: true,
+        editing,
+        loading,
+        actionAdmissionInFlight,
+        focusMode,
+        fileType,
+      })
+    ) return;
     const slides = parseSlides(content);
     if (slides.length === 0) return;
     slidesRef.current = slides;
     setCurrentSlide(0);
     setPresentationMode(true);
-  }, [content, editing, loading, focusMode, fileType, readerDocumentReady]);
+  }, [actionAdmissionInFlight, content, editing, loading, focusMode, fileType, readerDocumentReady]);
 
   const exitPresentation = useCallback(() => {
     setPresentationMode(false);
@@ -1959,54 +2136,78 @@ function App() {
     [guardAction, closeCommandPalette],
   );
 
-  executePendingActionRef.current = (action) => {
+  executePendingActionRef.current = async (action) => {
     switch (action.kind) {
       case "close-window": {
         const appWindow = getCurrentWindow();
         // Queued snapshot writes (notably the fire-and-forget discard capture)
-        // must reach the backend before the WebView is destroyed, or the
-        // newest words die with the window.
+        // must reach the backend before the window leaves the screen. Hiding
+        // keeps the WebView alive, but draining first also protects data if the
+        // process exits immediately after the hide.
         closeDrainPendingRef.current = true;
-        void waitForSnapshotQueue()
-          .then(() => {
-            // Exiting for the original close leaves no active editor. If one
-            // exists now, it is a newer session and wins over the stale close.
-            if (editingRef.current) {
-              closeDrainPendingRef.current = false;
-              return;
-            }
+        try {
+          await waitForSnapshotQueue();
+          // Exiting for the original close leaves no active editor. If one
+          // exists now, it is a newer session and wins over the stale close.
+          if (editingRef.current) {
+            closeDrainPendingRef.current = false;
+            return;
+          }
+          if (closePolicy === "hide") {
+            // Hiding emits no close-requested event, so there is no
+            // programmatic-close handshake to finish; the process simply
+            // stays available for Dock reopen and Finder delivery.
+            closeDrainPendingRef.current = false;
+            await appWindow.hide();
+          } else {
             isProgrammaticCloseRef.current = true;
             // Keep the drain guard set until the resulting close-requested
             // callback performs the final new-session check.
-            return appWindow.close();
-          })
-          .catch((err) => {
-            closeDrainPendingRef.current = false;
-            isProgrammaticCloseRef.current = false;
-            console.error("[close-guard] Programmatic close failed:", err);
-          });
+            await appWindow.close();
+          }
+        } catch (err) {
+          closeDrainPendingRef.current = false;
+          isProgrammaticCloseRef.current = false;
+          console.error("[close-guard] Programmatic close or hide failed:", err);
+          toast("Couldn't close the window. Your document is still open.", "error");
+        }
+        return;
+      }
+      case "quit-app": {
+        // executeAdmittedAction has already drained the snapshot queue for
+        // this action. A newly entered edit session wins over the stale quit.
+        if (editingRef.current) {
+          console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
+          return;
+        }
+        try {
+          await invoke("exit_after_guarded_quit");
+        } catch (error) {
+          console.error("[quit-guard] Failed to exit after the guard completed:", error);
+          toast("Couldn't quit Bindars. Your document is still open.", "error");
+        }
         return;
       }
       case "new-file":
         createNewDocument();
         return;
       case "open-file-dialog":
-        void openFile();
+        await openFile();
         return;
       case "open-file-path":
-        void openFilePath(action.path, "user");
+        await openFilePath(action.path, "user");
         return;
       case "open-recent":
-        void handleOpenRecent(action.path);
+        await handleOpenRecent(action.path);
         return;
       case "go-back":
-        void handleGoBack();
+        await handleGoBack();
         return;
       case "go-forward":
-        void handleGoForward();
+        await handleGoForward();
         return;
       case "navigate":
-        void handleNavigateToFile(action.path, action.anchor);
+        await handleNavigateToFile(action.path, action.anchor);
         return;
       case "open-workspace-hit":
         if (action.path === filePath) {
@@ -2015,7 +2216,7 @@ function App() {
           }
           return;
         }
-        void handleNavigateToFile(action.path, action.headingId);
+        await handleNavigateToFile(action.path, action.headingId);
         return;
     }
   };
@@ -2176,7 +2377,12 @@ function App() {
     // Ctrl+E: toggle edit mode (must run before inInput bail-out)
     if (ctrl && key === "e") {
       e.preventDefault();
-      if (canToggleEditMode({ documentOpen: isDocumentOpen(content), editing, loading })) toggleEditMode();
+      if (canToggleEditMode({
+        documentOpen: isDocumentOpen(content),
+        editing,
+        loading,
+        documentTransitionInFlight,
+      })) toggleEditMode();
       return;
     }
 
@@ -2369,11 +2575,11 @@ function App() {
           isDirty={editor.dirty}
           isSavedFlash={savedFlash}
           saveWarning={saveWarning}
-          canSave={editing && (editor.dirty || !filePath)}
+          canSave={!actionAdmissionInFlight && editing && (editor.dirty || !filePath)}
           canToggleEdit={canToggleEdit}
           onToggleEdit={toggleEditMode}
           onSave={handleSave}
-          canRestoreSnapshot={Boolean(filePath || snapshotDocument)}
+          canRestoreSnapshot={!actionAdmissionInFlight && Boolean(filePath || snapshotDocument)}
           onRestoreSnapshot={openDocumentSnapshotRestore}
           statsSummary={statsSummary}
           progressTextRef={progressTextRef}
@@ -2457,7 +2663,9 @@ function App() {
               markdownFormattingEnabled={markdownFormattingEnabled}
               settings={settings}
               saveError={editor.saveError}
+              canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
               onBufferChange={publishEditorBuffer}
+              onSaveAsAfterError={handleSaveAsAfterError}
               onDismissSaveError={editor.dismissSaveError}
             />
           ) : preparedDocument?.status === "too-complex" ? (
@@ -2488,6 +2696,7 @@ function App() {
               recentFiles={recentFiles}
               onOpenRecent={guardedOpenRecent}
               onRestoreDrafts={openDraftSnapshotRestore}
+              canRestoreDrafts={!actionAdmissionInFlight}
             />
           )}
         </main>

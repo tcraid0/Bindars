@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppError, ErrorCategory, FileRevision, FileType, OpenFileResult } from "../types";
+import type { AppError, FileRevision, FileType, OpenFileResult } from "../types";
 import type { SavedFileSnapshot } from "../lib/editor-save";
+import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
+import { appErrorFromNative } from "../lib/native-file-error";
 
 export type OpenRequestSource = "user" | "watcher" | "reconcile";
 export type OpenFilePathResult =
@@ -147,7 +149,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
       if (!mountedRef.current || requestId !== requestIdRef.current) {
         return { status: "superseded" };
       }
-      const appError = categorizeError(e);
+      const appError = appErrorFromNative(e, "Failed to open file.");
       setError(appError);
       return { status: "failed", error: appError };
     } finally {
@@ -183,7 +185,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         filters: [
           {
             name: "Supported Files",
-            extensions: ["md", "markdown", "fountain"],
+            extensions: [...OPENABLE_FILE_EXTENSIONS],
           },
         ],
       });
@@ -192,7 +194,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         await openFilePath(selected, "user");
       }
     } catch (e) {
-      setError(categorizeError(e));
+      setError(appErrorFromNative(e, "Failed to open file."));
     }
   }, [openFilePath]);
 
@@ -239,27 +241,4 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     supersedePendingOpen,
     dismissError,
   };
-}
-
-function categorizeError(error: unknown): AppError {
-  const message = getErrorMessage(error);
-  return { message, category: categorizeMessage(message) };
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return "Failed to open file.";
-}
-
-function categorizeMessage(message: string): ErrorCategory {
-  if (message.includes("File not found")) return "not-found";
-  if (message.includes("too large")) return "too-large";
-  if (message.includes("Not a supported file type")) return "not-markdown";
-  if (message.includes("UTF-8")) return "utf8";
-  return "generic";
 }

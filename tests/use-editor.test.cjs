@@ -364,6 +364,58 @@ test("useEditor preserves newer typing when a save fails", async () => {
   }
 });
 
+test("read-only save failure exposes a working Save As recovery", async () => {
+  await installDom();
+  const operations = mockPendingSaveAsTransactions();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Original");
+    updateBuffer(rendered, "Edited words");
+    const failedSave = startSave(rendered, "/tmp/Original.fountain");
+    const failure = await rejectSave(operations.writes[0], failedSave, {
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/Original.fountain has mode 0444",
+    });
+
+    assert.deepEqual(failure, { status: "error" });
+    assert.equal(rendered.api().saveError, "This file is read-only and was not changed.");
+    assert.equal(rendered.api().saveErrorRecovery, "save-as");
+    assert.equal(rendered.api().dirty, true);
+
+    const cancelledRecovery = startSaveAs(rendered, "Original.fountain");
+    assert.deepEqual(operations.dialogs[0].args.options.filters, [{
+      name: "Bindars document",
+      extensions: ["md", "markdown", "fountain"],
+    }]);
+    await resolveDialog(operations.dialogs[0], null);
+    assert.deepEqual(await cancelledRecovery, { status: "cancelled" });
+    assert.equal(rendered.api().saveError, "This file is read-only and was not changed.");
+    assert.equal(rendered.api().saveErrorRecovery, "save-as");
+
+    const recovery = startSaveAs(rendered, "Original.fountain");
+    await resolveDialog(operations.dialogs[1], "/tmp/Writable Copy.fountain");
+    const result = await settleSave(
+      operations.writes[1],
+      recovery,
+      successfulWrite(
+        { mtimeMs: 2, size: 12, contentHash: "copy" },
+        "/tmp/Writable Copy.fountain",
+      ),
+    );
+
+    assert.equal(result.status, "saved");
+    assert.equal(result.file.canonicalPath, "/tmp/Writable Copy.fountain");
+    assert.equal(rendered.api().saveError, null);
+    assert.equal(rendered.api().saveErrorRecovery, null);
+    assert.equal(rendered.api().dirty, false);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("quiet autosave failure returns status without publishing the manual-save banner", async () => {
   await installDom();
   const writes = mockPendingWrites();
@@ -634,7 +686,8 @@ test("useEditor rejects unsupported save-as extensions before writing", async ()
 
     assert.deepEqual(result, { status: "error" });
     assert.equal(operations.writes.length, 0);
-    assert.match(rendered.api().saveError, /\.md or \.markdown/);
+    assert.match(rendered.api().saveError, /\.md, \.markdown, or \.fountain/);
+    assert.equal(rendered.api().saveErrorRecovery, "save-as");
   } finally {
     rendered.cleanup();
   }
