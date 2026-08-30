@@ -1,5 +1,9 @@
 import type { FileRevision } from "../types";
 import { isDeletedDocumentError, normalizeFileError } from "./native-file-error";
+import {
+  isOpenableDocumentExtension,
+  OPENABLE_FILE_TYPES_DESCRIPTION,
+} from "./openable-files";
 
 export type EditorSaveResult =
   | "saved"
@@ -55,11 +59,11 @@ export function isSuccessfulSave(result: EditorSaveResult): result is Successful
   return result === "saved" || result === "saved-with-newer-edits";
 }
 
-export type MarkdownSavePathResult =
+export type DocumentSavePathResult =
   | { status: "valid"; path: string }
   | { status: "error"; message: string };
 
-export function normalizeMarkdownSavePath(selectedPath: string): MarkdownSavePathResult {
+export function normalizeDocumentSavePath(selectedPath: string): DocumentSavePathResult {
   const lastSeparatorIndex = Math.max(
     selectedPath.lastIndexOf("/"),
     selectedPath.lastIndexOf("\\"),
@@ -73,18 +77,18 @@ export function normalizeMarkdownSavePath(selectedPath: string): MarkdownSavePat
   if (extensionSeparatorIndex <= 0) {
     return {
       status: "error",
-      message: "File name must end in .md or .markdown.",
+      message: `File name must end in ${OPENABLE_FILE_TYPES_DESCRIPTION}.`,
     };
   }
 
   const extension = fileName.slice(extensionSeparatorIndex + 1).toLowerCase();
-  if (extension === "md" || extension === "markdown") {
+  if (isOpenableDocumentExtension(extension)) {
     return { status: "valid", path: selectedPath };
   }
 
   return {
     status: "error",
-    message: "File name must end in .md or .markdown.",
+    message: `File name must end in ${OPENABLE_FILE_TYPES_DESCRIPTION}.`,
   };
 }
 

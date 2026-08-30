@@ -1429,13 +1429,18 @@ async function renderContinuityApp({
   };
 }
 
-test("read-only existing document offers Save As and adopts the writable copy", async () => {
-  const rendered = await renderContinuityApp();
+test("read-only Fountain document offers Save As and preserves its file type", async () => {
+  const rendered = await renderContinuityApp({
+    requestedPath: "/tmp/continuity.fountain",
+    initialContent: "INT. ORIGINAL ROOM - DAY\n\nALICE\nOriginal words.",
+    readySelector: ".fountain-scene-heading",
+  });
 
   try {
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
-    updateEditor(rendered.host, "Edited read-only words");
+    const editedContent = "INT. WRITABLE ROOM - DAY\n\nALICE\nEdited read-only words.";
+    updateEditor(rendered.host, editedContent);
     await waitForEditorPublication();
     const originalDiskContent = rendered.diskContent();
 
@@ -1443,7 +1448,7 @@ test("read-only existing document offers Save As and adopts the writable copy", 
       category: "readOnly",
       operation: "saveDocument",
       message: "This file is read-only and was not changed.",
-      detail: "/tmp/continuity.md has mode 0444",
+      detail: "/tmp/continuity.fountain has mode 0444",
     });
     clickButton(rendered.host, "Save");
 
@@ -1453,19 +1458,22 @@ test("read-only existing document offers Save As and adopts the writable copy", 
     });
     assert.equal(rendered.diskContent(), originalDiskContent);
 
-    rendered.setSaveDialogPath("/tmp/Writable Copy.md");
+    rendered.setSaveDialogPath("/tmp/Writable Copy.fountain");
     clickButton(rendered.host, "Save As…");
 
     await waitFor(() => {
       assert.equal(rendered.fileWrites().length, 2);
-      assert.match(rendered.host.textContent, /Writable Copy\.md/);
+      assert.match(rendered.host.textContent, /Writable Copy\.fountain/);
     });
-    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
-    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.md");
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.fountain");
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.fountain");
     assert.equal(rendered.fileWrites()[1].force, true);
     assert.equal(rendered.fileWrites()[1].expectedRevision, null);
-    assert.equal(rendered.diskContent(), "Edited read-only words");
+    assert.equal(rendered.diskContent(), editedContent);
     assert.doesNotMatch(rendered.host.textContent, /bindars-error|mode 0444/);
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".fountain-scene-heading")));
   } finally {
     await rendered.cleanup();
   }

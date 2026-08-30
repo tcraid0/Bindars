@@ -4,9 +4,10 @@ import { save as showSaveDialog } from "@tauri-apps/plugin-dialog";
 import {
   isRecoverableDeletedFileSaveError,
   actionableSaveError,
-  normalizeMarkdownSavePath,
+  normalizeDocumentSavePath,
   successfulSaveOutcome,
 } from "../lib/editor-save";
+import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
 import type {
   EditorSaveOutcome,
   EditorSaveResult,
@@ -232,28 +233,35 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   }, [beginSave, completeFailure, completeWrite, releaseSave, syncCurrentSession]);
 
   const saveAs = useCallback(async (defaultPath: string): Promise<EditorSaveAsResult> => {
+    const previousSaveError = state.saveError;
+    const previousSaveErrorRecovery = state.saveErrorRecovery;
     const editSession = beginSave();
     if (editSession === null) return { status: "noop" };
 
     try {
       const selectedPath = await showSaveDialog({
         defaultPath,
-        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+        filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
       });
 
       if (!syncCurrentSession(editSession)) return { status: "stale" };
       if (!selectedPath) {
-        setState((prev) => ({ ...prev, saving: false }));
+        setState((prev) => ({
+          ...prev,
+          saving: false,
+          saveError: previousSaveError,
+          saveErrorRecovery: previousSaveErrorRecovery,
+        }));
         return { status: "cancelled" };
       }
 
-      const normalizedPath = normalizeMarkdownSavePath(selectedPath);
+      const normalizedPath = normalizeDocumentSavePath(selectedPath);
       if (normalizedPath.status === "error") {
         setState((prev) => ({
           ...prev,
           saving: false,
           saveError: normalizedPath.message,
-          saveErrorRecovery: null,
+          saveErrorRecovery: "save-as",
         }));
         return { status: "error" };
       }
@@ -276,7 +284,15 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     } finally {
       releaseSave(editSession);
     }
-  }, [beginSave, completeFailure, completeWrite, releaseSave, syncCurrentSession]);
+  }, [
+    beginSave,
+    completeFailure,
+    completeWrite,
+    releaseSave,
+    state.saveError,
+    state.saveErrorRecovery,
+    syncCurrentSession,
+  ]);
 
   const exitEditMode = useCallback(() => {
     editSessionRef.current += 1;

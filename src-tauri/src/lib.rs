@@ -322,16 +322,6 @@ fn take_pending_open_path(state: tauri::State<'_, Arc<PendingOpenPath>>) -> Opti
     }
 }
 
-async fn run_blocking_io<T, F>(task: F) -> Result<T, String>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(task)
-        .await
-        .map_err(|error| format!("File task failed: {error}"))?
-}
-
 async fn run_blocking_file_io<T, F>(task: F) -> Result<T, NativeFileError>
 where
     T: Send + 'static,
@@ -796,11 +786,15 @@ fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), NativeFile
 }
 
 #[tauri::command]
-async fn unwatch_file(path: String, app: tauri::AppHandle) -> Result<(), String> {
-    run_blocking_io(move || unwatch_file_impl(path, app)).await
+async fn unwatch_file(path: String, app: tauri::AppHandle) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || {
+        unwatch_file_impl(path, app);
+        Ok(())
+    })
+    .await
 }
 
-fn unwatch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), String> {
+fn unwatch_file_impl(path: String, app: tauri::AppHandle) {
     let state = app.state::<FileWatcher>();
     let requested_path = PathBuf::from(path);
     let old_watcher = {
@@ -810,14 +804,13 @@ fn unwatch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), String> 
             guard.current.as_ref().map(|watcher| watcher.path.as_path()),
             &requested_path,
         ) {
-            return Ok(());
+            return;
         }
         guard.current.take()
     };
     if let Some(old) = old_watcher {
         let _ = old.stop_tx.send(());
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -1041,6 +1034,11 @@ fn resolve_markdown_write_target(path: &Path) -> Result<PathBuf, NativeFileError
                         NativeFileOperation::InspectWriteTarget,
                         "The selected document symlink has no available target. Choose a different Save As location.",
                     )
+                } else if error.category == NativeFileErrorCategory::InvalidInput {
+                    NativeFileError {
+                        operation: NativeFileOperation::InspectWriteTarget,
+                        ..error
+                    }
                 } else {
                     error
                 }
@@ -1254,7 +1252,47 @@ fn write_contents_atomic_private(
         true,
         NativeFileOperation::SaveRecoveryData,
     )
-    .map_err(|error| format!("{} ({})", error.message, error.detail))
+    .map_err(|error| {
+        log::warn!(
+            "Recovery-data write failed during {:?}: {}",
+            error.operation,
+            error.detail
+        );
+        error.message
+    })
+}
+
+#[cfg(unix)]
+fn atomic_temp_creation_mode(
+    owner_only: bool,
+    existing_permissions: Option<&fs::Permissions>,
+) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+
+    if owner_only {
+        0o600
+    } else {
+        existing_permissions
+            .map(|permissions| permissions.mode() & 0o777)
+            .unwrap_or(0o666)
+    }
+}
+
+fn open_atomic_temp_file(
+    path: &Path,
+    owner_only: bool,
+    existing_permissions: Option<&fs::Permissions>,
+) -> std::io::Result<fs::File> {
+    let mut open_options = fs::OpenOptions::new();
+    open_options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open_options.mode(atomic_temp_creation_mode(owner_only, existing_permissions));
+    }
+    #[cfg(not(unix))]
+    let _ = (owner_only, existing_permissions);
+    open_options.open(path)
 }
 
 fn write_contents_atomic_impl(
@@ -1284,11 +1322,20 @@ fn write_contents_atomic_impl(
     );
     let tmp_path = parent.join(&tmp_name);
 
+    // This is a best-effort preflight. A different process can still change the
+    // destination between inspection and replacement; rename never follows a
+    // final-component symlink, so that race cannot redirect the write elsewhere.
     #[cfg(unix)]
     let existing_permissions = if owner_only {
         None
     } else {
         match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(NativeFileError::invalid(
+                    NativeFileOperation::InspectWriteTarget,
+                    "The destination cannot be a symbolic link.",
+                ));
+            }
             Ok(metadata) if metadata.file_type().is_file() => {
                 if metadata.permissions().readonly() {
                     return Err(NativeFileError::read_only(read_only_operation, path));
@@ -1306,19 +1353,13 @@ fn write_contents_atomic_impl(
             }
         }
     };
-
-    let mut open_options = fs::OpenOptions::new();
-    open_options.write(true).create_new(true);
-    #[cfg(unix)]
-    if owner_only {
-        use std::os::unix::fs::OpenOptionsExt;
-        open_options.mode(0o600);
-    }
     #[cfg(not(unix))]
-    let _ = owner_only;
-    let mut tmp_file = open_options.open(&tmp_path).map_err(|error| {
-        NativeFileError::from_io(NativeFileOperation::CreateTemporaryFile, &tmp_path, error)
-    })?;
+    let existing_permissions = None::<fs::Permissions>;
+
+    let mut tmp_file = open_atomic_temp_file(&tmp_path, owner_only, existing_permissions.as_ref())
+        .map_err(|error| {
+            NativeFileError::from_io(NativeFileOperation::CreateTemporaryFile, &tmp_path, error)
+        })?;
 
     #[cfg(unix)]
     if owner_only {
@@ -1696,10 +1737,11 @@ mod tests {
     use super::{
         begin_watch_request, clear_desired_watch_path_if_requested, cli_open_path_from_args,
         export_html_file_impl, export_markdown_file_impl, is_markdown_path,
-        list_workspace_markdown_files_impl, open_markdown_file_impl, read_file_revision,
-        read_image_file_as_base64_impl, read_markdown_file_impl, read_written_file_revision,
-        resolve_external_markdown_path_impl, resolve_markdown_path_impl,
-        should_install_watch_request, should_unwatch_path, stable_hash_hex, write_contents_atomic,
+        list_workspace_markdown_files_impl, open_atomic_temp_file, open_markdown_file_impl,
+        read_file_revision, read_image_file_as_base64_impl, read_markdown_file_impl,
+        read_written_file_revision, resolve_external_markdown_path_impl,
+        resolve_markdown_path_impl, should_install_watch_request, should_unwatch_path,
+        stable_hash_hex, write_contents_atomic, write_contents_atomic_private,
         write_markdown_file_if_unmodified_impl, write_markdown_file_impl, FileWatcherState,
         NativeFileError, NativeFileErrorCategory, NativeFileOperation, PendingOpenPath,
         MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES, STANDARD,
@@ -2133,6 +2175,34 @@ mod tests {
         cleanup(&path);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn atomic_temp_starts_with_the_existing_documents_private_mode() {
+        let root = temp_dir("atomic-temp-private-mode");
+        fs::create_dir(&root).expect("create fixture root");
+        let destination = root.join("private.md");
+        let temporary = root.join(".bindars-mode-test");
+        fs::write(&destination, "private").expect("write private fixture");
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600))
+            .expect("set private mode");
+        let existing_permissions = fs::metadata(&destination)
+            .expect("inspect private fixture")
+            .permissions();
+
+        let temporary_file = open_atomic_temp_file(&temporary, false, Some(&existing_permissions))
+            .expect("create atomic temporary file");
+        let temporary_mode = temporary_file
+            .metadata()
+            .expect("inspect atomic temporary file")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(temporary_mode, 0o600);
+        drop(temporary_file);
+        cleanup_dir(&root);
+    }
+
     #[test]
     fn conditional_write_succeeds_with_matching_revision() {
         let path = temp_path("md");
@@ -2302,6 +2372,35 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn forced_write_reports_a_symlinked_directory_as_an_invalid_write_target() {
+        let root = temp_dir("symlinked-document-directory");
+        fs::create_dir(&root).expect("create fixture root");
+        let target = root.join("target.md");
+        let link = root.join("link.md");
+        fs::create_dir(&target).expect("create target directory");
+        symlink(&target, &link).expect("create directory symlink");
+
+        let error = write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "must not replace link".to_string(),
+            None,
+            Some(true),
+        )
+        .expect_err("symlinked directory should require another Save As destination");
+
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::InspectWriteTarget);
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect directory link")
+            .file_type()
+            .is_symlink());
+        assert!(target.is_dir());
+
+        cleanup_dir(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn write_refuses_existing_read_only_target_before_replacement() {
         let path = temp_path("md");
         fs::write(&path, "# Original").expect("write fixture");
@@ -2367,6 +2466,19 @@ mod tests {
         assert_eq!(leftovers, 0);
 
         cleanup_dir(&root);
+    }
+
+    #[test]
+    fn private_atomic_write_returns_safe_text_without_diagnostic_path() {
+        let root = temp_dir("private-write-safe-error");
+        let path = root.join("missing").join("snapshot.md");
+
+        let error = write_contents_atomic_private(&path, "private", ".snapshot-test")
+            .expect_err("missing parent should reject private write");
+
+        assert!(error.contains("Bindars could not create the temporary file"));
+        assert!(!error.contains(&root.to_string_lossy().into_owned()));
+        assert!(!error.contains("No such file or directory"));
     }
 
     #[test]
@@ -2933,6 +3045,35 @@ mod tests {
             "new content"
         );
         cleanup(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_rejects_a_symlink_destination_without_replacing_it() {
+        let target = temp_path("html");
+        let link = temp_path("html");
+        fs::write(&target, "original target").expect("write export target");
+        symlink(&target, &link).expect("create export symlink");
+
+        let error = export_html_file_impl(
+            link.to_string_lossy().into_owned(),
+            "<p>replacement</p>".to_string(),
+        )
+        .expect_err("export should reject a symlink destination");
+
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::InspectWriteTarget);
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect export link")
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(&target).expect("read unchanged export target"),
+            "original target"
+        );
+
+        cleanup(&link);
+        cleanup(&target);
     }
 
     #[test]
