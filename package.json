@@ -31,7 +31,7 @@
     "@fontsource/geist-mono": "^5.2.7",
     "@fontsource/opendyslexic": "^5.2.5",
     "@lezer/markdown": "^1.7.1",
-    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-store": "^2.4.2",
@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "@tauri-apps/cli": "^2.10.0",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
