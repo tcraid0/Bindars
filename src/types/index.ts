@@ -123,7 +123,8 @@ export type NativeFileOperation =
   | "readImage"
   | "watchDocument"
   | "openExternally"
-  | "saveRecoveryData";
+  | "saveRecoveryData"
+  | "accessRecoveryData";
 
 export interface NativeFileError {
   category: NativeFileErrorCategory;

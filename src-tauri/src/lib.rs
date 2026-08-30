@@ -173,6 +173,7 @@ enum NativeFileOperation {
     WatchDocument,
     OpenExternally,
     SaveRecoveryData,
+    AccessRecoveryData,
 }
 
 impl NativeFileOperation {
@@ -206,6 +207,7 @@ impl NativeFileOperation {
             Self::WatchDocument => "watch the document",
             Self::OpenExternally => "open the document with its default application",
             Self::SaveRecoveryData => "save recovery data",
+            Self::AccessRecoveryData => "access recovery data",
         }
     }
 }
@@ -265,10 +267,10 @@ impl NativeFileError {
         };
         let message = match (category, operation) {
             (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveDocument) => {
-                format!("File not found: {}", path.display())
+                "This file is no longer available.".to_string()
             }
             (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveWorkspace) => {
-                format!("Workspace not found: {}", path.display())
+                "The workspace folder is no longer available.".to_string()
             }
             (NativeFileErrorCategory::PermissionDenied, _) => {
                 format!(
@@ -389,7 +391,7 @@ async fn write_markdown_file(path: String, content: String) -> Result<(), Native
 
 fn write_markdown_file_impl(path: String, content: String) -> Result<(), NativeFileError> {
     let requested_path = PathBuf::from(&path);
-    let canonical_path = canonicalize_markdown_path(&requested_path)?;
+    let canonical_path = canonicalize_markdown_write_path(&requested_path)?;
 
     if content.len() as u64 > MAX_MARKDOWN_BYTES {
         return Err(NativeFileError::invalid(
@@ -443,7 +445,7 @@ fn write_markdown_file_if_unmodified_impl(
         return successful_write_result(&write_path, &content);
     }
 
-    let canonical_path = canonicalize_markdown_path(&requested_path)?;
+    let canonical_path = canonicalize_markdown_write_path(&requested_path)?;
     let current_revision = read_file_revision(&canonical_path)?;
     let expected = expected_revision.ok_or_else(|| {
         NativeFileError::invalid(
@@ -956,6 +958,21 @@ fn canonicalize_markdown_path(path: &Path) -> Result<PathBuf, NativeFileError> {
     Ok(canonical_path)
 }
 
+fn remap_invalid_write_target_error(error: NativeFileError) -> NativeFileError {
+    if error.category == NativeFileErrorCategory::InvalidInput {
+        NativeFileError {
+            operation: NativeFileOperation::InspectWriteTarget,
+            ..error
+        }
+    } else {
+        error
+    }
+}
+
+fn canonicalize_markdown_write_path(path: &Path) -> Result<PathBuf, NativeFileError> {
+    canonicalize_markdown_path(path).map_err(remap_invalid_write_target_error)
+}
+
 fn markdown_file_identity(path: &Path) -> (String, String) {
     let canonical_path = path.to_string_lossy().into_owned();
     let name = path
@@ -1034,13 +1051,8 @@ fn resolve_markdown_write_target(path: &Path) -> Result<PathBuf, NativeFileError
                         NativeFileOperation::InspectWriteTarget,
                         "The selected document symlink has no available target. Choose a different Save As location.",
                     )
-                } else if error.category == NativeFileErrorCategory::InvalidInput {
-                    NativeFileError {
-                        operation: NativeFileOperation::InspectWriteTarget,
-                        ..error
-                    }
                 } else {
-                    error
+                    remap_invalid_write_target_error(error)
                 }
             });
         }
@@ -1984,10 +1996,12 @@ mod tests {
     #[test]
     fn rejects_missing_markdown_file() {
         let path = temp_path("md");
-        let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
-        assert!(result
-            .expect_err("missing file should error")
-            .contains("File not found"));
+        let error = read_markdown_file_impl(path.to_string_lossy().into_owned())
+            .expect_err("missing file should error");
+
+        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
+        assert_eq!(error.operation, NativeFileOperation::ResolveDocument);
+        assert_eq!(error.message, "This file is no longer available.");
     }
 
     #[test]
@@ -2401,6 +2415,39 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn conditional_write_reports_a_replaced_directory_symlink_as_an_invalid_write_target() {
+        let root = temp_dir("conditional-symlinked-document-directory");
+        fs::create_dir(&root).expect("create fixture root");
+        let link = root.join("document.md");
+        let directory = root.join("replacement.md");
+        fs::write(&link, "original").expect("write original document");
+        let opened = open_markdown_file_impl(link.to_string_lossy().into_owned())
+            .expect("open original document");
+        fs::remove_file(&link).expect("remove original document");
+        fs::create_dir(&directory).expect("create replacement directory");
+        symlink(&directory, &link).expect("replace document with directory symlink");
+
+        let error = write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "local edits must survive".to_string(),
+            Some(opened.revision),
+            Some(false),
+        )
+        .expect_err("directory symlink should require Save As recovery");
+
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::InspectWriteTarget);
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect replacement link")
+            .file_type()
+            .is_symlink());
+        assert!(directory.is_dir());
+
+        cleanup_dir(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn write_refuses_existing_read_only_target_before_replacement() {
         let path = temp_path("md");
         fs::write(&path, "# Original").expect("write fixture");
@@ -2593,6 +2640,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn missing_document_error_keeps_the_path_out_of_its_user_message() {
+        let path = Path::new("/private/documents/missing.md");
+
+        let error = NativeFileError::from_io(
+            NativeFileOperation::ResolveDocument,
+            path,
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+
+        assert_eq!(error.message, "This file is no longer available.");
+        assert!(!error.message.contains("/private/documents"));
+        assert!(error.detail.contains("/private/documents/missing.md"));
+    }
+
+    #[test]
+    fn missing_workspace_error_keeps_the_path_out_of_its_user_message() {
+        let path = Path::new("/private/workspaces/missing");
+
+        let error = NativeFileError::from_io(
+            NativeFileOperation::ResolveWorkspace,
+            path,
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+
+        assert_eq!(
+            error.message,
+            "The workspace folder is no longer available."
+        );
+        assert!(!error.message.contains("/private/workspaces"));
+        assert!(error.detail.contains("/private/workspaces/missing"));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn force_create_reports_unwritable_parent_without_leaving_a_temporary_file() {
@@ -2674,16 +2754,17 @@ mod tests {
         let opened = open_markdown_file_impl(path_str.clone()).expect("open markdown");
         fs::remove_file(&path).expect("delete fixture");
 
-        let result = write_markdown_file_if_unmodified_impl(
+        let error = write_markdown_file_if_unmodified_impl(
             path_str,
             "# Local edit".to_string(),
             Some(opened.revision),
             Some(false),
-        );
+        )
+        .expect_err("non-force write should fail for deleted file");
 
-        assert!(result
-            .expect_err("non-force write should fail for deleted file")
-            .contains("File not found"));
+        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
+        assert_eq!(error.operation, NativeFileOperation::ResolveDocument);
+        assert_eq!(error.message, "This file is no longer available.");
     }
 
     #[test]
@@ -2801,11 +2882,13 @@ mod tests {
     #[test]
     fn write_rejects_nonexistent_file() {
         let path = temp_path("md");
-        let result =
-            write_markdown_file_impl(path.to_string_lossy().into_owned(), "new".to_string());
-        assert!(result
-            .expect_err("missing file should error")
-            .contains("File not found"));
+        let error =
+            write_markdown_file_impl(path.to_string_lossy().into_owned(), "new".to_string())
+                .expect_err("missing file should error");
+
+        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
+        assert_eq!(error.operation, NativeFileOperation::ResolveDocument);
+        assert_eq!(error.message, "This file is no longer available.");
     }
 
     #[test]

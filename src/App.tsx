@@ -54,6 +54,7 @@ import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveResult } from "./lib/editor-save";
+import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen, shouldCloseDocumentAfterOpenFailure } from "./lib/document-state";
 import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode, decideNativeCloseRequest, windowClosePolicy } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
@@ -183,7 +184,7 @@ function sameSnapshotDocument(left: SnapshotDocument | null, right: SnapshotDocu
 }
 
 function snapshotErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeFileError(error, "Bindars could not access recovery data.").message;
 }
 
 function formatSnapshotTime(timestampMs: number): string {

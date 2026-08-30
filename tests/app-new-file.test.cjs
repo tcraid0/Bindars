@@ -1173,6 +1173,7 @@ async function renderContinuityApp({
   let windowDestroyCount = 0;
   let documentSnapshotListCount = 0;
   let snapshotWriteError = null;
+  let snapshotListError = null;
   let revisionNumber = 1;
   const nativeOpen = createNativeOpenIpc(initialNativePath === undefined
     ? (restoreHeadingId === undefined ? requestedPath : null)
@@ -1296,6 +1297,11 @@ async function renderContinuityApp({
         return null;
       case "list_document_snapshots":
         documentSnapshotListCount += 1;
+        if (snapshotListError) {
+          const error = snapshotListError;
+          snapshotListError = null;
+          throw error;
+        }
         return snapshotEntries;
       case "read_document_snapshot":
         if (deferredSnapshotRead) {
@@ -1401,6 +1407,7 @@ async function renderContinuityApp({
     windowDestroyCount: () => windowDestroyCount,
     documentSnapshotListCount: () => documentSnapshotListCount,
     failNextSnapshotWrite(error) { snapshotWriteError = error; },
+    failNextSnapshotList(error) { snapshotListError = error; },
     setDiskContent(content) { diskContent = content; },
     openResult(content = diskContent, revision = revisionNumber) {
       return {
@@ -1474,6 +1481,48 @@ test("read-only Fountain document offers Save As and preserves its file type", a
 
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector(".fountain-scene-heading")));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("read-only Markdown document offers Save As and adopts the writable copy", async () => {
+  const rendered = await renderContinuityApp();
+
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Edited read-only words");
+    await waitForEditorPublication();
+    const originalDiskContent = rendered.diskContent();
+
+    rendered.failNextFileWrite({
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/continuity.md has mode 0444",
+    });
+    clickButton(rendered.host, "Save");
+
+    await waitFor(() => {
+      assert.match(rendered.host.textContent, /read-only and was not changed/);
+      assert.equal(rendered.fileWrites().length, 1);
+    });
+    assert.equal(rendered.diskContent(), originalDiskContent);
+
+    rendered.setSaveDialogPath("/tmp/Writable Copy.md");
+    clickButton(rendered.host, "Save As…");
+
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 2);
+      assert.match(rendered.host.textContent, /Writable Copy\.md/);
+    });
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.md");
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.fileWrites()[1].expectedRevision, null);
+    assert.equal(rendered.diskContent(), "Edited read-only words");
+    assert.doesNotMatch(rendered.host.textContent, /bindars-error|mode 0444/);
   } finally {
     await rendered.cleanup();
   }
@@ -1819,6 +1868,32 @@ test("restore snapshots the current file first, preserves the boundary, and retu
       assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
     });
     assert.ok(rendered.host.querySelector(".cm-editor"));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("snapshot restore errors show safe native messages without diagnostic detail", async () => {
+  const rendered = await renderContinuityApp();
+
+  try {
+    rendered.failNextSnapshotList({
+      category: "unknown",
+      operation: "accessRecoveryData",
+      message: "Bindars could not access recovery data.",
+      detail: "/private/recovery/snapshots: No such file or directory",
+    });
+    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    assert.ok(restoreButton);
+    flushSync(() => restoreButton.click());
+
+    const dialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /could not access recovery data/);
+      return candidate;
+    });
+    assert.doesNotMatch(dialog.textContent, /private\/recovery|No such file|\[object Object\]/);
   } finally {
     await rendered.cleanup();
   }
