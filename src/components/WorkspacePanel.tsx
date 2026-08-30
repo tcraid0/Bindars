@@ -1,5 +1,6 @@
 import type { BacklinkItem, MentionItem, WorkspaceState } from "../types";
 import { DOCUMENT_COMPLEXITY_REASON } from "../lib/document-complexity";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface WorkspacePanelProps {
   rootPath: string | null;
@@ -36,7 +37,7 @@ export function WorkspacePanel({
           type="button"
           onClick={onOpenPalette}
           className="workspace-link-btn text-xs text-text-muted hover:text-text-primary px-1.5 py-1 rounded hover:bg-bg-tertiary transition-colors"
-          title="Quick switcher (Ctrl+K)"
+          title={`Quick switcher (${formatShortcutLabel("workspaceSwitcher")})`}
         >
           Search
         </button>

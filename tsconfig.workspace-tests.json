@@ -47,6 +47,7 @@
     "src/lib/editor-save.ts",
     "src/lib/snapshots.ts",
     "src/lib/keyboard.ts",
+    "src/lib/shortcut-labels.ts",
     "src/lib/edit-navigation.ts",
     "src/lib/frontmatter.ts",
     "src/lib/code-text.ts",

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { RecentFile } from "../types";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface EmptyStateProps {
   onNewFile: () => void;
@@ -81,7 +82,9 @@ function EmptyStateComponent({
             Open File
           </button>
         </div>
-        <p className="text-xs text-text-muted mt-2">Ctrl+N · Ctrl+O</p>
+        <p className="text-xs text-text-muted mt-2">
+          {formatShortcutLabel("newFile")} · {formatShortcutLabel("openFile")}
+        </p>
         <button
           type="button"
           onClick={onRestoreDrafts}
@@ -93,7 +96,7 @@ function EmptyStateComponent({
 
       <div className="text-xs text-text-muted mt-8 space-y-1.5 empty-state-content">
         <p>Drag .md, .markdown, or .fountain files here to open</p>
-        <p>Press <kbd className="inline-block px-1.5 py-0.5 rounded border border-border bg-bg-tertiary font-mono text-[11px] leading-none">?</kbd> for keyboard shortcuts</p>
+        <p>Press <kbd className="inline-block px-1.5 py-0.5 rounded border border-border bg-bg-tertiary font-mono text-[11px] leading-none">{formatShortcutLabel("showShortcuts")}</kbd> for keyboard shortcuts</p>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { memo, useState, useEffect, useRef } from "react";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface PresentationBarProps {
   currentSlide: number;
@@ -84,7 +85,7 @@ function PresentationBarComponent({ currentSlide, totalSlides, onExit }: Present
         type="button"
         onClick={onExit}
         className="text-xs text-text-secondary hover:text-text-primary transition-colors duration-120"
-        title="Exit presentation (Esc)"
+        title={`Exit presentation (${formatShortcutLabel("escape")})`}
       >
         Exit
       </button>

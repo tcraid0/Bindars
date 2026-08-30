@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef } from "react";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
+import { formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface CommandPaletteProps {
   visible: boolean;
@@ -76,7 +77,9 @@ function CommandPaletteComponent({
                 ? "Results improve as indexing progresses."
                 : "Arrow keys to navigate."}
             </span>
-            <span className="hidden sm:inline">Enter opens. Esc closes.</span>
+            <span className="hidden sm:inline">
+              {formatShortcutLabel("enter")} opens. {formatShortcutLabel("escape")} closes.
+            </span>
           </div>
         </div>
 
