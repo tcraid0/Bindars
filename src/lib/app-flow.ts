@@ -1,12 +1,52 @@
 import type { FileType } from "../types";
+import type { ShortcutPlatform } from "./shortcut-labels";
+
+export type WindowClosePolicy = "hide" | "native";
+
+export type NativeCloseRequestOutcome =
+  | "complete-programmatic-close"
+  | "allow-native-close"
+  | "prevent-and-guard"
+  | "prevent-silently";
+
+interface NativeCloseRequestState {
+  closePolicy: WindowClosePolicy;
+  programmaticCloseInFlight: boolean;
+  closeDrainPending: boolean;
+  actionAdmissionInFlight: boolean;
+}
+
+// The macOS close guard hides the last window instead of destroying it so the
+// process stays available for Dock reopen. Other platforms keep destroying it
+// and letting the last close exit the process.
+export function windowClosePolicy(platform: ShortcutPlatform): WindowClosePolicy {
+  return platform === "macos" ? "hide" : "native";
+}
+
+// Classifies a native close request (red button or Command-W) from the guard's
+// in-flight state. Ordering is load-bearing: a programmatic close completes
+// its own handshake, an in-flight close or admission swallows repeat requests,
+// the hide policy never lets the window be destroyed, and the native policy
+// lets a clean document close while a dirty one is guarded by the caller.
+export function decideNativeCloseRequest(state: NativeCloseRequestState): NativeCloseRequestOutcome {
+  if (state.programmaticCloseInFlight) return "complete-programmatic-close";
+  if (state.closeDrainPending || state.actionAdmissionInFlight) return "prevent-silently";
+  if (state.closePolicy === "hide") return "prevent-and-guard";
+  return "allow-native-close";
+}
 
 interface EditEntryState {
   documentOpen: boolean;
   editing: boolean;
   loading: boolean;
+  documentTransitionInFlight: boolean;
 }
 
-interface PresentationEntryState extends EditEntryState {
+interface PresentationEntryState {
+  documentOpen: boolean;
+  editing: boolean;
+  loading: boolean;
+  actionAdmissionInFlight: boolean;
   focusMode: boolean;
   fileType: FileType;
 }
@@ -15,11 +55,13 @@ export function canEnterEditMode({
   documentOpen,
   editing,
   loading,
+  documentTransitionInFlight,
 }: EditEntryState): boolean {
-  return documentOpen && !editing && !loading;
+  return documentOpen && !editing && !loading && !documentTransitionInFlight;
 }
 
 export function canToggleEditMode(state: EditEntryState): boolean {
+  if (state.documentTransitionInFlight) return false;
   return state.editing || canEnterEditMode(state);
 }
 
@@ -27,8 +69,14 @@ export function canEnterPresentationMode({
   documentOpen,
   editing,
   loading,
+  actionAdmissionInFlight,
   focusMode,
   fileType,
 }: PresentationEntryState): boolean {
-  return documentOpen && !editing && !loading && !focusMode && fileType !== "fountain";
+  return documentOpen
+    && !editing
+    && !loading
+    && !actionAdmissionInFlight
+    && !focusMode
+    && fileType !== "fountain";
 }

@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -21,8 +21,38 @@ use snapshots::{
     list_snapshot_drafts, read_document_snapshot, retire_snapshot_draft, write_document_snapshot,
 };
 
-/// Stores the file path passed via CLI arg (file association) for the frontend to consume.
-struct CliFilePath(Mutex<Option<String>>);
+#[cfg(target_os = "macos")]
+const NATIVE_OPEN_AVAILABLE_EVENT: &str = "bindars://native-open-available";
+
+#[cfg(target_os = "macos")]
+const NATIVE_QUIT_REQUESTED_EVENT: &str = "bindars://quit-requested";
+
+/// Identifier of the custom macOS Quit menu item that routes through the
+/// frontend unsaved-change guard instead of AppKit's immediate termination.
+#[cfg(target_os = "macos")]
+const QUIT_MENU_ITEM_ID: &str = "bindars-quit";
+
+/// One pending operating-system open request. A newer valid request replaces
+/// the older one until the frontend atomically takes it.
+#[derive(Default)]
+struct PendingOpenPath(Mutex<Option<PathBuf>>);
+
+impl PendingOpenPath {
+    fn replace_if_supported(&self, path: PathBuf) -> bool {
+        if !is_markdown_path(&path) {
+            return false;
+        }
+        *self.0.lock().unwrap_or_else(|error| error.into_inner()) = Some(path);
+        true
+    }
+
+    fn take(&self) -> Option<PathBuf> {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+    }
+}
 
 struct WatcherState {
     path: PathBuf,
@@ -100,12 +130,15 @@ struct ConditionalWriteResult {
 }
 
 #[tauri::command]
-fn get_cli_file_path(state: tauri::State<'_, CliFilePath>) -> Option<String> {
-    state
-        .0
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .take()
+fn take_pending_open_path(state: tauri::State<'_, Arc<PendingOpenPath>>) -> Option<String> {
+    let path = state.take()?;
+    match path.into_os_string().into_string() {
+        Ok(path) => Some(path),
+        Err(_) => {
+            log::warn!("Ignoring a native open path that is not valid UTF-8");
+            None
+        }
+    }
 }
 
 async fn run_blocking_io<T, F>(task: F) -> Result<T, String>
@@ -943,6 +976,183 @@ fn is_markdown_path(path: &Path) -> bool {
     }
 }
 
+#[cfg(any(windows, target_os = "linux", test))]
+fn cli_open_path_from_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<PathBuf> {
+    let path = args.into_iter().nth(1).map(PathBuf::from)?;
+    if !path.exists() || !is_markdown_path(&path) {
+        return None;
+    }
+
+    let canonical_path = dunce::canonicalize(&path).ok()?;
+    if is_markdown_path(&canonical_path) {
+        return Some(canonical_path);
+    }
+
+    // Preserve a supported symlink path when its canonical target is not
+    // supported. The normal open command then reports the same validation error
+    // as macOS instead of the native intake silently dropping the launch.
+    Some(path)
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn initial_cli_open_path() -> Option<PathBuf> {
+    cli_open_path_from_args(std::env::args_os())
+}
+
+#[cfg(target_os = "macos")]
+fn first_supported_opened_path(urls: &[tauri::Url]) -> Option<PathBuf> {
+    let mut selected = None;
+    let mut extra_supported = 0usize;
+
+    for url in urls {
+        if url.scheme() != "file" {
+            log::warn!(
+                "Ignoring native open URL with unsupported scheme '{}'",
+                url.scheme()
+            );
+            continue;
+        }
+
+        let Ok(path) = url.to_file_path() else {
+            log::warn!("Ignoring native file URL that cannot be converted to a local path");
+            continue;
+        };
+
+        if !is_markdown_path(&path) {
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("<none>");
+            log::warn!(
+                "Ignoring native open path with unsupported extension '{}'",
+                extension
+            );
+            continue;
+        }
+
+        if selected.is_none() {
+            selected = Some(path);
+        } else {
+            extra_supported += 1;
+        }
+    }
+
+    if extra_supported > 0 {
+        log::info!(
+            "Ignoring {extra_supported} additional supported native open path(s) from one event"
+        );
+    }
+
+    selected
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("Cannot reveal the main window for a native open request");
+        return;
+    };
+
+    if let Err(error) = window.show() {
+        log::warn!("Failed to show the main window: {error}");
+    }
+    if let Err(error) = window.unminimize() {
+        log::warn!("Failed to unminimize the main window: {error}");
+    }
+    if let Err(error) = window.set_focus() {
+        log::warn!("Failed to focus the main window: {error}");
+    }
+}
+
+/// Window-state persistence flags. Visibility is deliberately excluded: a
+/// window hidden through the macOS close guard must not relaunch invisibly
+/// with no Dock-restore path. Size, position, maximized, fullscreen, and
+/// decorations keep their useful restoration behavior.
+#[cfg(desktop)]
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE
+}
+
+#[cfg(target_os = "macos")]
+fn is_predefined_quit_text(text: &str) -> bool {
+    text.trim().to_ascii_lowercase().starts_with("quit")
+}
+
+/// Builds the default macOS menu with the predefined Quit item replaced by a
+/// custom item. The predefined item terminates through AppKit
+/// (`sel!(terminate:)`) without any Tauri or webview event, which would bypass
+/// the frontend unsaved-change guard, so a replacement failure is an error
+/// instead of a silent fallback to the data-loss path.
+#[cfg(target_os = "macos")]
+fn default_menu_with_guarded_quit(
+    app: &tauri::AppHandle,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{MenuItem, MenuItemKind};
+
+    let menu = tauri::menu::Menu::default(app)?;
+    let app_submenu = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(submenu) => Some(submenu),
+        _ => None,
+    });
+    let Some(app_submenu) = app_submenu else {
+        return Err(std::io::Error::other("the default menu has no application submenu").into());
+    };
+
+    let predefined_quit = app_submenu
+        .items()?
+        .into_iter()
+        .find_map(|item| match &item {
+            MenuItemKind::Predefined(predefined) => {
+                let Ok(text) = predefined.text() else {
+                    return None;
+                };
+                if is_predefined_quit_text(&text) {
+                    Some(item)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+    let Some(predefined_quit) = predefined_quit else {
+        return Err(std::io::Error::other(
+            "the default application submenu has no predefined Quit item",
+        )
+        .into());
+    };
+    app_submenu.remove(&predefined_quit)?;
+
+    let quit_text = format!("Quit {}", app.package_info().name);
+    let quit_item =
+        MenuItem::with_id(app, QUIT_MENU_ITEM_ID, quit_text, true, Some("CmdOrCtrl+Q"))?;
+    app_submenu.append(&quit_item)?;
+
+    Ok(menu)
+}
+
+/// Forwards the custom Quit menu item to the frontend guard. The window is
+/// revealed first so a resulting Save/Discard/Cancel dialog can never open in
+/// a hidden window. The process exits only when the frontend guard completes
+/// and invokes `exit_after_guarded_quit`.
+#[cfg(target_os = "macos")]
+fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    if event.id() != QUIT_MENU_ITEM_ID {
+        return;
+    }
+    reveal_main_window(app);
+    if let Err(error) = app.emit_to("main", NATIVE_QUIT_REQUESTED_EVENT, ()) {
+        log::warn!("Failed to notify the frontend of a quit request: {error}");
+    }
+}
+
+/// Exits the application. Reachable only through the frontend guard's
+/// terminal continuation: nothing in this app prevents `ExitRequested`, so a
+/// failed or cancelled guard can never reach this command.
+#[tauri::command]
+fn exit_after_guarded_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn is_supported_export_image_path(path: &Path) -> bool {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some(ext) => matches!(
@@ -955,10 +1165,19 @@ fn is_supported_export_image_path(path: &Path) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    if let Err(error) = tauri::Builder::default()
+    let pending_open_path = Arc::new(PendingOpenPath::default());
+
+    #[cfg(any(windows, target_os = "linux"))]
+    if let Some(path) = initial_cli_open_path() {
+        let accepted = pending_open_path.replace_if_supported(path);
+        debug_assert!(accepted);
+    }
+
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Arc::clone(&pending_open_path))
         .invoke_handler(tauri::generate_handler![
             read_markdown_file,
             resolve_markdown_path,
@@ -970,7 +1189,8 @@ pub fn run() {
             open_markdown_file_externally,
             read_image_file_as_base64,
             export_markdown_file,
-            get_cli_file_path,
+            take_pending_open_path,
+            exit_after_guarded_quit,
             watch_file,
             unwatch_file,
             list_workspace_markdown_files,
@@ -984,8 +1204,11 @@ pub fn run() {
         ])
         .setup(|app| {
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_window_state::Builder::default().build())?;
+            app.handle().plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(window_state_flags())
+                    .build(),
+            )?;
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -995,42 +1218,88 @@ pub fn run() {
                 )?;
             }
 
-            let cli_path = {
-                let args: Vec<String> = std::env::args().collect();
-                if args.len() > 1 {
-                    let path = PathBuf::from(&args[1]);
-                    if path.exists() && is_markdown_path(&path) {
-                        dunce::canonicalize(&path)
-                            .ok()
-                            .and_then(|p| p.to_str().map(String::from))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            };
-            app.manage(CliFilePath(Mutex::new(cli_path)));
             app.manage(FileWatcher(Mutex::new(FileWatcherState::default())));
 
             Ok(())
-        })
-        .run(tauri::generate_context!())
-    {
-        eprintln!("error while running tauri application: {error}");
+        });
+
+    // The predefined macOS Quit item terminates through AppKit without any
+    // frontend event, which would bypass the unsaved-change guard. Install a
+    // menu whose Quit item routes through the guard instead. On other
+    // platforms no menu is installed, matching the previous behavior.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(default_menu_with_guarded_quit)
+        .on_menu_event(handle_macos_menu_event);
+
+    let app = builder.build(tauri::generate_context!());
+
+    match app {
+        Ok(app) => {
+            #[cfg(target_os = "macos")]
+            let mut runtime_ready = false;
+
+            app.run(move |app_handle, event| {
+                #[cfg(target_os = "macos")]
+                match event {
+                    tauri::RunEvent::Ready => {
+                        runtime_ready = true;
+                    }
+                    tauri::RunEvent::Reopen { .. } => {
+                        // Clicking the Dock icon brings the hidden or minimized
+                        // main window back; the app keeps running after close.
+                        reveal_main_window(app_handle);
+                    }
+                    tauri::RunEvent::Opened { urls } => {
+                        let Some(path) = first_supported_opened_path(&urls) else {
+                            return;
+                        };
+                        let accepted = pending_open_path.replace_if_supported(path);
+                        debug_assert!(accepted);
+
+                        if runtime_ready {
+                            reveal_main_window(app_handle);
+                            if let Err(error) = app_handle.emit_to(
+                                "main",
+                                NATIVE_OPEN_AVAILABLE_EVENT,
+                                (),
+                            ) {
+                                log::warn!(
+                                    "Failed to notify the frontend of a native open request: {error}"
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                let _ = (app_handle, event);
+            });
+        }
+        Err(error) => {
+            eprintln!("error while building tauri application: {error}");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::first_supported_opened_path;
+    #[cfg(target_os = "macos")]
+    use super::is_predefined_quit_text;
+    #[cfg(desktop)]
+    use super::window_state_flags;
     use super::{
-        begin_watch_request, clear_desired_watch_path_if_requested, export_html_file_impl,
-        export_markdown_file_impl, is_markdown_path, list_workspace_markdown_files_impl,
-        open_markdown_file_impl, read_file_revision, read_image_file_as_base64_impl,
-        read_markdown_file_impl, read_written_file_revision, resolve_external_markdown_path_impl,
-        resolve_markdown_path_impl, should_install_watch_request, should_unwatch_path,
-        stable_hash_hex, write_markdown_file_if_unmodified_impl, write_markdown_file_impl,
-        FileWatcherState, MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES,
+        begin_watch_request, clear_desired_watch_path_if_requested, cli_open_path_from_args,
+        export_html_file_impl, export_markdown_file_impl, is_markdown_path,
+        list_workspace_markdown_files_impl, open_markdown_file_impl, read_file_revision,
+        read_image_file_as_base64_impl, read_markdown_file_impl, read_written_file_revision,
+        resolve_external_markdown_path_impl, resolve_markdown_path_impl,
+        should_install_watch_request, should_unwatch_path, stable_hash_hex,
+        write_markdown_file_if_unmodified_impl, write_markdown_file_impl, FileWatcherState,
+        PendingOpenPath, MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES,
         STANDARD,
     };
     use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
@@ -1054,6 +1323,168 @@ mod tests {
     fn rejects_non_markdown_extensions() {
         assert!(!is_markdown_path(Path::new("/tmp/note.txt")));
         assert!(!is_markdown_path(Path::new("/tmp/note")));
+    }
+
+    #[test]
+    fn pending_open_path_is_one_shot_and_latest_valid_request_wins() {
+        let pending = PendingOpenPath::default();
+        assert!(pending.replace_if_supported(PathBuf::from("/tmp/first.md")));
+        assert!(pending.replace_if_supported(PathBuf::from("/tmp/latest.markdown")));
+
+        assert_eq!(pending.take(), Some(PathBuf::from("/tmp/latest.markdown")));
+        assert_eq!(pending.take(), None);
+    }
+
+    #[test]
+    fn unsupported_open_does_not_clear_a_pending_supported_path() {
+        let pending = PendingOpenPath::default();
+        assert!(pending.replace_if_supported(PathBuf::from("/tmp/keep.md")));
+        assert!(!pending.replace_if_supported(PathBuf::from("/tmp/ignore.txt")));
+        assert_eq!(pending.take(), Some(PathBuf::from("/tmp/keep.md")));
+    }
+
+    #[test]
+    fn the_same_path_can_be_opened_again_in_a_later_event() {
+        let pending = PendingOpenPath::default();
+        let path = PathBuf::from("/tmp/reopen.md");
+        assert!(pending.replace_if_supported(path.clone()));
+        assert_eq!(pending.take(), Some(path.clone()));
+        assert!(pending.replace_if_supported(path.clone()));
+        assert_eq!(pending.take(), Some(path));
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn window_state_persistence_excludes_visibility_but_keeps_useful_state() {
+        use tauri_plugin_window_state::StateFlags;
+
+        let flags = window_state_flags();
+
+        // A window hidden through the macOS close guard must never relaunch
+        // invisibly, so visibility is excluded from persistence.
+        assert!(!flags.contains(StateFlags::VISIBLE));
+        // Size, position, maximized, and fullscreen restoration stay useful.
+        assert!(flags.contains(StateFlags::SIZE));
+        assert!(flags.contains(StateFlags::POSITION));
+        assert!(flags.contains(StateFlags::MAXIMIZED));
+        assert!(flags.contains(StateFlags::FULLSCREEN));
+        assert!(flags.contains(StateFlags::DECORATIONS));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn predefined_quit_items_are_identified_by_text() {
+        // muda titles the default macOS Quit item "Quit <app name>".
+        assert!(is_predefined_quit_text("Quit Bindars"));
+        assert!(is_predefined_quit_text("  quit io.github.tcraid0.bindars "));
+        // Nothing else in the default application submenu starts with "quit":
+        // About, Services, Hide, Hide Others, and separators never match.
+        assert!(!is_predefined_quit_text("Hide Bindars"));
+        assert!(!is_predefined_quit_text("Hide Others"));
+        assert!(!is_predefined_quit_text("About Bindars"));
+        assert!(!is_predefined_quit_text("Services"));
+        assert!(!is_predefined_quit_text(""));
+    }
+
+    #[test]
+    fn cli_open_uses_only_the_first_existing_supported_argument() {
+        let first = temp_path("md");
+        let second = temp_path("fountain");
+        fs::write(&first, "# First").expect("write first CLI fixture");
+        fs::write(&second, "Title: Second").expect("write second CLI fixture");
+        let args = [
+            std::ffi::OsString::from("bindars"),
+            first.clone().into_os_string(),
+            second.clone().into_os_string(),
+        ];
+
+        assert_eq!(
+            cli_open_path_from_args(args),
+            Some(dunce::canonicalize(&first).expect("canonical first CLI fixture"))
+        );
+        cleanup(&first);
+        cleanup(&second);
+    }
+
+    #[test]
+    fn cli_open_ignores_missing_and_unsupported_first_arguments() {
+        let unsupported = temp_path("txt");
+        fs::write(&unsupported, "not supported").expect("write unsupported CLI fixture");
+        let unsupported_args = [
+            std::ffi::OsString::from("bindars"),
+            unsupported.clone().into_os_string(),
+        ];
+        let missing_args = [
+            std::ffi::OsString::from("bindars"),
+            temp_path("md").into_os_string(),
+        ];
+
+        assert_eq!(cli_open_path_from_args(unsupported_args), None);
+        assert_eq!(cli_open_path_from_args(missing_args), None);
+        cleanup(&unsupported);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_open_preserves_a_supported_symlink_path_for_normal_open_validation() {
+        let unsupported_target = temp_path("txt");
+        let supported_link = temp_path("md");
+        fs::write(&unsupported_target, "not supported").expect("write CLI symlink target");
+        symlink(&unsupported_target, &supported_link).expect("create supported CLI symlink");
+        let args = [
+            std::ffi::OsString::from("bindars"),
+            supported_link.clone().into_os_string(),
+        ];
+
+        let selected = cli_open_path_from_args(args).expect("select supported CLI link");
+        assert_eq!(selected, supported_link);
+
+        let pending = PendingOpenPath::default();
+        assert!(pending.replace_if_supported(selected));
+        let delivered = pending.take().expect("deliver supported CLI link");
+        let error = open_markdown_file_impl(delivered.to_string_lossy().into_owned())
+            .expect_err("unsupported canonical target should reach normal open validation");
+        assert!(error.contains("Not a supported file type"));
+
+        cleanup(&supported_link);
+        cleanup(&unsupported_target);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn opened_urls_decode_unicode_and_spaces_without_requiring_the_file_to_exist() {
+        let urls = [
+            tauri::Url::parse("https://example.com/ignored.md").expect("remote URL"),
+            tauri::Url::parse("file:///tmp/Caf%C3%A9%20Notes.md").expect("file URL"),
+        ];
+
+        assert_eq!(
+            first_supported_opened_path(&urls),
+            Some(PathBuf::from("/tmp/Café Notes.md"))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn opened_urls_choose_the_first_supported_local_file() {
+        let urls = [
+            tauri::Url::parse("file:///tmp/ignored.txt").expect("unsupported file URL"),
+            tauri::Url::parse("file:///tmp/first.fountain").expect("first supported URL"),
+            tauri::Url::parse("file:///tmp/second.md").expect("second supported URL"),
+        ];
+
+        assert_eq!(
+            first_supported_opened_path(&urls),
+            Some(PathBuf::from("/tmp/first.fountain"))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn opened_urls_reject_remote_file_hosts() {
+        let urls =
+            [tauri::Url::parse("file://example.com/tmp/remote.md").expect("remote file URL")];
+        assert_eq!(first_supported_opened_path(&urls), None);
     }
 
     #[test]

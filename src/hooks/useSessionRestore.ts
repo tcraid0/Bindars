@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { storeGet, storeSet } from "../lib/store";
 import { trySetLocalStorage } from "../lib/safe-local-storage";
 import type { SessionData } from "../types";
+import type { InitialNativeOpenSelection } from "./useNativeOpen";
 
 const STORE_KEY = "session";
 const LS_KEY = "bindars-session";
@@ -12,16 +12,26 @@ interface UseSessionRestoreArgs {
   filePath: string | null;
   getActiveHeadingId: () => string | null;
   onRestore: (session: SessionData) => void | Promise<void>;
+  waitForInitialNativeOpen: () => Promise<InitialNativeOpenSelection>;
 }
 
-export function useSessionRestore({ filePath, getActiveHeadingId, onRestore }: UseSessionRestoreArgs) {
-  const restoredRef = useRef(false);
+export function useSessionRestore({
+  filePath,
+  getActiveHeadingId,
+  onRestore,
+  waitForInitialNativeOpen,
+}: UseSessionRestoreArgs) {
+  const restoreGenerationRef = useRef(0);
   const [restored, setRestored] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filePathRef = useRef(filePath);
   const getActiveHeadingIdRef = useRef(getActiveHeadingId);
+  const onRestoreRef = useRef(onRestore);
+  const waitForInitialNativeOpenRef = useRef(waitForInitialNativeOpen);
   filePathRef.current = filePath;
   getActiveHeadingIdRef.current = getActiveHeadingId;
+  onRestoreRef.current = onRestore;
+  waitForInitialNativeOpenRef.current = waitForInitialNativeOpen;
 
   const readCurrentSession = useCallback((): SessionData | null => {
     const currentFilePath = filePathRef.current;
@@ -48,22 +58,17 @@ export function useSessionRestore({ filePath, getActiveHeadingId, onRestore }: U
 
   // Restore session once on mount
   useEffect(() => {
-    if (restoredRef.current) return;
-    restoredRef.current = true;
+    const generation = restoreGenerationRef.current + 1;
+    restoreGenerationRef.current = generation;
+    let active = true;
+    const isCurrent = () => active && restoreGenerationRef.current === generation;
 
-    (async () => {
-      // Check if launched via file association (CLI arg) — takes priority
-      try {
-        const cliPath = await invoke<string | null>("get_cli_file_path");
-        if (cliPath) {
-          void onRestore({ filePath: cliPath, headingId: null });
-          return;
-        }
-      } catch {
-        // Command unavailable (e.g. dev mode without backend) — continue
-      }
+    void (async () => {
+      const nativeSelection = await waitForInitialNativeOpenRef.current();
+      if (!isCurrent() || nativeSelection === "native") return;
 
       let session = await storeGet<SessionData>(STORE_KEY);
+      if (!isCurrent()) return;
 
       if (!session) {
         try {
@@ -75,12 +80,16 @@ export function useSessionRestore({ filePath, getActiveHeadingId, onRestore }: U
       }
 
       if (session?.filePath) {
-        void onRestore(session);
+        void onRestoreRef.current(session);
       }
     })().finally(() => {
-      setRestored(true);
+      if (isCurrent()) setRestored(true);
     });
-  }, [onRestore]);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // File changes start a fresh debounced save. Heading changes call the
   // returned notifier so they do not need to flow through App state.

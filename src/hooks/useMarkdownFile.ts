@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppError, ErrorCategory, FileRevision, FileType, OpenFileResult } from "../types";
 import type { SavedFileSnapshot } from "../lib/editor-save";
+import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
 
 export type OpenRequestSource = "user" | "watcher" | "reconcile";
 export type OpenFilePathResult =
@@ -183,7 +184,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         filters: [
           {
             name: "Supported Files",
-            extensions: ["md", "markdown", "fountain"],
+            extensions: [...OPENABLE_FILE_EXTENSIONS],
           },
         ],
       });

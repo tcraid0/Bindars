@@ -20,6 +20,10 @@ import { resolveParagraphSpacingCss, resolveReaderSurfaceStyle } from "../lib/re
 import type { ReaderSettings } from "../types";
 import type { Components } from "react-markdown";
 import type { SourcePositionAttributes } from "../lib/markdown-source-position";
+import {
+  OPENABLE_FILE_TYPES_DESCRIPTION,
+  isOpenableDocumentExtension,
+} from "../lib/openable-files";
 
 interface MarkdownRendererProps {
   content: string;
@@ -198,10 +202,10 @@ const MarkdownContent = memo(function MarkdownContent({
 
           const extMatch = href.match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
           const ext = extMatch?.[1]?.toLowerCase();
-          if (ext && ext !== "md" && ext !== "markdown" && ext !== "fountain") {
-            toast(`Cannot open .${ext} files — only .md, .markdown, and .fountain links are supported`, "error");
+          if (ext && !isOpenableDocumentExtension(ext)) {
+            toast(`Cannot open .${ext} files — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
           } else {
-            toast(`Cannot open "${href}" — only .md, .markdown, and .fountain links are supported`, "error");
+            toast(`Cannot open "${href}" — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
           }
         };
 

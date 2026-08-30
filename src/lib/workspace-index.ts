@@ -14,6 +14,7 @@ import { assertDocumentComplexity, isDocumentComplexityError } from "./document-
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
 import { updateMarkdownFenceState, type MarkdownFenceState } from "./markdown-fences";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
+import { replaceOpenableDocumentExtension } from "./openable-files";
 
 const MAX_BODY_TEXT_CHARS = 30_000;
 // Raw HTML links are intentionally not indexed; the renderer does not enable raw HTML.
@@ -218,7 +219,7 @@ function getTitle(
   const firstHeading = headings[0]?.text?.trim();
   if (firstHeading) return firstHeading;
 
-  const fallback = fileName.replace(/\.(md|markdown|fountain)$/i, "").trim();
+  const fallback = replaceOpenableDocumentExtension(fileName, "").trim();
   return fallback || null;
 }
 
