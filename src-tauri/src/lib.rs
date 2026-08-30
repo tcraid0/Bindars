@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
@@ -78,6 +79,7 @@ const MAX_EXPORT_IMAGE_SIZE_MIB: u64 = MAX_EXPORT_IMAGE_BYTES / (1024 * 1024);
 const DEFAULT_WORKSPACE_MAX_FILES: usize = 5_000;
 const ABSOLUTE_WORKSPACE_MAX_FILES: usize = 20_000;
 const MAX_WORKSPACE_DEPTH: usize = 32;
+static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -129,6 +131,185 @@ struct ConditionalWriteResult {
     name: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum NativeFileErrorCategory {
+    NotFound,
+    PermissionDenied,
+    ReadOnly,
+    ResourceUnavailable,
+    InvalidInput,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum NativeFileOperation {
+    FileTask,
+    ResolveDocument,
+    InspectDocument,
+    OpenDocument,
+    ReadDocument,
+    DecodeDocument,
+    ValidateDocument,
+    CheckRevision,
+    InspectSavedDocument,
+    InspectWriteTarget,
+    ResolveWriteParent,
+    InspectWriteParent,
+    SaveDocument,
+    CreateTemporaryFile,
+    WriteTemporaryFile,
+    PreservePermissions,
+    SyncTemporaryFile,
+    ReplaceFile,
+    ExportFile,
+    ResolveWorkspace,
+    InspectWorkspace,
+    ResolveImage,
+    InspectImage,
+    ValidateImage,
+    ReadImage,
+    WatchDocument,
+    OpenExternally,
+    SaveRecoveryData,
+}
+
+impl NativeFileOperation {
+    fn description(self) -> &'static str {
+        match self {
+            Self::FileTask => "complete the file operation",
+            Self::ResolveDocument => "locate the document",
+            Self::InspectDocument => "inspect the document",
+            Self::OpenDocument => "open the document",
+            Self::ReadDocument => "read the document",
+            Self::DecodeDocument => "decode the document",
+            Self::ValidateDocument => "validate the document",
+            Self::CheckRevision => "check the document revision",
+            Self::InspectSavedDocument => "inspect the saved document",
+            Self::InspectWriteTarget => "inspect the write target",
+            Self::ResolveWriteParent => "locate the destination folder",
+            Self::InspectWriteParent => "inspect the destination folder",
+            Self::SaveDocument => "save the document",
+            Self::CreateTemporaryFile => "create the temporary file",
+            Self::WriteTemporaryFile => "write the temporary file",
+            Self::PreservePermissions => "preserve file permissions",
+            Self::SyncTemporaryFile => "sync the temporary file",
+            Self::ReplaceFile => "replace the destination file",
+            Self::ExportFile => "export the file",
+            Self::ResolveWorkspace => "locate the workspace",
+            Self::InspectWorkspace => "inspect the workspace",
+            Self::ResolveImage => "locate the image",
+            Self::InspectImage => "inspect the image",
+            Self::ValidateImage => "validate the image",
+            Self::ReadImage => "read the image",
+            Self::WatchDocument => "watch the document",
+            Self::OpenExternally => "open the document with its default application",
+            Self::SaveRecoveryData => "save recovery data",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct NativeFileError {
+    category: NativeFileErrorCategory,
+    operation: NativeFileOperation,
+    message: String,
+    detail: String,
+}
+
+impl NativeFileError {
+    fn invalid(operation: NativeFileOperation, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self {
+            category: NativeFileErrorCategory::InvalidInput,
+            operation,
+            detail: message.clone(),
+            message,
+        }
+    }
+
+    fn unknown(
+        operation: NativeFileOperation,
+        message: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            category: NativeFileErrorCategory::Unknown,
+            operation,
+            message: message.into(),
+            detail: detail.into(),
+        }
+    }
+
+    fn read_only(operation: NativeFileOperation, path: &Path) -> Self {
+        Self {
+            category: NativeFileErrorCategory::ReadOnly,
+            operation,
+            message: "This file is read-only and was not changed.".to_string(),
+            detail: format!(
+                "The destination has no POSIX write bits: {}",
+                path.display()
+            ),
+        }
+    }
+
+    fn from_io(operation: NativeFileOperation, path: &Path, error: std::io::Error) -> Self {
+        let category = match error.kind() {
+            std::io::ErrorKind::NotFound => NativeFileErrorCategory::NotFound,
+            std::io::ErrorKind::PermissionDenied => NativeFileErrorCategory::PermissionDenied,
+            std::io::ErrorKind::ReadOnlyFilesystem => NativeFileErrorCategory::ReadOnly,
+            std::io::ErrorKind::TimedOut => NativeFileErrorCategory::ResourceUnavailable,
+            _ => NativeFileErrorCategory::Unknown,
+        };
+        let message = match (category, operation) {
+            (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveDocument) => {
+                format!("File not found: {}", path.display())
+            }
+            (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveWorkspace) => {
+                format!("Workspace not found: {}", path.display())
+            }
+            (NativeFileErrorCategory::PermissionDenied, _) => {
+                format!(
+                    "Bindars does not have permission to {}.",
+                    operation.description()
+                )
+            }
+            (NativeFileErrorCategory::ReadOnly, _) => {
+                format!(
+                    "The destination is read-only, so Bindars could not {}.",
+                    operation.description()
+                )
+            }
+            (NativeFileErrorCategory::ResourceUnavailable, _) => {
+                format!(
+                    "The resource is temporarily unavailable, so Bindars could not {}.",
+                    operation.description()
+                )
+            }
+            _ => format!("Bindars could not {}.", operation.description()),
+        };
+        Self {
+            category,
+            operation,
+            message,
+            detail: format!("{}: {error}", path.display()),
+        }
+    }
+
+    #[cfg(test)]
+    fn contains(&self, needle: &str) -> bool {
+        self.message.contains(needle) || self.detail.contains(needle)
+    }
+}
+
+impl std::fmt::Display for NativeFileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
 #[tauri::command]
 fn take_pending_open_path(state: tauri::State<'_, Arc<PendingOpenPath>>) -> Option<String> {
     let path = state.take()?;
@@ -151,34 +332,50 @@ where
         .map_err(|error| format!("File task failed: {error}"))?
 }
 
-#[tauri::command]
-async fn read_markdown_file(path: String) -> Result<String, String> {
-    run_blocking_io(move || read_markdown_file_impl(path)).await
+async fn run_blocking_file_io<T, F>(task: F) -> Result<T, NativeFileError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, NativeFileError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| {
+            NativeFileError::unknown(
+                NativeFileOperation::FileTask,
+                "Bindars could not complete the file operation.",
+                error.to_string(),
+            )
+        })?
 }
 
-fn read_markdown_file_impl(path: String) -> Result<String, String> {
+#[tauri::command]
+async fn read_markdown_file(path: String) -> Result<String, NativeFileError> {
+    run_blocking_file_io(move || read_markdown_file_impl(path)).await
+}
+
+fn read_markdown_file_impl(path: String) -> Result<String, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
     read_markdown_contents(&canonical_path)
 }
 
 #[tauri::command]
-async fn resolve_markdown_path(path: String) -> Result<String, String> {
-    run_blocking_io(move || resolve_markdown_path_impl(path)).await
+async fn resolve_markdown_path(path: String) -> Result<String, NativeFileError> {
+    run_blocking_file_io(move || resolve_markdown_path_impl(path)).await
 }
 
-fn resolve_markdown_path_impl(path: String) -> Result<String, String> {
+fn resolve_markdown_path_impl(path: String) -> Result<String, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
     Ok(canonical_path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-async fn open_markdown_file(path: String) -> Result<OpenFileResult, String> {
-    run_blocking_io(move || open_markdown_file_impl(path)).await
+async fn open_markdown_file(path: String) -> Result<OpenFileResult, NativeFileError> {
+    run_blocking_file_io(move || open_markdown_file_impl(path)).await
 }
 
-fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, String> {
+fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
     let content = read_markdown_contents(&canonical_path)?;
@@ -196,18 +393,21 @@ fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, String> {
 /// Compatibility write command retained for non-editor writes and tests.
 /// Editor save flows should use `write_markdown_file_if_unmodified`.
 #[tauri::command]
-async fn write_markdown_file(path: String, content: String) -> Result<(), String> {
-    run_blocking_io(move || write_markdown_file_impl(path, content)).await
+async fn write_markdown_file(path: String, content: String) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || write_markdown_file_impl(path, content)).await
 }
 
-fn write_markdown_file_impl(path: String, content: String) -> Result<(), String> {
+fn write_markdown_file_impl(path: String, content: String) -> Result<(), NativeFileError> {
     let requested_path = PathBuf::from(&path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
 
     if content.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(format!(
-            "Content is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            format!(
+                "Content is too large. Maximum supported size is {} MiB.",
+                MAX_MARKDOWN_SIZE_MIB
+            ),
         ));
     }
 
@@ -221,8 +421,8 @@ async fn write_markdown_file_if_unmodified(
     content: String,
     expected_revision: Option<FileRevision>,
     force: Option<bool>,
-) -> Result<ConditionalWriteResult, String> {
-    run_blocking_io(move || {
+) -> Result<ConditionalWriteResult, NativeFileError> {
+    run_blocking_file_io(move || {
         write_markdown_file_if_unmodified_impl(path, content, expected_revision, force)
     })
     .await
@@ -233,13 +433,16 @@ fn write_markdown_file_if_unmodified_impl(
     content: String,
     expected_revision: Option<FileRevision>,
     force: Option<bool>,
-) -> Result<ConditionalWriteResult, String> {
+) -> Result<ConditionalWriteResult, NativeFileError> {
     let requested_path = PathBuf::from(&path);
 
     if content.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(format!(
-            "Content is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            format!(
+                "Content is too large. Maximum supported size is {} MiB.",
+                MAX_MARKDOWN_SIZE_MIB
+            ),
         ));
     }
 
@@ -252,8 +455,12 @@ fn write_markdown_file_if_unmodified_impl(
 
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
     let current_revision = read_file_revision(&canonical_path)?;
-    let expected = expected_revision
-        .ok_or_else(|| "Missing expected revision for conditional write.".to_string())?;
+    let expected = expected_revision.ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::CheckRevision,
+            "Missing expected revision for conditional write.",
+        )
+    })?;
     if expected != current_revision {
         return Ok(conditional_write_result(
             &canonical_path,
@@ -267,139 +474,205 @@ fn write_markdown_file_if_unmodified_impl(
 }
 
 #[tauri::command]
-async fn export_html_file(path: String, content: String) -> Result<(), String> {
-    run_blocking_io(move || export_html_file_impl(path, content)).await
+async fn export_html_file(path: String, content: String) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || export_html_file_impl(path, content)).await
 }
 
-fn export_html_file_impl(path: String, content: String) -> Result<(), String> {
+fn export_html_file_impl(path: String, content: String) -> Result<(), NativeFileError> {
     let requested_path = PathBuf::from(&path);
 
     // Only allow .html extension for export
     match requested_path.extension().and_then(|ext| ext.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") => {}
-        _ => return Err("Export file must have .html or .htm extension.".to_string()),
+        _ => {
+            return Err(NativeFileError::invalid(
+                NativeFileOperation::ExportFile,
+                "Export file must have .html or .htm extension.",
+            ));
+        }
     }
 
     if content.len() as u64 > MAX_EXPORT_HTML_BYTES {
-        return Err(format!(
-            "Content is too large. Maximum supported size is {} MiB.",
-            MAX_EXPORT_HTML_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ExportFile,
+            format!(
+                "Content is too large. Maximum supported size is {} MiB.",
+                MAX_EXPORT_HTML_SIZE_MIB
+            ),
         ));
     }
 
     // Resolve parent directory to ensure it exists
-    let parent = requested_path
-        .parent()
-        .ok_or_else(|| "Cannot determine parent directory.".to_string())?;
-    if !parent.exists() {
-        return Err("Parent directory does not exist.".to_string());
-    }
+    let parent = requested_path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::ResolveWriteParent,
+            "Cannot determine the destination folder.",
+        )
+    })?;
+    canonicalize_directory_path(
+        parent,
+        NativeFileOperation::ResolveWriteParent,
+        NativeFileOperation::InspectWriteParent,
+    )?;
 
-    write_contents_atomic(&requested_path, &content, ".bindars-export")
+    write_contents_atomic(
+        &requested_path,
+        &content,
+        ".bindars-export",
+        NativeFileOperation::ExportFile,
+    )
 }
 
 #[tauri::command]
-async fn open_markdown_file_externally(path: String, app: tauri::AppHandle) -> Result<(), String> {
-    run_blocking_io(move || {
+async fn open_markdown_file_externally(
+    path: String,
+    app: tauri::AppHandle,
+) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || {
         let canonical_path = resolve_external_markdown_path_impl(path)?;
         app.opener()
             .open_path(canonical_path, None::<String>)
-            .map_err(|error| format!("Failed to open file with the default application: {error}"))
+            .map_err(|error| {
+                NativeFileError::unknown(
+                    NativeFileOperation::OpenExternally,
+                    "Bindars could not open the document with its default application.",
+                    error.to_string(),
+                )
+            })
     })
     .await
 }
 
-fn resolve_external_markdown_path_impl(path: String) -> Result<String, String> {
+fn resolve_external_markdown_path_impl(path: String) -> Result<String, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
     Ok(canonical_path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-async fn read_image_file_as_base64(path: String, document_path: String) -> Result<String, String> {
-    run_blocking_io(move || read_image_file_as_base64_impl(path, document_path)).await
+async fn read_image_file_as_base64(
+    path: String,
+    document_path: String,
+) -> Result<String, NativeFileError> {
+    run_blocking_file_io(move || read_image_file_as_base64_impl(path, document_path)).await
 }
 
-fn read_image_file_as_base64_impl(path: String, document_path: String) -> Result<String, String> {
+fn read_image_file_as_base64_impl(
+    path: String,
+    document_path: String,
+) -> Result<String, NativeFileError> {
     // Both paths come from the WebView, so this narrows file access as defense
     // in depth; it is not an authorization boundary by itself.
     let requested_document_path = PathBuf::from(document_path);
     let canonical_document_path = canonicalize_markdown_path(&requested_document_path)?;
-    let document_directory = canonical_document_path
-        .parent()
-        .ok_or_else(|| "Cannot determine the document directory.".to_string())?;
+    let document_directory = canonical_document_path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::ResolveImage,
+            "Cannot determine the document folder.",
+        )
+    })?;
 
     let requested_path = PathBuf::from(&path);
-    if !requested_path.exists() {
-        return Err(format!("File not found: {}", requested_path.display()));
-    }
-
-    let canonical_path = dunce::canonicalize(&requested_path)
-        .map_err(|e| format!("Failed to resolve file path: {}", e))?;
-    let metadata = fs::metadata(&canonical_path)
-        .map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
+    let canonical_path = dunce::canonicalize(&requested_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::ResolveImage, &requested_path, error)
+    })?;
+    let metadata = fs::metadata(&canonical_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::InspectImage, &canonical_path, error)
+    })?;
 
     if !metadata.is_file() {
-        return Err("Path is not a file.".to_string());
-    }
-
-    if !canonical_path.starts_with(document_directory) {
-        return Err("Image must be inside the open document's folder.".to_string());
-    }
-
-    if !is_supported_export_image_path(&canonical_path) {
-        return Err("Not a supported image type.".to_string());
-    }
-
-    if metadata.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err(format!(
-            "Image is too large. Maximum supported size is {} MiB.",
-            MAX_EXPORT_IMAGE_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::InspectImage,
+            "Path is not a file.",
         ));
     }
 
-    let bytes = fs::read(&canonical_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    if !canonical_path.starts_with(document_directory) {
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateImage,
+            "Image must be inside the open document's folder.",
+        ));
+    }
+
+    if !is_supported_export_image_path(&canonical_path) {
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateImage,
+            "Not a supported image type.",
+        ));
+    }
+
+    if metadata.len() > MAX_EXPORT_IMAGE_BYTES {
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateImage,
+            format!(
+                "Image is too large. Maximum supported size is {} MiB.",
+                MAX_EXPORT_IMAGE_SIZE_MIB
+            ),
+        ));
+    }
+
+    let bytes = fs::read(&canonical_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::ReadImage, &canonical_path, error)
+    })?;
     Ok(STANDARD.encode(bytes))
 }
 
 #[tauri::command]
-async fn export_markdown_file(path: String, content: String) -> Result<(), String> {
-    run_blocking_io(move || export_markdown_file_impl(path, content)).await
+async fn export_markdown_file(path: String, content: String) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || export_markdown_file_impl(path, content)).await
 }
 
-fn export_markdown_file_impl(path: String, content: String) -> Result<(), String> {
+fn export_markdown_file_impl(path: String, content: String) -> Result<(), NativeFileError> {
     let requested_path = PathBuf::from(&path);
 
     // Only allow .md/.markdown extension for export
     match requested_path.extension().and_then(|ext| ext.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown") => {}
-        _ => return Err("Export file must have .md or .markdown extension.".to_string()),
+        _ => {
+            return Err(NativeFileError::invalid(
+                NativeFileOperation::ExportFile,
+                "Export file must have .md or .markdown extension.",
+            ));
+        }
     }
 
     if content.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(format!(
-            "Content is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ExportFile,
+            format!(
+                "Content is too large. Maximum supported size is {} MiB.",
+                MAX_MARKDOWN_SIZE_MIB
+            ),
         ));
     }
 
     // Resolve parent directory to ensure it exists
-    let parent = requested_path
-        .parent()
-        .ok_or_else(|| "Cannot determine parent directory.".to_string())?;
-    if !parent.exists() {
-        return Err("Parent directory does not exist.".to_string());
-    }
+    let parent = requested_path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::ResolveWriteParent,
+            "Cannot determine the destination folder.",
+        )
+    })?;
+    canonicalize_directory_path(
+        parent,
+        NativeFileOperation::ResolveWriteParent,
+        NativeFileOperation::InspectWriteParent,
+    )?;
 
-    write_contents_atomic(&requested_path, &content, ".bindars-export-md")
+    write_contents_atomic(
+        &requested_path,
+        &content,
+        ".bindars-export-md",
+        NativeFileOperation::ExportFile,
+    )
 }
 
 #[tauri::command]
-async fn watch_file(path: String, app: tauri::AppHandle) -> Result<(), String> {
-    run_blocking_io(move || watch_file_impl(path, app)).await
+async fn watch_file(path: String, app: tauri::AppHandle) -> Result<(), NativeFileError> {
+    run_blocking_file_io(move || watch_file_impl(path, app)).await
 }
 
-fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), String> {
+fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), NativeFileError> {
     let state = app.state::<FileWatcher>();
     let requested_path = PathBuf::from(&path);
     let request_id = {
@@ -429,15 +702,30 @@ fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), String> {
                 }
             }
         })
-        .map_err(|e| format!("Failed to create file watcher: {}", e))?;
+        .map_err(|error| {
+            NativeFileError::unknown(
+                NativeFileOperation::WatchDocument,
+                "Bindars could not start watching this document for changes.",
+                error.to_string(),
+            )
+        })?;
 
     // Watch parent directory for better compatibility with atomic writes.
-    let parent = canonical_path
-        .parent()
-        .ok_or_else(|| "Cannot determine parent directory.".to_string())?;
+    let parent = canonical_path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::WatchDocument,
+            "Cannot determine the document folder.",
+        )
+    })?;
     watcher
         .watch(parent, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("Failed to watch directory: {}", e))?;
+        .map_err(|error| {
+            NativeFileError::unknown(
+                NativeFileOperation::WatchDocument,
+                "Bindars could not watch this document for changes.",
+                error.to_string(),
+            )
+        })?;
 
     // Spawn debounce thread: coalesce events within 500ms, then emit.
     let app_handle = app.clone();
@@ -536,16 +824,20 @@ fn unwatch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), String> 
 async fn list_workspace_markdown_files(
     root: String,
     max_files: Option<usize>,
-) -> Result<WorkspaceListResult, String> {
-    run_blocking_io(move || list_workspace_markdown_files_impl(root, max_files)).await
+) -> Result<WorkspaceListResult, NativeFileError> {
+    run_blocking_file_io(move || list_workspace_markdown_files_impl(root, max_files)).await
 }
 
 fn list_workspace_markdown_files_impl(
     root: String,
     max_files: Option<usize>,
-) -> Result<WorkspaceListResult, String> {
+) -> Result<WorkspaceListResult, NativeFileError> {
     let root_path = PathBuf::from(root);
-    let canonical_root = canonicalize_directory_path(&root_path)?;
+    let canonical_root = canonicalize_directory_path(
+        &root_path,
+        NativeFileOperation::ResolveWorkspace,
+        NativeFileOperation::InspectWorkspace,
+    )?;
     let limit = max_files
         .unwrap_or(DEFAULT_WORKSPACE_MAX_FILES)
         .min(ABSOLUTE_WORKSPACE_MAX_FILES);
@@ -646,22 +938,26 @@ fn list_workspace_markdown_files_impl(
     })
 }
 
-fn canonicalize_markdown_path(path: &Path) -> Result<PathBuf, String> {
-    if !path.exists() {
-        return Err(format!("File not found: {}", path.display()));
-    }
-
-    let canonical_path =
-        dunce::canonicalize(path).map_err(|e| format!("Failed to resolve file path: {}", e))?;
-    let metadata = fs::metadata(&canonical_path)
-        .map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
+fn canonicalize_markdown_path(path: &Path) -> Result<PathBuf, NativeFileError> {
+    let canonical_path = dunce::canonicalize(path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::ResolveDocument, path, error)
+    })?;
+    let metadata = fs::metadata(&canonical_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::InspectDocument, &canonical_path, error)
+    })?;
 
     if !metadata.is_file() {
-        return Err(format!("File not found: {}", path.display()));
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "The selected document path is not a regular file.",
+        ));
     }
 
     if !is_markdown_path(&canonical_path) {
-        return Err("Not a supported file type (.md, .markdown, or .fountain).".to_string());
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "Not a supported file type (.md, .markdown, or .fountain).",
+        ));
     }
 
     Ok(canonical_path)
@@ -691,35 +987,81 @@ fn conditional_write_result(
     }
 }
 
-fn canonicalize_directory_path(path: &Path) -> Result<PathBuf, String> {
-    if !path.exists() {
-        return Err(format!("Workspace not found: {}", path.display()));
-    }
-
+fn canonicalize_directory_path(
+    path: &Path,
+    resolve_operation: NativeFileOperation,
+    inspect_operation: NativeFileOperation,
+) -> Result<PathBuf, NativeFileError> {
     let canonical_path = dunce::canonicalize(path)
-        .map_err(|e| format!("Failed to resolve workspace path: {}", e))?;
+        .map_err(|error| NativeFileError::from_io(resolve_operation, path, error))?;
     let metadata = fs::metadata(&canonical_path)
-        .map_err(|e| format!("Failed to inspect workspace metadata: {}", e))?;
+        .map_err(|error| NativeFileError::from_io(inspect_operation, &canonical_path, error))?;
 
     if !metadata.is_dir() {
-        return Err("Workspace path must be a directory.".to_string());
+        return Err(NativeFileError::invalid(
+            inspect_operation,
+            "The selected path must be a directory.",
+        ));
     }
 
     Ok(canonical_path)
 }
 
-fn resolve_markdown_write_target(path: &Path) -> Result<PathBuf, String> {
+fn resolve_markdown_write_target(path: &Path) -> Result<PathBuf, NativeFileError> {
     if !is_markdown_path(path) {
-        return Err("Not a supported file type (.md, .markdown, or .fountain).".to_string());
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "Not a supported file type (.md, .markdown, or .fountain).",
+        ));
     }
 
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Cannot determine parent directory.".to_string())?;
-    let canonical_parent = canonicalize_directory_path(parent)?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| "Cannot determine file name.".to_string())?;
+    let parent = path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::ResolveWriteParent,
+            "Cannot determine the destination folder.",
+        )
+    })?;
+    let canonical_parent = canonicalize_directory_path(
+        parent,
+        NativeFileOperation::ResolveWriteParent,
+        NativeFileOperation::InspectWriteParent,
+    )?;
+    let file_name = path.file_name().ok_or_else(|| {
+        NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "Cannot determine the destination file name.",
+        )
+    })?;
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return canonicalize_markdown_path(path).map_err(|error| {
+                if error.category == NativeFileErrorCategory::NotFound {
+                    NativeFileError::invalid(
+                        NativeFileOperation::InspectWriteTarget,
+                        "The selected document symlink has no available target. Choose a different Save As location.",
+                    )
+                } else {
+                    error
+                }
+            });
+        }
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(NativeFileError::invalid(
+                NativeFileOperation::InspectWriteTarget,
+                "The destination must be a regular file or a supported document symlink.",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(NativeFileError::from_io(
+                NativeFileOperation::InspectWriteTarget,
+                path,
+                error,
+            ));
+        }
+    }
 
     Ok(canonical_parent.join(file_name))
 }
@@ -774,8 +1116,10 @@ fn should_unwatch_path(current_path: Option<&Path>, requested_path: &Path) -> bo
     path_identity(requested_path) == current_path
 }
 
-fn read_markdown_contents(path: &Path) -> Result<String, String> {
-    let file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+fn read_markdown_contents(path: &Path) -> Result<String, NativeFileError> {
+    let file = fs::File::open(path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::OpenDocument, path, error)
+    })?;
     let mut reader = BufReader::new(file);
     let mut buffer = Vec::new();
 
@@ -783,16 +1127,26 @@ fn read_markdown_contents(path: &Path) -> Result<String, String> {
         .by_ref()
         .take(MAX_MARKDOWN_BYTES + 1)
         .read_to_end(&mut buffer)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+        .map_err(|error| {
+            NativeFileError::from_io(NativeFileOperation::ReadDocument, path, error)
+        })?;
 
     if buffer.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(format!(
-            "File is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            format!(
+                "File is too large. Maximum supported size is {} MiB.",
+                MAX_MARKDOWN_SIZE_MIB
+            ),
         ));
     }
 
-    String::from_utf8(buffer).map_err(|_| "File must be valid UTF-8 text.".to_string())
+    String::from_utf8(buffer).map_err(|_| {
+        NativeFileError::invalid(
+            NativeFileOperation::DecodeDocument,
+            "File must be valid UTF-8 text.",
+        )
+    })
 }
 
 fn modified_time_ms(metadata: &fs::Metadata) -> u64 {
@@ -818,16 +1172,21 @@ fn stable_hash_hex(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-fn read_file_revision(path: &Path) -> Result<FileRevision, String> {
-    let metadata =
-        fs::metadata(path).map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
-    let bytes =
-        fs::read(path).map_err(|e| format!("Failed to read file for revision check: {}", e))?;
+fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
+    })?;
+    let bytes = fs::read(path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
+    })?;
 
     if bytes.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(format!(
-            "File is too large. Maximum supported size is {} MiB.",
-            MAX_MARKDOWN_SIZE_MIB
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            format!(
+                "File is too large. Maximum supported size is {} MiB.",
+                MAX_MARKDOWN_SIZE_MIB
+            ),
         ));
     }
 
@@ -838,9 +1197,10 @@ fn read_file_revision(path: &Path) -> Result<FileRevision, String> {
     })
 }
 
-fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision, String> {
-    let metadata =
-        fs::metadata(path).map_err(|e| format!("Failed to inspect file metadata: {}", e))?;
+fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision, NativeFileError> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
+    })?;
 
     // The size and hash intentionally describe the exact snapshot Bindars wrote.
     // If another process replaces the file before this metadata read, the hybrid
@@ -852,17 +1212,30 @@ fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision
     })
 }
 
-fn successful_write_result(path: &Path, content: &str) -> Result<ConditionalWriteResult, String> {
+fn successful_write_result(
+    path: &Path,
+    content: &str,
+) -> Result<ConditionalWriteResult, NativeFileError> {
     let revision = read_written_file_revision(path, content)?;
     Ok(conditional_write_result(path, false, revision))
 }
 
-fn write_markdown_contents_atomic(path: &Path, content: &str) -> Result<(), String> {
-    write_contents_atomic(path, content, ".bindars-tmp")
+fn write_markdown_contents_atomic(path: &Path, content: &str) -> Result<(), NativeFileError> {
+    write_contents_atomic(
+        path,
+        content,
+        ".bindars-tmp",
+        NativeFileOperation::SaveDocument,
+    )
 }
 
-fn write_contents_atomic(path: &Path, content: &str, tmp_prefix: &str) -> Result<(), String> {
-    write_contents_atomic_impl(path, content, tmp_prefix, false)
+fn write_contents_atomic(
+    path: &Path,
+    content: &str,
+    tmp_prefix: &str,
+    read_only_operation: NativeFileOperation,
+) -> Result<(), NativeFileError> {
+    write_contents_atomic_impl(path, content, tmp_prefix, false, read_only_operation)
 }
 
 /// Atomic write for recovery data. The temporary file is created owner-only on
@@ -874,7 +1247,14 @@ fn write_contents_atomic_private(
     content: &str,
     tmp_prefix: &str,
 ) -> Result<(), String> {
-    write_contents_atomic_impl(path, content, tmp_prefix, true)
+    write_contents_atomic_impl(
+        path,
+        content,
+        tmp_prefix,
+        true,
+        NativeFileOperation::SaveRecoveryData,
+    )
+    .map_err(|error| format!("{} ({})", error.message, error.detail))
 }
 
 fn write_contents_atomic_impl(
@@ -882,15 +1262,26 @@ fn write_contents_atomic_impl(
     content: &str,
     tmp_prefix: &str,
     owner_only: bool,
-) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Cannot determine parent directory.".to_string())?;
+    read_only_operation: NativeFileOperation,
+) -> Result<(), NativeFileError> {
+    let parent = path.parent().ok_or_else(|| {
+        NativeFileError::invalid(
+            read_only_operation,
+            "Cannot determine the destination folder.",
+        )
+    })?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let tmp_name = format!("{}-{}-{}", tmp_prefix, std::process::id(), nanos);
+    let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let tmp_name = format!(
+        "{}-{}-{}-{}",
+        tmp_prefix,
+        std::process::id(),
+        nanos,
+        sequence
+    );
     let tmp_path = parent.join(&tmp_name);
 
     #[cfg(unix)]
@@ -898,13 +1289,20 @@ fn write_contents_atomic_impl(
         None
     } else {
         match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_file() => Some(metadata.permissions()),
+            Ok(metadata) if metadata.file_type().is_file() => {
+                if metadata.permissions().readonly() {
+                    return Err(NativeFileError::read_only(read_only_operation, path));
+                }
+                Some(metadata.permissions())
+            }
             Ok(_) => None,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => {
-                return Err(format!(
-                    "Failed to inspect existing file permissions: {error}"
-                ))
+                return Err(NativeFileError::from_io(
+                    NativeFileOperation::InspectWriteTarget,
+                    path,
+                    error,
+                ));
             }
         }
     };
@@ -918,9 +1316,9 @@ fn write_contents_atomic_impl(
     }
     #[cfg(not(unix))]
     let _ = owner_only;
-    let mut tmp_file = open_options
-        .open(&tmp_path)
-        .map_err(|e| format!("Failed to create temporary file: {}", e))?;
+    let mut tmp_file = open_options.open(&tmp_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::CreateTemporaryFile, &tmp_path, error)
+    })?;
 
     #[cfg(unix)]
     if owner_only {
@@ -929,37 +1327,41 @@ fn write_contents_atomic_impl(
         // bits; this normalizes stragglers like 0o400 back to exactly 0o600.
         if let Err(e) = tmp_file.set_permissions(fs::Permissions::from_mode(0o600)) {
             let _ = fs::remove_file(&tmp_path);
-            return Err(format!("Failed to set private file permissions: {}", e));
+            return Err(NativeFileError::from_io(
+                NativeFileOperation::PreservePermissions,
+                &tmp_path,
+                e,
+            ));
         }
     }
 
-    let write_result = (|| -> Result<(), String> {
-        tmp_file
-            .write_all(content.as_bytes())
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+    let write_result = (|| -> Result<(), NativeFileError> {
+        tmp_file.write_all(content.as_bytes()).map_err(|error| {
+            NativeFileError::from_io(NativeFileOperation::WriteTemporaryFile, &tmp_path, error)
+        })?;
         #[cfg(unix)]
         if let Some(permissions) = existing_permissions {
-            tmp_file
-                .set_permissions(permissions)
-                .map_err(|e| format!("Failed to preserve file permissions: {}", e))?;
+            tmp_file.set_permissions(permissions).map_err(|error| {
+                NativeFileError::from_io(NativeFileOperation::PreservePermissions, &tmp_path, error)
+            })?;
         }
-        tmp_file
-            .sync_all()
-            .map_err(|e| format!("Failed to sync file: {}", e))?;
+        tmp_file.sync_all().map_err(|error| {
+            NativeFileError::from_io(NativeFileOperation::SyncTemporaryFile, &tmp_path, error)
+        })?;
         Ok(())
     })();
     drop(tmp_file);
 
-    if let Err(message) = write_result {
+    if let Err(error) = write_result {
         let _ = fs::remove_file(&tmp_path);
-        return Err(message);
+        return Err(error);
     }
 
     // The temporary file is on the destination volume. `rename` atomically replaces
     // files on Unix and uses Windows replacement APIs without a delete gap.
-    fs::rename(&tmp_path, path).map_err(|e| {
+    fs::rename(&tmp_path, path).map_err(|error| {
         let _ = fs::remove_file(&tmp_path);
-        format!("Failed to save file: {}", e)
+        NativeFileError::from_io(NativeFileOperation::ReplaceFile, path, error)
     })?;
 
     Ok(())
@@ -1297,10 +1699,10 @@ mod tests {
         list_workspace_markdown_files_impl, open_markdown_file_impl, read_file_revision,
         read_image_file_as_base64_impl, read_markdown_file_impl, read_written_file_revision,
         resolve_external_markdown_path_impl, resolve_markdown_path_impl,
-        should_install_watch_request, should_unwatch_path, stable_hash_hex,
+        should_install_watch_request, should_unwatch_path, stable_hash_hex, write_contents_atomic,
         write_markdown_file_if_unmodified_impl, write_markdown_file_impl, FileWatcherState,
-        PendingOpenPath, MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES,
-        STANDARD,
+        NativeFileError, NativeFileErrorCategory, NativeFileOperation, PendingOpenPath,
+        MAX_EXPORT_HTML_BYTES, MAX_EXPORT_IMAGE_BYTES, MAX_MARKDOWN_BYTES, STANDARD,
     };
     use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
     use base64::Engine;
@@ -1811,6 +2213,346 @@ mod tests {
         cleanup(&path);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn forced_write_through_supported_symlink_preserves_link() {
+        let target = temp_path("md");
+        let link = temp_path("md");
+        fs::write(&target, "# Original").expect("write target fixture");
+        symlink(&target, &link).expect("create supported symlink");
+
+        write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "# Updated".to_string(),
+            None,
+            Some(true),
+        )
+        .expect("forced write should follow supported symlink");
+
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect link")
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(&target).expect("read target"),
+            "# Updated"
+        );
+
+        cleanup(&link);
+        cleanup(&target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn forced_write_rejects_supported_symlink_to_unsupported_target() {
+        let target = temp_path("txt");
+        let link = temp_path("md");
+        fs::write(&target, "outside type").expect("write unsupported target");
+        symlink(&target, &link).expect("create supported-looking symlink");
+
+        let error = write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "must not write".to_string(),
+            None,
+            Some(true),
+        )
+        .expect_err("forced write must validate the symlink target");
+
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert!(error.contains("Not a supported file type"));
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect link")
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(&target).expect("read target"),
+            "outside type"
+        );
+
+        cleanup(&link);
+        cleanup(&target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn forced_write_rejects_dangling_document_symlink_without_replacing_it() {
+        let missing_target = temp_path("md");
+        let link = temp_path("md");
+        symlink(&missing_target, &link).expect("create dangling symlink");
+
+        let error = write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "must not replace link".to_string(),
+            None,
+            Some(true),
+        )
+        .expect_err("dangling symlink should require another Save As destination");
+
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::InspectWriteTarget);
+        assert!(fs::symlink_metadata(&link)
+            .expect("inspect dangling link")
+            .file_type()
+            .is_symlink());
+        assert!(!missing_target.exists());
+
+        cleanup(&link);
+        cleanup(&missing_target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_refuses_existing_read_only_target_before_replacement() {
+        let path = temp_path("md");
+        fs::write(&path, "# Original").expect("write fixture");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444))
+            .expect("make fixture read-only");
+
+        let error = write_markdown_file_impl(
+            path.to_string_lossy().into_owned(),
+            "# Must remain".to_string(),
+        )
+        .expect_err("read-only target should be refused");
+
+        assert!(error.contains("read-only"));
+        assert_eq!(error.category, NativeFileErrorCategory::ReadOnly);
+        assert_eq!(error.operation, NativeFileOperation::SaveDocument);
+        assert_eq!(
+            fs::read_to_string(&path).expect("read unchanged file"),
+            "# Original"
+        );
+        let temporary_files = fs::read_dir(path.parent().expect("fixture parent"))
+            .expect("list fixture parent")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bindars-tmp")
+            })
+            .count();
+        assert_eq!(temporary_files, 0);
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
+            .expect("restore fixture permissions");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn failed_replacement_removes_its_sibling_temporary_file() {
+        let root = temp_dir("atomic-replace-cleanup");
+        fs::create_dir(&root).expect("create fixture root");
+        let destination_directory = root.join("destination.md");
+        fs::create_dir(&destination_directory).expect("create replacement obstacle");
+
+        let error = write_contents_atomic(
+            &destination_directory,
+            "temporary content",
+            ".bindars-cleanup-test",
+            NativeFileOperation::SaveDocument,
+        )
+        .expect_err("a file cannot replace an existing directory");
+
+        assert_eq!(error.operation, NativeFileOperation::ReplaceFile);
+        let leftovers = fs::read_dir(&root)
+            .expect("list fixture root")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bindars-cleanup-test")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+
+        cleanup_dir(&root);
+    }
+
+    #[test]
+    fn concurrent_writes_to_distinct_files_in_one_directory_do_not_collide() {
+        let root = temp_dir("atomic-concurrent-destinations");
+        fs::create_dir(&root).expect("create fixture root");
+        let mut threads = Vec::new();
+
+        for index in 0..16 {
+            let path = root.join(format!("document-{index}.md"));
+            fs::write(&path, "initial").expect("write concurrent fixture");
+            threads.push(std::thread::spawn(move || {
+                write_markdown_file_impl(
+                    path.to_string_lossy().into_owned(),
+                    format!("updated-{index}"),
+                )
+            }));
+        }
+
+        for thread in threads {
+            thread
+                .join()
+                .expect("write thread should not panic")
+                .expect("concurrent write should succeed");
+        }
+        for index in 0..16 {
+            assert_eq!(
+                fs::read_to_string(root.join(format!("document-{index}.md")))
+                    .expect("read concurrent result"),
+                format!("updated-{index}")
+            );
+        }
+        assert_eq!(
+            fs::read_dir(&root)
+                .expect("list fixture root")
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bindars-tmp"))
+                .count(),
+            0
+        );
+
+        cleanup_dir(&root);
+    }
+
+    #[test]
+    fn write_preserves_decomposed_unicode_filename_identity() {
+        let root = temp_dir("atomic-nfd-name");
+        fs::create_dir(&root).expect("create fixture root");
+        let path = root.join("Cafe\u{301}.md");
+        fs::write(&path, "initial").expect("write NFD fixture");
+
+        let result = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "updated".to_string(),
+            None,
+            Some(true),
+        )
+        .expect("write NFD document");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("read NFD result"),
+            "updated"
+        );
+        assert_eq!(
+            PathBuf::from(result.canonical_path),
+            dunce::canonicalize(&path).expect("canonical NFD path")
+        );
+
+        cleanup_dir(&root);
+    }
+
+    #[test]
+    fn native_io_error_categories_are_conservative() {
+        let path = Path::new("/tmp/category.md");
+        let cases = [
+            (
+                std::io::ErrorKind::NotFound,
+                NativeFileErrorCategory::NotFound,
+            ),
+            (
+                std::io::ErrorKind::PermissionDenied,
+                NativeFileErrorCategory::PermissionDenied,
+            ),
+            (
+                std::io::ErrorKind::ReadOnlyFilesystem,
+                NativeFileErrorCategory::ReadOnly,
+            ),
+            (
+                std::io::ErrorKind::TimedOut,
+                NativeFileErrorCategory::ResourceUnavailable,
+            ),
+            (
+                std::io::ErrorKind::Interrupted,
+                NativeFileErrorCategory::Unknown,
+            ),
+            (
+                std::io::ErrorKind::WouldBlock,
+                NativeFileErrorCategory::Unknown,
+            ),
+        ];
+
+        for (kind, expected) in cases {
+            let error = NativeFileError::from_io(
+                NativeFileOperation::SaveDocument,
+                path,
+                std::io::Error::from(kind),
+            );
+            assert_eq!(error.category, expected, "unexpected category for {kind:?}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn force_create_reports_unwritable_parent_without_leaving_a_temporary_file() {
+        let root = temp_dir("atomic-unwritable-parent");
+        fs::create_dir(&root).expect("create fixture root");
+        let path = root.join("new.md");
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o555))
+            .expect("make parent unwritable");
+
+        let result = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "new content".to_string(),
+            None,
+            Some(true),
+        );
+
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755))
+            .expect("restore parent permissions");
+        let error = result.expect_err("unwritable parent should reject the save");
+        assert_eq!(error.category, NativeFileErrorCategory::PermissionDenied);
+        assert_eq!(error.operation, NativeFileOperation::CreateTemporaryFile);
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read_dir(&root)
+                .expect("list fixture root")
+                .filter_map(Result::ok)
+                .count(),
+            0
+        );
+
+        cleanup_dir(&root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn inaccessible_ancestor_reports_permission_denied_instead_of_missing() {
+        let root = temp_dir("inaccessible-document-ancestor");
+        fs::create_dir(&root).expect("create fixture root");
+        let path = root.join("document.md");
+        fs::write(&path, "content").expect("write fixture document");
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o000))
+            .expect("make ancestor inaccessible");
+
+        let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
+
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755))
+            .expect("restore ancestor permissions");
+        let error = result.expect_err("inaccessible ancestor should reject the read");
+        assert_eq!(error.category, NativeFileErrorCategory::PermissionDenied);
+        assert_eq!(error.operation, NativeFileOperation::ResolveDocument);
+
+        cleanup_dir(&root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn case_variant_path_characterizes_the_host_volume_without_folding_in_bindars() {
+        let root = temp_dir("case-variant-path");
+        fs::create_dir(&root).expect("create fixture root");
+        let exact = root.join("CaseIdentity.md");
+        let variant = root.join("caseidentity.md");
+        fs::write(&exact, "content").expect("write case fixture");
+        let exact_canonical = dunce::canonicalize(&exact).expect("canonical exact path");
+
+        match dunce::canonicalize(&variant) {
+            Ok(variant_canonical) => assert_eq!(variant_canonical, exact_canonical),
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound),
+        }
+
+        cleanup_dir(&root);
+    }
+
     #[test]
     fn conditional_write_non_force_errors_when_file_was_deleted() {
         let path = temp_path("md");
@@ -2228,9 +2970,9 @@ mod tests {
         let path = PathBuf::from("/nonexistent-dir-bindars-test/annotations.md");
         let result =
             export_markdown_file_impl(path.to_string_lossy().into_owned(), "content".to_string());
-        assert!(result
-            .expect_err("missing parent should error")
-            .contains("Parent directory does not exist"));
+        let error = result.expect_err("missing parent should error");
+        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
+        assert_eq!(error.operation, NativeFileOperation::ResolveWriteParent);
     }
 
     #[test]
@@ -2304,9 +3046,9 @@ mod tests {
             document_path.to_string_lossy().into_owned(),
         );
 
-        assert!(result
-            .expect_err("missing image should error")
-            .contains("File not found"));
+        let error = result.expect_err("missing image should error");
+        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
+        assert_eq!(error.operation, NativeFileOperation::ResolveImage);
 
         cleanup_dir(&root);
     }

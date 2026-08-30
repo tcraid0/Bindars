@@ -364,6 +364,48 @@ test("useEditor preserves newer typing when a save fails", async () => {
   }
 });
 
+test("read-only save failure exposes a working Save As recovery", async () => {
+  await installDom();
+  const operations = mockPendingSaveAsTransactions();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Original");
+    updateBuffer(rendered, "Edited words");
+    const failedSave = startSave(rendered, "/tmp/Original.md");
+    const failure = await rejectSave(operations.writes[0], failedSave, {
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/Original.md has mode 0444",
+    });
+
+    assert.deepEqual(failure, { status: "error" });
+    assert.equal(rendered.api().saveError, "This file is read-only and was not changed.");
+    assert.equal(rendered.api().saveErrorRecovery, "save-as");
+    assert.equal(rendered.api().dirty, true);
+
+    const recovery = startSaveAs(rendered, "Original.md");
+    await resolveDialog(operations.dialogs[0], "/tmp/Writable Copy.md");
+    const result = await settleSave(
+      operations.writes[1],
+      recovery,
+      successfulWrite(
+        { mtimeMs: 2, size: 12, contentHash: "copy" },
+        "/tmp/Writable Copy.md",
+      ),
+    );
+
+    assert.equal(result.status, "saved");
+    assert.equal(result.file.canonicalPath, "/tmp/Writable Copy.md");
+    assert.equal(rendered.api().saveError, null);
+    assert.equal(rendered.api().saveErrorRecovery, null);
+    assert.equal(rendered.api().dirty, false);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("quiet autosave failure returns status without publishing the manual-save banner", async () => {
   await installDom();
   const writes = mockPendingWrites();

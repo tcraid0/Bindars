@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { WorkspaceDocIndex, WorkspaceFileMeta, WorkspaceState } from "../types";
 import { DOCUMENT_COMPLEXITY_REASON } from "../lib/document-complexity";
+import { normalizeFileError } from "../lib/native-file-error";
 import { storeGet, storeSet } from "../lib/store";
 import {
   buildWorkspaceRefreshErrorState,
@@ -309,9 +310,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
 }
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string") return error;
-  return "Failed to build workspace index.";
+  return normalizeFileError(error, "Failed to build workspace index.").message;
 }
 
 function estimateCacheTextSize(docs: WorkspaceDocIndex[]): number {

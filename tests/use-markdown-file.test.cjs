@@ -124,6 +124,35 @@ test("virtual content suppresses a slow open failure", async () => {
   }
 });
 
+test("typed open errors expose safe copy without native diagnostic detail", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/private/Denied.md");
+    let result;
+    await act(async () => {
+      opens[0].reject({
+        category: "permissionDenied",
+        operation: "resolveDocument",
+        message: "Bindars does not have permission to locate the document.",
+        detail: "/private/Denied.md: raw OS error",
+      });
+      result = await openPromise;
+    });
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(rendered.api().error, {
+      category: "permission-denied",
+      message: "Bindars does not have permission to locate the document.",
+    });
+    assert.doesNotMatch(rendered.api().error.message, /raw OS error|bindars-error/);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("saved-file adoption supersedes a slow open and publishes the supplied revision", async () => {
   await installDom();
   const opens = mockPendingOpens();

@@ -5,6 +5,7 @@ const {
   decideSaveContinuation,
   isSuccessfulSave,
   isRecoverableDeletedFileSaveError,
+  actionableSaveError,
   normalizeMarkdownSavePath,
 } = require("../.tmp/workspace-tests/src/lib/editor-save.js");
 
@@ -93,4 +94,64 @@ test("non-missing save errors are not recoverable conflicts", () => {
   assert.equal(isRecoverableDeletedFileSaveError("Not a supported file type"), false);
   assert.equal(isRecoverableDeletedFileSaveError("Parent directory does not exist."), false);
   assert.equal(isRecoverableDeletedFileSaveError("Permission denied"), false);
+});
+
+test("native save categories produce actionable recovery guidance", () => {
+  assert.deepEqual(actionableSaveError({
+    category: "readOnly",
+    operation: "saveDocument",
+    message: "This file is read-only and was not changed.",
+    detail: "chmod -w fixture",
+  }), {
+    message: "This file is read-only and was not changed.",
+    recovery: "save-as",
+  });
+  assert.deepEqual(actionableSaveError({
+    category: "permissionDenied",
+    operation: "replaceFile",
+    message: "Bindars does not have permission to replace the destination file.",
+    detail: "EACCES",
+  }), {
+    message: "Bindars could not save this file because access was denied.",
+    recovery: "save-as",
+  });
+});
+
+test("only missing-document operations become deleted-file conflicts", () => {
+  assert.equal(isRecoverableDeletedFileSaveError({
+    category: "notFound",
+    operation: "resolveDocument",
+    message: "File not found",
+    detail: "ENOENT",
+  }), true);
+  assert.equal(isRecoverableDeletedFileSaveError({
+    category: "notFound",
+    operation: "createTemporaryFile",
+    message: "Destination disappeared",
+    detail: "ENOENT",
+  }), false);
+});
+
+test("missing destination folders recommend Save As without claiming document deletion", () => {
+  assert.deepEqual(actionableSaveError({
+    category: "notFound",
+    operation: "resolveWriteParent",
+    message: "Bindars could not locate the destination folder.",
+    detail: "ENOENT",
+  }), {
+    message: "The destination folder is no longer available.",
+    recovery: "save-as",
+  });
+});
+
+test("invalid write targets offer another Save As attempt", () => {
+  assert.deepEqual(actionableSaveError({
+    category: "invalidInput",
+    operation: "inspectWriteTarget",
+    message: "The selected path is a dangling symbolic link. Choose another Save As location.",
+    detail: "/tmp/example.md",
+  }), {
+    message: "The selected path is a dangling symbolic link. Choose another Save As location.",
+    recovery: "save-as",
+  });
 });

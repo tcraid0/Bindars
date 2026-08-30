@@ -154,6 +154,12 @@ interface SaveCurrentEditsOutcome {
   draftAdoption: DraftSnapshotAdoption | null;
 }
 
+interface SaveCurrentEditsOptions {
+  forceOverwrite?: boolean;
+  quiet?: boolean;
+  saveAs?: boolean;
+}
+
 type RestoreDialogState =
   | {
       kind: "document";
@@ -516,15 +522,17 @@ function App() {
   }, [armPrintCleanup, clearPrintSession, setPrintAttributes, toast]);
 
   const saveCurrentEdits = useCallback(async (
-    forceOverwrite = false,
-    quiet = false,
+    options: SaveCurrentEditsOptions = {},
   ): Promise<SaveCurrentEditsOutcome> => {
     const draftBeforeSaveAs = !filePath && snapshotDocumentRef.current?.kind === "draft"
       ? snapshotDocumentRef.current
       : null;
     let draftAdoption: DraftSnapshotAdoption | null = null;
-    const result = filePath
-      ? await editor.save(filePath, { force: forceOverwrite, quiet })
+    const result = filePath && !options.saveAs
+      ? await editor.save(filePath, {
+        force: options.forceOverwrite ?? false,
+        quiet: options.quiet ?? false,
+      })
       : await editor.saveAs(fileName || "Untitled.md");
     if (result.status === "saved" || result.status === "saved-with-newer-edits") {
       editingFilePathRef.current = result.file.canonicalPath;
@@ -547,7 +555,7 @@ function App() {
   }, [adoptSavedFile, editor, fileName, filePath]);
 
   const performAutosave = useCallback(async () => {
-    const outcome = await saveCurrentEdits(false, true);
+    const outcome = await saveCurrentEdits({ quiet: true });
     if (isSuccessfulSave(outcome.status)) flashSaved();
     return outcome.status;
   }, [flashSaved, saveCurrentEdits]);
@@ -620,9 +628,9 @@ function App() {
   }, [snapshotCurrentState, toast]);
 
   const saveCurrentEditsWithRecovery = useCallback(async (
-    forceOverwrite = false,
+    options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveResult> => {
-    const outcome = await saveCurrentEdits(forceOverwrite);
+    const outcome = await saveCurrentEdits(options);
     await finishDraftSnapshotAdoption(outcome.draftAdoption);
     return outcome.status;
   }, [finishDraftSnapshotAdoption, saveCurrentEdits]);
@@ -651,6 +659,19 @@ function App() {
       openConflictDialog("stay-editing");
     }
   }, [cancelAutosaveAndWait, clearAutosaveIssue, filePath, flashSaved, flushAndReadDirty, openConflictDialog, recordSaveResult, saveCurrentEditsWithRecovery]);
+
+  const handleSaveAsAfterError = useCallback(async () => {
+    if (actionAdmissionOwnerRef.current !== null) return;
+    await cancelAutosaveAndWait();
+    clearAutosaveIssue();
+
+    const result = await saveCurrentEditsWithRecovery({ saveAs: true });
+    recordSaveResult(result);
+    if (isSuccessfulSave(result)) {
+      clearAutosaveIssue();
+      flashSaved();
+    }
+  }, [cancelAutosaveAndWait, clearAutosaveIssue, flashSaved, recordSaveResult, saveCurrentEditsWithRecovery]);
 
   const reloadOpenDocument = useCallback(
     async (path: string, source: OpenRequestSource) => {
@@ -1032,7 +1053,7 @@ function App() {
   const handleConflictOverwrite = useCallback(async () => {
     const continuationIntent = saveContinuationIntentRef.current ?? "stay-editing";
     clearAutosaveIssue();
-    const result = await saveCurrentEditsWithRecovery(true);
+    const result = await saveCurrentEditsWithRecovery({ forceOverwrite: true });
     recordSaveResult(result);
     const continuationDecision = decideSaveContinuation(result);
     if (continuationDecision === "stop") return;
@@ -2641,7 +2662,9 @@ function App() {
               markdownFormattingEnabled={markdownFormattingEnabled}
               settings={settings}
               saveError={editor.saveError}
+              canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
               onBufferChange={publishEditorBuffer}
+              onSaveAsAfterError={handleSaveAsAfterError}
               onDismissSaveError={editor.dismissSaveError}
             />
           ) : preparedDocument?.status === "too-complex" ? (

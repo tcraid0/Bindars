@@ -31,10 +31,11 @@ test("MarkdownEditor applies reader typography without replacing its live editin
   document.body.appendChild(host);
   const root = createRoot(host);
   let dismissCount = 0;
+  let saveAsCount = 0;
   const editorRef = React.createRef();
   const publications = [];
 
-  function render(saveError, settings = baseSettings) {
+  function render(saveError, settings = baseSettings, canSaveAsAfterError = false) {
     flushSync(() => {
       root.render(React.createElement(MarkdownEditor, {
         buffer: "Draft",
@@ -42,11 +43,13 @@ test("MarkdownEditor applies reader typography without replacing its live editin
         markdownFormattingEnabled: true,
         settings,
         saveError,
+        canSaveAsAfterError,
         ref: editorRef,
         onBufferChange(content) {
           publications.push(content);
           return true;
         },
+        onSaveAsAfterError() { saveAsCount += 1; },
         onDismissSaveError() { dismissCount += 1; },
       }));
     });
@@ -93,6 +96,13 @@ test("MarkdownEditor applies reader typography without replacing its live editin
     const dismissButton = host.querySelector('button[aria-label="Dismiss error"]');
     flushSync(() => dismissButton.click());
     assert.equal(dismissCount, 1);
+
+    render("This file is read-only.", changedSettings, true);
+    const saveAsButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent.trim() === "Save As…");
+    assert.ok(saveAsButton);
+    flushSync(() => saveAsButton.click());
+    assert.equal(saveAsCount, 1);
 
     render(null, changedSettings);
     assert.ok(findEditorView(host) === view);

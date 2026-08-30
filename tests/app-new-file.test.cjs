@@ -1160,7 +1160,9 @@ async function renderContinuityApp({
   let deferredUnwatch = null;
   let deferredSnapshotWrite = null;
   let deferredSnapshotRead = null;
+  let fileWriteError = null;
   let openDialogPath = null;
+  let saveDialogPath = "/tmp/virtual-continuity.md";
   const operationLog = [];
   const openedPaths = [];
   const snapshotOperationLog = [];
@@ -1234,6 +1236,11 @@ async function renderContinuityApp({
         };
       case "write_markdown_file_if_unmodified":
         fileWrites.push(args);
+        if (fileWriteError) {
+          const error = fileWriteError;
+          fileWriteError = null;
+          throw error;
+        }
         if (deferredWrite) {
           const operation = deferredWrite;
           deferredWrite = null;
@@ -1257,7 +1264,7 @@ async function renderContinuityApp({
           currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
         };
       case "plugin:dialog|save":
-        return "/tmp/virtual-continuity.md";
+        return saveDialogPath;
       case "write_document_snapshot": {
         snapshotWrites.push(args);
         const operation = {
@@ -1378,6 +1385,8 @@ async function renderContinuityApp({
     deferNextSnapshotWrite(operation) { deferredSnapshotWrite = operation; },
     deferNextSnapshotRead(operation) { deferredSnapshotRead = operation; },
     setOpenDialogPath(path) { openDialogPath = path; },
+    setSaveDialogPath(path) { saveDialogPath = path; },
+    failNextFileWrite(error) { fileWriteError = error; },
     setPendingNativeOpenPath(path) { nativeOpen.setPendingPath(path); },
     clearOperationLog() { operationLog.length = 0; },
     operationLog: () => [...operationLog],
@@ -1419,6 +1428,48 @@ async function renderContinuityApp({
     },
   };
 }
+
+test("read-only existing document offers Save As and adopts the writable copy", async () => {
+  const rendered = await renderContinuityApp();
+
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Edited read-only words");
+    await waitForEditorPublication();
+    const originalDiskContent = rendered.diskContent();
+
+    rendered.failNextFileWrite({
+      category: "readOnly",
+      operation: "saveDocument",
+      message: "This file is read-only and was not changed.",
+      detail: "/tmp/continuity.md has mode 0444",
+    });
+    clickButton(rendered.host, "Save");
+
+    await waitFor(() => {
+      assert.match(rendered.host.textContent, /read-only and was not changed/);
+      assert.equal(rendered.fileWrites().length, 1);
+    });
+    assert.equal(rendered.diskContent(), originalDiskContent);
+
+    rendered.setSaveDialogPath("/tmp/Writable Copy.md");
+    clickButton(rendered.host, "Save As…");
+
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 2);
+      assert.match(rendered.host.textContent, /Writable Copy\.md/);
+    });
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/Writable Copy.md");
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.fileWrites()[1].expectedRevision, null);
+    assert.equal(rendered.diskContent(), "Edited read-only words");
+    assert.doesNotMatch(rendered.host.textContent, /bindars-error|mode 0444/);
+  } finally {
+    await rendered.cleanup();
+  }
+});
 
 test("oversized Markdown keeps exact editing and print available without entering presentation", async () => {
   await installDom();

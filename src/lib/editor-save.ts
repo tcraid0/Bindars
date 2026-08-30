@@ -1,4 +1,5 @@
 import type { FileRevision } from "../types";
+import { isDeletedDocumentError, normalizeFileError } from "./native-file-error";
 
 export type EditorSaveResult =
   | "saved"
@@ -87,6 +88,49 @@ export function normalizeMarkdownSavePath(selectedPath: string): MarkdownSavePat
   };
 }
 
-export function isRecoverableDeletedFileSaveError(message: string): boolean {
-  return /^File not found:/i.test(message.trim()) || /No such file or directory/i.test(message);
+export function isRecoverableDeletedFileSaveError(error: unknown): boolean {
+  return isDeletedDocumentError(error);
+}
+
+export type SaveErrorRecovery = "save-as" | null;
+
+export interface SaveErrorDescription {
+  message: string;
+  recovery: SaveErrorRecovery;
+}
+
+export function actionableSaveError(error: unknown): SaveErrorDescription {
+  const normalized = normalizeFileError(error, "Bindars could not save this file.");
+  switch (normalized.native?.category) {
+    case "readOnly":
+      return {
+        message: "This file is read-only and was not changed.",
+        recovery: "save-as",
+      };
+    case "permissionDenied":
+      return {
+        message: "Bindars could not save this file because access was denied.",
+        recovery: "save-as",
+      };
+    case "resourceUnavailable":
+      return {
+        message: "The file resource is temporarily unavailable. Check its volume or provider and try again.",
+        recovery: null,
+      };
+    case "notFound":
+      return {
+        message: normalized.native.operation === "resolveWriteParent"
+          || normalized.native.operation === "inspectWriteParent"
+          || normalized.native.operation === "createTemporaryFile"
+          ? "The destination folder is no longer available."
+          : "This file is no longer available.",
+        recovery: "save-as",
+      };
+    case "invalidInput":
+      return normalized.native.operation === "inspectWriteTarget"
+        ? { message: normalized.message, recovery: "save-as" }
+        : { message: normalized.message, recovery: null };
+    default:
+      return { message: normalized.message, recovery: null };
+  }
 }

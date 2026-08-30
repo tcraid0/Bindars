@@ -6,6 +6,15 @@ interface ErrorBannerProps {
   onDismiss: () => void;
 }
 
+const genericIcon = (
+  // alert-circle
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="12" y1="16" x2="12.01" y2="16" />
+  </svg>
+);
+
 const icons: Record<ErrorCategory, React.ReactNode> = {
   "not-found": (
     // file-x
@@ -43,14 +52,10 @@ const icons: Record<ErrorCategory, React.ReactNode> = {
       <path d="m14 17 2-2-2-2" />
     </svg>
   ),
-  generic: (
-    // alert-circle
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  ),
+  "read-only": genericIcon,
+  "permission-denied": genericIcon,
+  "resource-unavailable": genericIcon,
+  generic: genericIcon,
 };
 
 function ErrorBannerComponent({ error, onDismiss }: ErrorBannerProps) {
