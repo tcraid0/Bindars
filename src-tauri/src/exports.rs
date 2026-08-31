@@ -213,6 +213,20 @@ mod tests {
     }
 
     #[test]
+    fn export_markdown_rejects_fountain_extension() {
+        let path = temp_path("fountain");
+        let result = export_markdown_file_impl(
+            path.to_string_lossy().into_owned(),
+            "# Annotations\n".to_string(),
+        );
+        assert!(result
+            .expect_err("fountain extension should be rejected")
+            .contains("Export file must have .md or .markdown extension"));
+        assert!(!path.exists(), "no destination file should be created");
+        cleanup(&path);
+    }
+
+    #[test]
     fn export_markdown_rejects_oversized_content() {
         let path = temp_path("md");
         let oversized = "x".repeat((MAX_MARKDOWN_BYTES + 1) as usize);
