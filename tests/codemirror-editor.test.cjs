@@ -366,6 +366,145 @@ test("parent rerenders keep the same view, focus, selection, callback freshness,
   }
 });
 
+test("a clean external document refresh preserves the mounted editor and clamped selection", async () => {
+  const rendered = await renderEditor({
+    initialDocument: "Original words",
+    onBufferChange() { return false; },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: 8 } });
+    view.focus();
+
+    assert.equal(rendered.ref.current.adoptExternalDocument(
+      "Original words",
+      "External replacement words",
+    ), true);
+
+    assert.ok(findEditorView(rendered.host) === view);
+    assert.equal(view.state.sliceDoc(), "External replacement words");
+    assert.equal(view.state.selection.main.head, 8);
+    assert.ok(document.activeElement === view.contentDOM);
+    assert.equal(undo(view), false, "the external baseline refresh must not become an undo step");
+
+    assert.equal(rendered.ref.current.adoptExternalDocument(
+      "External replacement words",
+      "Short",
+    ), true);
+    assert.equal(view.state.sliceDoc(), "Short");
+    assert.equal(view.state.selection.main.head, 5);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("ordinary parent buffer publication cannot replace newer editor input", async () => {
+  const rendered = await renderEditor({
+    initialDocument: "abc",
+    onBufferChange() { return true; },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    replaceEditorDocument(view, "abcde");
+
+    rendered.rerender({
+      initialDocument: "abcd",
+      onBufferChange() { return true; },
+    });
+
+    assert.equal(view.state.sliceDoc(), "abcde");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("authoritative refresh adopts the new line separator before later edits", async () => {
+  const cases = [
+    {
+      initial: "one\r\ntwo",
+      external: "one\ntwo\nthree",
+      separator: "\n",
+    },
+    {
+      initial: "one\ntwo",
+      external: "one\r\ntwo\r\nthree",
+      separator: "\r\n",
+    },
+  ];
+
+  for (const { initial, external, separator } of cases) {
+    const rendered = await renderEditor({
+      initialDocument: initial,
+      onBufferChange() { return false; },
+    });
+
+    try {
+      const view = findEditorView(rendered.host);
+      assert.equal(rendered.ref.current.adoptExternalDocument(initial, external), true);
+
+      assert.equal(view.state.lineBreak, separator);
+      assert.equal(view.state.doc.lines, 3);
+      assert.equal(view.state.sliceDoc(), external);
+
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: `${view.state.lineBreak}four` },
+      });
+      assert.equal(view.state.sliceDoc(), `${external}${separator}four`);
+    } finally {
+      rendered.cleanup();
+    }
+  }
+});
+
+test("authoritative refresh rejects newer editor input and publishes it synchronously", async () => {
+  const publications = [];
+  const rendered = await renderEditor({
+    initialDocument: "Clean baseline",
+    onBufferChange(content) {
+      publications.push(content);
+      return true;
+    },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    replaceEditorDocument(view, "Newer local typing");
+
+    assert.equal(rendered.ref.current.adoptExternalDocument(
+      "Clean baseline",
+      "External replacement",
+    ), false);
+    assert.equal(view.state.sliceDoc(), "Newer local typing");
+    assert.deepEqual(publications, ["Newer local typing"]);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("authoritative refresh clears undo and redo history from the old baseline", async () => {
+  const rendered = await renderEditor({
+    initialDocument: "Original",
+    onBufferChange() { return true; },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    replaceEditorDocument(view, "Saved local edit");
+    assert.equal(rendered.ref.current.flushPendingChanges(), true);
+
+    assert.equal(rendered.ref.current.adoptExternalDocument(
+      "Saved local edit",
+      "External replacement",
+    ), true);
+    assert.equal(undo(view), false);
+    assert.equal(view.state.sliceDoc(), "External replacement");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("formatting toggles preserve document, selection, undo history, and publication state", async () => {
   const publications = [];
   const baseProps = {

@@ -69,8 +69,10 @@ pub(crate) async fn open_markdown_file(path: String) -> Result<OpenFileResult, N
 pub(crate) fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
-    let content = read_markdown_contents(&canonical_path)?;
-    let revision = read_file_revision(&canonical_path)?;
+    let file = fs::File::open(&canonical_path).map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::OpenDocument, &canonical_path, error)
+    })?;
+    let (content, revision) = read_open_document_snapshot(&canonical_path, file)?;
     let (canonical_path, name) = markdown_file_identity(&canonical_path);
 
     Ok(OpenFileResult {
@@ -340,6 +342,32 @@ pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileEr
     let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::OpenDocument, path, error)
     })?;
+    let (buffer, _) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
+    decode_markdown_contents(buffer)
+}
+
+fn read_open_document_snapshot(
+    path: &Path,
+    file: fs::File,
+) -> Result<(String, FileRevision), NativeFileError> {
+    let (buffer, metadata) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
+    let revision = FileRevision {
+        mtime_ms: modified_time_ms(&metadata),
+        size: buffer.len() as u64,
+        content_hash: stable_hash_hex(&buffer),
+    };
+    let content = decode_markdown_contents(buffer)?;
+    Ok((content, revision))
+}
+
+fn read_bounded_file(
+    path: &Path,
+    file: fs::File,
+    operation: NativeFileOperation,
+) -> Result<(Vec<u8>, fs::Metadata), NativeFileError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| NativeFileError::from_io(operation, path, error))?;
     let mut reader = BufReader::new(file);
     let mut buffer = Vec::new();
 
@@ -347,9 +375,7 @@ pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileEr
         .by_ref()
         .take(MAX_MARKDOWN_BYTES + 1)
         .read_to_end(&mut buffer)
-        .map_err(|error| {
-            NativeFileError::from_io(NativeFileOperation::ReadDocument, path, error)
-        })?;
+        .map_err(|error| NativeFileError::from_io(operation, path, error))?;
 
     if buffer.len() as u64 > MAX_MARKDOWN_BYTES {
         return Err(NativeFileError::invalid(
@@ -361,6 +387,10 @@ pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileEr
         ));
     }
 
+    Ok((buffer, metadata))
+}
+
+fn decode_markdown_contents(buffer: Vec<u8>) -> Result<String, NativeFileError> {
     String::from_utf8(buffer).map_err(|_| {
         NativeFileError::invalid(
             NativeFileOperation::DecodeDocument,
@@ -393,22 +423,10 @@ pub(crate) fn stable_hash_hex(bytes: &[u8]) -> String {
 }
 
 fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
-    let metadata = fs::metadata(path).map_err(|error| {
+    let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
     })?;
-    let bytes = fs::read(path).map_err(|error| {
-        NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
-    })?;
-
-    if bytes.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(NativeFileError::invalid(
-            NativeFileOperation::ValidateDocument,
-            format!(
-                "File is too large. Maximum supported size is {} MiB.",
-                MAX_MARKDOWN_SIZE_MIB
-            ),
-        ));
-    }
+    let (bytes, metadata) = read_bounded_file(path, file, NativeFileOperation::CheckRevision)?;
 
     Ok(FileRevision {
         mtime_ms: modified_time_ms(&metadata),
@@ -518,6 +536,26 @@ mod tests {
 
         cleanup(&link);
         cleanup(&target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_document_snapshot_stays_coherent_after_atomic_replacement() {
+        let path = temp_path("md");
+        let replacement = temp_path("md");
+        fs::write(&path, "# Snapshot A").expect("write original fixture");
+        fs::write(&replacement, "# Replacement B").expect("write replacement fixture");
+        let opened = File::open(&path).expect("open original fixture");
+
+        fs::rename(&replacement, &path).expect("replace fixture path");
+        let (content, revision) =
+            read_open_document_snapshot(&path, opened).expect("read opened snapshot");
+
+        assert_eq!(content, "# Snapshot A");
+        assert_eq!(revision.size, "# Snapshot A".len() as u64);
+        assert_eq!(revision.content_hash, stable_hash_hex(b"# Snapshot A"));
+
+        cleanup(&path);
     }
 
     #[test]

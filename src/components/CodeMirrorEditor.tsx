@@ -2,7 +2,11 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } f
 import type { RefObject } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
-import { EditorState, Text } from "@codemirror/state";
+import {
+  EditorSelection,
+  EditorState,
+  Text,
+} from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import type { SourcePoint } from "../lib/editor-position";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -23,6 +27,7 @@ const editorDefaultKeymap = defaultKeymap.filter((binding) => binding.key !== "E
 export interface CodeMirrorEditorHandle {
   flushPendingChanges: () => boolean | null;
   capturePosition: () => EditorSurfacePosition | null;
+  adoptExternalDocument: (capturedDocument: string, externalDocument: string) => boolean;
 }
 
 export interface EditorSurfacePosition {
@@ -273,6 +278,10 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const publishRef = useRef<(() => boolean | null) | null>(null);
+    const adoptExternalDocumentRef = useRef<(
+      capturedDocument: string,
+      externalDocument: string,
+    ) => boolean>(() => false);
     const onBufferChangeRef = useRef(onBufferChange);
     const initialScrollTopRef = useRef<number | null>(null);
     const viewportMovedByUserRef = useRef(false);
@@ -283,6 +292,9 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
 
     useImperativeHandle(ref, () => ({
       flushPendingChanges: () => publishRef.current?.() ?? null,
+      adoptExternalDocument: (capturedDocument, externalDocument) => (
+        adoptExternalDocumentRef.current(capturedDocument, externalDocument)
+      ),
       capturePosition: () => {
         const view = viewRef.current;
         if (!view) return null;
@@ -316,6 +328,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       let pendingPublication = false;
       let publicationTimer: ReturnType<typeof setTimeout> | null = null;
       let baselineFrame: number | null = null;
+      let applyingExternalDocument = false;
       initialScrollTopRef.current = null;
       viewportMovedByUserRef.current = false;
       const scrollRoot = scrollRootRef?.current ?? null;
@@ -345,33 +358,48 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         }, BUFFER_PUBLICATION_DELAY_MS);
       };
 
+      const createEditorState = (
+        preparedDocument: PreparedDocument,
+        selection: EditorSelection | undefined,
+        formattingEnabled: boolean,
+      ): EditorState => {
+        const preparedText = Text.of(
+          preparedDocument.content.split(preparedDocument.lineSeparator),
+        );
+        return EditorState.create({
+          doc: preparedText,
+          selection,
+          extensions: [
+            EditorState.lineSeparator.of(preparedDocument.lineSeparator),
+            EditorState.allowMultipleSelections.of(true),
+            EditorView.lineWrapping,
+            EditorView.contentAttributes.of({
+              "aria-label": "Edit markdown",
+              "aria-multiline": "true",
+              spellcheck: "false",
+            }),
+            history(),
+            search({ top: true }),
+            keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged && !applyingExternalDocument) schedulePublication();
+            }),
+            fileType === "markdown" ? markdownFormattingExtensions(formattingEnabled) : [],
+            editorTheme,
+          ],
+        });
+      };
+
       const preparedDocument = prepareDocument(initialDocument);
       const preparedText = Text.of(preparedDocument.content.split(preparedDocument.lineSeparator));
       const initialOffset = initialPosition
         ? clampSourcePoint(preparedText, initialPosition)
         : null;
-      const state = EditorState.create({
-        doc: preparedText,
-        selection: initialOffset === null ? undefined : { anchor: initialOffset },
-        extensions: [
-          EditorState.lineSeparator.of(preparedDocument.lineSeparator),
-          EditorState.allowMultipleSelections.of(true),
-          EditorView.lineWrapping,
-          EditorView.contentAttributes.of({
-            "aria-label": "Edit markdown",
-            "aria-multiline": "true",
-            spellcheck: "false",
-          }),
-          history(),
-          search({ top: true }),
-          keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) schedulePublication();
-          }),
-          fileType === "markdown" ? markdownFormattingExtensions(markdownFormattingEnabled) : [],
-          editorTheme,
-        ],
-      });
+      const state = createEditorState(
+        preparedDocument,
+        initialOffset === null ? undefined : EditorSelection.single(initialOffset),
+        markdownFormattingEnabled,
+      );
 
       const createdView = new EditorView({
         state,
@@ -383,6 +411,42 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       view = createdView;
       viewRef.current = createdView;
       publishRef.current = publishPendingChanges;
+      adoptExternalDocumentRef.current = (capturedDocument, externalDocument) => {
+        publishPendingChanges();
+        if (viewRef.current !== createdView) return false;
+
+        const captured = prepareDocument(capturedDocument);
+        if (
+          createdView.state.sliceDoc() !== captured.content
+          || createdView.state.lineBreak !== captured.lineSeparator
+        ) return false;
+
+        const external = prepareDocument(externalDocument);
+        const currentDocument = createdView.state.doc;
+        const externalText = Text.of(external.content.split(external.lineSeparator));
+        const selection = EditorSelection.create(
+          createdView.state.selection.ranges.map((range) => EditorSelection.range(
+            clampSourcePoint(externalText, sourcePointAt(currentDocument, range.anchor)),
+            clampSourcePoint(externalText, sourcePointAt(currentDocument, range.head)),
+          )),
+          createdView.state.selection.mainIndex,
+        );
+        const formattingEnabled = createdView.state.field(
+          markdownFormattingEnabledField,
+          false,
+        ) ?? markdownFormattingEnabled;
+        const scrollTop = scrollRoot?.scrollTop ?? null;
+        const hadFocus = createdView.hasFocus;
+        applyingExternalDocument = true;
+        try {
+          createdView.setState(createEditorState(external, selection, formattingEnabled));
+        } finally {
+          applyingExternalDocument = false;
+        }
+        if (scrollRoot && scrollTop !== null) scrollRoot.scrollTop = scrollTop;
+        if (hadFocus && !createdView.hasFocus) createdView.focus();
+        return true;
+      };
       createdView.focus();
       if (initialOffset === null) {
         initialScrollTopRef.current = scrollRootRef?.current?.scrollTop ?? null;
@@ -411,6 +475,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         baselineFrame = null;
         pendingPublication = false;
         publishRef.current = null;
+        adoptExternalDocumentRef.current = () => false;
         initialScrollTopRef.current = null;
         viewportMovedByUserRef.current = false;
         scrollRoot?.removeEventListener("wheel", recordUserViewportMovement);

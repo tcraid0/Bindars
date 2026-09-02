@@ -6,9 +6,8 @@ import type { SavedFileSnapshot } from "../lib/editor-save";
 import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
 import { appErrorFromNative } from "../lib/native-file-error";
 
-export type OpenRequestSource = "user" | "watcher" | "reconcile";
 export type OpenFilePathResult =
-  | { status: "opened"; canonicalPath: string; contentChanged: boolean }
+  | { status: "opened"; canonicalPath: string }
   | { status: "failed"; error: AppError }
   | { status: "superseded" };
 
@@ -17,6 +16,20 @@ export interface PublishedDocument {
   readonly filePath: string | null;
   readonly fileName: string | null;
   readonly fileRevision: FileRevision | null;
+}
+
+export interface OpenOwnership {
+  readonly generation: number;
+  readonly userOpenInFlight: boolean;
+}
+
+function publishedFileDocument(file: OpenFileResult | SavedFileSnapshot): PublishedDocument {
+  return {
+    content: file.content,
+    filePath: file.canonicalPath,
+    fileName: file.name,
+    fileRevision: file.revision,
+  };
 }
 
 interface UseMarkdownFileReturn {
@@ -28,14 +41,17 @@ interface UseMarkdownFileReturn {
   error: AppError | null;
   loading: boolean;
   openingPath: string | null;
-  userOpenInFlight: boolean;
   getPublishedDocument: () => PublishedDocument;
+  getOpenOwnership: () => OpenOwnership;
   openFile: () => Promise<void>;
-  openFilePath: (path: string, source?: OpenRequestSource) => Promise<boolean>;
-  openFilePathWithStatus: (path: string, source?: OpenRequestSource) => Promise<OpenFilePathResult>;
-  closeFile: () => void;
+  openFilePath: (path: string) => Promise<boolean>;
+  openFilePathWithStatus: (path: string) => Promise<OpenFilePathResult>;
   setVirtualContent: (text: string, name: string) => void;
   adoptSavedFile: (file: SavedFileSnapshot) => void;
+  adoptReconciledDocument: (document: OpenFileResult) => void;
+  refreshReconciledRevision: (revision: FileRevision) => void;
+  reportReconciliationError: (error: AppError) => void;
+  clearReconciliationError: () => void;
   supersedePendingOpen: () => void;
   dismissError: () => void;
 }
@@ -48,18 +64,16 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
   const [error, setError] = useState<AppError | null>(null);
   const [loading, setLoading] = useState(false);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
-  const [userOpenInFlight, setUserOpenInFlight] = useState(false);
   const requestIdRef = useRef(0);
-  const latestUserRequestIdRef = useRef<number | null>(null);
   const userOpenInFlightRef = useRef(false);
-  const visibleRequestIdRef = useRef<number | null>(null);
-  const activeRequestRef = useRef<{ id: number; source: OpenRequestSource } | null>(null);
+  const activeRequestRef = useRef<number | null>(null);
   const publishedDocumentRef = useRef<PublishedDocument>({
     content: null,
     filePath: null,
     fileName: null,
     fileRevision: null,
   });
+  const reconciliationErrorRef = useRef(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -70,14 +84,15 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     };
   }, []);
 
-  const dismissError = useCallback(() => setError(null), []);
+  const dismissError = useCallback(() => {
+    reconciliationErrorRef.current = false;
+    setError(null);
+  }, []);
 
   const resetOpenTracking = useCallback(() => {
-    visibleRequestIdRef.current = null;
-    setLoading(false);
-    latestUserRequestIdRef.current = null;
+    activeRequestRef.current = null;
     userOpenInFlightRef.current = false;
-    setUserOpenInFlight(false);
+    setLoading(false);
     setOpeningPath(null);
   }, []);
 
@@ -85,6 +100,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
   // generation token, including before React commits the corresponding state.
   const publishDocument = useCallback((document: PublishedDocument) => {
     publishedDocumentRef.current = document;
+    reconciliationErrorRef.current = false;
     setContent(document.content);
     setFilePath(document.filePath);
     setFileName(document.fileName);
@@ -93,13 +109,14 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
   }, []);
 
   const getPublishedDocument = useCallback(() => publishedDocumentRef.current, []);
+  const getOpenOwnership = useCallback((): OpenOwnership => ({
+    generation: requestIdRef.current,
+    userOpenInFlight: userOpenInFlightRef.current,
+  }), []);
 
   const supersedePendingOpen = useCallback(() => {
-    if (activeRequestRef.current) {
+    if (activeRequestRef.current !== null) {
       requestIdRef.current += 1;
-      activeRequestRef.current = null;
-    }
-    if (visibleRequestIdRef.current !== null || userOpenInFlightRef.current) {
       resetOpenTracking();
     }
   }, [resetOpenTracking]);
@@ -109,26 +126,14 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
 
   const openFilePathWithStatus = useCallback(async (
     path: string,
-    source: OpenRequestSource = "user",
   ): Promise<OpenFilePathResult> => {
-    if (source !== "user" && userOpenInFlightRef.current) {
-      return { status: "superseded" };
-    }
-
     const requestId = ++requestIdRef.current;
-    activeRequestRef.current = { id: requestId, source };
-    const visibleOpen = source !== "reconcile";
-    if (visibleOpen) {
-      visibleRequestIdRef.current = requestId;
-      setLoading(true);
-    }
+    activeRequestRef.current = requestId;
+    setLoading(true);
     setError(null);
-    if (source === "user") {
-      latestUserRequestIdRef.current = requestId;
-      userOpenInFlightRef.current = true;
-      setUserOpenInFlight(true);
-      setOpeningPath(path);
-    }
+    reconciliationErrorRef.current = false;
+    userOpenInFlightRef.current = true;
+    setOpeningPath(path);
 
     try {
       const opened = await invoke<OpenFileResult>("open_markdown_file", { path });
@@ -137,45 +142,30 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         return { status: "superseded" };
       }
 
-      const contentChanged = opened.content !== publishedDocumentRef.current.content;
-      publishDocument({
-        content: opened.content,
-        filePath: opened.canonicalPath,
-        fileName: opened.name,
-        fileRevision: opened.revision,
-      });
-      return { status: "opened", canonicalPath: opened.canonicalPath, contentChanged };
+      publishDocument(publishedFileDocument(opened));
+      return { status: "opened", canonicalPath: opened.canonicalPath };
     } catch (e) {
       if (!mountedRef.current || requestId !== requestIdRef.current) {
         return { status: "superseded" };
       }
       const appError = appErrorFromNative(e, "Failed to open file.");
+      reconciliationErrorRef.current = false;
       setError(appError);
       return { status: "failed", error: appError };
     } finally {
-      if (activeRequestRef.current?.id === requestId) activeRequestRef.current = null;
-      if (visibleOpen && visibleRequestIdRef.current === requestId) {
-        visibleRequestIdRef.current = null;
-        if (mountedRef.current) {
-          setLoading(false);
-        }
-      }
-      if (source === "user" && latestUserRequestIdRef.current === requestId) {
-        latestUserRequestIdRef.current = null;
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
         userOpenInFlightRef.current = false;
         if (mountedRef.current) {
-          setUserOpenInFlight(false);
+          setLoading(false);
           setOpeningPath(null);
         }
       }
     }
   }, [publishDocument]);
 
-  const openFilePath = useCallback(async (
-    path: string,
-    source: OpenRequestSource = "user",
-  ): Promise<boolean> => {
-    return (await openFilePathWithStatus(path, source)).status === "opened";
+  const openFilePath = useCallback(async (path: string): Promise<boolean> => {
+    return (await openFilePathWithStatus(path)).status === "opened";
   }, [openFilePathWithStatus]);
 
   const openFile = useCallback(async () => {
@@ -191,18 +181,12 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
       });
 
       if (selected) {
-        await openFilePath(selected, "user");
+        await openFilePath(selected);
       }
     } catch (e) {
       setError(appErrorFromNative(e, "Failed to open file."));
     }
   }, [openFilePath]);
-
-  const closeFile = useCallback(() => {
-    requestIdRef.current += 1;
-    publishDocument({ content: null, filePath: null, fileName: null, fileRevision: null });
-    resetOpenTracking();
-  }, [publishDocument, resetOpenTracking]);
 
   const setVirtualContent = useCallback((text: string, name: string) => {
     requestIdRef.current += 1;
@@ -212,14 +196,37 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
 
   const adoptSavedFile = useCallback((file: SavedFileSnapshot) => {
     requestIdRef.current += 1;
-    publishDocument({
-      content: file.content,
-      filePath: file.canonicalPath,
-      fileName: file.name,
-      fileRevision: file.revision,
-    });
+    publishDocument(publishedFileDocument(file));
     resetOpenTracking();
   }, [publishDocument, resetOpenTracking]);
+
+  const adoptReconciledDocument = useCallback((document: OpenFileResult) => {
+    requestIdRef.current += 1;
+    activeRequestRef.current = null;
+    publishDocument(publishedFileDocument(document));
+  }, [publishDocument]);
+
+  const refreshReconciledRevision = useCallback((revision: FileRevision) => {
+    requestIdRef.current += 1;
+    activeRequestRef.current = null;
+    const current = publishedDocumentRef.current;
+    const refreshed = { ...current, fileRevision: revision };
+    publishedDocumentRef.current = refreshed;
+    reconciliationErrorRef.current = false;
+    setFileRevision(revision);
+    setError(null);
+  }, []);
+
+  const reportReconciliationError = useCallback((reconciliationError: AppError) => {
+    reconciliationErrorRef.current = true;
+    setError(reconciliationError);
+  }, []);
+
+  const clearReconciliationError = useCallback(() => {
+    if (!reconciliationErrorRef.current) return;
+    reconciliationErrorRef.current = false;
+    setError(null);
+  }, []);
 
   return {
     content,
@@ -230,14 +237,17 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     error,
     loading,
     openingPath,
-    userOpenInFlight,
     getPublishedDocument,
+    getOpenOwnership,
     openFile,
     openFilePath,
     openFilePathWithStatus,
-    closeFile,
     setVirtualContent,
     adoptSavedFile,
+    adoptReconciledDocument,
+    refreshReconciledRevision,
+    reportReconciliationError,
+    clearReconciliationError,
     supersedePendingOpen,
     dismissError,
   };

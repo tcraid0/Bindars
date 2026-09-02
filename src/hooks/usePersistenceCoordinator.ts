@@ -15,7 +15,8 @@ export interface AutosaveIssue {
 }
 
 interface PersistenceCoordinatorOptions {
-  active: boolean;
+  snapshotActive: boolean;
+  autosaveActive: boolean;
   dirty: boolean;
   sessionKey: number;
   document: SnapshotDocument | null;
@@ -80,7 +81,8 @@ function automaticSnapshotRetryDelay(consecutiveFailures: number): number {
 }
 
 export function usePersistenceCoordinator({
-  active,
+  snapshotActive,
+  autosaveActive,
   dirty,
   sessionKey,
   document,
@@ -100,7 +102,8 @@ export function usePersistenceCoordinator({
   const [autosaveGeneration, setAutosaveGeneration] = useState(0);
   const [snapshotRetryGeneration, setSnapshotRetryGeneration] = useState(0);
   const snapshotErrorRef = useRef<string | null>(null);
-  const activeRef = useRef(active);
+  const snapshotActiveRef = useRef(snapshotActive);
+  const autosaveActiveRef = useRef(autosaveActive);
   const sessionKeyRef = useRef(sessionKey);
   const documentRef = useRef(document);
   const captureBufferRef = useRef(captureBuffer);
@@ -117,7 +120,8 @@ export function usePersistenceCoordinator({
   // Snapshot timers and queued writes cross render boundaries. Keep every value
   // they read mirrored explicitly so a late callback cannot capture another
   // document's buffer or place a newer edit session in an old retry cooldown.
-  activeRef.current = active;
+  snapshotActiveRef.current = snapshotActive;
+  autosaveActiveRef.current = autosaveActive;
   sessionKeyRef.current = sessionKey;
   documentRef.current = document;
   captureBufferRef.current = captureBuffer;
@@ -183,7 +187,7 @@ export function usePersistenceCoordinator({
 
     const requestedDocument = documentOverride ?? documentRef.current;
     const captured = captureBufferRef.current();
-    if ((!required && !activeRef.current) || !requestedDocument || captured === null) {
+    if ((!required && !snapshotActiveRef.current) || !requestedDocument || captured === null) {
       return required
         ? Promise.reject(new Error("There is no active document to snapshot."))
         : Promise.resolve(false);
@@ -357,7 +361,7 @@ export function usePersistenceCoordinator({
     const requestedDocument = documentRef.current;
     const captured = captureBufferRef.current();
     const save = onAutosaveRef.current;
-    if (!activeRef.current
+    if (!autosaveActiveRef.current
       || requestedDocument?.kind !== "file"
       || !captured?.dirty
       || !save) {
@@ -409,7 +413,7 @@ export function usePersistenceCoordinator({
     const retryReady = retryState?.sessionKey === sessionKey
       && retryState.consecutiveFailures > 0
       && !retryState.coolingDown;
-    if (!active || !documentIdentity || (!dirty && !retryReady)) return;
+    if (!snapshotActive || !documentIdentity || (!dirty && !retryReady)) return;
 
     // A completed cooldown remains retry-ready while a dialog temporarily
     // deactivates persistence. Retry checkpoints never merge away the last
@@ -421,7 +425,7 @@ export function usePersistenceCoordinator({
       preservePrevious: retryReady,
     });
   }, [
-    active,
+    snapshotActive,
     dirty,
     documentIdentity,
     enqueueSnapshot,
@@ -430,17 +434,17 @@ export function usePersistenceCoordinator({
   ]);
 
   useEffect(() => {
-    if (!active || !documentIdentity) return;
+    if (!snapshotActive || !documentIdentity) return;
 
     const interval = setInterval(() => {
       void enqueueSnapshot({ required: false, preservePrevious: true });
     }, SNAPSHOT_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [active, documentIdentity, enqueueSnapshot, sessionKey]);
+  }, [documentIdentity, enqueueSnapshot, sessionKey, snapshotActive]);
 
   useEffect(() => {
     clearAutosaveTimer();
-    if (!active
+    if (!autosaveActive
       || !dirty
       || !autosaveAvailable
       || autosaveIssueRef.current) {
@@ -453,7 +457,7 @@ export function usePersistenceCoordinator({
     }, AUTOSAVE_IDLE_MS);
     return clearAutosaveTimer;
   }, [
-    active,
+    autosaveActive,
     autosaveAvailable,
     autosaveGeneration,
     bufferVersion,

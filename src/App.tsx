@@ -32,7 +32,9 @@ import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
-import type { OpenRequestSource, PublishedDocument } from "./hooks/useMarkdownFile";
+import type { PublishedDocument } from "./hooks/useMarkdownFile";
+import { useDocumentReconciliation } from "./hooks/useDocumentReconciliation";
+import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { useRecentFiles } from "./hooks/useRecentFiles";
@@ -54,8 +56,14 @@ import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveResult } from "./lib/editor-save";
-import { normalizeFileError } from "./lib/native-file-error";
-import { isDocumentOpen, shouldCloseDocumentAfterOpenFailure } from "./lib/document-state";
+import { appErrorFromNative, normalizeFileError } from "./lib/native-file-error";
+import { isDocumentOpen } from "./lib/document-state";
+import { reconciliationProbeFailure } from "./lib/document-reconciliation";
+import type {
+  ReconciliationDecision,
+  ReconciliationProbeResult,
+  ReconciliationSnapshot,
+} from "./lib/document-reconciliation";
 import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode, decideNativeCloseRequest, windowClosePolicy } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
@@ -94,7 +102,7 @@ import type {
   SnapshotStorageStats,
 } from "./lib/snapshots";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { FileRevision, HighlightColor, OpenFileResult, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type PendingAction =
@@ -227,14 +235,17 @@ function App() {
     error,
     loading,
     openingPath,
-    userOpenInFlight,
     getPublishedDocument,
+    getOpenOwnership,
     openFile,
     openFilePath,
     openFilePathWithStatus,
-    closeFile,
     setVirtualContent,
     adoptSavedFile,
+    adoptReconciledDocument,
+    refreshReconciledRevision,
+    reportReconciliationError,
+    clearReconciliationError,
     supersedePendingOpen,
     dismissError,
   } = useMarkdownFile();
@@ -326,7 +337,6 @@ function App() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [focusedCharacter, setFocusedCharacter] = useState<string | null>(null);
   const slidesRef = useRef<Slide[]>([]);
-  const presentationDeferredReloadRef = useRef(false);
 
   const documentOpen = isDocumentOpen(content);
   const welcomeContent = useMemo(
@@ -561,6 +571,11 @@ function App() {
     return outcome.status;
   }, [flashSaved, saveCurrentEdits]);
 
+  const editorPersistenceActive = editing
+    && restoreDialog === null
+    && !showConfirmDialog
+    && !showConflictDialog;
+
   const {
     snapshotError,
     autosaveIssue,
@@ -572,10 +587,8 @@ function App() {
     clearAutosaveIssue,
     recordSaveResult,
   } = usePersistenceCoordinator({
-    active: editing
-      && restoreDialog === null
-      && !showConfirmDialog
-      && !showConflictDialog,
+    snapshotActive: editorPersistenceActive,
+    autosaveActive: editorPersistenceActive && editor.externalChange === null,
     dirty: editor.dirty,
     sessionKey: editorSessionKey,
     document: snapshotDocument,
@@ -584,10 +597,198 @@ function App() {
     bufferVersion: editor.buffer,
     onAutosave: performAutosave,
   });
-  const saveWarning = autosaveIssue?.message
-    ?? (snapshotError
-      ? `Recovery snapshots are temporarily unavailable; retrying automatically: ${snapshotError}`
-      : null);
+  let saveWarning = autosaveIssue?.message ?? null;
+  if (saveWarning === null && snapshotError) {
+    saveWarning = `Recovery snapshots are temporarily unavailable; retrying automatically: ${snapshotError}`;
+  }
+  if (editor.externalChange) {
+    saveWarning = "Autosave is paused because the file changed outside Bindars.";
+  }
+
+  const getReconciliationSnapshot = useCallback((): ReconciliationSnapshot | null => {
+    const published = getPublishedDocument();
+    const path = published.filePath;
+    if (path === null || published.content === null) return null;
+
+    const ownership = getOpenOwnership();
+    const common = {
+      documentId: toPathIdentityKey(path),
+      filePath: path,
+      publishedRevision: published.fileRevision,
+      ownershipToken: `${ownership.generation}:${nextActionAdmissionIdRef.current}:${editorSessionKeyRef.current}`,
+      userOpenInFlight: ownership.userOpenInFlight,
+      guardedActionInFlight: actionAdmissionOwnerRef.current !== null,
+    };
+
+    if (!editingRef.current) {
+      return {
+        ...common,
+        sessionId: ownership.generation,
+        mode: "reader",
+        content: published.content,
+        dirty: false,
+        expectedRevision: null,
+      };
+    }
+
+    const editorState = editor.getReconciliationState();
+    if (
+      !editorState
+      || !editingFilePathRef.current
+      || toPathIdentityKey(editingFilePathRef.current) !== common.documentId
+    ) {
+      return null;
+    }
+    return {
+      ...common,
+      sessionId: editorState.sessionId,
+      mode: "editor",
+      content: editorState.content,
+      dirty: editorState.dirty,
+      expectedRevision: editorState.expectedRevision,
+    };
+  }, [editor, getOpenOwnership, getPublishedDocument]);
+
+  const probeForReconciliation = useCallback(async (
+    snapshot: ReconciliationSnapshot,
+  ): Promise<ReconciliationProbeResult> => {
+    try {
+      const document = await invoke<OpenFileResult>("open_markdown_file", {
+        path: snapshot.filePath,
+      });
+      return {
+        status: "available",
+        documentId: toPathIdentityKey(document.canonicalPath),
+        document,
+      };
+    } catch (probeError) {
+      return reconciliationProbeFailure(
+        appErrorFromNative(probeError, "Bindars couldn't check the open document."),
+      );
+    }
+  }, []);
+
+  const applyReconciliationDecision = useCallback((
+    decision: ReconciliationDecision,
+    signal: ReconciliationSignal,
+  ) => {
+    // A watcher probe can already be active when watcher setup settles and
+    // queues the editor-exit probe. Until that queued owner completes, every
+    // reload for this document must preserve the captured editor source anchor.
+    const pendingExit = pendingExitReconciliationRef.current;
+    const preserveReaderPosition = (documentId: string) => {
+      if (pendingExit?.readerTarget) {
+        setPendingReaderTarget({
+          kind: "source",
+          source: pendingExit.readerTarget.source,
+          viewportOffsetPx: pendingExit.readerTarget.viewportOffsetPx,
+          documentKey: documentId,
+          editorSessionKey: pendingExit.editorSessionKey,
+        });
+        return;
+      }
+
+      const headingId = activeHeadingIdRef.current;
+      setPendingReaderTarget(headingId ? {
+        kind: "heading",
+        headingId,
+        documentKey: documentId,
+      } : null);
+    };
+
+    switch (decision.kind) {
+      case "no-change":
+        clearReconciliationError();
+        break;
+      case "refresh-equal-revision":
+        if (decision.mode === "editor") {
+          let refreshed: boolean;
+          if (decision.dirty) {
+            if (decision.capturedExpectedRevision === null) return;
+            refreshed = editor.refreshDirtyExpectedRevision(
+              decision.sessionId,
+              decision.capturedExpectedRevision,
+              decision.revision,
+            );
+          } else {
+            refreshed = editor.refreshCleanExpectedRevision(
+              decision.sessionId,
+              decision.capturedContent,
+              decision.capturedExpectedRevision,
+              decision.revision,
+            );
+          }
+          if (!refreshed) return;
+        }
+        refreshReconciledRevision(decision.revision);
+        break;
+      case "reload-reader":
+        preserveReaderPosition(decision.documentId);
+        adoptReconciledDocument(decision.document);
+        break;
+      case "refresh-clean-editor": {
+        const refreshed = editor.refreshCleanBuffer(
+          decision.sessionId,
+          decision.capturedContent,
+          decision.capturedExpectedRevision,
+          decision.document.content,
+          decision.document.revision,
+          (capturedDocument, externalDocument) => (
+            editorSurfaceRef.current?.adoptExternalDocument(
+              capturedDocument,
+              externalDocument,
+            ) ?? false
+          ),
+        );
+        if (!refreshed) return;
+        adoptReconciledDocument(decision.document);
+        break;
+      }
+      case "protect-dirty-editor":
+        editor.protectFromExternalChange(decision.sessionId, "changed");
+        clearReconciliationError();
+        break;
+      case "recover-deleted":
+        if (decision.mode === "editor") {
+          editor.protectFromExternalChange(decision.sessionId, "deleted");
+        } else {
+          reportReconciliationError({
+            ...decision.error,
+            message: "This file was deleted outside Bindars. The current document remains open so its contents can be recovered.",
+          });
+        }
+        break;
+      case "recover-unavailable":
+        reportReconciliationError({
+          ...decision.error,
+          message: decision.reason === "timeout"
+            ? "Checking this file timed out. The current document remains open; try again when the file is available."
+            : decision.error.message,
+        });
+        break;
+      case "stale-noop":
+        return;
+    }
+
+    if (signal === "editor-exit") pendingExitReconciliationRef.current = null;
+  }, [
+    adoptReconciledDocument,
+    clearReconciliationError,
+    editor,
+    refreshReconciledRevision,
+    reportReconciliationError,
+  ]);
+
+  const {
+    requestReconciliation,
+    resumeDeferredReconciliation,
+    supersedeReconciliation,
+  } = useDocumentReconciliation({
+    presentationActive: presentationMode,
+    getSnapshot: getReconciliationSnapshot,
+    probe: probeForReconciliation,
+    applyDecision: applyReconciliationDecision,
+  });
 
   const loadRecoveryStorageStats = useCallback(async (): Promise<void> => {
     const request = recoveryStorageStatsRequestRef.current + 1;
@@ -674,17 +875,6 @@ function App() {
     }
   }, [cancelAutosaveAndWait, clearAutosaveIssue, flashSaved, recordSaveResult, saveCurrentEditsWithRecovery]);
 
-  const reloadOpenDocument = useCallback(
-    async (path: string, source: OpenRequestSource) => {
-      const result = await openFilePathWithStatus(path, source);
-      if (result.status === "failed" && shouldCloseDocumentAfterOpenFailure(result.error)) {
-        closeFile();
-      }
-      return result;
-    },
-    [closeFile, openFilePathWithStatus],
-  );
-
   const beginEditSession = useCallback((
     initialContent: string,
     revision: FileRevision | null,
@@ -693,6 +883,7 @@ function App() {
     readerAnchor: ReaderAnchor | null = null,
     restoredDraftDocument: SnapshotDocument | null = null,
   ) => {
+    supersedeReconciliation();
     pendingExitReconciliationRef.current = null;
     supersedePendingOpen();
     const nextSessionKey = editorSessionKeyRef.current + 1;
@@ -722,7 +913,7 @@ function App() {
     saveContinuationIntentRef.current = null;
     setSavedFlash(false);
     if (searchVisible) closeSearch();
-  }, [closeSearch, editor, searchVisible, supersedePendingOpen]);
+  }, [closeSearch, editor, searchVisible, supersedePendingOpen, supersedeReconciliation]);
 
   const enterEditMode = useCallback(() => {
     if (
@@ -742,6 +933,7 @@ function App() {
   }, [beginEditSession, content, documentTransitionInFlight, editing, fileName, filePath, fileRevision, loading]);
 
   const resetEditSession = useCallback(() => {
+    supersedeReconciliation();
     editor.exitEditMode();
     editingFilePathRef.current = null;
     snapshotDocumentRef.current = null;
@@ -754,7 +946,7 @@ function App() {
     editingRef.current = false;
     dirtyRef.current = false;
     saveContinuationIntentRef.current = null;
-  }, [editor]);
+  }, [editor, supersedeReconciliation]);
 
   const publishSourceReaderTarget = useCallback((
     readerTarget: ReaderAnchor | null,
@@ -845,7 +1037,8 @@ function App() {
     documentTransitionInFlightRef.current = false;
     setActionAdmissionInFlight(false);
     setDocumentTransitionInFlight(false);
-  }, []);
+    resumeDeferredReconciliation();
+  }, [resumeDeferredReconciliation]);
 
   const cancelPendingAction = useCallback(() => {
     const admitted = pendingActionRef.current;
@@ -977,7 +1170,7 @@ function App() {
       setPresentationMode(false);
       setCurrentSlide(0);
       slidesRef.current = [];
-      presentationDeferredReloadRef.current = false;
+      supersedeReconciliation();
     }
     if (decision === "run-after-exit") {
       resetEditSession();
@@ -991,7 +1184,7 @@ function App() {
     pendingActionRef.current = admitted;
     void flushBeforeContinuation();
     return "accepted";
-  }, [beginActionAdmission, executeAdmittedAction, flushAndReadDirty, presentationMode, resetEditSession, flushBeforeContinuation]);
+  }, [beginActionAdmission, executeAdmittedAction, flushAndReadDirty, presentationMode, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
   // The native close and quit listeners are registered once; these mirrors
   // keep them pointed at the current guard admission.
   const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
@@ -1685,7 +1878,7 @@ function App() {
       // bypass this supersession guard.
       const openAttemptId = ++openAttemptIdRef.current;
       setPendingReaderTarget(null);
-      const result = await openFilePathWithStatus(path, "user");
+      const result = await openFilePathWithStatus(path);
       if (openAttemptIdRef.current !== openAttemptId) return false;
 
       if (result.status === "opened" && headingId) {
@@ -1800,11 +1993,6 @@ function App() {
 
   // File watcher: auto-reload on external changes
   const handleFileChanged = useCallback((changedPath: string) => {
-    if (userOpenInFlight) return;
-    if (presentationMode) {
-      presentationDeferredReloadRef.current = true;
-      return;
-    }
     const currentPath = currentPositionRef.current.filePath;
     if (!currentPath) return;
 
@@ -1812,24 +2000,16 @@ function App() {
     const currentPathKey = toPathIdentityKey(currentPath);
     if (!changedPathKey || changedPathKey !== currentPathKey) return;
 
-    const headingId = currentPositionRef.current.headingId;
-    void reloadOpenDocument(currentPath, "watcher").then((result) => {
-      if (result.status === "opened" && result.contentChanged) {
-        openAttemptIdRef.current += 1;
-        setPendingReaderTarget(headingId ? {
-          kind: "heading",
-          headingId,
-          documentKey: toPathIdentityKey(currentPath),
-        } : null);
-      }
-    });
-  }, [reloadOpenDocument, userOpenInFlight, presentationMode]);
+    void requestReconciliation("watcher");
+  }, [requestReconciliation]);
 
   const handleWatchSettled = useCallback((watchedPath: string) => {
     const pending = pendingExitReconciliationRef.current;
     if (!pending) return;
-    pendingExitReconciliationRef.current = null;
-    if (toPathIdentityKey(pending.path) !== toPathIdentityKey(watchedPath)) return;
+    if (toPathIdentityKey(pending.path) !== toPathIdentityKey(watchedPath)) {
+      pendingExitReconciliationRef.current = null;
+      return;
+    }
 
     const currentPath = currentFilePathRef.current;
     if (
@@ -1838,21 +2018,16 @@ function App() {
       || !currentPath
       || toPathIdentityKey(currentPath) !== toPathIdentityKey(pending.path)
     ) {
+      pendingExitReconciliationRef.current = null;
       return;
     }
 
-    void reloadOpenDocument(pending.path, "reconcile").then((result) => {
-      if (result.status === "opened" && result.contentChanged) {
-        publishSourceReaderTarget(
-          pending.readerTarget,
-          toPathIdentityKey(result.canonicalPath),
-          pending.editorSessionKey,
-        );
+    void requestReconciliation("editor-exit").then((result) => {
+      if (result.kind === "stale-noop") {
+        pendingExitReconciliationRef.current = null;
       }
-    }).catch((err) => {
-      console.warn("[exitEditMode] Failed to re-read file:", err);
     });
-  }, [publishSourceReaderTarget, reloadOpenDocument]);
+  }, [requestReconciliation]);
 
   useFileWatcher({
     filePath,
@@ -2094,24 +2269,7 @@ function App() {
     setPresentationMode(false);
     setCurrentSlide(0);
     slidesRef.current = [];
-    if (presentationDeferredReloadRef.current) {
-      presentationDeferredReloadRef.current = false;
-      const currentPath = currentPositionRef.current.filePath;
-      if (currentPath) {
-        const headingId = currentPositionRef.current.headingId;
-        void reloadOpenDocument(currentPath, "watcher").then((result) => {
-          if (result.status === "opened") {
-            openAttemptIdRef.current += 1;
-            setPendingReaderTarget(headingId ? {
-              kind: "heading",
-              headingId,
-              documentKey: toPathIdentityKey(currentPath),
-            } : null);
-          }
-        });
-      }
-    }
-  }, [reloadOpenDocument]);
+  }, []);
 
   const nextSlide = useCallback(() => {
     setCurrentSlide((i) => Math.min(i + 1, slidesRef.current.length - 1));
@@ -2195,7 +2353,7 @@ function App() {
         await openFile();
         return;
       case "open-file-path":
-        await openFilePath(action.path, "user");
+        await openFilePath(action.path);
         return;
       case "open-recent":
         await handleOpenRecent(action.path);

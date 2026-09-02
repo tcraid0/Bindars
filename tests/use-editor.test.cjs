@@ -364,6 +364,313 @@ test("useEditor preserves newer typing when a save fails", async () => {
   }
 });
 
+test("equal-byte reconciliation refreshes the conditional-save revision", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    const touchedRevision = { mtimeMs: 2, size: 5, contentHash: "before" };
+    enterEditMode(rendered, "Draft");
+    const captured = rendered.api().getReconciliationState();
+    let refreshed;
+    flushSync(() => {
+      refreshed = rendered.api().refreshCleanExpectedRevision(
+        captured.sessionId,
+        captured.content,
+        captured.expectedRevision,
+        touchedRevision,
+      );
+    });
+    assert.equal(refreshed, true);
+
+    updateBuffer(rendered, "Draft with local words");
+    const savePromise = startSave(rendered);
+    assert.deepEqual(writes[0].args.expectedRevision, touchedRevision);
+    await settleSave(
+      writes[0],
+      savePromise,
+      successfulWrite({ mtimeMs: 3, size: 22, contentHash: "saved" }, "/tmp/draft.md"),
+    );
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("dirty equal-byte reconciliation refreshes only the expected revision", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    const touchedRevision = { mtimeMs: 2, size: 5, contentHash: "before" };
+    enterEditMode(rendered, "Draft");
+    updateBuffer(rendered, "Draft with local words");
+    const captured = rendered.api().getReconciliationState();
+    updateBuffer(rendered, "Draft with still newer local words");
+
+    let refreshed;
+    flushSync(() => {
+      refreshed = rendered.api().refreshDirtyExpectedRevision(
+        captured.sessionId,
+        captured.expectedRevision,
+        touchedRevision,
+      );
+    });
+    assert.equal(refreshed, true);
+    assert.equal(rendered.api().buffer, "Draft with still newer local words");
+    assert.equal(rendered.api().dirty, true);
+
+    const savePromise = startSave(rendered);
+    assert.deepEqual(writes[0].args.expectedRevision, touchedRevision);
+    await settleSave(
+      writes[0],
+      savePromise,
+      successfulWrite({ mtimeMs: 3, size: 34, contentHash: "saved" }, "/tmp/draft.md"),
+    );
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("clean-editor reconciliation refreshes baseline, buffer, and expected revision atomically", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+
+  try {
+    const externalRevision = { mtimeMs: 2, size: 14, contentHash: "external" };
+    enterEditMode(rendered, "Draft");
+    const captured = rendered.api().getReconciliationState();
+    const adoptions = [];
+    let refreshed;
+    flushSync(() => {
+      refreshed = rendered.api().refreshCleanBuffer(
+        captured.sessionId,
+        captured.content,
+        captured.expectedRevision,
+        "External words",
+        externalRevision,
+        (capturedDocument, externalDocument) => {
+          adoptions.push({ capturedDocument, externalDocument });
+          return true;
+        },
+      );
+    });
+
+    assert.equal(refreshed, true);
+    assert.equal(rendered.api().buffer, "External words");
+    assert.equal(rendered.api().dirty, false);
+    assert.deepEqual(adoptions, [{
+      capturedDocument: "Draft",
+      externalDocument: "External words",
+    }]);
+    assert.deepEqual(rendered.api().getReconciliationState(), {
+      sessionId: captured.sessionId,
+      content: "External words",
+      dirty: false,
+      expectedRevision: externalRevision,
+    });
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("clean-editor reconciliation refuses a changed session or buffer", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Draft");
+    const captured = rendered.api().getReconciliationState();
+    updateBuffer(rendered, "Local words");
+    assert.equal(rendered.api().refreshCleanBuffer(
+      captured.sessionId,
+      captured.content,
+      captured.expectedRevision,
+      "External words",
+      { mtimeMs: 2, size: 14, contentHash: "external" },
+      () => {
+        throw new Error("stale clean state must not reach the surface");
+      },
+    ), false);
+    assert.equal(rendered.api().buffer, "Local words");
+    assert.equal(rendered.api().dirty, true);
+
+    enterEditMode(rendered, "New session");
+    assert.equal(rendered.api().refreshCleanExpectedRevision(
+      captured.sessionId,
+      captured.content,
+      captured.expectedRevision,
+      { mtimeMs: 3, size: 11, contentHash: "new" },
+    ), false);
+    assert.equal(rendered.api().buffer, "New session");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("clean-editor reconciliation retains newer surface typing when atomic adoption fails", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Draft");
+    const captured = rendered.api().getReconciliationState();
+    let refreshed;
+    flushSync(() => {
+      refreshed = rendered.api().refreshCleanBuffer(
+        captured.sessionId,
+        captured.content,
+        captured.expectedRevision,
+        "External words",
+        { mtimeMs: 2, size: 14, contentHash: "external" },
+        () => {
+          rendered.api().updateBuffer("Newer surface typing");
+          return false;
+        },
+      );
+    });
+
+    assert.equal(refreshed, false);
+    assert.equal(rendered.api().buffer, "Newer surface typing");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().externalChange, "changed");
+    assert.match(rendered.api().saveError, /buffer is preserved and autosave is paused/);
+    assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("dirty external-change protection retains exact words and an existing save problem", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Draft");
+    updateBuffer(rendered, "Exact local words");
+    const failedSave = startSave(rendered);
+    await rejectSave(writes[0], failedSave, new Error("Disk full"));
+    const captured = rendered.api().getReconciliationState();
+
+    flushSync(() => {
+      rendered.api().protectFromExternalChange(captured.sessionId, "changed");
+    });
+    assert.equal(rendered.api().buffer, "Exact local words");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().externalChange, "changed");
+    assert.equal(rendered.api().saveError, "Disk full");
+
+    updateBuffer(rendered, "Exact local words plus more");
+    assert.equal(rendered.api().buffer, "Exact local words plus more");
+    assert.equal(rendered.api().externalChange, "changed");
+    assert.equal(rendered.api().saveError, "Disk full");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("an unresolved external change stays recovery-required after undoing to the old baseline", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Draft");
+    updateBuffer(rendered, "Local words");
+    const captured = rendered.api().getReconciliationState();
+    flushSync(() => {
+      rendered.api().protectFromExternalChange(captured.sessionId, "changed");
+      rendered.api().updateBuffer("Draft");
+    });
+
+    assert.equal(rendered.api().buffer, "Draft");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().externalChange, "changed");
+    assert.deepEqual(rendered.api().captureSnapshotBuffer(), {
+      content: "Draft",
+      dirty: true,
+    });
+
+    const conflictedSave = startSave(rendered);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].args.content, "Draft");
+    assert.deepEqual(writes[0].args.expectedRevision, originalRevision);
+    assert.equal((await settleSave(
+      writes[0],
+      conflictedSave,
+      conflictingWrite({ mtimeMs: 2, size: 14, contentHash: "external" }),
+    )).status, "conflict");
+    assert.equal(rendered.api().dirty, true);
+
+    const overwrite = startSave(rendered, "/tmp/draft.md", { force: true });
+    assert.equal((await settleSave(
+      writes[1],
+      overwrite,
+      successfulWrite({ mtimeMs: 3, size: 5, contentHash: "saved" }, "/tmp/draft.md"),
+    )).status, "saved");
+    assert.equal(rendered.api().dirty, false);
+    assert.equal(rendered.api().externalChange, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("confirmed deletion preserves even a clean editor buffer for later recovery", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Recoverable words");
+    const captured = rendered.api().getReconciliationState();
+    flushSync(() => {
+      rendered.api().protectFromExternalChange(captured.sessionId, "deleted");
+    });
+
+    assert.equal(rendered.api().buffer, "Recoverable words");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().externalChange, "deleted");
+    assert.match(rendered.api().saveError, /deleted outside Bindars/);
+    assert.deepEqual(rendered.api().captureSnapshotBuffer(), {
+      content: "Recoverable words",
+      dirty: true,
+    });
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("conditional save retries one equal-content metadata conflict", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    const touchedRevision = { mtimeMs: 2, size: 5, contentHash: "before" };
+    enterEditMode(rendered, "Draft");
+    updateBuffer(rendered, "Local words");
+    const savePromise = startSave(rendered);
+
+    await act(async () => {
+      writes[0].resolve(conflictingWrite(touchedRevision));
+      await Promise.resolve();
+    });
+    assert.equal(writes.length, 2);
+    assert.deepEqual(writes[1].args.expectedRevision, touchedRevision);
+
+    const result = await settleSave(
+      writes[1],
+      savePromise,
+      successfulWrite({ mtimeMs: 3, size: 11, contentHash: "saved" }, "/tmp/draft.md"),
+    );
+    assert.equal(result.status, "saved");
+    assert.equal(rendered.api().saveError, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("read-only save failure exposes a working Save As recovery", async () => {
   await installDom();
   const operations = mockPendingSaveAsTransactions();

@@ -13,7 +13,10 @@ import type {
   EditorSaveResult,
   SaveErrorRecovery,
 } from "../lib/editor-save";
+import { sameFileRevision } from "../lib/document-reconciliation";
 import type { ConditionalWriteResult, FileRevision } from "../types";
+
+export type EditorExternalChange = "changed" | "deleted";
 
 interface EditorState {
   buffer: string | null;
@@ -21,6 +24,7 @@ interface EditorState {
   saving: boolean;
   saveError: string | null;
   saveErrorRecovery: SaveErrorRecovery;
+  externalChange: EditorExternalChange | null;
 }
 
 interface SaveOptions {
@@ -33,6 +37,11 @@ export interface CapturedEditorBuffer {
   dirty: boolean;
 }
 
+export interface EditorReconciliationState extends CapturedEditorBuffer {
+  sessionId: number;
+  expectedRevision: FileRevision | null;
+}
+
 type UnsuccessfulEditorSaveResult = Exclude<
   EditorSaveResult,
   "saved" | "saved-with-newer-edits"
@@ -41,6 +50,16 @@ type UnsuccessfulEditorSaveResult = Exclude<
 export type EditorSaveAsResult = EditorSaveOutcome;
 
 export type FlushPendingBuffer = () => boolean | null;
+export type AdoptExternalDocument = (
+  capturedDocument: string,
+  externalDocument: string,
+) => boolean;
+
+function externalChangeMessage(change: EditorExternalChange): string {
+  return change === "deleted"
+    ? "This file was deleted outside Bindars. Your editor buffer is preserved and autosave is paused."
+    : "The file changed outside Bindars. Your editor buffer is preserved and autosave is paused.";
+}
 
 export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   const [state, setState] = useState<EditorState>({
@@ -49,11 +68,13 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     saving: false,
     saveError: null,
     saveErrorRecovery: null,
+    externalChange: null,
   });
 
   const originalContentRef = useRef<string>("");
   const bufferRef = useRef<string | null>(null);
   const expectedRevisionRef = useRef<FileRevision | null>(null);
+  const recoveryRequiredRef = useRef(false);
   const editSessionRef = useRef(0);
   const savingSessionRef = useRef<number | null>(null);
   const flushPendingBufferRef = useRef(flushPendingBuffer);
@@ -64,24 +85,26 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     originalContentRef.current = content;
     bufferRef.current = content;
     expectedRevisionRef.current = expectedRevision;
+    recoveryRequiredRef.current = false;
     setState({
       buffer: content,
       dirty: false,
       saving: false,
       saveError: null,
       saveErrorRecovery: null,
+      externalChange: null,
     });
   }, []);
 
   const updateBuffer = useCallback((content: string): boolean => {
-    const dirty = content !== originalContentRef.current;
+    const dirty = recoveryRequiredRef.current || content !== originalContentRef.current;
     bufferRef.current = content;
     setState((prev) => ({
       ...prev,
       buffer: content,
       dirty,
-      saveError: null,
-      saveErrorRecovery: null,
+      saveError: prev.externalChange ? prev.saveError : null,
+      saveErrorRecovery: prev.externalChange ? prev.saveErrorRecovery : null,
     }));
     return dirty;
   }, []);
@@ -103,8 +126,113 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     if (content === null) return null;
     return {
       content,
-      dirty: content !== originalContentRef.current,
+      dirty: recoveryRequiredRef.current || content !== originalContentRef.current,
     };
+  }, []);
+
+  const getReconciliationState = useCallback((): EditorReconciliationState | null => {
+    flushPendingBufferRef.current?.();
+    const content = bufferRef.current;
+    if (content === null) return null;
+    return {
+      sessionId: editSessionRef.current,
+      content,
+      dirty: recoveryRequiredRef.current || content !== originalContentRef.current,
+      expectedRevision: expectedRevisionRef.current,
+    };
+  }, []);
+
+  const ownsReconciliationSession = useCallback((
+    sessionId: number,
+    capturedExpectedRevision: FileRevision | null,
+  ): boolean => {
+    flushPendingBufferRef.current?.();
+    return editSessionRef.current === sessionId
+      && bufferRef.current !== null
+      && sameFileRevision(expectedRevisionRef.current, capturedExpectedRevision);
+  }, []);
+
+  const ownsCleanReconciliation = useCallback((
+    sessionId: number,
+    capturedContent: string,
+    capturedExpectedRevision: FileRevision | null,
+  ): boolean => {
+    return ownsReconciliationSession(sessionId, capturedExpectedRevision)
+      && bufferRef.current === capturedContent
+      && bufferRef.current === originalContentRef.current;
+  }, [ownsReconciliationSession]);
+
+  const refreshCleanExpectedRevision = useCallback((
+    sessionId: number,
+    capturedContent: string,
+    capturedExpectedRevision: FileRevision | null,
+    revision: FileRevision,
+  ): boolean => {
+    if (!ownsCleanReconciliation(sessionId, capturedContent, capturedExpectedRevision)) return false;
+    expectedRevisionRef.current = revision;
+    return true;
+  }, [ownsCleanReconciliation]);
+
+  const refreshDirtyExpectedRevision = useCallback((
+    sessionId: number,
+    capturedExpectedRevision: FileRevision,
+    revision: FileRevision,
+  ): boolean => {
+    if (!ownsReconciliationSession(sessionId, capturedExpectedRevision)) return false;
+    expectedRevisionRef.current = revision;
+    return true;
+  }, [ownsReconciliationSession]);
+
+  const refreshCleanBuffer = useCallback((
+    sessionId: number,
+    capturedContent: string,
+    capturedExpectedRevision: FileRevision | null,
+    content: string,
+    revision: FileRevision,
+    adoptExternalDocument: AdoptExternalDocument,
+  ): boolean => {
+    if (!ownsCleanReconciliation(sessionId, capturedContent, capturedExpectedRevision)) return false;
+    if (!adoptExternalDocument(capturedContent, content)) {
+      if (editSessionRef.current === sessionId && bufferRef.current !== null) {
+        recoveryRequiredRef.current = true;
+        setState((prev) => ({
+          ...prev,
+          dirty: true,
+          externalChange: "changed",
+          saveError: prev.saveError ?? externalChangeMessage("changed"),
+        }));
+      }
+      return false;
+    }
+
+    originalContentRef.current = content;
+    bufferRef.current = content;
+    expectedRevisionRef.current = revision;
+    recoveryRequiredRef.current = false;
+    setState((prev) => ({
+      ...prev,
+      buffer: content,
+      dirty: false,
+      externalChange: null,
+    }));
+    return true;
+  }, [ownsCleanReconciliation]);
+
+  const protectFromExternalChange = useCallback((
+    sessionId: number,
+    change: EditorExternalChange,
+  ): boolean => {
+    flushPendingBufferRef.current?.();
+    if (editSessionRef.current !== sessionId || bufferRef.current === null) return false;
+    recoveryRequiredRef.current = true;
+
+    setState((prev) => ({
+      ...prev,
+      dirty: true,
+      externalChange: change,
+      saveError: prev.saveError ?? externalChangeMessage(change),
+    }));
+    return true;
   }, []);
 
   const beginSave = useCallback((): number | null => {
@@ -130,9 +258,11 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     if (!syncCurrentSession(editSession)) return "stale";
 
     if (result.conflict) {
+      recoveryRequiredRef.current = true;
       setState((prev) => ({
         ...prev,
         saving: false,
+        dirty: true,
         saveError: quiet
           ? null
           : "This file changed outside Bindars. Reload or overwrite to continue.",
@@ -143,11 +273,13 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
 
     originalContentRef.current = savedBuffer;
     expectedRevisionRef.current = result.currentRevision;
+    recoveryRequiredRef.current = false;
     const hasNewerEdits = bufferRef.current !== savedBuffer;
     setState((prev) => ({
       ...prev,
       saving: false,
       dirty: hasNewerEdits,
+      externalChange: null,
     }));
     return hasNewerEdits ? "saved-with-newer-edits" : "saved";
   }, [syncCurrentSession]);
@@ -161,9 +293,11 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     if (!syncCurrentSession(editSession)) return "stale";
 
     if (deletedFileIsConflict && isRecoverableDeletedFileSaveError(error)) {
+      recoveryRequiredRef.current = true;
       setState((prev) => ({
         ...prev,
         saving: false,
+        dirty: true,
         saveError: quiet
           ? null
           : "This file was deleted outside Bindars. Overwrite to recreate it.",
@@ -208,12 +342,26 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         return { status: "error" };
       }
 
-      const result = await invoke<ConditionalWriteResult>("write_markdown_file_if_unmodified", {
+      let result = await invoke<ConditionalWriteResult>("write_markdown_file_if_unmodified", {
         path: filePath,
         content: currentBuffer,
         expectedRevision,
         force: options?.force ?? false,
       });
+      if (
+        !options?.force
+        && expectedRevision !== null
+        && result.conflict
+        && result.currentRevision.size === expectedRevision.size
+        && result.currentRevision.contentHash === expectedRevision.contentHash
+      ) {
+        result = await invoke<ConditionalWriteResult>("write_markdown_file_if_unmodified", {
+          path: filePath,
+          content: currentBuffer,
+          expectedRevision: result.currentRevision,
+          force: false,
+        });
+      }
       const status = completeWrite(editSession, currentBuffer, result, options?.quiet ?? false);
       return status === "saved" || status === "saved-with-newer-edits"
         ? successfulSaveOutcome(status, currentBuffer, result)
@@ -299,12 +447,14 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     originalContentRef.current = "";
     bufferRef.current = null;
     expectedRevisionRef.current = null;
+    recoveryRequiredRef.current = false;
     setState({
       buffer: null,
       dirty: false,
       saving: false,
       saveError: null,
       saveErrorRecovery: null,
+      externalChange: null,
     });
   }, []);
 
@@ -322,10 +472,16 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     saving: state.saving,
     saveError: state.saveError,
     saveErrorRecovery: state.saveErrorRecovery,
+    externalChange: state.externalChange,
     enterEditMode,
     updateBuffer,
     flushAndReadBuffer,
     captureSnapshotBuffer,
+    getReconciliationState,
+    refreshCleanExpectedRevision,
+    refreshDirtyExpectedRevision,
+    refreshCleanBuffer,
+    protectFromExternalChange,
     save,
     saveAs,
     exitEditMode,

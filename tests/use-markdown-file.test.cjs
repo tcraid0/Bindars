@@ -63,7 +63,7 @@ function mockPendingOpens() {
 function startOpen(rendered, path = "/tmp/Slow.md") {
   let openPromise;
   flushSync(() => {
-    openPromise = rendered.api().openFilePathWithStatus(path, "user");
+    openPromise = rendered.api().openFilePathWithStatus(path);
   });
   return openPromise;
 }
@@ -95,7 +95,6 @@ test("virtual content supersedes a slow successful open", async () => {
     assert.equal(rendered.api().filePath, null);
     assert.equal(rendered.api().fileName, "Untitled.md");
     assert.equal(rendered.api().loading, false);
-    assert.equal(rendered.api().userOpenInFlight, false);
   } finally {
     rendered.cleanup();
   }
@@ -212,7 +211,6 @@ test("normal open and saved-file adoption publish the same document fields", asy
     assert.deepEqual(openResult, {
       status: "opened",
       canonicalPath: "/canonical/Opened.md",
-      contentChanged: true,
     });
     const openedState = {
       content: rendered.api().content,
@@ -238,139 +236,7 @@ test("normal open and saved-file adoption publish the same document fields", asy
   }
 });
 
-test("reconciliation compares accepted bytes live while still publishing newer metadata", async () => {
-  await installDom();
-  const opens = mockPendingOpens();
-  const rendered = renderUseMarkdownFile();
-
-  try {
-    flushSync(() => rendered.api().adoptSavedFile({
-      content: "Same bytes",
-      canonicalPath: "/canonical/Draft.md",
-      name: "Draft.md",
-      revision: { mtimeMs: 1, size: 10, contentHash: "old" },
-    }));
-
-    let reconcilePromise;
-    flushSync(() => {
-      reconcilePromise = rendered.api().openFilePathWithStatus("/canonical/Draft.md", "reconcile");
-    });
-    assert.equal(rendered.api().loading, false);
-    assert.equal(rendered.api().userOpenInFlight, false);
-    assert.equal(rendered.api().openingPath, null);
-
-    const newerRevision = { mtimeMs: 2, size: 10, contentHash: "new" };
-    let result;
-    await act(async () => {
-      opens[0].resolve({
-        content: "Same bytes",
-        canonicalPath: "/normalized/Draft.md",
-        name: "Draft.md",
-        revision: newerRevision,
-      });
-      result = await reconcilePromise;
-    });
-
-    assert.deepEqual(result, {
-      status: "opened",
-      canonicalPath: "/normalized/Draft.md",
-      contentChanged: false,
-    });
-    assert.equal(rendered.api().content, "Same bytes");
-    assert.equal(rendered.api().filePath, "/normalized/Draft.md");
-    assert.deepEqual(rendered.api().fileRevision, newerRevision);
-  } finally {
-    rendered.cleanup();
-  }
-});
-
-test("superseded reconciliation publishes neither content nor a change result", async () => {
-  await installDom();
-  const opens = mockPendingOpens();
-  const rendered = renderUseMarkdownFile();
-
-  try {
-    flushSync(() => rendered.api().adoptSavedFile({
-      content: "Current bytes",
-      canonicalPath: "/canonical/Draft.md",
-      name: "Draft.md",
-      revision: savedRevision,
-    }));
-    let reconcilePromise;
-    flushSync(() => {
-      reconcilePromise = rendered.api().openFilePathWithStatus("/canonical/Draft.md", "reconcile");
-    });
-    flushSync(() => rendered.api().supersedePendingOpen());
-
-    let result;
-    await act(async () => {
-      opens[0].resolve({
-        content: "Stale external bytes",
-        canonicalPath: "/canonical/Draft.md",
-        name: "Draft.md",
-        revision: { mtimeMs: 3, size: 20, contentHash: "stale" },
-      });
-      result = await reconcilePromise;
-    });
-
-    assert.deepEqual(result, { status: "superseded" });
-    assert.equal(rendered.api().content, "Current bytes");
-    assert.deepEqual(rendered.api().fileRevision, savedRevision);
-  } finally {
-    rendered.cleanup();
-  }
-});
-
-test("a superseded visible request releases only the loading state it owns", async () => {
-  await installDom();
-  const opens = mockPendingOpens();
-  const rendered = renderUseMarkdownFile();
-
-  try {
-    let watcherPromise;
-    let reconcilePromise;
-    flushSync(() => {
-      watcherPromise = rendered.api().openFilePathWithStatus("/tmp/watched.md", "watcher");
-    });
-    assert.equal(rendered.api().loading, true);
-
-    flushSync(() => {
-      reconcilePromise = rendered.api().openFilePathWithStatus("/tmp/watched.md", "reconcile");
-    });
-    assert.equal(rendered.api().loading, true);
-
-    let reconcileResult;
-    await act(async () => {
-      opens[1].resolve({
-        content: "Reconciled",
-        canonicalPath: "/tmp/watched.md",
-        name: "watched.md",
-        revision: savedRevision,
-      });
-      reconcileResult = await reconcilePromise;
-    });
-    assert.equal(reconcileResult.status, "opened");
-    assert.equal(rendered.api().loading, true);
-
-    let watcherResult;
-    await act(async () => {
-      opens[0].resolve({
-        content: "Stale watcher",
-        canonicalPath: "/tmp/watched.md",
-        name: "watched.md",
-        revision: savedRevision,
-      });
-      watcherResult = await watcherPromise;
-    });
-    assert.deepEqual(watcherResult, { status: "superseded" });
-    assert.equal(rendered.api().loading, false);
-    assert.equal(rendered.api().content, "Reconciled");
-  } finally {
-    rendered.cleanup();
-  }
-});
-
-test("a newer visible request retains loading ownership when an older request settles", async () => {
+test("a newer user request retains loading ownership when an older request settles", async () => {
   await installDom();
   const opens = mockPendingOpens();
   const rendered = renderUseMarkdownFile();
@@ -379,8 +245,8 @@ test("a newer visible request retains loading ownership when an older request se
     let firstPromise;
     let secondPromise;
     flushSync(() => {
-      firstPromise = rendered.api().openFilePathWithStatus("/tmp/first.md", "watcher");
-      secondPromise = rendered.api().openFilePathWithStatus("/tmp/second.md", "watcher");
+      firstPromise = rendered.api().openFilePathWithStatus("/tmp/first.md");
+      secondPromise = rendered.api().openFilePathWithStatus("/tmp/second.md");
     });
 
     await act(async () => {
@@ -409,45 +275,14 @@ test("a newer visible request retains loading ownership when an older request se
   }
 });
 
-test("user ownership blocks watcher and reconciliation requests", async () => {
-  await installDom();
-  const opens = mockPendingOpens();
-  const rendered = renderUseMarkdownFile();
-
-  try {
-    const userPromise = startOpen(rendered, "/tmp/user.md");
-    assert.deepEqual(
-      await rendered.api().openFilePathWithStatus("/tmp/user.md", "watcher"),
-      { status: "superseded" },
-    );
-    assert.deepEqual(
-      await rendered.api().openFilePathWithStatus("/tmp/user.md", "reconcile"),
-      { status: "superseded" },
-    );
-    assert.equal(opens.length, 1);
-
-    await act(async () => {
-      opens[0].resolve({
-        content: "User",
-        canonicalPath: "/tmp/user.md",
-        name: "user.md",
-        revision: savedRevision,
-      });
-      assert.equal((await userPromise).status, "opened");
-    });
-  } finally {
-    rendered.cleanup();
-  }
-});
-
-test("unmount supersedes pending user and reconciliation completions", async () => {
+test("unmount supersedes a pending user completion", async () => {
   await installDom();
   const opens = mockPendingOpens();
   const rendered = renderUseMarkdownFile();
 
   let userPromise;
   flushSync(() => {
-    userPromise = rendered.api().openFilePathWithStatus("/tmp/user.md", "user");
+    userPromise = rendered.api().openFilePathWithStatus("/tmp/user.md");
   });
   rendered.cleanup();
   opens[0].resolve({
@@ -457,19 +292,4 @@ test("unmount supersedes pending user and reconciliation completions", async () 
     revision: savedRevision,
   });
   assert.deepEqual(await userPromise, { status: "superseded" });
-
-  const nextOpens = mockPendingOpens();
-  const next = renderUseMarkdownFile();
-  let reconcilePromise;
-  flushSync(() => {
-    reconcilePromise = next.api().openFilePathWithStatus("/tmp/reconcile.md", "reconcile");
-  });
-  next.cleanup();
-  nextOpens[0].resolve({
-    content: "Late reconcile",
-    canonicalPath: "/tmp/reconcile.md",
-    name: "reconcile.md",
-    revision: savedRevision,
-  });
-  assert.deepEqual(await reconcilePromise, { status: "superseded" });
 });
