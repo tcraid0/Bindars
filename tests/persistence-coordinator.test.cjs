@@ -57,7 +57,17 @@ function renderCoordinator(initialProps) {
   let props = initialProps;
 
   function Probe() {
-    apiRef.current = usePersistenceCoordinator(props);
+    const {
+      active,
+      snapshotActive = active,
+      autosaveActive = active,
+      ...coordinatorProps
+    } = props;
+    apiRef.current = usePersistenceCoordinator({
+      ...coordinatorProps,
+      snapshotActive,
+      autosaveActive,
+    });
     return null;
   }
 
@@ -131,6 +141,51 @@ test("automatic snapshots capture the first dirty buffer and each dirty interval
       content: "words after ten seconds",
       preservePrevious: true,
     });
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("external-change protection pauses autosave without pausing recovery snapshots", async (context) => {
+  await installDom();
+  context.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+  const writes = [];
+  let saveCount = 0;
+  let buffer = "protected local words";
+  mockIPC((command, args) => {
+    assert.equal(command, "write_document_snapshot");
+    writes.push(args);
+    return successfulSnapshotResult(args);
+  });
+  const rendered = renderCoordinator({
+    snapshotActive: true,
+    autosaveActive: false,
+    dirty: true,
+    sessionKey: 1,
+    document: fileDocument,
+    bufferVersion: buffer,
+    captureBuffer: () => ({ content: buffer, dirty: true }),
+    onAutosave: async () => {
+      saveCount += 1;
+      return "saved";
+    },
+  });
+
+  try {
+    await flushPromises();
+    assert.equal(writes.length, 1);
+
+    context.mock.timers.tick(AUTOSAVE_IDLE_MS);
+    await flushPromises();
+    assert.equal(saveCount, 0);
+    assert.equal(await rendered.api().flushAutosave(), null);
+
+    buffer = "protected local words plus more";
+    context.mock.timers.tick(SNAPSHOT_INTERVAL_MS);
+    await flushPromises();
+    assert.equal(writes.length, 2);
+    assert.equal(writes[1].content, buffer);
+    assert.equal(writes[1].preservePrevious, true);
   } finally {
     rendered.cleanup();
   }

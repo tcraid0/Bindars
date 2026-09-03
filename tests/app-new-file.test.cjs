@@ -9,10 +9,17 @@ const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
+const { waitForReconciliationWindow } = require("./_helpers/reconciliation.cjs");
 const { whitespaceSeparatedAscii } = require("./markdown-complexity-fixtures.cjs");
 const {
   markdownFormattingEnabled,
 } = require("../.tmp/workspace-tests/src/components/markdown-decorations.js");
+const {
+  FILE_WATCHER_UNAVAILABLE_EVENT,
+} = require("../.tmp/workspace-tests/src/hooks/useFileWatcher.js");
+const {
+  APP_RESUMED_EVENT,
+} = require("../.tmp/workspace-tests/src/hooks/useReconciliationLifecycle.js");
 
 let flushSync;
 let createRoot;
@@ -1155,9 +1162,11 @@ async function renderContinuityApp({
   ].join("\n");
   let conflictNextWrite = false;
   let deferredOpen = null;
+  let deferredOpenDialog = null;
   let deferredWrite = null;
   let deferredWatch = null;
   let deferredUnwatch = null;
+  let watchError = null;
   let deferredSnapshotWrite = null;
   let deferredSnapshotRead = null;
   let fileWriteError = null;
@@ -1203,6 +1212,11 @@ async function renderContinuityApp({
         windowDestroyCount += 1;
         return null;
       case "plugin:dialog|open":
+        if (deferredOpenDialog) {
+          const operation = deferredOpenDialog;
+          deferredOpenDialog = null;
+          return operation.promise;
+        }
         return openDialogPath;
       case "unwatch_file":
         if (deferredUnwatch) {
@@ -1214,6 +1228,11 @@ async function renderContinuityApp({
         return null;
       case "watch_file":
         operationLog.push("watch");
+        if (watchError) {
+          const error = watchError;
+          watchError = null;
+          throw error;
+        }
         if (deferredWatch) {
           const operation = deferredWatch;
           deferredWatch = null;
@@ -1385,9 +1404,11 @@ async function renderContinuityApp({
     diskContent: () => diskContent,
     conflictNextWrite() { conflictNextWrite = true; },
     deferNextOpen(operation) { deferredOpen = operation; },
+    deferNextOpenDialog(operation) { deferredOpenDialog = operation; },
     deferNextWrite(operation) { deferredWrite = operation; },
     deferNextWatch(operation) { deferredWatch = operation; },
     deferNextUnwatch(operation) { deferredUnwatch = operation; },
+    failNextWatch(error) { watchError = error; },
     deferNextSnapshotWrite(operation) { deferredSnapshotWrite = operation; },
     deferNextSnapshotRead(operation) { deferredSnapshotRead = operation; },
     setOpenDialogPath(path) { openDialogPath = path; },
@@ -2086,26 +2107,6 @@ test("reader restore waits for a queued merge-enabled snapshot before safety wri
     const baseline = rendered.diskContent();
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
-    updateEditor(rendered.host, `${baseline}\n\nWords that trigger the conflict.`);
-    await waitForEditorPublication();
-    await waitFor(() => assert.ok(rendered.snapshotWrites().length > 0));
-
-    rendered.conflictNextWrite();
-    dispatchShortcut("s");
-    const firstConflictDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
-      assert.ok(dialog);
-      assert.match(dialog.textContent, /File changed/);
-      return dialog;
-    });
-    clickButton(rendered.host, "Cancel", firstConflictDialog);
-    await waitFor(() => {
-      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
-      assert.ok(rendered.host.querySelector('[aria-label*="Autosave is paused"]'));
-    });
-
-    updateEditor(rendered.host, baseline);
-    await waitForEditorPublication();
     rendered.clearSnapshotOperationLog();
     rendered.deferNextSnapshotWrite(queuedSnapshot);
     const discardedWords = `${baseline}\n\nNew words that will be discarded.`;
@@ -2114,6 +2115,7 @@ test("reader restore waits for a queued merge-enabled snapshot before safety wri
     await waitFor(() => assert.ok(queuedSnapshot.args));
     assert.equal(queuedSnapshot.args.preservePrevious, false);
 
+    rendered.conflictNextWrite();
     dispatchShortcut("s");
     const reloadDialog = await waitFor(() => {
       const dialog = rendered.host.querySelector('[role="dialog"]');
@@ -2275,6 +2277,60 @@ test("an idle autosave conflict warns quietly and waits for manual save to open 
     });
     assert.ok(dialog);
     assert.equal(rendered.fileWrites().length, 1);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("an unresolved conflict stays dirty after Undo and cannot report a false save", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const baseline = rendered.diskContent();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = updateEditor(rendered.host, `${baseline}\n\nLocal conflicting words.`);
+    await waitForEditorPublication();
+
+    rendered.conflictNextWrite();
+    dispatchShortcut("s");
+    const firstDialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /File changed/);
+      return candidate;
+    });
+    clickButton(rendered.host, "Cancel", firstDialog);
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+
+    flushSync(() => assert.equal(undo(view), true));
+    await waitForEditorPublication();
+    assert.equal(view.state.sliceDoc(), baseline);
+    const saveButton = Array.from(rendered.host.querySelectorAll("button"))
+      .find((candidate) => candidate.textContent.trim() === "Save");
+    assert.ok(saveButton);
+    assert.equal(saveButton.disabled, false);
+    assert.ok(rendered.host.querySelector('[aria-label^="Save warning:"]'));
+
+    const writeCount = rendered.fileWrites().length;
+    dispatchShortcut("s");
+    const secondDialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /File changed/);
+      return candidate;
+    });
+    assert.equal(rendered.fileWrites().length, writeCount);
+    assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
+
+    clickButton(rendered.host, "Cancel", secondDialog);
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    dispatchShortcut("e");
+    await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /File changed/);
+      assert.ok(rendered.host.querySelector(".cm-editor"));
+    });
   } finally {
     await rendered.cleanup();
   }
@@ -2640,6 +2696,157 @@ test("exit waits for watcher activation before reconciliation", async () => {
   }
 });
 
+test("watcher setup failure after editor exit queues only the editor-exit reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    rendered.failNextWatch(new Error("watch setup unavailable"));
+    rendered.clearOperationLog();
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch", "open"]));
+    await act(async () => {
+      await waitForReconciliationWindow();
+    });
+
+    assert.deepEqual(rendered.operationLog(), ["watch", "open"]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("watcher drop after a deferred stale editor-exit still reconciles", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+
+    const watcher = deferred();
+    rendered.deferNextWatch(watcher);
+    rendered.clearOperationLog();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch"]));
+
+    const openDialog = deferred();
+    rendered.deferNextOpenDialog(openDialog);
+    dispatchShortcut("o");
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      watcher.resolve(null);
+      await watcher.promise;
+    });
+    assert.deepEqual(rendered.operationLog(), ["watch"]);
+
+    const editorExitProbe = deferred();
+    rendered.deferNextOpen(editorExitProbe);
+    await act(async () => {
+      openDialog.resolve(null);
+      await openDialog.promise;
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch", "open"]));
+
+    const sameFileOpen = deferred();
+    rendered.setOpenDialogPath("/tmp/continuity.md");
+    rendered.deferNextOpen(sameFileOpen);
+    dispatchShortcut("o");
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open"],
+    ));
+    await act(async () => {
+      sameFileOpen.resolve(rendered.openResult());
+      await sameFileOpen.promise;
+    });
+
+    await act(async () => {
+      editorExitProbe.resolve(rendered.openResult());
+      await editorExitProbe.promise;
+      await Promise.resolve();
+    });
+
+    const dropProbe = deferred();
+    rendered.deferNextOpen(dropProbe);
+    await act(async () => {
+      await emit(FILE_WATCHER_UNAVAILABLE_EVENT, { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open", "open"],
+    ));
+
+    await act(async () => {
+      dropProbe.resolve(rendered.openResult());
+      await dropProbe.promise;
+    });
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("an active watcher reload cannot steal a queued editor-exit source anchor", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    rendered.positionReaderAtFirst();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: view.state.doc.line(5).from + 3 } });
+
+    const watcherSetup = deferred();
+    const watcherProbe = deferred();
+    const exitProbe = deferred();
+    rendered.clearOperationLog();
+    rendered.deferNextWatch(watcherSetup);
+    rendered.deferNextOpen(watcherProbe);
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500));
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch"]));
+
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await Promise.resolve();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch", "open"]));
+
+    rendered.deferNextOpen(exitProbe);
+    await act(async () => {
+      watcherSetup.resolve(null);
+      await watcherSetup.promise;
+    });
+    rendered.host.querySelector("main").scrollTop = 123;
+
+    const external = `${rendered.diskContent()}\n\nExternal watcher words.`;
+    await act(async () => {
+      watcherProbe.resolve(rendered.openResult(external, rendered.revision() + 1));
+      await watcherProbe.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /External watcher words/,
+    ));
+    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500));
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open"],
+    ));
+
+    await act(async () => {
+      exitProbe.resolve(rendered.openResult(external, rendered.revision() + 1));
+      await exitProbe.promise;
+    });
+    assert.equal(rendered.readerScrollTop(), 500);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test("replacement watch waits for the same-path unwatch to complete", async () => {
   const rendered = await renderContinuityApp();
   try {
@@ -2740,6 +2947,284 @@ test("an equal-byte watcher reload updates metadata without restoring a heading"
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 123));
   } finally {
     await rendered.cleanup();
+  }
+});
+
+test("positive focus and native resume coalesce into one reader reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const reconciliation = deferred();
+    const externalWords = `${rendered.diskContent()}\n\nLifecycle reader words.`;
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit("tauri://blur");
+      await emit("tauri://focus");
+      await emit(APP_RESUMED_EVENT);
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Lifecycle reader words/,
+    ));
+    assert.equal(
+      rendered.operationLog().filter((operation) => operation === "open").length,
+      1,
+    );
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native resume protects an exact dirty editor buffer from external bytes", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const localWords = `${rendered.diskContent()}\n\nExact local lifecycle words.`;
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, localWords);
+    await waitForEditorPublication();
+
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+    await act(async () => {
+      await emit(APP_RESUMED_EVENT);
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        "# External\n\nDifferent lifecycle bytes.",
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
+    await waitFor(() => assert.match(
+      rendered.host.querySelector('[aria-label^="Save warning:"]').getAttribute("aria-label"),
+      /file changed outside Bindars/i,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("positive focus refreshes a clean editor through the mounted surface", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = findEditorView(rendered.host);
+    const reconciliation = deferred();
+    const externalWords = "# External\n\nClean lifecycle refresh.";
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit("tauri://focus");
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    assert.ok(findEditorView(rendered.host) === view);
+    assert.equal(view.state.sliceDoc(), externalWords);
+    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label^="Save warning:"]'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native watcher health loss uses the same reader reconciliation authority", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const reconciliation = deferred();
+    const externalWords = `${rendered.diskContent()}\n\nWatcher fallback words.`;
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit(FILE_WATCHER_UNAVAILABLE_EVENT, { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Watcher fallback words/,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("watcher setup failure probes the newly opened reader through reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const nextPath = "/tmp/watcher-fallback.md";
+    rendered.setOpenDialogPath(nextPath);
+    rendered.failNextWatch(new Error("watch setup unavailable"));
+    rendered.clearOperationLog();
+
+    dispatchShortcut("o");
+    await waitFor(() => assert.match(rendered.host.textContent, /watcher-fallback\.md/));
+    await waitFor(() => assert.equal(
+      rendered.operationLog().filter((operation) => operation === "open").length,
+      2,
+    ));
+    assert.deepEqual(rendered.openedPaths().slice(-2), [nextPath, nextPath]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a watcher signal deferred by a canceled Open dialog reconciles the original document", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const openDialog = deferred();
+    const reconciliation = deferred();
+    const external = `${rendered.diskContent()}\n\nChanged while Open was pending.`;
+    rendered.deferNextOpenDialog(openDialog);
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    dispatchShortcut("o");
+    await act(async () => Promise.resolve());
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await Promise.resolve();
+    });
+    assert.deepEqual(rendered.operationLog(), []);
+
+    await act(async () => {
+      openDialog.resolve(null);
+      await openDialog.promise;
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(external, rendered.revision() + 1));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Changed while Open was pending/,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a watcher signal deferred by a failed Open reconciles the retained document", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const failedOpen = deferred();
+    const reconciliation = deferred();
+    const external = `${rendered.diskContent()}\n\nChanged while Open failed.`;
+    rendered.setOpenDialogPath("/tmp/other.md");
+    rendered.deferNextOpen(failedOpen);
+    rendered.clearOperationLog();
+
+    dispatchShortcut("o");
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await Promise.resolve();
+    });
+    assert.deepEqual(rendered.operationLog(), ["open"]);
+    rendered.deferNextOpen(reconciliation);
+
+    await act(async () => {
+      failedOpen.reject(new Error("Open failed"));
+      try { await failedOpen.promise; } catch { /* expected */ }
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open", "open"]));
+    assert.equal(rendered.openedPaths().at(-1), "/tmp/continuity.md");
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(external, rendered.revision() + 1));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Changed while Open failed/,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("presentation defers watcher reconciliation until the reader returns", async () => {
+  const originalMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() { return false; },
+  });
+  const rendered = await renderContinuityApp();
+  try {
+    const reconciliation = deferred();
+    const externalWords = `${rendered.diskContent()}\n\nExternal presentation words.`;
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    const exportButton = rendered.host.querySelector('[aria-label="Export options"]');
+    assert.ok(exportButton);
+    flushSync(() => exportButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    const presentButton = Array.from(rendered.host.querySelectorAll('[role="menuitem"]'))
+      .find((button) => button.textContent.includes("Present as Slides"));
+    assert.ok(presentButton);
+    assert.equal(presentButton.disabled, false);
+    flushSync(() => presentButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".presentation-overlay")));
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await Promise.resolve();
+    });
+    assert.deepEqual(rendered.operationLog(), []);
+
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(externalWords, rendered.revision() + 1));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /External presentation words/,
+    ));
+  } finally {
+    await rendered.cleanup();
+    globalThis.matchMedia = originalMatchMedia;
   }
 });
 
@@ -2872,7 +3357,7 @@ test("rapid re-entry supersedes stale reconciliation content and target publicat
   }
 });
 
-test("not-found reconciliation closes the document while unreadable reconciliation preserves it", async () => {
+test("ambiguous missing and unavailable reconciliation keep the reader document recoverable", async () => {
   const rendered = await renderContinuityApp();
   try {
     dispatchShortcut("e");
@@ -2893,10 +3378,36 @@ test("not-found reconciliation closes the document while unreadable reconciliati
     rendered.deferNextOpen(reconciliation);
     dispatchShortcut("e");
     await act(async () => {
-      reconciliation.reject(new Error("File not found: /tmp/continuity.md"));
+      reconciliation.reject({
+        category: "notFound",
+        operation: "resolveDocument",
+        message: "This file is no longer available.",
+        detail: "/tmp/continuity.md: No such file or directory",
+      });
       try { await reconciliation.promise; } catch { /* expected */ }
     });
-    await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state-content")));
+    await waitFor(() => assert.match(rendered.host.textContent, /no longer available/));
+    assert.doesNotMatch(rendered.host.textContent, /deleted outside Bindars/);
+    assert.ok(rendered.host.querySelector("article"));
+    assert.match(rendered.host.querySelector("article").textContent, /Opening words/);
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    dispatchShortcut("e");
+    await act(async () => {
+      reconciliation.reject({
+        category: "resourceUnavailable",
+        operation: "readDocument",
+        message: "The resource is temporarily unavailable, so Bindars could not read the document.",
+        detail: "/tmp/continuity.md: operation timed out",
+      });
+      try { await reconciliation.promise; } catch { /* expected */ }
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /temporarily unavailable/));
+    assert.doesNotMatch(rendered.host.textContent, /deleted outside Bindars/);
+    assert.ok(rendered.host.querySelector("article"));
   } finally {
     await rendered.cleanup();
   }

@@ -30,7 +30,7 @@ use native_lifecycle::window_state_flags;
 #[cfg(target_os = "macos")]
 use native_lifecycle::{
     default_menu_with_guarded_quit, first_supported_opened_path, handle_macos_menu_event,
-    reveal_main_window, NATIVE_OPEN_AVAILABLE_EVENT,
+    register_macos_wake_observer, reveal_main_window, MacWakeObserver, NATIVE_OPEN_AVAILABLE_EVENT,
 };
 use native_lifecycle::{exit_after_guarded_quit, take_pending_open_path, PendingOpenPath};
 use snapshots::{
@@ -38,6 +38,19 @@ use snapshots::{
     list_snapshot_drafts, read_document_snapshot, retire_snapshot_draft, write_document_snapshot,
 };
 use workspace::list_workspace_markdown_files;
+
+#[cfg(target_os = "macos")]
+fn keep_wake_observer_or_continue(
+    registration: Result<MacWakeObserver, std::io::Error>,
+) -> Option<MacWakeObserver> {
+    match registration {
+        Ok(observer) => Some(observer),
+        Err(error) => {
+            log::error!("Failed to register the macOS wake observer: {error}");
+            None
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -114,12 +127,17 @@ pub fn run() {
         Ok(app) => {
             #[cfg(target_os = "macos")]
             let mut runtime_ready = false;
+            #[cfg(target_os = "macos")]
+            let mut _wake_observer = None;
 
             app.run(move |app_handle, event| {
                 #[cfg(target_os = "macos")]
                 match event {
                     tauri::RunEvent::Ready => {
                         runtime_ready = true;
+                        _wake_observer = keep_wake_observer_or_continue(
+                            register_macos_wake_observer(app_handle),
+                        );
                     }
                     tauri::RunEvent::Reopen { .. } => {
                         // Clicking the Dock icon brings the hidden or minimized
@@ -161,6 +179,16 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn wake_observer_setup_failure_returns_no_observer() {
+        let observer = super::keep_wake_observer_or_continue(Err(std::io::Error::other(
+            "wake observer unavailable",
+        )));
+
+        assert!(observer.is_none());
+    }
+
     #[cfg(unix)]
     #[test]
     fn cli_open_preserves_a_supported_symlink_path_for_normal_open_validation() {

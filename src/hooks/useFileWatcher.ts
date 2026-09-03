@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { FileChangedEvent } from "../types";
+import type { FileWatcherPathEvent } from "../types";
+
+export const FILE_CHANGED_EVENT = "file-changed";
+export const FILE_WATCHER_UNAVAILABLE_EVENT = "bindars://file-watcher-unavailable";
+
+export type WatcherUnavailableReason = "setup" | "dropped";
 
 interface UseFileWatcherOptions {
   filePath: string | null;
   isEditing: boolean;
   onFileChanged: (changedPath: string) => void;
   onWatchSettled?: (path: string) => void;
+  onWatcherUnavailable?: (path: string, reason: WatcherUnavailableReason) => void;
 }
 
 export function useFileWatcher({
@@ -15,11 +21,14 @@ export function useFileWatcher({
   isEditing,
   onFileChanged,
   onWatchSettled,
+  onWatcherUnavailable,
 }: UseFileWatcherOptions) {
   const callbackRef = useRef(onFileChanged);
   callbackRef.current = onFileChanged;
   const watchSettledRef = useRef(onWatchSettled);
   watchSettledRef.current = onWatchSettled;
+  const watcherUnavailableRef = useRef(onWatcherUnavailable);
+  watcherUnavailableRef.current = onWatcherUnavailable;
   const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Preserve watcher ownership order across effect cleanup/setup. Tauri IPC
@@ -33,6 +42,20 @@ export function useFileWatcher({
   useEffect(() => {
     let disposed = false;
     let unlistenFileChanged: (() => void) | null = null;
+    let unlistenWatcherUnavailable: (() => void) | null = null;
+    const detachListeners = () => {
+      unlistenFileChanged?.();
+      unlistenFileChanged = null;
+      unlistenWatcherUnavailable?.();
+      unlistenWatcherUnavailable = null;
+    };
+    const reportSetupFailure = (path: string) => {
+      if (disposed) return;
+      // Settle a pending editor exit before offering the general fallback, so
+      // both conditions cannot queue separate probes for the same failure.
+      watchSettledRef.current?.(path);
+      watcherUnavailableRef.current?.(path, "setup");
+    };
     const unwatch = (path: string) => {
       void enqueueWatcherCommand(
         () => invoke<void>("unwatch_file", { path }),
@@ -50,20 +73,42 @@ export function useFileWatcher({
 
     const setup = async () => {
       try {
-        unlistenFileChanged = await listen<FileChangedEvent>("file-changed", (event) => {
+        unlistenFileChanged = await listen<FileWatcherPathEvent>(FILE_CHANGED_EVENT, (event) => {
+          if (disposed) return;
           const changedPath = event.payload?.path;
           if (!changedPath) return;
           callbackRef.current(changedPath);
         });
       } catch (err) {
         console.warn("[file-watcher] Failed to subscribe:", err);
-        if (!disposed) watchSettledRef.current?.(filePath);
+        reportSetupFailure(filePath);
         return;
       }
 
       if (disposed) {
-        unlistenFileChanged();
-        unlistenFileChanged = null;
+        detachListeners();
+        return;
+      }
+
+      try {
+        unlistenWatcherUnavailable = await listen<FileWatcherPathEvent>(
+          FILE_WATCHER_UNAVAILABLE_EVENT,
+          (event) => {
+            if (disposed) return;
+            const unavailablePath = event.payload?.path;
+            if (!unavailablePath) return;
+            watcherUnavailableRef.current?.(unavailablePath, "dropped");
+          },
+        );
+      } catch (err) {
+        console.warn("[file-watcher] Failed to subscribe to watcher health:", err);
+        detachListeners();
+        reportSetupFailure(filePath);
+        return;
+      }
+
+      if (disposed) {
+        detachListeners();
         return;
       }
 
@@ -73,19 +118,13 @@ export function useFileWatcher({
         );
       } catch (err) {
         console.warn("[file-watcher] Failed to watch:", err);
-        if (unlistenFileChanged) {
-          unlistenFileChanged();
-          unlistenFileChanged = null;
-        }
-        if (!disposed) watchSettledRef.current?.(filePath);
+        detachListeners();
+        reportSetupFailure(filePath);
         return;
       }
 
       if (disposed) {
-        if (unlistenFileChanged) {
-          unlistenFileChanged();
-          unlistenFileChanged = null;
-        }
+        detachListeners();
         return;
       }
       watchSettledRef.current?.(filePath);
@@ -95,10 +134,7 @@ export function useFileWatcher({
 
     return () => {
       disposed = true;
-      if (unlistenFileChanged) {
-        unlistenFileChanged();
-        unlistenFileChanged = null;
-      }
+      detachListeners();
       unwatch(filePath);
     };
   }, [enqueueWatcherCommand, filePath, isEditing]);
