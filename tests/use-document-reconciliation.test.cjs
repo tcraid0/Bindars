@@ -5,6 +5,7 @@ const { act } = React;
 const { flushSync } = require("react-dom");
 const { createRoot } = require("react-dom/client");
 const { installDom } = require("./_helpers/dom.cjs");
+const { waitForReconciliationWindow } = require("./_helpers/reconciliation.cjs");
 
 const {
   useDocumentReconciliation,
@@ -139,6 +140,45 @@ test("focus during an in-flight probe and repeated focus/resume signals coalesce
       decision: { kind: "no-change" },
       signal: "focus",
     }]);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("scheduled focus, resume, and watcher signals share one short coalescing window", async () => {
+  await installDom();
+  const rendered = renderReconciliationHook();
+  try {
+    rendered.api().scheduleReconciliation("focus");
+    rendered.api().scheduleReconciliation("resume");
+    rendered.api().scheduleReconciliation("watcher");
+    assert.equal(rendered.probes.length, 0);
+
+    await act(async () => {
+      await waitForReconciliationWindow();
+    });
+    assert.equal(rendered.probes.length, 1);
+    await resolveProbe(rendered.probes[0], available());
+    assert.deepEqual(rendered.applied, [{
+      decision: { kind: "no-change" },
+      signal: "watcher",
+    }]);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("supersession cancels a scheduled reconciliation before it reads", async () => {
+  await installDom();
+  const rendered = renderReconciliationHook();
+  try {
+    rendered.api().scheduleReconciliation("focus");
+    rendered.api().supersedeReconciliation();
+
+    await act(async () => {
+      await waitForReconciliationWindow();
+    });
+    assert.equal(rendered.probes.length, 0);
   } finally {
     rendered.cleanup();
   }

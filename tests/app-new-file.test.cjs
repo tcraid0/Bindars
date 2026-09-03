@@ -9,10 +9,17 @@ const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
+const { waitForReconciliationWindow } = require("./_helpers/reconciliation.cjs");
 const { whitespaceSeparatedAscii } = require("./markdown-complexity-fixtures.cjs");
 const {
   markdownFormattingEnabled,
 } = require("../.tmp/workspace-tests/src/components/markdown-decorations.js");
+const {
+  FILE_WATCHER_UNAVAILABLE_EVENT,
+} = require("../.tmp/workspace-tests/src/hooks/useFileWatcher.js");
+const {
+  APP_RESUMED_EVENT,
+} = require("../.tmp/workspace-tests/src/hooks/useReconciliationLifecycle.js");
 
 let flushSync;
 let createRoot;
@@ -1159,6 +1166,7 @@ async function renderContinuityApp({
   let deferredWrite = null;
   let deferredWatch = null;
   let deferredUnwatch = null;
+  let watchError = null;
   let deferredSnapshotWrite = null;
   let deferredSnapshotRead = null;
   let fileWriteError = null;
@@ -1220,6 +1228,11 @@ async function renderContinuityApp({
         return null;
       case "watch_file":
         operationLog.push("watch");
+        if (watchError) {
+          const error = watchError;
+          watchError = null;
+          throw error;
+        }
         if (deferredWatch) {
           const operation = deferredWatch;
           deferredWatch = null;
@@ -1395,6 +1408,7 @@ async function renderContinuityApp({
     deferNextWrite(operation) { deferredWrite = operation; },
     deferNextWatch(operation) { deferredWatch = operation; },
     deferNextUnwatch(operation) { deferredUnwatch = operation; },
+    failNextWatch(error) { watchError = error; },
     deferNextSnapshotWrite(operation) { deferredSnapshotWrite = operation; },
     deferNextSnapshotRead(operation) { deferredSnapshotRead = operation; },
     setOpenDialogPath(path) { openDialogPath = path; },
@@ -2682,6 +2696,98 @@ test("exit waits for watcher activation before reconciliation", async () => {
   }
 });
 
+test("watcher setup failure after editor exit queues only the editor-exit reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    rendered.failNextWatch(new Error("watch setup unavailable"));
+    rendered.clearOperationLog();
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch", "open"]));
+    await act(async () => {
+      await waitForReconciliationWindow();
+    });
+
+    assert.deepEqual(rendered.operationLog(), ["watch", "open"]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("watcher drop after a deferred stale editor-exit still reconciles", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+
+    const watcher = deferred();
+    rendered.deferNextWatch(watcher);
+    rendered.clearOperationLog();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch"]));
+
+    const openDialog = deferred();
+    rendered.deferNextOpenDialog(openDialog);
+    dispatchShortcut("o");
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      watcher.resolve(null);
+      await watcher.promise;
+    });
+    assert.deepEqual(rendered.operationLog(), ["watch"]);
+
+    const editorExitProbe = deferred();
+    rendered.deferNextOpen(editorExitProbe);
+    await act(async () => {
+      openDialog.resolve(null);
+      await openDialog.promise;
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["watch", "open"]));
+
+    const sameFileOpen = deferred();
+    rendered.setOpenDialogPath("/tmp/continuity.md");
+    rendered.deferNextOpen(sameFileOpen);
+    dispatchShortcut("o");
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open"],
+    ));
+    await act(async () => {
+      sameFileOpen.resolve(rendered.openResult());
+      await sameFileOpen.promise;
+    });
+
+    await act(async () => {
+      editorExitProbe.resolve(rendered.openResult());
+      await editorExitProbe.promise;
+      await Promise.resolve();
+    });
+
+    const dropProbe = deferred();
+    rendered.deferNextOpen(dropProbe);
+    await act(async () => {
+      await emit(FILE_WATCHER_UNAVAILABLE_EVENT, { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open", "open"],
+    ));
+
+    await act(async () => {
+      dropProbe.resolve(rendered.openResult());
+      await dropProbe.promise;
+    });
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test("an active watcher reload cannot steal a queued editor-exit source anchor", async () => {
   const rendered = await renderContinuityApp();
   try {
@@ -2839,6 +2945,160 @@ test("an equal-byte watcher reload updates metadata without restoring a heading"
     });
     await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 123));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("positive focus and native resume coalesce into one reader reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const reconciliation = deferred();
+    const externalWords = `${rendered.diskContent()}\n\nLifecycle reader words.`;
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit("tauri://blur");
+      await emit("tauri://focus");
+      await emit(APP_RESUMED_EVENT);
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Lifecycle reader words/,
+    ));
+    assert.equal(
+      rendered.operationLog().filter((operation) => operation === "open").length,
+      1,
+    );
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native resume protects an exact dirty editor buffer from external bytes", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const localWords = `${rendered.diskContent()}\n\nExact local lifecycle words.`;
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, localWords);
+    await waitForEditorPublication();
+
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+    await act(async () => {
+      await emit(APP_RESUMED_EVENT);
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        "# External\n\nDifferent lifecycle bytes.",
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
+    await waitFor(() => assert.match(
+      rendered.host.querySelector('[aria-label^="Save warning:"]').getAttribute("aria-label"),
+      /file changed outside Bindars/i,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("positive focus refreshes a clean editor through the mounted surface", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = findEditorView(rendered.host);
+    const reconciliation = deferred();
+    const externalWords = "# External\n\nClean lifecycle refresh.";
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit("tauri://focus");
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    assert.ok(findEditorView(rendered.host) === view);
+    assert.equal(view.state.sliceDoc(), externalWords);
+    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label^="Save warning:"]'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("native watcher health loss uses the same reader reconciliation authority", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const reconciliation = deferred();
+    const externalWords = `${rendered.diskContent()}\n\nWatcher fallback words.`;
+    rendered.deferNextOpen(reconciliation);
+    rendered.clearOperationLog();
+
+    await act(async () => {
+      await emit(FILE_WATCHER_UNAVAILABLE_EVENT, { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.deepEqual(rendered.operationLog(), ["open"]));
+
+    await act(async () => {
+      reconciliation.resolve(rendered.openResult(
+        externalWords,
+        rendered.revision() + 1,
+      ));
+      await reconciliation.promise;
+    });
+    await waitFor(() => assert.match(
+      rendered.host.querySelector("article").textContent,
+      /Watcher fallback words/,
+    ));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("watcher setup failure probes the newly opened reader through reconciliation", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const nextPath = "/tmp/watcher-fallback.md";
+    rendered.setOpenDialogPath(nextPath);
+    rendered.failNextWatch(new Error("watch setup unavailable"));
+    rendered.clearOperationLog();
+
+    dispatchShortcut("o");
+    await waitFor(() => assert.match(rendered.host.textContent, /watcher-fallback\.md/));
+    await waitFor(() => assert.equal(
+      rendered.operationLog().filter((operation) => operation === "open").length,
+      2,
+    ));
+    assert.deepEqual(rendered.openedPaths().slice(-2), [nextPath, nextPath]);
   } finally {
     await rendered.cleanup();
   }

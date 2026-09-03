@@ -35,6 +35,7 @@ import { useMarkdownFile } from "./hooks/useMarkdownFile";
 import type { PublishedDocument } from "./hooks/useMarkdownFile";
 import { useDocumentReconciliation } from "./hooks/useDocumentReconciliation";
 import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
+import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { useRecentFiles } from "./hooks/useRecentFiles";
@@ -44,6 +45,7 @@ import { useNativeQuit } from "./hooks/useNativeQuit";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useSearch } from "./hooks/useSearch";
 import { useFileWatcher } from "./hooks/useFileWatcher";
+import type { WatcherUnavailableReason } from "./hooks/useFileWatcher";
 import { useAnnotations } from "./hooks/useAnnotations";
 import { useWorkspaceRoot } from "./hooks/useWorkspaceRoot";
 import { useWorkspaceIndex } from "./hooks/useWorkspaceIndex";
@@ -780,6 +782,7 @@ function App() {
   ]);
 
   const {
+    scheduleReconciliation,
     requestReconciliation,
     resumeDeferredReconciliation,
     supersedeReconciliation,
@@ -789,6 +792,8 @@ function App() {
     probe: probeForReconciliation,
     applyDecision: applyReconciliationDecision,
   });
+
+  useReconciliationLifecycle({ onSignal: scheduleReconciliation });
 
   const loadRecoveryStorageStats = useCallback(async (): Promise<void> => {
     const request = recoveryStorageStatsRequestRef.current + 1;
@@ -2000,8 +2005,33 @@ function App() {
     const currentPathKey = toPathIdentityKey(currentPath);
     if (!changedPathKey || changedPathKey !== currentPathKey) return;
 
-    void requestReconciliation("watcher");
-  }, [requestReconciliation]);
+    scheduleReconciliation("watcher");
+  }, [scheduleReconciliation]);
+
+  const handleWatcherUnavailable = useCallback((
+    unavailablePath: string,
+    reason: WatcherUnavailableReason,
+  ) => {
+    const currentPath = currentPositionRef.current.filePath;
+    if (
+      !currentPath
+      || toPathIdentityKey(unavailablePath) !== toPathIdentityKey(currentPath)
+    ) return;
+
+    const pendingExit = pendingExitReconciliationRef.current;
+    // Watch settlement already gave a setup failure for this path to the
+    // higher-priority editor-exit reconciliation owner. A later native drop
+    // is new information and must still reach the reconciliation controller.
+    if (
+      reason === "setup"
+      && pendingExit
+      && toPathIdentityKey(pendingExit.path) === toPathIdentityKey(unavailablePath)
+    ) return;
+
+    scheduleReconciliation(
+      reason === "setup" ? "watcher-setup-fallback" : "watcher-drop-fallback",
+    );
+  }, [scheduleReconciliation]);
 
   const handleWatchSettled = useCallback((watchedPath: string) => {
     const pending = pendingExitReconciliationRef.current;
@@ -2034,6 +2064,7 @@ function App() {
     isEditing: editing,
     onFileChanged: handleFileChanged,
     onWatchSettled: handleWatchSettled,
+    onWatcherUnavailable: handleWatcherUnavailable,
   });
 
   // Annotations: highlight handler

@@ -2,6 +2,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
+use std::ffi::c_void;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicU32, Ordering};
+
+#[cfg(target_os = "macos")]
 use tauri::{Emitter, Manager};
 
 use crate::document_io::is_markdown_path;
@@ -10,7 +15,255 @@ use crate::document_io::is_markdown_path;
 pub(crate) const NATIVE_OPEN_AVAILABLE_EVENT: &str = "bindars://native-open-available";
 
 #[cfg(target_os = "macos")]
+pub(crate) const APP_RESUMED_EVENT: &str = "bindars://app-resumed";
+
+#[cfg(target_os = "macos")]
 const NATIVE_QUIT_REQUESTED_EVENT: &str = "bindars://quit-requested";
+
+#[cfg(target_os = "macos")]
+const IO_MESSAGE_CAN_SYSTEM_SLEEP: u32 = 0xe000_0270;
+#[cfg(target_os = "macos")]
+const IO_MESSAGE_SYSTEM_WILL_SLEEP: u32 = 0xe000_0280;
+#[cfg(target_os = "macos")]
+const IO_MESSAGE_SYSTEM_HAS_POWERED_ON: u32 = 0xe000_0300;
+
+#[cfg(target_os = "macos")]
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    #[link_name = "IORegisterForSystemPower"]
+    fn io_register_for_system_power(
+        reference_context: *mut c_void,
+        notification_port: *mut *mut c_void,
+        callback: extern "C" fn(*mut c_void, u32, u32, *mut c_void),
+        notifier: *mut u32,
+    ) -> u32;
+    #[link_name = "IODeregisterForSystemPower"]
+    fn io_deregister_for_system_power(notifier: *mut u32) -> i32;
+    #[link_name = "IOAllowPowerChange"]
+    fn io_allow_power_change(connection: u32, notification_id: isize) -> i32;
+    #[link_name = "IOServiceClose"]
+    fn io_service_close(connection: u32) -> i32;
+    #[link_name = "IONotificationPortDestroy"]
+    fn io_notification_port_destroy(notification_port: *mut c_void);
+    #[link_name = "IONotificationPortGetRunLoopSource"]
+    fn io_notification_port_get_run_loop_source(notification_port: *mut c_void) -> *mut c_void;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    #[link_name = "kCFRunLoopCommonModes"]
+    static CF_RUN_LOOP_COMMON_MODES: *const c_void;
+    #[link_name = "CFRunLoopGetCurrent"]
+    fn cf_run_loop_get_current() -> *mut c_void;
+    #[link_name = "CFRunLoopAddSource"]
+    fn cf_run_loop_add_source(run_loop: *mut c_void, source: *mut c_void, mode: *const c_void);
+    #[link_name = "CFRunLoopRemoveSource"]
+    fn cf_run_loop_remove_source(run_loop: *mut c_void, source: *mut c_void, mode: *const c_void);
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacPowerMessageAction {
+    AllowSleep,
+    NotifyWake,
+    Ignore,
+}
+
+#[cfg(target_os = "macos")]
+fn mac_power_message_action(message_type: u32) -> MacPowerMessageAction {
+    match message_type {
+        IO_MESSAGE_CAN_SYSTEM_SLEEP | IO_MESSAGE_SYSTEM_WILL_SLEEP => {
+            MacPowerMessageAction::AllowSleep
+        }
+        IO_MESSAGE_SYSTEM_HAS_POWERED_ON => MacPowerMessageAction::NotifyWake,
+        _ => MacPowerMessageAction::Ignore,
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MacWakeCallbackContext {
+    app: tauri::AppHandle,
+    connection: AtomicU32,
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) struct MacWakeObserver {
+    connection: u32,
+    notification_port: *mut c_void,
+    notifier: u32,
+    run_loop: *mut c_void,
+    run_loop_source: *mut c_void,
+    callback_context: *mut MacWakeCallbackContext,
+}
+
+#[cfg(target_os = "macos")]
+fn release_macos_power_registration(
+    connection: u32,
+    notification_port: *mut c_void,
+    mut notifier: u32,
+) {
+    if notifier != 0 {
+        // SAFETY: `notifier` came from a successful IORegisterForSystemPower call
+        // and is released exactly once during setup rollback or observer drop.
+        let result = unsafe { io_deregister_for_system_power(&mut notifier) };
+        if result != 0 {
+            log::warn!(
+                target: env!("CARGO_CRATE_NAME"),
+                "Failed to deregister the macOS wake observer: IOKit status {result}"
+            );
+        }
+    }
+    if connection != 0 {
+        // SAFETY: `connection` is the owned connection returned by
+        // IORegisterForSystemPower and is closed exactly once.
+        let result = unsafe { io_service_close(connection) };
+        if result != 0 {
+            log::warn!(
+                target: env!("CARGO_CRATE_NAME"),
+                "Failed to close the macOS wake observer connection: IOKit status {result}"
+            );
+        }
+    }
+    if !notification_port.is_null() {
+        // SAFETY: the port was allocated by IORegisterForSystemPower and all
+        // registrations using it have been removed above.
+        unsafe { io_notification_port_destroy(notification_port) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn handle_macos_power_message(
+    reference_context: *mut c_void,
+    _service: u32,
+    message_type: u32,
+    message_argument: *mut c_void,
+) {
+    // SAFETY: IORegisterForSystemPower receives this pointer from a Box that
+    // remains owned by MacWakeObserver until after deregistration completes.
+    let Some(context) = (unsafe { (reference_context as *const MacWakeCallbackContext).as_ref() })
+    else {
+        return;
+    };
+
+    match mac_power_message_action(message_type) {
+        MacPowerMessageAction::AllowSleep => {
+            let connection = context.connection.load(Ordering::Acquire);
+            if connection == 0 {
+                log::warn!(
+                    target: env!("CARGO_CRATE_NAME"),
+                    "Cannot acknowledge a macOS sleep notification before wake observer setup completes"
+                );
+                return;
+            }
+            // IOKit carries the integral notification ID in the callback's
+            // pointer-sized message argument.
+            let notification_id = message_argument as isize;
+            // SAFETY: this call is required for the two acknowledged power
+            // messages and uses the live connection owned by the observer.
+            let result = unsafe { io_allow_power_change(connection, notification_id) };
+            if result != 0 {
+                log::warn!(
+                    target: env!("CARGO_CRATE_NAME"),
+                    "Failed to acknowledge a macOS sleep notification: IOKit status {result}"
+                );
+            }
+        }
+        MacPowerMessageAction::NotifyWake => notify_app_resumed(&context.app),
+        MacPowerMessageAction::Ignore => {}
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn register_macos_wake_observer(
+    app: &tauri::AppHandle,
+) -> Result<MacWakeObserver, std::io::Error> {
+    let callback_context = Box::into_raw(Box::new(MacWakeCallbackContext {
+        app: app.clone(),
+        connection: AtomicU32::new(0),
+    }));
+    let mut notification_port = std::ptr::null_mut();
+    let mut notifier = 0;
+
+    // SAFETY: all output pointers are valid for this call, and the boxed
+    // callback context remains alive for the returned observer's lifetime.
+    let connection = unsafe {
+        io_register_for_system_power(
+            callback_context.cast(),
+            &mut notification_port,
+            handle_macos_power_message,
+            &mut notifier,
+        )
+    };
+    if connection == 0 {
+        if !notification_port.is_null() {
+            // SAFETY: a failed registration may still initialize the owned
+            // notification port; no callback can use it after this cleanup.
+            unsafe { io_notification_port_destroy(notification_port) };
+        }
+        // SAFETY: registration failed, so no callback retains this context.
+        unsafe { drop(Box::from_raw(callback_context)) };
+        return Err(std::io::Error::other(
+            "IORegisterForSystemPower could not create a macOS wake observer",
+        ));
+    }
+
+    // SAFETY: the context pointer still names the live Box owned by the
+    // observer under construction.
+    unsafe {
+        (*callback_context)
+            .connection
+            .store(connection, Ordering::Release);
+    }
+
+    // SAFETY: `notification_port` is live after successful registration.
+    let run_loop_source = unsafe { io_notification_port_get_run_loop_source(notification_port) };
+    // SAFETY: setup runs on Tauri's application thread, whose current run loop
+    // is the correct delivery target for this process-lifetime observer.
+    let run_loop = unsafe { cf_run_loop_get_current() };
+    if run_loop_source.is_null() || run_loop.is_null() {
+        release_macos_power_registration(connection, notification_port, notifier);
+        // SAFETY: deregistration above prevents later callbacks.
+        unsafe { drop(Box::from_raw(callback_context)) };
+        return Err(std::io::Error::other(
+            "macOS wake observer did not provide a usable run-loop source",
+        ));
+    }
+
+    // SAFETY: the run loop and source are live and remain owned by the observer
+    // until Drop removes the source before destroying the notification port.
+    unsafe { cf_run_loop_add_source(run_loop, run_loop_source, CF_RUN_LOOP_COMMON_MODES) };
+
+    Ok(MacWakeObserver {
+        connection,
+        notification_port,
+        notifier,
+        run_loop,
+        run_loop_source,
+        callback_context,
+    })
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacWakeObserver {
+    fn drop(&mut self) {
+        // SAFETY: these are the live run-loop handles captured at registration;
+        // the source is removed exactly once before its port is destroyed.
+        unsafe {
+            cf_run_loop_remove_source(
+                self.run_loop,
+                self.run_loop_source,
+                CF_RUN_LOOP_COMMON_MODES,
+            );
+        }
+        release_macos_power_registration(self.connection, self.notification_port, self.notifier);
+        // SAFETY: power notifications are deregistered and their port is
+        // destroyed, so no callback can access the boxed context now.
+        unsafe {
+            drop(Box::from_raw(self.callback_context));
+        }
+    }
+}
 
 /// Identifier of the custom macOS Quit menu item that routes through the
 /// frontend unsaved-change guard instead of AppKit's immediate termination.
@@ -164,6 +417,16 @@ pub(crate) fn reveal_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn notify_app_resumed(app: &tauri::AppHandle) {
+    if let Err(error) = app.emit_to("main", APP_RESUMED_EVENT, ()) {
+        log::warn!(
+            target: env!("CARGO_CRATE_NAME"),
+            "Failed to notify the frontend that the app resumed: {error}"
+        );
+    }
+}
+
 /// Window-state persistence flags. Visibility is deliberately excluded: a
 /// window hidden through the macOS close guard must not relaunch invisibly
 /// with no Dock-restore path. Size, position, maximized, fullscreen, and
@@ -265,6 +528,8 @@ mod tests {
     #[cfg(desktop)]
     use super::window_state_flags;
     use super::{cli_open_path_from_args, PendingOpenPath};
+    #[cfg(target_os = "macos")]
+    use super::{mac_power_message_action, MacPowerMessageAction};
     use crate::test_support::{cleanup_temp_path, unique_temp_path};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -328,6 +593,25 @@ mod tests {
         assert!(!is_predefined_quit_text("About Bindars"));
         assert!(!is_predefined_quit_text("Services"));
         assert!(!is_predefined_quit_text(""));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn completed_system_wake_is_the_only_power_message_that_notifies_the_frontend() {
+        assert_eq!(
+            [
+                mac_power_message_action(super::IO_MESSAGE_SYSTEM_HAS_POWERED_ON),
+                mac_power_message_action(super::IO_MESSAGE_CAN_SYSTEM_SLEEP),
+                mac_power_message_action(super::IO_MESSAGE_SYSTEM_WILL_SLEEP),
+                mac_power_message_action(0),
+            ],
+            [
+                MacPowerMessageAction::NotifyWake,
+                MacPowerMessageAction::AllowSleep,
+                MacPowerMessageAction::AllowSleep,
+                MacPowerMessageAction::Ignore,
+            ]
+        );
     }
 
     #[test]

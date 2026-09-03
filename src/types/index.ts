@@ -153,7 +153,7 @@ export interface ConditionalWriteResult {
   name: string;
 }
 
-export interface FileChangedEvent {
+export interface FileWatcherPathEvent {
   path: string;
 }
 

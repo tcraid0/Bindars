@@ -21,6 +21,8 @@ export type ReconciliationRequestResult =
   | ReconciliationDecision
   | { readonly kind: "deferred" };
 
+export const RECONCILIATION_COALESCE_MS = 20;
+
 const trailingSignals = new Set<ReconciliationSignal>([
   "watcher",
   "watcher-setup-fallback",
@@ -55,6 +57,7 @@ interface UseDocumentReconciliationOptions {
 }
 
 interface UseDocumentReconciliationReturn {
+  scheduleReconciliation: (signal: ReconciliationSignal) => void;
   requestReconciliation: (
     signal: ReconciliationSignal,
   ) => Promise<ReconciliationRequestResult>;
@@ -98,6 +101,8 @@ export function useDocumentReconciliation({
   const activeProbeRef = useRef<Promise<ReconciliationRequestResult> | null>(null);
   const trailingProbeRef = useRef<QueuedProbe | null>(null);
   const deferredProbeRef = useRef<DeferredProbe | null>(null);
+  const scheduledProbeRef = useRef<DeferredProbe | null>(null);
+  const coalescingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presentationActiveRef = useRef(presentationActive);
   const getSnapshotRef = useRef(getSnapshot);
   const probeRef = useRef(probe);
@@ -117,20 +122,33 @@ export function useDocumentReconciliation({
   probeRef.current = probe;
   applyDecisionRef.current = applyDecision;
 
+  const cancelScheduledProbe = useCallback(() => {
+    if (coalescingTimerRef.current !== null) {
+      clearTimeout(coalescingTimerRef.current);
+      coalescingTimerRef.current = null;
+    }
+    scheduledProbeRef.current = null;
+  }, []);
+
+  const detachPendingWork = useCallback(() => {
+    generationRef.current += 1;
+    activeProbeRef.current = null;
+    cancelScheduledProbe();
+    resolveQueuedProbe(
+      trailingProbeRef.current,
+      staleReconciliation("superseded"),
+    );
+    trailingProbeRef.current = null;
+    deferredProbeRef.current = null;
+  }, [cancelScheduledProbe]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      generationRef.current += 1;
-      resolveQueuedProbe(
-        trailingProbeRef.current,
-        staleReconciliation("superseded"),
-      );
-      trailingProbeRef.current = null;
-      deferredProbeRef.current = null;
-      activeProbeRef.current = null;
+      detachPendingWork();
     };
-  }, []);
+  }, [detachPendingWork]);
 
   const deferProbe = useCallback((documentId: string, signal: ReconciliationSignal): void => {
     const current = deferredProbeRef.current;
@@ -277,6 +295,33 @@ export function useDocumentReconciliation({
   }, [deferProbe, enqueueTrailingProbe, runProbe]);
   requestRef.current = requestReconciliation;
 
+  const scheduleReconciliation = useCallback((signal: ReconciliationSignal) => {
+    const captured = getSnapshotRef.current();
+    if (!captured) return;
+
+    const scheduled = scheduledProbeRef.current;
+    if (scheduled?.documentId === captured.documentId) {
+      scheduled.signal = mergeQueuedSignal(scheduled.signal, signal);
+    } else {
+      scheduledProbeRef.current = {
+        documentId: captured.documentId,
+        signal,
+      };
+    }
+    if (coalescingTimerRef.current !== null) return;
+
+    coalescingTimerRef.current = setTimeout(() => {
+      coalescingTimerRef.current = null;
+      const queued = scheduledProbeRef.current;
+      scheduledProbeRef.current = null;
+      if (!queued || !mountedRef.current) return;
+
+      const current = getSnapshotRef.current();
+      if (!current || current.documentId !== queued.documentId) return;
+      void requestRef.current(queued.signal);
+    }, RECONCILIATION_COALESCE_MS);
+  }, []);
+
   const resumeDeferredReconciliation = useCallback(() => {
     if (presentationActiveRef.current || activeProbeRef.current) return;
     const deferredProbe = deferredProbeRef.current;
@@ -292,16 +337,7 @@ export function useDocumentReconciliation({
     void requestRef.current(deferredProbe.signal);
   }, []);
 
-  const supersedeReconciliation = useCallback(() => {
-    generationRef.current += 1;
-    activeProbeRef.current = null;
-    resolveQueuedProbe(
-      trailingProbeRef.current,
-      staleReconciliation("superseded"),
-    );
-    trailingProbeRef.current = null;
-    deferredProbeRef.current = null;
-  }, []);
+  const supersedeReconciliation = detachPendingWork;
 
   useEffect(() => {
     if (presentationActive) return;
@@ -309,6 +345,7 @@ export function useDocumentReconciliation({
   }, [presentationActive, resumeDeferredReconciliation]);
 
   return {
+    scheduleReconciliation,
     requestReconciliation,
     resumeDeferredReconciliation,
     supersedeReconciliation,
