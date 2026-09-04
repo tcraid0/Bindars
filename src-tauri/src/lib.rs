@@ -11,6 +11,7 @@ mod file_errors;
 mod file_watcher;
 mod images;
 mod native_lifecycle;
+mod navigation;
 mod snapshots;
 #[cfg(test)]
 mod test_support;
@@ -63,6 +64,7 @@ pub fn run() {
     }
 
     let builder = tauri::Builder::default()
+        .plugin(navigation::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
