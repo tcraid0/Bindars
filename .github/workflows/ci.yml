@@ -31,6 +31,33 @@ jobs:
       - name: Run workspace integration tests
         run: npm run test:workspace
 
+  licenses:
+    name: Third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - run: npm ci
+
+      - name: Fetch locked Rust dependency sources
+        working-directory: src-tauri
+        run: cargo fetch --locked
+
+      - name: Test third-party notice generation
+        run: npm run licenses:test
+
+      - name: Verify third-party notices
+        run: npm run licenses:check
+
   rust-tests:
     name: Rust unit tests
     runs-on: ubuntu-latest

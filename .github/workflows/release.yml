@@ -37,6 +37,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Fetch locked Rust dependency sources
+        working-directory: src-tauri
+        run: cargo fetch --locked
+
+      - name: Test third-party notice generation
+        run: npm run licenses:test
+
+      - name: Verify third-party notices
+        run: npm run licenses:check
+
       - name: Typecheck
         run: npx tsc --noEmit
 
@@ -94,20 +104,30 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Fetch locked Rust dependency sources
+        working-directory: src-tauri
+        run: cargo fetch --locked
+
+      - name: Verify third-party notices
+        run: npm run licenses:check
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          args: --bundles deb
           tagName: ${{ github.ref_name }}
           releaseName: 'Bindars ${{ github.ref_name }}'
           releaseBody: |
-            Linux is the currently supported release platform.
+            Linux is the currently supported release platform. This release
+            contains the Debian package only while AppImage native-library
+            compliance automation is being completed.
 
-            This build is manually tested on Omarchy (Arch-based Linux) and
-            built in CI on Ubuntu 22.04. Ubuntu, Linux Mint, and Debian 12 or
-            newer are expected to work but have not been manually verified
-            for this release.
+            This package is built in CI on Ubuntu 22.04. Ubuntu, Linux Mint,
+            and Debian 12 or newer are expected to work but have not been
+            manually verified for this release. AppImage distribution,
+            including the prior Omarchy path, is temporarily paused.
 
             Windows and macOS binaries are not included while native testing
             and code signing remain pending.
