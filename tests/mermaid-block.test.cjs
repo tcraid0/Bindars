@@ -3,10 +3,12 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
 const { createRoot } = require("react-dom/client");
+const { clearMocks, mockIPC } = require("@tauri-apps/api/mocks");
 const { installDom } = require("./_helpers/dom.cjs");
 
 const {
   MermaidBlock,
+  MermaidSvg,
   removeMermaidTempElements,
   waitForDocumentFontsReady,
 } = require("../.tmp/workspace-tests/src/components/MermaidBlock.js");
@@ -80,6 +82,100 @@ async function waitFor(assertion) {
   }
   throw lastError;
 }
+
+async function render(element) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(element);
+    await Promise.resolve();
+  });
+  return {
+    host,
+    async cleanup() {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    },
+  };
+}
+
+async function click(element) {
+  const event = new window.MouseEvent("click", {
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => {
+    element.dispatchEvent(event);
+    await Promise.resolve();
+  });
+  return event;
+}
+
+test("Mermaid SVG links use the system opener for supported same-frame and new-window URLs", async () => {
+  await installDom();
+  globalThis.Element = window.Element;
+  const opened = [];
+  mockIPC((command, payload) => {
+    if (command === "plugin:opener|open_url") {
+      opened.push(payload.url);
+      return null;
+    }
+    throw new Error(`Unexpected IPC command: ${command}`);
+  });
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">',
+    '<a xlink:href="https://example.test/same-frame"><text>HTTPS</text></a>',
+    '<a href="http://example.test/new-window" target="_blank"><text>HTTP</text></a>',
+    '<a xlink:href="mailto:reader@example.test"><text>Email</text></a>',
+    "</svg>",
+  ].join("");
+  const rendered = await render(React.createElement(MermaidSvg, { svg }));
+
+  try {
+    for (const linkText of rendered.host.querySelectorAll("text")) {
+      const event = await click(linkText);
+      assert.equal(event.defaultPrevented, true);
+    }
+    assert.deepEqual(opened, [
+      "https://example.test/same-frame",
+      "http://example.test/new-window",
+      "mailto:reader@example.test",
+    ]);
+  } finally {
+    await rendered.cleanup();
+    clearMocks();
+  }
+});
+
+test("Mermaid SVG links block unsupported schemes without invoking the system opener", async () => {
+  await installDom();
+  globalThis.Element = window.Element;
+  const commands = [];
+  mockIPC((command) => {
+    commands.push(command);
+    return null;
+  });
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">',
+    '<a xlink:href="javascript:alert(1)"><text>Unsupported</text></a>',
+    "</svg>",
+  ].join("");
+  const rendered = await render(React.createElement(MermaidSvg, { svg }));
+
+  try {
+    const linkText = rendered.host.querySelector("text");
+    assert.ok(linkText);
+    const event = await click(linkText);
+    assert.equal(event.defaultPrevented, true);
+    assert.deepEqual(commands, []);
+  } finally {
+    await rendered.cleanup();
+    clearMocks();
+  }
+});
 
 test("invalid Mermaid diagrams render the app error state without leaving body orphans", async () => {
   await installDom();

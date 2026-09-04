@@ -1,4 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
+import type { MouseEvent } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SourcePositionAttributes } from "../lib/markdown-source-position";
 
 interface MermaidBlockProps {
@@ -9,6 +11,7 @@ interface MermaidBlockProps {
 const MAX_MERMAID_CHARS = 50_000;
 export const MERMAID_RENDER_TIMEOUT_MS = 5_000;
 const MERMAID_FONT_SIZE = "14px";
+const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
 
 let mermaidCounter = 0;
 let lastInitializedConfig: string | null = null;
@@ -17,6 +20,48 @@ let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
 function getMermaid() {
   if (!mermaidPromise) mermaidPromise = import("mermaid");
   return mermaidPromise;
+}
+
+function getMermaidLinkHref(anchor: Element): string | null {
+  return anchor.getAttribute("href")
+    ?? anchor.getAttributeNS(XLINK_NAMESPACE, "href")
+    ?? anchor.getAttribute("xlink:href");
+}
+
+function handleMermaidLinkClick(event: MouseEvent<HTMLDivElement>): void {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+
+  const anchor = target.closest("a");
+  if (!anchor || !event.currentTarget.contains(anchor)) return;
+
+  const href = getMermaidLinkHref(anchor);
+  if (!href) return;
+
+  // Mermaid can emit both same-frame anchors and target="_blank" anchors.
+  // Cancel either browser behavior before delegating supported external URLs.
+  event.preventDefault();
+  if (/^(?:https?:\/\/|mailto:)/i.test(href)) {
+    void openUrl(href).catch(() => {
+      // No-op: if the system opener fails, keep app stable.
+    });
+  }
+}
+
+interface MermaidSvgProps {
+  svg: string;
+  sourcePosition?: SourcePositionAttributes;
+}
+
+export function MermaidSvg({ svg, sourcePosition }: MermaidSvgProps) {
+  return (
+    <div
+      className="mermaid-diagram"
+      {...sourcePosition}
+      onClickCapture={handleMermaidLinkClick}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
 }
 
 export async function waitForDocumentFontsReady(doc: Document = document): Promise<void> {
@@ -244,11 +289,5 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
     );
   }
 
-  return (
-    <div
-      className="mermaid-diagram"
-      {...sourcePosition}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
+  return <MermaidSvg svg={svg} sourcePosition={sourcePosition} />;
 });
