@@ -60,10 +60,10 @@ function mockPendingOpens() {
   return opens;
 }
 
-function startOpen(rendered, path = "/tmp/Slow.md") {
+function startOpen(rendered, path = "/tmp/Slow.md", retryAction) {
   let openPromise;
   flushSync(() => {
-    openPromise = rendered.api().openFilePathWithStatus(path);
+    openPromise = rendered.api().openFilePathWithStatus(path, retryAction);
   });
   return openPromise;
 }
@@ -190,6 +190,38 @@ test("saved-file adoption supersedes a slow open and publishes the supplied revi
   }
 });
 
+test("reconciliation adoption defensively clears an active open", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/Slow-user-open.md");
+    flushSync(() => rendered.api().adoptReconciledDocument({
+      content: "Reconciled content",
+      canonicalPath: "/tmp/Current.md",
+      name: "Current.md",
+      revision: savedRevision,
+    }));
+
+    assert.deepEqual(await openPromise, { status: "superseded" });
+    assert.equal(rendered.api().loading, false);
+    assert.equal(rendered.api().openingPath, null);
+    assert.equal(rendered.api().content, "Reconciled content");
+
+    opens[0].resolve({
+      content: "Late user content",
+      canonicalPath: "/tmp/Slow-user-open.md",
+      name: "Slow-user-open.md",
+      revision: savedRevision,
+    });
+    await opens[0].promise;
+    assert.equal(rendered.api().content, "Reconciled content");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("normal open and saved-file adoption publish the same document fields", async () => {
   await installDom();
   const opens = mockPendingOpens();
@@ -275,6 +307,51 @@ test("a newer user request retains loading ownership when an older request settl
   }
 });
 
+test("a newer same-path request takes over the live native read", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const firstPath = "/tmp/Folder/../Shared.md";
+  const secondPath = "/tmp/Shared.md";
+
+  try {
+    const firstPromise = startOpen(
+      rendered,
+      firstPath,
+      { kind: "restore-session", path: firstPath, headingId: "saved-heading" },
+    );
+    const secondPromise = startOpen(
+      rendered,
+      secondPath,
+      { kind: "open-recent", path: secondPath },
+    );
+
+    await act(async () => {
+      assert.deepEqual(await firstPromise, { status: "superseded" });
+    });
+    assert.equal(opens.length, 1, "the replacement must reuse the active native read");
+    assert.equal(rendered.api().loading, true);
+    assert.equal(rendered.api().error, null);
+
+    let secondResult;
+    await act(async () => {
+      opens[0].resolve({
+        content: "Shared content",
+        canonicalPath: secondPath,
+        name: "Shared.md",
+        revision: savedRevision,
+      });
+      secondResult = await secondPromise;
+    });
+    assert.deepEqual(secondResult, { status: "opened", canonicalPath: secondPath });
+    assert.equal(rendered.api().content, "Shared content");
+    assert.equal(rendered.api().loading, false);
+    assert.equal(rendered.api().error, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("unmount supersedes a pending user completion", async () => {
   await installDom();
   const opens = mockPendingOpens();
@@ -292,4 +369,313 @@ test("unmount supersedes a pending user completion", async () => {
     revision: savedRevision,
   });
   assert.deepEqual(await userPromise, { status: "superseded" });
+});
+
+test("slow opens expose cancellation and gate only that path until native settlement", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const retryAction = { kind: "open-file-path", path: "/tmp/Stalled.md" };
+
+  try {
+    flushSync(() => rendered.api().setVirtualContent("Keep this document", "Current.md"));
+    const openPromise = startOpen(rendered, retryAction.path, retryAction);
+    await act(async () => {
+      context.mock.timers.tick(2_000);
+      await Promise.resolve();
+    });
+    assert.equal(rendered.api().openingSlow, true);
+
+    let result;
+    await act(async () => {
+      rendered.api().cancelPendingOpen();
+      result = await openPromise;
+    });
+    assert.deepEqual(result, { status: "cancelled" });
+    assert.equal(rendered.api().loading, false);
+    assert.equal(rendered.api().content, "Keep this document");
+
+    await act(async () => {
+      result = await startOpen(rendered, retryAction.path, retryAction);
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.error.category, "resource-unavailable");
+    assert.equal(rendered.api().documentError.retryAvailability, "native-pending");
+    assert.equal(opens.length, 1, "same-path attempts must not start another native read");
+
+    await act(async () => {
+      opens[0].resolve({
+        content: "Late stale content",
+        canonicalPath: retryAction.path,
+        name: "Stalled.md",
+        revision: savedRevision,
+      });
+      await opens[0].promise;
+      await Promise.resolve();
+    });
+    assert.equal(rendered.api().content, "Keep this document");
+    assert.equal(rendered.api().documentError.retryAvailability, "ready");
+    assert.match(rendered.api().error.message, /Retry is now available/);
+    assert.equal(opens.length, 1, "native settlement must never auto-retry");
+
+    const retryPromise = startOpen(rendered, retryAction.path, retryAction);
+    await act(async () => {
+      opens[1].resolve({
+        content: "Explicit retry content",
+        canonicalPath: retryAction.path,
+        name: "Stalled.md",
+        revision: savedRevision,
+      });
+      result = await retryPromise;
+    });
+    assert.equal(result.status, "opened");
+    assert.equal(rendered.api().content, "Explicit retry content");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("a canceled stalled read does not globally block an unrelated healthy path", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const stalledPromise = startOpen(rendered, "/Volumes/Offline/Stalled.md");
+    let stalledResult;
+    await act(async () => {
+      rendered.api().cancelPendingOpen();
+      stalledResult = await stalledPromise;
+    });
+    assert.deepEqual(stalledResult, { status: "cancelled" });
+
+    const healthyPromise = startOpen(rendered, "/tmp/Healthy.md");
+    let healthyResult;
+    await act(async () => {
+      opens[1].resolve({
+        content: "Healthy content",
+        canonicalPath: "/tmp/Healthy.md",
+        name: "Healthy.md",
+        revision: savedRevision,
+      });
+      healthyResult = await healthyPromise;
+    });
+    assert.equal(healthyResult.status, "opened");
+    assert.equal(rendered.api().content, "Healthy content");
+
+    await act(async () => {
+      opens[0].resolve({
+        content: "Late stalled content",
+        canonicalPath: "/Volumes/Offline/Stalled.md",
+        name: "Stalled.md",
+        revision: savedRevision,
+      });
+      await opens[0].promise;
+    });
+    assert.equal(rendered.api().content, "Healthy content");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("open deadlines publish a direct unavailable error and preserve the current document", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const retryAction = { kind: "open-recent", path: "/Volumes/Cloud/Timed.md" };
+
+  try {
+    flushSync(() => rendered.api().setVirtualContent("Preserved bytes", "Current.md"));
+    const openPromise = startOpen(rendered, retryAction.path, retryAction);
+    let result;
+    await act(async () => {
+      context.mock.timers.tick(30_000);
+      result = await openPromise;
+    });
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(result.error, {
+      category: "resource-unavailable",
+      message: "Opening this file timed out. Your current document remains open. Retry will become available when macOS finishes the storage request; if it never does, quit and reopen Bindars.",
+    });
+    assert.equal(rendered.api().content, "Preserved bytes");
+    assert.equal(rendered.api().loading, false);
+    assert.deepEqual(rendered.api().documentError.retryAction, retryAction);
+    assert.equal(rendered.api().documentError.retryAvailability, "native-pending");
+
+    await act(async () => {
+      opens[0].resolve({
+        content: "Too late",
+        canonicalPath: retryAction.path,
+        name: "Timed.md",
+        revision: savedRevision,
+      });
+      await opens[0].promise;
+      await Promise.resolve();
+    });
+    assert.equal(rendered.api().content, "Preserved bytes");
+    assert.equal(rendered.api().documentError.retryAvailability, "ready");
+    assert.match(rendered.api().error.message, /Retry is now available/);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("timeout copy does not promise a Retry action when none was supplied", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const path = "/Volumes/Cloud/No-action.md";
+
+  try {
+    const openPromise = startOpen(rendered, path);
+    let result;
+    await act(async () => {
+      context.mock.timers.tick(30_000);
+      result = await openPromise;
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error.message, /Try opening the file again/);
+    assert.doesNotMatch(result.error.message, /Retry will become available/);
+    assert.equal(rendered.api().documentError.retryAction, null);
+    assert.equal(rendered.api().documentError.retryAvailability, null);
+  } finally {
+    opens[0].resolve({
+      content: "Late content",
+      canonicalPath: path,
+      name: "No-action.md",
+      revision: savedRevision,
+    });
+    await opens[0].promise;
+    rendered.cleanup();
+  }
+});
+
+test("reconciliation cannot erase a Retry-bearing open error", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const retryAction = { kind: "open-recent", path: "/Volumes/Cloud/Next.md" };
+
+  try {
+    flushSync(() => rendered.api().setVirtualContent("Current bytes", "Current.md"));
+    const openPromise = startOpen(rendered, retryAction.path, retryAction);
+    await act(async () => {
+      opens[0].reject({
+        category: "resourceUnavailable",
+        operation: "readDocument",
+        message: "The next file is temporarily unavailable.",
+        detail: "provider offline",
+      });
+      await openPromise;
+    });
+
+    const ownedOpenError = rendered.api().documentError;
+    assert.equal(ownedOpenError.source, "open");
+    assert.deepEqual(ownedOpenError.retryAction, retryAction);
+
+    flushSync(() => rendered.api().reportReconciliationError({
+      category: "resource-unavailable",
+      message: "The current file is also unavailable.",
+    }));
+    assert.equal(rendered.api().documentError.ownerToken, ownedOpenError.ownerToken);
+
+    flushSync(() => rendered.api().adoptReconciledDocument({
+      content: "Externally refreshed bytes",
+      canonicalPath: "/tmp/Current.md",
+      name: "Current.md",
+      revision: { mtimeMs: 3, size: 26, contentHash: "refreshed" },
+    }));
+    assert.equal(rendered.api().content, "Externally refreshed bytes");
+    assert.equal(rendered.api().documentError.ownerToken, ownedOpenError.ownerToken);
+    assert.deepEqual(rendered.api().documentError.retryAction, retryAction);
+
+    flushSync(() => rendered.api().refreshReconciledRevision({
+      mtimeMs: 4,
+      size: 26,
+      contentHash: "same-bytes",
+    }));
+    flushSync(() => rendered.api().clearReconciliationError());
+    assert.equal(rendered.api().documentError.ownerToken, ownedOpenError.ownerToken);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("reconciliation still replaces non-retry open errors", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/Ordinary-failure.md");
+    await act(async () => {
+      opens[0].reject(new Error("Ordinary open failure"));
+      await openPromise;
+    });
+    assert.equal(rendered.api().documentError.source, "open");
+    assert.equal(rendered.api().documentError.retryAction, null);
+
+    flushSync(() => rendered.api().reportReconciliationError({
+      category: "resource-unavailable",
+      message: "The current file is unavailable.",
+    }));
+    assert.equal(rendered.api().documentError.source, "reconciliation");
+    assert.equal(rendered.api().error.message, "The current file is unavailable.");
+
+    flushSync(() => rendered.api().clearReconciliationError());
+    assert.equal(rendered.api().documentError, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("a superseded restore cannot dismiss a newer owned error", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+  const newerAction = { kind: "open-file-path", path: "/tmp/Newer.md" };
+
+  try {
+    const restorePromise = startOpen(
+      rendered,
+      "/tmp/Stored.md",
+      { kind: "restore-session", path: "/tmp/Stored.md", headingId: "saved" },
+    );
+    const newerPromise = startOpen(rendered, newerAction.path, newerAction);
+    let restoreResult;
+    let newerResult;
+    await act(async () => {
+      opens[1].reject({
+        category: "resourceUnavailable",
+        operation: "readDocument",
+        message: "The newer file is temporarily unavailable.",
+        detail: "provider offline",
+      });
+      restoreResult = await restorePromise;
+      newerResult = await newerPromise;
+    });
+
+    assert.deepEqual(restoreResult, { status: "superseded" });
+    assert.equal(newerResult.status, "failed");
+    assert.equal(rendered.api().error.message, "The newer file is temporarily unavailable.");
+    assert.deepEqual(rendered.api().documentError.retryAction, newerAction);
+
+    await act(async () => {
+      opens[0].resolve({
+        content: "Late stored session",
+        canonicalPath: "/tmp/Stored.md",
+        name: "Stored.md",
+        revision: savedRevision,
+      });
+      await opens[0].promise;
+    });
+    assert.equal(rendered.api().error.message, "The newer file is temporarily unavailable.");
+  } finally {
+    rendered.cleanup();
+  }
 });
