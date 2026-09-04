@@ -73,6 +73,23 @@ test("the coverage check rejects a newly unreviewed locked package", async () =>
   );
 });
 
+test("the coverage check blocks distribution when human review is required", async () => {
+  const { collectVerificationErrors } = await noticesModule();
+  const inputs = repositoryInputs();
+  const packageEntry = inputs.inventory.packages.find(
+    (entry) => entry.distributionClass !== "inventory-only",
+  );
+  assert.ok(packageEntry);
+  packageEntry.reviewRequired = true;
+  inputs.inventory.summary.reviewRequired += 1;
+
+  assert.ok(
+    collectVerificationErrors(inputs).includes(
+      `Packages require human license review before distribution: ${packageEntry.id}`,
+    ),
+  );
+});
+
 test("the coverage check rejects removal from the packaged notices", async () => {
   const { collectVerificationErrors } = await noticesModule();
   const inputs = repositoryInputs();

@@ -1019,9 +1019,18 @@ export function collectVerificationErrors({
   ];
   const expectedIds = new Set(expectedPackages.map((packageEntry) => packageEntry.id));
   const inventoryIds = new Set(inventory.packages.map((packageEntry) => packageEntry.id));
+  const reviewRequiredIds = inventory.packages
+    .filter((packageEntry) => packageEntry.reviewRequired)
+    .map((packageEntry) => packageEntry.id)
+    .sort();
 
   if (inventory.schemaVersion !== 1) {
     errors.push(`Unsupported inventory schema version: ${inventory.schemaVersion}`);
+  }
+  if (reviewRequiredIds.length > 0) {
+    errors.push(
+      `Packages require human license review before distribution: ${reviewRequiredIds.join(", ")}`,
+    );
   }
 
   const missing = difference(expectedIds, inventoryIds);
