@@ -32,7 +32,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
-import type { PublishedDocument } from "./hooks/useMarkdownFile";
+import type { OpenFilePathResult, PublishedDocument } from "./hooks/useMarkdownFile";
 import { useDocumentReconciliation } from "./hooks/useDocumentReconciliation";
 import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
@@ -58,15 +58,16 @@ import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveResult } from "./lib/editor-save";
-import { appErrorFromNative, normalizeFileError } from "./lib/native-file-error";
+import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
-import { reconciliationProbeFailure } from "./lib/document-reconciliation";
 import type {
   ReconciliationDecision,
   ReconciliationProbeResult,
   ReconciliationSnapshot,
 } from "./lib/document-reconciliation";
+import { probeDocumentForReconciliation } from "./lib/document-reconciliation-probe";
 import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode, decideNativeCloseRequest, windowClosePolicy } from "./lib/app-flow";
+import type { PendingAction, RetryablePendingAction } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
 import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
@@ -104,20 +105,8 @@ import type {
   SnapshotStorageStats,
 } from "./lib/snapshots";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { FileRevision, HighlightColor, OpenFileResult, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
-
-type PendingAction =
-  | { kind: "close-window" }
-  | { kind: "quit-app" }
-  | { kind: "new-file" }
-  | { kind: "open-file-dialog" }
-  | { kind: "open-file-path"; path: string }
-  | { kind: "open-recent"; path: string }
-  | { kind: "go-back" }
-  | { kind: "go-forward" }
-  | { kind: "navigate"; path: string; anchor: string | null }
-  | { kind: "open-workspace-hit"; path: string; headingId: string | null };
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -235,8 +224,10 @@ function App() {
     fileRevision,
     fileType,
     error,
+    documentError,
     loading,
     openingPath,
+    openingSlow,
     getPublishedDocument,
     getOpenOwnership,
     openFile,
@@ -248,6 +239,7 @@ function App() {
     refreshReconciledRevision,
     reportReconciliationError,
     clearReconciliationError,
+    cancelPendingOpen,
     supersedePendingOpen,
     dismissError,
   } = useMarkdownFile();
@@ -444,6 +436,12 @@ function App() {
     filePath,
     headingId: activeHeadingIdRef.current,
   };
+
+  const handleCancelPendingOpen = useCallback(() => {
+    cancelPendingOpen();
+    mainScrollRef.current?.focus({ preventScroll: true });
+    toast("Opening canceled.", "info");
+  }, [cancelPendingOpen, toast]);
 
   const reportAutomaticSnapshotError = useCallback((message: string) => {
     console.warn("[snapshots] Automatic snapshots temporarily unavailable; retrying:", message);
@@ -654,20 +652,7 @@ function App() {
   const probeForReconciliation = useCallback(async (
     snapshot: ReconciliationSnapshot,
   ): Promise<ReconciliationProbeResult> => {
-    try {
-      const document = await invoke<OpenFileResult>("open_markdown_file", {
-        path: snapshot.filePath,
-      });
-      return {
-        status: "available",
-        documentId: toPathIdentityKey(document.canonicalPath),
-        document,
-      };
-    } catch (probeError) {
-      return reconciliationProbeFailure(
-        appErrorFromNative(probeError, "Bindars couldn't check the open document."),
-      );
-    }
+    return probeDocumentForReconciliation(snapshot.filePath);
   }, []);
 
   const applyReconciliationDecision = useCallback((
@@ -761,12 +746,7 @@ function App() {
         }
         break;
       case "recover-unavailable":
-        reportReconciliationError({
-          ...decision.error,
-          message: decision.reason === "timeout"
-            ? "Checking this file timed out. The current document remains open; try again when the file is available."
-            : decision.error.message,
-        });
+        reportReconciliationError(decision.error);
         break;
       case "stale-noop":
         return;
@@ -1877,14 +1857,18 @@ function App() {
   const openAttemptIdRef = useRef(0);
 
   const openPathAndScroll = useCallback(
-    async (path: string, headingId: string | null): Promise<boolean> => {
+    async (
+      path: string,
+      headingId: string | null,
+      retryAction: RetryablePendingAction,
+    ): Promise<OpenFilePathResult> => {
       // Only the latest user navigation may clear pending scroll after a failed open.
       // Watcher reloads preserve the current heading separately and intentionally
       // bypass this supersession guard.
       const openAttemptId = ++openAttemptIdRef.current;
       setPendingReaderTarget(null);
-      const result = await openFilePathWithStatus(path);
-      if (openAttemptIdRef.current !== openAttemptId) return false;
+      const result = await openFilePathWithStatus(path, retryAction);
+      if (openAttemptIdRef.current !== openAttemptId) return { status: "superseded" };
 
       if (result.status === "opened" && headingId) {
         setPendingReaderTarget({
@@ -1893,7 +1877,7 @@ function App() {
           documentKey: toPathIdentityKey(result.canonicalPath),
         });
       }
-      return result.status === "opened";
+      return result;
     },
     [openFilePathWithStatus],
   );
@@ -1901,9 +1885,13 @@ function App() {
   // Session restore: reopen last file + scroll position on startup
   const handleSessionRestore = useCallback(
     async (session: { filePath: string; headingId: string | null }) => {
-      const ok = await openPathAndScroll(session.filePath, session.headingId);
-      if (!ok) {
-        dismissError();
+      const result = await openPathAndScroll(
+        session.filePath,
+        session.headingId,
+        { kind: "restore-session", path: session.filePath, headingId: session.headingId },
+      );
+      if (result.status === "failed" && result.error.category !== "resource-unavailable") {
+        dismissError(result.errorOwnerToken);
       }
     },
     [openPathAndScroll, dismissError],
@@ -2108,7 +2096,11 @@ function App() {
 
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(
-    async (path: string, anchor: string | null) => {
+    async (
+      path: string,
+      anchor: string | null,
+      retryAction: RetryablePendingAction = { kind: "navigate", path, anchor },
+    ) => {
       // Same-file shortcut: skip re-reading and scroll directly
       if (filePath && toPathIdentityKey(path) === toPathIdentityKey(filePath)) {
         if (anchor) {
@@ -2120,8 +2112,8 @@ function App() {
       }
 
       const pos = currentPositionRef.current;
-      const ok = await openPathAndScroll(path, anchor);
-      if (ok) {
+      const result = await openPathAndScroll(path, anchor, retryAction);
+      if (result.status === "opened") {
         if (pos.filePath) {
           pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
         }
@@ -2130,24 +2122,28 @@ function App() {
     [filePath, pushEntry, openPathAndScroll, scrollToFragment, toast],
   );
 
-  const handleGoBack = useCallback(async () => {
+  const handleGoBack = useCallback(async (
+    retryAction: RetryablePendingAction = { kind: "go-back" },
+  ) => {
     const entry = peekBack();
     if (!entry) return;
     const pos = currentPositionRef.current;
     if (!pos.filePath) return;
-    const ok = await openPathAndScroll(entry.filePath, entry.headingId);
-    if (ok) {
+    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
+    if (result.status === "opened") {
       commitBack({ filePath: pos.filePath, headingId: pos.headingId });
     }
   }, [peekBack, commitBack, openPathAndScroll]);
 
-  const handleGoForward = useCallback(async () => {
+  const handleGoForward = useCallback(async (
+    retryAction: RetryablePendingAction = { kind: "go-forward" },
+  ) => {
     const entry = peekForward();
     if (!entry) return;
     const pos = currentPositionRef.current;
     if (!pos.filePath) return;
-    const ok = await openPathAndScroll(entry.filePath, entry.headingId);
-    if (ok) {
+    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
+    if (result.status === "opened") {
       commitForward({ filePath: pos.filePath, headingId: pos.headingId });
     }
   }, [peekForward, commitForward, openPathAndScroll]);
@@ -2169,7 +2165,10 @@ function App() {
   }, [filePath, fileName, addRecent]);
 
   const handleOpenRecent = useCallback(
-    async (path: string) => {
+    async (
+      path: string,
+      retryAction: RetryablePendingAction = { kind: "open-recent", path },
+    ) => {
       const targetPathKey = toPathIdentityKey(path);
       const currentPathKey = filePath ? toPathIdentityKey(filePath) : "";
       const savedHeading = getScrollPosition(path);
@@ -2180,7 +2179,7 @@ function App() {
         return;
       }
 
-      await openPathAndScroll(path, savedHeading);
+      await openPathAndScroll(path, savedHeading, retryAction);
     },
     [filePath, getActiveHeadingId, getScrollPosition, openPathAndScroll, scrollToHeading],
   );
@@ -2325,6 +2324,20 @@ function App() {
     [guardAction, closeCommandPalette],
   );
 
+  const retryDocumentOpen = useCallback(() => {
+    if (
+      !documentError?.retryAction
+      || documentError.retryAvailability !== "ready"
+    ) return;
+    if (guardAction(documentError.retryAction) === "busy") {
+      toast("Finish the current action before retrying this file.", "error");
+    }
+  }, [documentError, guardAction, toast]);
+
+  const dismissDocumentError = useCallback(() => {
+    dismissError(documentError?.ownerToken);
+  }, [dismissError, documentError?.ownerToken]);
+
   executePendingActionRef.current = async (action) => {
     switch (action.kind) {
       case "close-window": {
@@ -2384,19 +2397,19 @@ function App() {
         await openFile();
         return;
       case "open-file-path":
-        await openFilePath(action.path);
+        await openFilePath(action.path, action);
         return;
       case "open-recent":
-        await handleOpenRecent(action.path);
+        await handleOpenRecent(action.path, action);
         return;
       case "go-back":
-        await handleGoBack();
+        await handleGoBack(action);
         return;
       case "go-forward":
-        await handleGoForward();
+        await handleGoForward(action);
         return;
       case "navigate":
-        await handleNavigateToFile(action.path, action.anchor);
+        await handleNavigateToFile(action.path, action.anchor, action);
         return;
       case "open-workspace-hit":
         if (action.path === filePath) {
@@ -2405,7 +2418,10 @@ function App() {
           }
           return;
         }
-        await handleNavigateToFile(action.path, action.headingId);
+        await handleNavigateToFile(action.path, action.headingId, action);
+        return;
+      case "restore-session":
+        await openPathAndScroll(action.path, action.headingId, action);
         return;
     }
   };
@@ -2818,7 +2834,9 @@ function App() {
         {/* Reading surface */}
         <main
           ref={mainScrollRef}
-          className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative"
+          tabIndex={-1}
+          aria-label="Document"
+          className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           {!editing && (
             <SearchBar
@@ -2834,12 +2852,38 @@ function App() {
           )}
 
           {loading && (
-            <div className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted">
-              Opening file...
+            <div
+              className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+            >
+              <span role="status" aria-live="polite" aria-atomic="true">
+                {openingSlow
+                  ? "Still opening. Cloud and external files can take longer to become available."
+                  : "Opening file..."}
+              </span>
+              {openingSlow && (
+                <button
+                  type="button"
+                  onClick={handleCancelPendingOpen}
+                  className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
 
-          {error && <ErrorBanner error={error} onDismiss={dismissError} />}
+          {error && (
+            <ErrorBanner
+              error={error}
+              onDismiss={dismissDocumentError}
+              onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
+              actionLabel={documentError?.retryAction ? "Retry" : undefined}
+              actionDisabled={
+                documentError?.retryAvailability !== "ready"
+                || actionAdmissionInFlight
+              }
+            />
+          )}
 
           {isDocumentOpen(content) && editing && editor.buffer !== null ? (
             <MarkdownEditor

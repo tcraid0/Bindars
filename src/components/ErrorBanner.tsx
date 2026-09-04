@@ -4,6 +4,9 @@ import type { AppError, ErrorCategory } from "../types";
 interface ErrorBannerProps {
   error: AppError;
   onDismiss: () => void;
+  onAction?: () => void;
+  actionLabel?: string;
+  actionDisabled?: boolean;
 }
 
 const genericIcon = (
@@ -58,18 +61,34 @@ const icons: Record<ErrorCategory, React.ReactNode> = {
   generic: genericIcon,
 };
 
-function ErrorBannerComponent({ error, onDismiss }: ErrorBannerProps) {
+function ErrorBannerComponent({
+  error,
+  onDismiss,
+  onAction,
+  actionLabel,
+  actionDisabled = false,
+}: ErrorBannerProps) {
   return (
     <div
       role="alert"
       className="max-w-[65ch] mx-auto mt-4 px-4 py-3 rounded-lg border border-red-400/30 bg-red-500/10 text-red-400 text-sm flex items-start gap-3"
     >
       <span className="shrink-0 mt-0.5">{icons[error.category]}</span>
-      <span className="flex-1 min-w-0">{error.message}</span>
+      <span className="flex-1 min-w-0 break-words">{error.message}</span>
+      {onAction && actionLabel && (
+        <button
+          type="button"
+          onClick={onAction}
+          disabled={actionDisabled}
+          className="shrink-0 min-h-6 px-2 rounded border border-red-400/30 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+        >
+          {actionLabel}
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}
-        className="shrink-0 p-0.5 rounded hover:bg-red-500/10 transition-colors duration-120"
+        className="shrink-0 min-w-6 min-h-6 p-1 rounded hover:bg-red-500/10 transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
         aria-label="Dismiss error"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

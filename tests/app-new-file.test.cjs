@@ -1139,6 +1139,7 @@ async function renderContinuityApp({
   storedHighlights = [],
   snapshotEntries = [],
   snapshotContents = {},
+  initialOpenOperation = null,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1161,7 +1162,7 @@ async function renderContinuityApp({
     "Closing words.",
   ].join("\n");
   let conflictNextWrite = false;
-  let deferredOpen = null;
+  let deferredOpen = initialOpenOperation;
   let deferredOpenDialog = null;
   let deferredWrite = null;
   let deferredWatch = null;
@@ -2373,6 +2374,45 @@ test("the initial native open wins over stored session restore", async () => {
   }
 });
 
+test("a same-path native request takes over a live session restore without a second read", async () => {
+  const restoreOpen = deferred();
+  const requestedPath = "/tmp/stored-session.md";
+  const rendered = await renderContinuityApp({
+    requestedPath,
+    restoreHeadingId: "stored-heading",
+    initialOpenOperation: restoreOpen,
+    readySelector: "main",
+  });
+
+  try {
+    await waitFor(() => assert.equal(restoreOpen.args?.path, requestedPath));
+    assert.deepEqual(rendered.openedPaths(), [requestedPath]);
+
+    rendered.setPendingNativeOpenPath(requestedPath);
+    await act(async () => {
+      await emit("bindars://native-open-available");
+      await Promise.resolve();
+    });
+    assert.deepEqual(
+      rendered.openedPaths(),
+      [requestedPath],
+      "the user action must take over the session read instead of starting another one",
+    );
+    assert.ok(!rendered.host.querySelector('[role="alert"]'));
+
+    await act(async () => {
+      restoreOpen.resolve(rendered.openResult());
+      await restoreOpen.promise;
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /stored-session\.md/));
+    assert.deepEqual(rendered.openedPaths(), [requestedPath]);
+    assert.ok(!rendered.host.querySelector('[role="alert"]'));
+  } finally {
+    restoreOpen.resolve(rendered.openResult());
+    await rendered.cleanup();
+  }
+});
+
 test("native file switching honors Save, Discard, and Cancel for dirty documents", async (context) => {
   for (const choice of ["Save", "Discard", "Cancel"]) {
     await context.test(choice, async () => {
@@ -2407,6 +2447,46 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
         await rendered.cleanup();
       }
     });
+  }
+});
+
+test("a failed open after Discard keeps disk content without restoring discarded edits", async () => {
+  const rendered = await renderContinuityApp();
+  const discardedWords = `${rendered.diskContent()}\n\nThese words must stay discarded.`;
+  const failedOpen = deferred();
+
+  try {
+    const dialog = await requestNativeOpenAfterFailedBoundarySave(
+      rendered,
+      "/tmp/unavailable-after-discard.md",
+      discardedWords,
+    );
+    rendered.deferNextOpen(failedOpen);
+    clickButton(rendered.host, "Discard", dialog);
+    await waitFor(() => assert.equal(
+      failedOpen.args?.path,
+      "/tmp/unavailable-after-discard.md",
+    ));
+
+    await act(async () => {
+      failedOpen.reject({
+        category: "resourceUnavailable",
+        operation: "readDocument",
+        message: "The replacement file is unavailable.",
+        detail: "provider offline",
+      });
+      try { await failedOpen.promise; } catch { /* expected */ }
+    });
+
+    await waitFor(() => assert.match(rendered.host.textContent, /replacement file is unavailable/i));
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    assert.match(rendered.host.querySelector("article").textContent, /Opening words/);
+    assert.doesNotMatch(rendered.host.textContent, /These words must stay discarded/);
+    assert.match(rendered.host.textContent, /continuity\.md/);
+    assert.doesNotMatch(rendered.host.textContent, /unavailable-after-discard\.md/);
+  } finally {
+    failedOpen.reject(new Error("test cleanup"));
+    await rendered.cleanup();
   }
 });
 
@@ -2517,6 +2597,102 @@ test("a later native open is consumed as busy while an admitted open is still ru
 
     await requestNativeOpenAndDiscardIfPrompted(rendered, "/tmp/after-admitted-open.md");
   } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("Cancel releases a slow admitted open while its native read remains abandoned", async () => {
+  const rendered = await renderContinuityApp();
+  const stalledOpen = deferred();
+  try {
+    rendered.clearOpenedPaths();
+    rendered.deferNextOpen(stalledOpen);
+    rendered.setPendingNativeOpenPath("/tmp/continuity.md");
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+    await waitFor(() => assert.equal(
+      stalledOpen.args?.path,
+      "/tmp/continuity.md",
+    ));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2_050));
+    });
+    const status = rendered.host.querySelector('[role="status"]');
+    assert.ok(status);
+    assert.match(status.textContent, /Still opening/);
+    assert.ok(status.querySelector("button") === null);
+    const cancelButton = Array.from(rendered.host.querySelectorAll("button"))
+      .find((button) => button.textContent.trim() === "Cancel");
+    assert.ok(cancelButton);
+    cancelButton.focus();
+    assert.ok(document.activeElement === cancelButton);
+    flushSync(() => cancelButton.click());
+
+    await waitFor(() => assert.doesNotMatch(rendered.host.textContent, /Still opening/));
+    const readingSurface = rendered.host.querySelector("main");
+    assert.ok(document.activeElement === readingSurface);
+    assert.equal(readingSurface.getAttribute("tabindex"), "-1");
+    await waitFor(() => assert.ok(
+      Array.from(rendered.host.querySelectorAll('[role="status"]'))
+        .some((candidate) => /Opening canceled/.test(candidate.textContent)),
+    ));
+    assert.match(rendered.host.querySelector("article").textContent, /Opening words/);
+    await waitFor(() => assert.equal(
+      rendered.host.querySelector('button[aria-label="Switch to edit mode"]')?.disabled,
+      false,
+    ));
+
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await Promise.resolve();
+    });
+    const reconciliationError = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="alert"]');
+      assert.ok(candidate);
+      assert.match(candidate.textContent, /still waiting on an earlier request/i);
+      return candidate;
+    });
+    assert.match(reconciliationError.textContent, /quit and reopen Bindars/i);
+    assert.doesNotMatch(reconciliationError.textContent, /Retry/i);
+    assert.deepEqual(rendered.openedPaths(), ["/tmp/continuity.md"]);
+
+    const healthyOpen = deferred();
+    rendered.deferNextOpen(healthyOpen);
+    rendered.setPendingNativeOpenPath("/tmp/Healthy-after-cancel.md");
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+    await waitFor(() => assert.equal(
+      healthyOpen.args?.path,
+      "/tmp/Healthy-after-cancel.md",
+    ));
+    const healthyContent = "# Healthy after cancel\n";
+    await act(async () => {
+      healthyOpen.resolve({
+        canonicalPath: "/tmp/Healthy-after-cancel.md",
+        name: "Healthy-after-cancel.md",
+        content: healthyContent,
+        revision: {
+          mtimeMs: 2,
+          size: healthyContent.length,
+          contentHash: "healthy-after-cancel",
+        },
+      });
+      await healthyOpen.promise;
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /Healthy-after-cancel\.md/));
+
+    await act(async () => {
+      stalledOpen.resolve(rendered.openResult("# Late stale file\n", 3));
+      await stalledOpen.promise;
+      await Promise.resolve();
+    });
+    assert.match(rendered.host.querySelector("article").textContent, /Healthy after cancel/);
+    assert.doesNotMatch(rendered.host.textContent, /Late stale file/);
+  } finally {
+    stalledOpen.resolve(rendered.openResult());
     await rendered.cleanup();
   }
 });
@@ -2753,19 +2929,38 @@ test("watcher drop after a deferred stale editor-exit still reconciles", async (
     rendered.setOpenDialogPath("/tmp/continuity.md");
     rendered.deferNextOpen(sameFileOpen);
     dispatchShortcut("o");
-    await waitFor(() => assert.deepEqual(
-      rendered.operationLog(),
-      ["watch", "open", "open"],
+    await waitFor(() => assert.match(
+      rendered.host.textContent,
+      /still waiting on an earlier request/i,
     ));
-    await act(async () => {
-      sameFileOpen.resolve(rendered.openResult());
-      await sameFileOpen.promise;
-    });
+    assert.deepEqual(rendered.operationLog(), ["watch", "open"]);
+    let retryButton = Array.from(rendered.host.querySelectorAll("button"))
+      .find((candidate) => candidate.textContent.trim() === "Retry");
+    assert.ok(retryButton);
+    assert.equal(retryButton.disabled, true);
 
     await act(async () => {
       editorExitProbe.resolve(rendered.openResult());
       await editorExitProbe.promise;
       await Promise.resolve();
+    });
+    retryButton = await waitFor(() => {
+      const candidate = Array.from(rendered.host.querySelectorAll("button"))
+        .find((button) => button.textContent.trim() === "Retry");
+      assert.ok(candidate);
+      assert.equal(candidate.disabled, false);
+      assert.match(rendered.host.querySelector('[role="alert"]').textContent, /Retry is now available/);
+      return candidate;
+    });
+    flushSync(() => retryButton.click());
+    await waitFor(() => assert.deepEqual(
+      rendered.operationLog(),
+      ["watch", "open", "open"],
+    ));
+
+    await act(async () => {
+      sameFileOpen.resolve(rendered.openResult());
+      await sameFileOpen.promise;
     });
 
     const dropProbe = deferred();
