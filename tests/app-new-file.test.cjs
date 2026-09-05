@@ -189,6 +189,9 @@ async function renderEditorApp({
   snapshotDrafts = [],
   snapshotEntriesByDraft = {},
   snapshotContents = {},
+  themeGet,
+  themeLocal,
+  themeLocalLegacy,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -210,6 +213,16 @@ async function renderEditorApp({
   } else if (!preserveMarkdownFormattingLocal) {
     window.localStorage.removeItem("bindars-markdown-formatting-enabled");
   }
+  if (typeof themeLocal === "string") {
+    window.localStorage.setItem("bindars-theme", themeLocal);
+  } else {
+    window.localStorage.removeItem("bindars-theme");
+  }
+  if (typeof themeLocalLegacy === "string") {
+    window.localStorage.setItem("markdown-reader-theme", themeLocalLegacy);
+  } else {
+    window.localStorage.removeItem("markdown-reader-theme");
+  }
   mockWindows("main");
   const storeWrites = [];
   const snapshotWrites = [];
@@ -219,6 +232,9 @@ async function renderEditorApp({
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
+        if (args.key === "theme" && themeGet !== undefined) {
+          return themeGet;
+        }
         if (args.key === "recent-files") return [[], true];
         if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
@@ -282,6 +298,8 @@ async function renderEditorApp({
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       host.remove();
+      window.localStorage.removeItem("bindars-theme");
+      window.localStorage.removeItem("markdown-reader-theme");
       window.matchMedia = originalMatchMedia;
       clearMocks();
     },
@@ -382,6 +400,178 @@ test("theme switching preserves pending edits and ignores composing shortcuts", 
     assert.ok(document.activeElement === view.contentDOM);
   } finally {
     await rendered.cleanup();
+  }
+});
+
+// Every user-facing theme-change route funnels through useTheme's
+// setTheme/cycleTheme callbacks: the Header "Switch theme" button, the global
+// Ctrl/Cmd+Shift+T shortcut, and the ReaderControls theme swatches (click and
+// arrow-key navigation). These tests change the theme through each entry point
+// while the stored theme load is still pending and prove the late stored value
+// cannot overwrite the newer user choice.
+
+function themeWritesOf(rendered) {
+  return rendered.storeWrites
+    .filter((write) => write.key === "theme")
+    .map((write) => write.value);
+}
+
+async function resolveStoredTheme(storedTheme, value) {
+  await act(async () => {
+    storedTheme.resolve(value);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function waitForThemeWrites(rendered, values) {
+  await waitFor(() => assert.deepEqual(themeWritesOf(rendered), values));
+}
+
+// The compiled app reads the bare `localStorage` global, which Node does not
+// define; bind it to the test window so theme seeding and assertions are live.
+function bindAppLocalStorage() {
+  const original = globalThis.localStorage;
+  globalThis.localStorage = window.localStorage;
+  return function restoreAppLocalStorage() {
+    globalThis.localStorage = original;
+  };
+}
+
+test("a stored theme applies over a seeded localStorage theme when no user action occurs", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({
+    themeGet: storedTheme.promise,
+    themeLocal: "dark",
+  });
+
+  try {
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    assert.deepEqual(themeWritesOf(rendered), []);
+
+    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
+    await waitForThemeWrites(rendered, ["sepia"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
+  }
+});
+
+test("a stored theme arriving after the Ctrl+Shift+T cycle keeps the user's theme", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
+
+  try {
+    assert.equal(document.documentElement.getAttribute("data-theme"), "");
+    // Startup must not persist the temporary default before hydration settles.
+    assert.deepEqual(themeWritesOf(rendered), []);
+
+    const cycle = dispatchEditorKey(rendered.host, "t", {
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    assert.equal(cycle.defaultPrevented, true);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    await waitForThemeWrites(rendered, ["sepia"]);
+
+    await resolveStoredTheme(storedTheme, ["deep-dark", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
+    assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
+  }
+});
+
+test("a stored theme arriving after the toolbar theme button keeps the user's theme", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
+
+  try {
+    const button = rendered.host.querySelector('button[aria-label^="Switch theme (current:"]');
+    assert.ok(button, "expected the Header theme button");
+    flushSync(() => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    await waitForThemeWrites(rendered, ["sepia"]);
+
+    await resolveStoredTheme(storedTheme, ["dark", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
+  }
+});
+
+test("a stored theme arriving after a settings swatch selection keeps the user's theme", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
+
+  try {
+    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    assert.ok(toggle, "expected the reader settings toggle");
+    flushSync(() => {
+      toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    const swatch = rendered.host.querySelector('button[aria-label="Dark theme"]');
+    assert.ok(swatch, "expected the Dark theme swatch");
+    flushSync(() => {
+      swatch.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    await waitForThemeWrites(rendered, ["dark"]);
+
+    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    assert.deepEqual(themeWritesOf(rendered), ["dark"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
+  }
+});
+
+test("a stored theme arriving after settings swatch arrow navigation keeps the user's theme", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
+
+  try {
+    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    assert.ok(toggle, "expected the reader settings toggle");
+    flushSync(() => {
+      toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    const lightSwatch = rendered.host.querySelector('button[aria-label="Light theme"]');
+    assert.ok(lightSwatch, "expected the selected Light theme swatch");
+    const arrow = new window.KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    flushSync(() => {
+      lightSwatch.focus();
+      lightSwatch.dispatchEvent(arrow);
+    });
+    assert.equal(arrow.defaultPrevented, true);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    const sepiaSwatch = rendered.host.querySelector('button[aria-label="Sepia theme"]');
+    assert.ok(document.activeElement === sepiaSwatch);
+    await waitForThemeWrites(rendered, ["sepia"]);
+
+    await resolveStoredTheme(storedTheme, ["dark", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
   }
 });
 
