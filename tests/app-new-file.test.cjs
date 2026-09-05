@@ -1140,6 +1140,7 @@ async function renderContinuityApp({
   snapshotEntries = [],
   snapshotContents = {},
   initialOpenOperation = null,
+  workspaceFiles = [],
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1194,6 +1195,7 @@ async function renderContinuityApp({
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [[], true];
+        if (args.key === "workspace:root" && workspaceFiles.length) return ["/tmp", true];
         if (args.key === `annotations:${canonicalPath}`) {
           return [{ highlights: storedHighlights, bookmarks: [], version: 2 }, true];
         }
@@ -1201,6 +1203,10 @@ async function renderContinuityApp({
           return [{ filePath: requestedPath, headingId: restoreHeadingId }, true];
         }
         return [null, false];
+      case "list_workspace_markdown_files":
+        return { files: workspaceFiles, skippedCount: 0, limitHit: false };
+      case "read_markdown_file":
+        return `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
       case "plugin:store|set":
       case "plugin:window|set_title":
         return null;
@@ -4271,4 +4277,65 @@ test("a failed capture at the close boundary creates one warning and requests on
   } finally {
     await rendered.cleanup();
   }
+});
+
+const paletteWorkspaceFiles = ["Alpha.md", "Beta.md"].map((name) => ({
+  path: `/tmp/${name}`, relPath: name, name, mtimeMs: 1, size: 10,
+}));
+
+test("palette result buttons keep native activation after Tab focus and ArrowDown", async () => {
+  const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
+  try {
+    dispatchShortcut("k");
+    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.command-palette-shell li button').length, 2));
+    const rows = rendered.host.querySelectorAll('.command-palette-shell li button');
+    const second = rows[1];
+    flushSync(() => second.focus()); // Native Tab traversal is checked in the packaged app.
+    assert.ok(second.classList.contains("bg-bg-tertiary"));
+    for (const key of ["ArrowDown", "ArrowUp", "Enter", " "]) {
+      assert.equal(dispatchElementKey(second, key).defaultPrevented, false, key);
+      assert.ok(document.activeElement === second);
+      assert.ok(second.classList.contains("bg-bg-tertiary"));
+    }
+    assert.equal(rendered.host.querySelectorAll('.command-palette-shell').length, 1,
+      "App must not activate its selected hit from a result-button keydown");
+    const before = rendered.openedPaths().length;
+    // happy-dom does not synthesize native Enter/Space clicks; exercise the allowed click path.
+    flushSync(() => second.click());
+    await waitFor(() => assert.equal(rendered.openedPaths().length, before + 1));
+    assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md");
+  } finally { await rendered.cleanup(); }
+});
+
+test("palette input retains arrow selection and Enter activation", async () => {
+  const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
+  try {
+    dispatchShortcut("k");
+    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.command-palette-shell li button').length, 2));
+    const input = rendered.host.querySelector('.command-palette-shell input');
+    assert.equal(dispatchElementKey(input, "ArrowDown").defaultPrevented, true);
+    assert.ok(document.activeElement === input);
+    assert.ok(rendered.host.querySelectorAll('.command-palette-shell li button')[1].classList.contains("bg-bg-tertiary"));
+    assert.equal(dispatchElementKey(input, "Enter").defaultPrevented, true);
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
+  } finally { await rendered.cleanup(); }
+});
+
+test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", async () => {
+  const rendered = await renderEditorApp({ startNew: false });
+  try {
+    const opener = rendered.host.querySelector("button");
+    opener.focus();
+    dispatchWindowKey("?");
+    const close = rendered.host.querySelector('[role="dialog"] button');
+    assert.ok(document.activeElement === close);
+    dispatchShortcut("k");
+    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 2);
+    dispatchElementKey(document.activeElement, "Escape");
+    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 1);
+    assert.ok(document.activeElement === close);
+    dispatchElementKey(close, "Escape");
+    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 0);
+    assert.ok(document.activeElement === opener);
+  } finally { await rendered.cleanup(); }
 });

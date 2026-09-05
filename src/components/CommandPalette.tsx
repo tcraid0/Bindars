@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from "react";
+import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
 
@@ -26,34 +27,30 @@ function CommandPaletteComponent({
   onHoverIndex,
 }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const backdropRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!visible) return;
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
+    inputRef.current?.select();
   }, [visible]);
 
-  if (!visible) return null;
-
   return (
-    <div
-      ref={backdropRef}
-      className="command-palette-backdrop print-hide fixed inset-0 z-50 flex items-start justify-center"
-      style={{
+    <DialogFrame
+      visible={visible}
+      title="Quick switcher"
+      initialFocusRef={inputRef}
+      onDismiss={onClose}
+      backdropClassName="command-palette-backdrop print-hide fixed inset-0 z-50 flex items-start justify-center"
+      backdropStyle={{
         background: "color-mix(in srgb, var(--bg-primary) 84%, transparent)",
         backdropFilter: "blur(5px)",
+        animation: "none",
       }}
-      onMouseDown={(e) => {
-        if (e.target === backdropRef.current) onClose();
-      }}
-    >
-      <div className="command-palette-shell mt-[12vh] w-full max-w-[720px] mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden">
+      className="command-palette-shell mt-[12vh] w-full max-w-[720px] mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden"
+      titleClassName="ui-chip-label"
+      renderHeader={(title) => (
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2 mb-2">
-            <span className="ui-chip-label">Quick switcher</span>
+            {title}
             <span className="ui-subsection-label text-[11px]">
               {status === "indexing"
                 ? "Indexing in progress"
@@ -82,44 +79,45 @@ function CommandPaletteComponent({
             </span>
           </div>
         </div>
-
-        <ul className="max-h-[50vh] overflow-y-auto">
-          {results.length === 0 ? (
-            <li className="px-4 py-6 text-sm text-text-muted">
-              {query.trim() ? "No matches for this query." : "Type to search your workspace."}
-            </li>
-          ) : (
-            results.map((hit, idx) => {
-              const selected = idx === selectedIndex;
-              return (
-                <li key={`${hit.path}:${hit.kind}:${hit.headingId ?? "none"}:${idx}`}>
-                  <button
-                    type="button"
-                    onMouseEnter={() => onHoverIndex(idx)}
-                    onClick={() => onOpenHit(hit)}
-                    className={`w-full text-left px-4 py-2.5 border-b border-border/50 transition-colors ${
-                      selected
-                        ? "bg-bg-tertiary border-l-2 border-l-accent pl-[14px]"
-                        : "hover:bg-bg-tertiary/60 border-l-2 border-l-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="ui-chip-label">{kindLabel(hit.kind)}</span>
-                      <span className="text-sm text-text-primary truncate">{hit.relPath}</span>
-                    </div>
-                    {hit.snippet && (
-                      <p className="mt-1 text-xs text-text-secondary line-clamp-2">
-                        {hit.snippet}
-                      </p>
-                    )}
-                  </button>
-                </li>
-              );
-            })
-          )}
-        </ul>
-      </div>
-    </div>
+      )}
+    >
+      <ul className="max-h-[50vh] overflow-y-auto">
+        {results.length === 0 ? (
+          <li className="px-4 py-6 text-sm text-text-muted">
+            {query.trim() ? "No matches for this query." : "Type to search your workspace."}
+          </li>
+        ) : (
+          results.map((hit, idx) => {
+            const selected = idx === selectedIndex;
+            return (
+              <li key={`${hit.path}:${hit.kind}:${hit.headingId ?? "none"}:${idx}`}>
+                <button
+                  type="button"
+                  onMouseEnter={() => onHoverIndex(idx)}
+                  onFocus={() => onHoverIndex(idx)}
+                  onClick={() => onOpenHit(hit)}
+                  className={`w-full text-left px-4 py-2.5 border-b border-border/50 transition-colors ${
+                    selected
+                      ? "bg-bg-tertiary border-l-2 border-l-accent pl-[14px]"
+                      : "hover:bg-bg-tertiary/60 border-l-2 border-l-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="ui-chip-label">{kindLabel(hit.kind)}</span>
+                    <span className="text-sm text-text-primary truncate">{hit.relPath}</span>
+                  </div>
+                  {hit.snippet && (
+                    <p className="mt-1 text-xs text-text-secondary line-clamp-2">
+                      {hit.snippet}
+                    </p>
+                  )}
+                </button>
+              </li>
+            );
+          })
+        )}
+      </ul>
+    </DialogFrame>
   );
 }
 

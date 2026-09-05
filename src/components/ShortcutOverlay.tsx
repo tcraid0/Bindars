@@ -1,4 +1,5 @@
 import { memo, useRef } from "react";
+import { DialogFrame } from "./DialogFrame";
 import { formatShortcutLabel, SHORTCUT_SECTIONS } from "../lib/shortcut-labels";
 
 interface ShortcutOverlayProps {
@@ -7,31 +8,22 @@ interface ShortcutOverlayProps {
 }
 
 function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
-  const backdropRef = useRef<HTMLDivElement | null>(null);
-
-  if (!visible) return null;
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === backdropRef.current) {
-      onClose();
-    }
-  };
+  const closeRef = useRef<HTMLButtonElement | null>(null);
 
   return (
-    <div
-      ref={backdropRef}
-      onClick={handleBackdropClick}
-      className="print-hide fixed inset-0 z-50 flex items-center justify-center"
-      style={{
-        background: "color-mix(in srgb, var(--bg-primary) 85%, transparent)",
-        backdropFilter: "blur(4px)",
-        animation: "fadeIn 150ms ease",
-      }}
-    >
-      <div className="shortcut-card w-full max-w-[420px] mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6">
+    <DialogFrame
+      visible={visible}
+      title="Keyboard Shortcuts"
+      initialFocusRef={closeRef}
+      onDismiss={onClose}
+      backdropClassName="print-hide fixed inset-0 z-50 flex items-center justify-center"
+      className="shortcut-card w-full max-w-[420px] max-h-[calc(100vh-2rem)] overflow-y-auto mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6"
+      titleClassName="font-reading italic text-lg text-text-primary"
+      renderHeader={(title) => (
         <div className="flex items-center justify-between mb-5">
-          <h2 className="font-reading italic text-lg text-text-primary">Keyboard Shortcuts</h2>
+          {title}
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close"
@@ -43,26 +35,26 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
             </svg>
           </button>
         </div>
-
-        {SHORTCUT_SECTIONS.map((section) => (
-          <div key={section.title} className="mb-3.5 last:mb-0">
-            <h3 className="font-reading italic text-sm text-text-muted mb-1.5">
-              {section.title}
-            </h3>
-            <div className="space-y-1">
-              {section.shortcuts.map((shortcut) => (
-                <div key={shortcut.id} className="flex items-center justify-between py-0.5">
-                  <span className="text-sm text-text-secondary">{shortcut.label}</span>
-                  <kbd className="shortcut-kbd px-2 py-0.5 rounded bg-bg-tertiary text-xs font-mono text-text-primary border-b-2 border-border">
-                    {formatShortcutLabel(shortcut.id)}
-                  </kbd>
-                </div>
-              ))}
-            </div>
+      )}
+    >
+      {SHORTCUT_SECTIONS.map((section) => (
+        <div key={section.title} className="mb-3.5 last:mb-0">
+          <h3 className="font-reading italic text-sm text-text-muted mb-1.5">
+            {section.title}
+          </h3>
+          <div className="space-y-1">
+            {section.shortcuts.map((shortcut) => (
+              <div key={shortcut.id} className="flex items-center justify-between py-0.5">
+                <span className="text-sm text-text-secondary">{shortcut.label}</span>
+                <kbd className="shortcut-kbd px-2 py-0.5 rounded bg-bg-tertiary text-xs font-mono text-text-primary border-b-2 border-border">
+                  {formatShortcutLabel(shortcut.id)}
+                </kbd>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      ))}
+    </DialogFrame>
   );
 }
 
