@@ -33,13 +33,34 @@ The script fails if runtime-injected stylesheets (CodeMirror themes, Mermaid)
 would be blocked in the packaged app. `tests/csp-style-policy.test.cjs` guards
 the underlying configuration invariant in CI.
 
+Before creating a release candidate, run:
+
+```bash
+node --test tests/version-consistency.test.cjs
+npm run licenses:test
+npm run licenses:check
+npm audit --omit=dev --audit-level=moderate
+cd src-tauri && cargo audit --file Cargo.lock
+```
+
+Run the GitHub `Release` workflow manually from `main` to produce a private
+workflow artifact. The workflow builds one `.deb`, checks its metadata and
+contents, verifies the bundled notices, installs it on Ubuntu 22.04, and runs a
+headless launch test. Review the uploaded control file, file manifest, linked
+libraries, checksum, and smoke-test log before creating a version tag.
+
+A `v*` tag runs the same verification and publishes the Debian package only
+after every check passes. AppImage and Arch package publication remain paused.
+
 ## Pull Requests
 
-Before submitting a PR, all three checks must pass:
+Before submitting a PR, these checks must pass:
 
 1. `npx tsc --noEmit`
 2. `cd src-tauri && cargo test --lib`
 3. From the repository root, `npm run test:workspace`
+4. `npm run licenses:check` when a dependency, lockfile, license override, or
+   release workflow changes
 
 CI runs these automatically on every PR to `main`.
 
