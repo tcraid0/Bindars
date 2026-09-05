@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 
 interface DialogFrameProps {
   visible: boolean;
@@ -10,6 +10,11 @@ interface DialogFrameProps {
   dismissible?: boolean;
   children: ReactNode;
   maxWidthClassName?: string;
+  className?: string;
+  backdropClassName?: string;
+  backdropStyle?: CSSProperties;
+  titleClassName?: string;
+  renderHeader?: (title: ReactNode) => ReactNode;
 }
 
 export function DialogFrame({
@@ -21,6 +26,11 @@ export function DialogFrame({
   dismissible = true,
   children,
   maxWidthClassName = "max-w-[360px]",
+  className = `w-full ${maxWidthClassName} mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6`,
+  backdropClassName = "print-hide fixed inset-0 z-[60] flex items-center justify-center",
+  backdropStyle,
+  titleClassName = "font-reading italic text-lg text-text-primary mb-2",
+  renderHeader,
 }: DialogFrameProps) {
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -72,17 +82,20 @@ export function DialogFrame({
 
   if (!visible) return null;
 
+  const heading = <h2 id={titleId} className={titleClassName}>{title}</h2>;
+
   return (
     <div
       ref={backdropRef}
       onClick={(event) => {
         if (dismissible && event.target === backdropRef.current) onDismiss();
       }}
-      className="print-hide fixed inset-0 z-[60] flex items-center justify-center"
+      className={backdropClassName}
       style={{
         background: "color-mix(in srgb, var(--bg-primary) 85%, transparent)",
         backdropFilter: "blur(4px)",
         animation: "fadeIn 150ms ease",
+        ...backdropStyle,
       }}
     >
       <div
@@ -91,11 +104,9 @@ export function DialogFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className={`w-full ${maxWidthClassName} mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6`}
+        className={className}
       >
-        <h2 id={titleId} className="font-reading italic text-lg text-text-primary mb-2">
-          {title}
-        </h2>
+        {renderHeader ? renderHeader(heading) : heading}
         {children}
       </div>
     </div>

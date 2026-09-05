@@ -2528,10 +2528,7 @@ function App() {
     }
 
     if (commandPaletteVisible) {
-      if (key === "escape") {
-        e.preventDefault();
-        closeCommandPalette();
-      } else if (key === "arrowdown") {
+      if (key === "arrowdown") {
         e.preventDefault();
         workspaceSearch.moveNext();
       } else if (key === "arrowup") {
@@ -2626,10 +2623,7 @@ function App() {
     if (inInput) return;
 
     if (shortcutsVisible) {
-      if (key === "escape") {
-        e.preventDefault();
-        closeShortcuts();
-      } else if (e.key === "?" && !ctrl && !e.altKey) {
+      if (e.key === "?" && !ctrl && !e.altKey) {
         e.preventDefault();
         closeShortcuts();
       }
