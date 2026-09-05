@@ -334,6 +334,40 @@ test("stacked dialogs keep keyboard ownership across callback renders and restor
   } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
 });
 
+test("closing a foreground dialog recovers focus inside the remaining dialog", async () => {
+  await installDom();
+  const host = document.createElement("div");
+  const opener = document.createElement("button");
+  document.body.append(opener, host);
+  opener.focus();
+  const root = createRoot(host);
+  let palette = false;
+  function render() {
+    flushSync(() => root.render(React.createElement(React.Fragment, null,
+      React.createElement(ShortcutOverlay, { visible: true, onClose() {} }),
+      React.createElement(CommandPalette, {
+        ...dialogs[1].props,
+        visible: palette,
+        onClose() { palette = false; render(); },
+      }),
+    )));
+  }
+  try {
+    render();
+    document.activeElement.blur();
+    assert.equal(document.activeElement.tagName, "BODY");
+    palette = true;
+    render();
+    assert.ok(document.activeElement === host.querySelector("input"));
+    pressKey("Escape");
+    const remainingDialog = host.querySelector('[role="dialog"]');
+    assert.ok(remainingDialog);
+    assert.equal(host.querySelectorAll('[role="dialog"]').length, 1);
+    assert.ok(remainingDialog.contains(document.activeElement));
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Close");
+  } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
+});
+
 test("unmounting a covered dialog preserves the foreground dialog's opener chain", async () => {
   await installDom();
   const host = document.createElement("div");

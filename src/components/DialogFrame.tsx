@@ -13,6 +13,17 @@ function isTopDialog(element: HTMLDivElement | null) {
   return openDialogs[openDialogs.length - 1]?.element === element;
 }
 
+function focusableElements(dialog: HTMLDivElement) {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled"));
+}
+
+function focusInside(dialog: HTMLDivElement) {
+  focusableElements(dialog)[0]?.focus();
+  if (!dialog.contains(document.activeElement)) dialog.focus();
+}
+
 interface DialogFrameProps {
   visible: boolean;
   title: string;
@@ -73,8 +84,16 @@ export function DialogFrame({
       }
       backdropPointerRef.current = null;
       if (wasTop) {
-        if (entry.previousFocus?.isConnected) entry.previousFocus.focus();
-        else openDialogs[openDialogs.length - 1]?.element.focus();
+        const remainingDialog = openDialogs[openDialogs.length - 1]?.element;
+        if (remainingDialog) {
+          if (entry.previousFocus?.isConnected && remainingDialog.contains(entry.previousFocus)) {
+            entry.previousFocus.focus();
+          } else {
+            focusInside(remainingDialog);
+          }
+        } else if (entry.previousFocus?.isConnected) {
+          entry.previousFocus.focus();
+        }
       }
     };
   }, [initialFocusRef, visible]);
@@ -94,9 +113,7 @@ export function DialogFrame({
 
       const dialog = dialogRef.current;
       if (!dialog) return;
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled"));
+      const focusable = focusableElements(dialog);
       if (focusable.length === 0) {
         event.preventDefault();
         dialog.focus();
