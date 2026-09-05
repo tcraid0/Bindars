@@ -117,6 +117,40 @@ function mockStrictModeThemeStore() {
   };
 }
 
+// Controls storeGet at the hook boundary so a stored theme can be queued
+// synchronously without giving React a chance to commit it first.
+function mockQueuedThemeStore() {
+  const storeModule = require("../.tmp/workspace-tests/src/lib/store.js");
+  const originalStoreGet = storeModule.storeGet;
+  const originalStoreSet = storeModule.storeSet;
+  const storeWrites = [];
+  let applyStoredTheme;
+
+  storeModule.storeGet = () => ({
+    then(onFulfilled) {
+      assert.equal(applyStoredTheme, undefined, "expected one queued theme read");
+      applyStoredTheme = onFulfilled;
+      return Promise.resolve();
+    },
+  });
+  storeModule.storeSet = async (key, value) => {
+    storeWrites.push({ key, value });
+    return true;
+  };
+
+  return {
+    queueStoredTheme(stored) {
+      assert.ok(applyStoredTheme, "expected the theme hook to request its stored value");
+      applyStoredTheme(stored);
+    },
+    storeWrites,
+    restore() {
+      storeModule.storeGet = originalStoreGet;
+      storeModule.storeSet = originalStoreSet;
+    },
+  };
+}
+
 async function renderThemeProbe({ strict = false } = {}) {
   const { useTheme } = require("../.tmp/workspace-tests/src/hooks/useTheme.js");
   let latest = null;
@@ -198,6 +232,63 @@ test("a user cycle before the stored load resolves keeps the user theme", async 
     assert.equal(rendered.latest().theme, "sepia");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "sepia" }]);
+  } finally {
+    await rendered.unmount();
+    restore();
+    clearMocks();
+  }
+});
+
+test("a user cycle ignores a stored theme that React has queued but not committed", async () => {
+  await installDom();
+  const restoreEnvironment = setupThemeEnvironment();
+  const queuedStore = mockQueuedThemeStore();
+  const rendered = await renderThemeProbe();
+
+  try {
+    assert.equal(rendered.latest().theme, "light");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "");
+    assert.deepEqual(queuedStore.storeWrites, []);
+
+    queuedStore.queueStoredTheme("dark");
+    assert.equal(rendered.latest().theme, "light");
+
+    await act(async () => {
+      rendered.latest().cycleTheme();
+    });
+
+    assert.equal(rendered.latest().theme, "sepia");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.deepEqual(queuedStore.storeWrites, [{ key: "theme", value: "sepia" }]);
+  } finally {
+    await rendered.unmount();
+    queuedStore.restore();
+    restoreEnvironment();
+    clearMocks();
+  }
+});
+
+test("multiple user cycles in one batch advance from the latest user intent", async () => {
+  await installDom();
+  const restore = setupThemeEnvironment();
+  const storedTheme = deferred();
+  const { storeWrites } = mockThemeStore({ themeRead: storedTheme.promise });
+  const rendered = await renderThemeProbe();
+
+  try {
+    await act(async () => {
+      rendered.latest().cycleTheme();
+      rendered.latest().cycleTheme();
+    });
+    assert.equal(rendered.latest().theme, "dark");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
+
+    await act(async () => {
+      storedTheme.resolve(["sepia", true]);
+    });
+    assert.equal(rendered.latest().theme, "dark");
+    assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
   } finally {
     await rendered.unmount();
     restore();

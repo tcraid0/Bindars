@@ -29,6 +29,9 @@ export function useTheme() {
   // Set by the first user theme change this session. The stored value that
   // finishes loading afterwards must never overwrite that newer intent.
   const userUpdatedRef = useRef(false);
+  // Tracks the last visible theme until the user acts, then tracks user intent
+  // synchronously so a queued hydration update cannot become a cycle's base.
+  const currentThemeRef = useRef(theme);
   // Store persistence stays disabled until the stored value has finished
   // loading (or a user has chosen a theme), so the temporary startup default
   // cannot overwrite the saved theme before hydration completes.
@@ -53,6 +56,9 @@ export function useTheme() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme === "light" ? "" : theme);
+    if (!userUpdatedRef.current) {
+      currentThemeRef.current = theme;
+    }
     try {
       localStorage.setItem("bindars-theme", theme);
     } catch {
@@ -65,17 +71,16 @@ export function useTheme() {
 
   // User-facing theme change: record user intent so a late stored value
   // cannot overwrite it, and enable persistence for the chosen value.
-  const applyUserTheme = useCallback((update: Theme | ((current: Theme) => Theme)) => {
+  const applyUserTheme = useCallback((nextTheme: Theme) => {
     userUpdatedRef.current = true;
+    currentThemeRef.current = nextTheme;
     setStoreWriteEnabled(true);
-    setThemeState(update);
+    setThemeState(nextTheme);
   }, []);
 
   const cycleTheme = useCallback(() => {
-    applyUserTheme((current) => {
-      const idx = THEMES.indexOf(current);
-      return THEMES[(idx + 1) % THEMES.length];
-    });
+    const idx = THEMES.indexOf(currentThemeRef.current);
+    applyUserTheme(THEMES[(idx + 1) % THEMES.length]);
   }, [applyUserTheme]);
 
   const setTheme = useCallback((t: Theme) => {
