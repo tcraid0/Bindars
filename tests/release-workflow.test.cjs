@@ -32,6 +32,12 @@ test("release candidates are verified before tag-only publication", () => {
     namedStep(workflow.jobs.package, "Inspect Debian package").run,
     "scripts/verify-deb-package.sh src-tauri/target/release/bundle/deb release-artifacts",
   );
+  const installStep = namedStep(
+    workflow.jobs.package,
+    "Install and smoke-test Debian package",
+  ).run;
+  assert.match(installStep, /deb_path="\$\(realpath "\$deb_path"\)"/);
+  assert.match(installStep, /sudo apt-get install -y "\$deb_path"/);
   assert.match(
     namedStep(workflow.jobs.publish, "Publish GitHub release").run,
     /gh release create/,
