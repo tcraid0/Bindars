@@ -117,16 +117,16 @@ function mockStrictModeThemeStore() {
   };
 }
 
-// Controls storeGet at the hook boundary so a stored theme can be queued
+// Controls storeTryGet at the hook boundary so a stored theme can be queued
 // synchronously without giving React a chance to commit it first.
 function mockQueuedThemeStore() {
   const storeModule = require("../.tmp/workspace-tests/src/lib/store.js");
-  const originalStoreGet = storeModule.storeGet;
+  const originalStoreTryGet = storeModule.storeTryGet;
   const originalStoreSet = storeModule.storeSet;
   const storeWrites = [];
   let applyStoredTheme;
 
-  storeModule.storeGet = () => ({
+  storeModule.storeTryGet = () => ({
     then(onFulfilled) {
       assert.equal(applyStoredTheme, undefined, "expected one queued theme read");
       applyStoredTheme = onFulfilled;
@@ -141,11 +141,11 @@ function mockQueuedThemeStore() {
   return {
     queueStoredTheme(stored) {
       assert.ok(applyStoredTheme, "expected the theme hook to request its stored value");
-      applyStoredTheme(stored);
+      applyStoredTheme({ ok: true, value: stored });
     },
     storeWrites,
     restore() {
-      storeModule.storeGet = originalStoreGet;
+      storeModule.storeTryGet = originalStoreTryGet;
       storeModule.storeSet = originalStoreSet;
     },
   };
@@ -509,7 +509,7 @@ test("an invalid stored value preserves the current fallback", async () => {
   }
 });
 
-test("a failed stored read preserves the fallback and still settles hydration", async () => {
+test("a failed stored read preserves the fallback without overwriting the store", async () => {
   await installDom();
   const restore = setupThemeEnvironment();
   const { storeWrites } = mockThemeStore({ failThemeRead: true });
@@ -526,7 +526,37 @@ test("a failed stored read preserves the fallback and still settles hydration", 
     assert.equal(document.documentElement.getAttribute("data-theme"), "");
     assert.equal(warnings.length, 1);
     assert.match(String(warnings[0][1]), /store get failed/);
-    assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "light" }]);
+    assert.deepEqual(themeStoreWrites(storeWrites), []);
+  } finally {
+    console.warn = originalWarn;
+    await rendered.unmount();
+    restore();
+    clearMocks();
+  }
+});
+
+test("a user theme change after a failed stored read still persists", async () => {
+  await installDom();
+  const restore = setupThemeEnvironment();
+  const { storeWrites } = mockThemeStore({ failThemeRead: true });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  const rendered = await renderThemeProbe();
+
+  try {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(themeStoreWrites(storeWrites), []);
+
+    await act(async () => {
+      rendered.latest().setTheme("dark");
+    });
+    assert.equal(rendered.latest().theme, "dark");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    await waitFor(() => {
+      assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
+    });
   } finally {
     console.warn = originalWarn;
     await rendered.unmount();

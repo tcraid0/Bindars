@@ -406,9 +406,9 @@ test("theme switching preserves pending edits and ignores composing shortcuts", 
 // Every user-facing theme-change route funnels through useTheme's
 // setTheme/cycleTheme callbacks: the Header "Switch theme" button, the global
 // Ctrl/Cmd+Shift+T shortcut, and the ReaderControls theme swatches (click and
-// arrow-key navigation). Each route below changes the theme while the stored
-// theme load is still pending and proves the late stored value cannot
-// overwrite the newer user choice.
+// arrow-key navigation). These tests change the theme through each entry point
+// while the stored theme load is still pending and prove the late stored value
+// cannot overwrite the newer user choice.
 
 function themeWritesOf(rendered) {
   return rendered.storeWrites
@@ -532,6 +532,43 @@ test("a stored theme arriving after a settings swatch selection keeps the user's
     await resolveStoredTheme(storedTheme, ["sepia", true]);
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeWritesOf(rendered), ["dark"]);
+  } finally {
+    await rendered.cleanup();
+    restoreLocalStorage();
+  }
+});
+
+test("a stored theme arriving after settings swatch arrow navigation keeps the user's theme", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  const storedTheme = deferred();
+  const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
+
+  try {
+    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    assert.ok(toggle, "expected the reader settings toggle");
+    flushSync(() => {
+      toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    const lightSwatch = rendered.host.querySelector('button[aria-label="Light theme"]');
+    assert.ok(lightSwatch, "expected the selected Light theme swatch");
+    const arrow = new window.KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    flushSync(() => {
+      lightSwatch.focus();
+      lightSwatch.dispatchEvent(arrow);
+    });
+    assert.equal(arrow.defaultPrevented, true);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    const sepiaSwatch = rendered.host.querySelector('button[aria-label="Sepia theme"]');
+    assert.ok(document.activeElement === sepiaSwatch);
+    await waitForThemeWrites(rendered, ["sepia"]);
+
+    await resolveStoredTheme(storedTheme, ["dark", true]);
+    assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
+    assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
   } finally {
     await rendered.cleanup();
     restoreLocalStorage();

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { storeGet, storeSet } from "../lib/store";
+import { storeSet, storeTryGet } from "../lib/store";
 import type { Theme } from "../types";
 
 const STORE_KEY = "theme";
@@ -32,18 +32,23 @@ export function useTheme() {
   // Tracks the last visible theme until the user acts, then tracks user intent
   // synchronously so a queued hydration update cannot become a cycle's base.
   const currentThemeRef = useRef(theme);
-  // Store persistence stays disabled until the stored value has finished
-  // loading (or a user has chosen a theme), so the temporary startup default
-  // cannot overwrite the saved theme before hydration completes.
+  // Store persistence stays disabled until the stored value has been read
+  // successfully (or a user has chosen a theme), so a temporary startup
+  // default cannot overwrite a saved theme after a delayed or failed read.
   const [storeWriteEnabled, setStoreWriteEnabled] = useState(false);
 
   // Load from Tauri store on mount (overrides localStorage if present)
   useEffect(() => {
     let active = true;
-    storeGet<Theme>(STORE_KEY).then((stored) => {
+    storeTryGet<Theme>(STORE_KEY).then((result) => {
       if (!active) {
         return;
       }
+      if (!result.ok) {
+        console.warn(`[store] Failed to get "${STORE_KEY}":`, result.error);
+        return;
+      }
+      const stored = result.value;
       if (!userUpdatedRef.current && stored && THEMES.includes(stored)) {
         setThemeState(stored);
       }
