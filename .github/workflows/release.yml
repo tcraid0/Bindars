@@ -1,5 +1,6 @@
 name: Release
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -36,6 +37,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Verify release version
+        run: node --test tests/version-consistency.test.cjs
 
       - name: Fetch locked Rust dependency sources
         working-directory: src-tauri
@@ -74,11 +78,11 @@ jobs:
       - name: Audit Cargo dependencies
         run: cargo audit --file src-tauri/Cargo.lock
 
-  release:
-    name: Build and publish Linux release
+  package:
+    name: Build and validate Debian package
     needs: verify
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -86,7 +90,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-x11
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -104,6 +108,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify release version
+        run: node --test tests/version-consistency.test.cjs
+
       - name: Fetch locked Rust dependency sources
         working-directory: src-tauri
         run: cargo fetch --locked
@@ -111,25 +118,70 @@ jobs:
       - name: Verify third-party notices
         run: npm run licenses:check
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+      - name: Build Debian package
+        run: npm run tauri -- build --bundles deb --ci
+
+      - name: Inspect Debian package
+        run: scripts/verify-deb-package.sh src-tauri/target/release/bundle/deb release-artifacts
+
+      - name: Install and smoke-test Debian package
+        run: |
+          deb_path="$(find release-artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          sudo apt-get install -y "$deb_path"
+          dpkg-query -L bindars > release-artifacts/installed-files.txt
+
+          installed_notice="$(dpkg-query -L bindars | grep '/THIRD-PARTY-NOTICES$')"
+          test -n "$installed_notice"
+          cmp THIRD-PARTY-NOTICES "$installed_notice"
+
+          set +e
+          timeout 20s dbus-run-session -- xvfb-run -a env WEBKIT_DISABLE_COMPOSITING_MODE=1 /usr/bin/bindars > release-artifacts/smoke-test.log 2>&1
+          smoke_status=$?
+          set -e
+
+          if [ "$smoke_status" -ne 124 ]; then
+            cat release-artifacts/smoke-test.log
+            echo "Bindars exited unexpectedly during the smoke test (status $smoke_status)." >&2
+            exit 1
+          fi
+
+      - name: Upload verified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindars-deb-${{ github.sha }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified Debian release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download verified package
+        uses: actions/download-artifact@v4
+        with:
+          name: bindars-deb-${{ github.sha }}
+          path: release-artifacts
+
+      - name: Publish GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --bundles deb
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Bindars ${{ github.ref_name }}'
-          releaseBody: |
-            Linux is the currently supported release platform. This release
-            contains the Debian package only while AppImage native-library
-            compliance automation is being completed.
+        run: |
+          release_flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
 
-            This package is built in CI on Ubuntu 22.04. Ubuntu, Linux Mint,
-            and Debian 12 or newer are expected to work but have not been
-            manually verified for this release. AppImage distribution,
-            including the prior Omarchy path, is temporarily paused.
-
-            Windows and macOS binaries are not included while native testing
-            and code signing remain pending.
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          gh release create "$GITHUB_REF_NAME" \
+            release-artifacts/*.deb \
+            release-artifacts/SHA256SUMS \
+            --verify-tag \
+            --title "Bindars $GITHUB_REF_NAME" \
+            --notes-file .github/release-body.md \
+            "${release_flags[@]}"

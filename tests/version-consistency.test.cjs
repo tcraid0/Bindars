@@ -19,9 +19,8 @@ function matchOrThrow(relativePath, text, pattern) {
   return match[1];
 }
 
-// Every file that declares the release version. The v1.4.1 release nearly
-// shipped with packaging/arch/PKGBUILD still at 1.4.0, which would have kept
-// Arch users on the previous AppImage forever.
+// Keep every active release-version declaration synchronized. The retired
+// Arch package no longer participates because AppImage distribution is paused.
 const declaredVersions = {
   "package.json": readJson("package.json").version,
   "package-lock.json (root)": readJson("package-lock.json").version,
@@ -37,11 +36,6 @@ const declaredVersions = {
     readText("src-tauri/Cargo.lock"),
     /\[\[package\]\]\nname = "bindars"\nversion = "([^"]+)"/,
   ),
-  "packaging/arch/PKGBUILD": matchOrThrow(
-    "packaging/arch/PKGBUILD",
-    readText("packaging/arch/PKGBUILD"),
-    /^pkgver=(\S+)$/m,
-  ),
 };
 
 test("every version declaration matches package.json", () => {
@@ -56,3 +50,16 @@ test("every version declaration matches package.json", () => {
     `all release version declarations must match package.json (${reference})`,
   );
 });
+
+test(
+  "a release tag matches the declared version",
+  { skip: process.env.GITHUB_REF_TYPE !== "tag" },
+  () => {
+    const version = declaredVersions["package.json"];
+    const tag = process.env.GITHUB_REF_NAME;
+    assert.ok(
+      tag === `v${version}` || tag?.startsWith(`v${version}-`),
+      `release tag ${tag ?? "missing"} must match v${version}`,
+    );
+  },
+);

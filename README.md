@@ -29,10 +29,10 @@ hold until they receive native testing and code signing.
 
 ### Linux support
 
-Bindars is currently released for x86_64 Linux. This release is manually
-tested on Omarchy (Arch-based Linux) and built in CI on Ubuntu 22.04.
-Ubuntu, Linux Mint, and Debian 12 or newer are expected to work, but have
-not been manually verified for this release.
+Bindars currently publishes an x86_64 Debian package. Before publication, the
+release workflow inspects the package, installs it, and launches it on Ubuntu
+22.04. Debian 12 or newer and current Linux Mint releases are expected to work
+but do not receive the same automated test.
 
 ### Debian / Ubuntu / Linux Mint
 
@@ -42,45 +42,11 @@ Download the `.deb` from the [latest release](https://github.com/tcraid0/Bindars
 sudo apt install ./Bindars_*_amd64.deb
 ```
 
-### Arch Linux
+### Other Linux distributions
 
-Option 1 — build and install the package:
-
-```bash
-git clone https://github.com/tcraid0/Bindars.git
-cd Bindars/packaging/arch
-makepkg -si
-```
-
-Option 2 — run the AppImage directly:
-
-```bash
-chmod +x Bindars_*_amd64.AppImage
-./Bindars_*_amd64.AppImage
-```
-
-If the AppImage fails with a FUSE error, install `fuse2`:
-
-```bash
-sudo pacman -S fuse2
-```
-
-Or bypass FUSE entirely:
-
-```bash
-./Bindars_*_amd64.AppImage --appimage-extract-and-run
-```
-
-### AppImage (most modern x86_64 distributions)
-
-Download the `.AppImage` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest), make it executable, and run:
-
-```bash
-chmod +x Bindars_*_amd64.AppImage
-./Bindars_*_amd64.AppImage
-```
-
-If it fails with a FUSE error, install FUSE 2 for your distro (e.g. `sudo apt install libfuse2` on Debian/Ubuntu, `sudo pacman -S fuse2` on Arch).
+AppImage and Arch package distribution are paused while the project adds a
+repeatable compliance check for bundled native libraries. Other Linux users
+may build from source, but those builds are not official release artifacts.
 
 Windows and macOS release builds are planned after native testing and
 code signing are in place. They are not included as stable downloads yet.
@@ -90,11 +56,13 @@ code signing are in place. They are not included as stable downloads yet.
 Requires Node 20.19 or newer and Rust 1.88 or newer on the stable toolchain.
 
 ```bash
-npm install
+npm ci
 npm run tauri -- build
 ```
 
-Artifacts land in `src-tauri/target/release/bundle/` — `.deb` and `.AppImage` on Linux, `.dmg` on macOS, `.exe` on Windows.
+Artifacts land in `src-tauri/target/release/bundle/`. Local Tauri builds may
+create several platform-specific formats, but the official release workflow
+publishes only the Debian package.
 
 ## Development
 
