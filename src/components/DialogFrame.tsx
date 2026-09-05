@@ -1,6 +1,18 @@
 import { useEffect, useId, useRef } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 
+interface OpenDialog {
+  element: HTMLDivElement;
+  previousFocus: HTMLElement | null;
+}
+
+// Opening order determines keyboard ownership, independently of callback renders.
+const openDialogs: OpenDialog[] = [];
+
+function isTopDialog(element: HTMLDivElement | null) {
+  return openDialogs[openDialogs.length - 1]?.element === element;
+}
+
 interface DialogFrameProps {
   visible: boolean;
   title: string;
@@ -10,10 +22,12 @@ interface DialogFrameProps {
   dismissible?: boolean;
   children: ReactNode;
   maxWidthClassName?: string;
+  // Replaces the default card classes, including maxWidthClassName.
   className?: string;
   backdropClassName?: string;
   backdropStyle?: CSSProperties;
   titleClassName?: string;
+  // The returned header must include the supplied labelled heading.
   renderHeader?: (title: ReactNode) => ReactNode;
 }
 
@@ -34,18 +48,34 @@ export function DialogFrame({
 }: DialogFrameProps) {
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const backdropPointerRef = useRef<number | null>(null);
   const titleId = useId();
 
   useEffect(() => {
-    if (!visible) return;
+    const element = dialogRef.current;
+    if (!visible || !element) return;
 
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const entry: OpenDialog = {
+      element,
+      previousFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    openDialogs.push(entry);
     initialFocusRef.current?.focus();
 
     return () => {
-      if (previousFocus?.isConnected) previousFocus.focus();
+      const wasTop = isTopDialog(element);
+      openDialogs.splice(openDialogs.indexOf(entry), 1);
+      // If an underlying dialog unmounts first, preserve the remaining opener chain.
+      for (const remaining of openDialogs) {
+        if (remaining.previousFocus && element.contains(remaining.previousFocus)) {
+          remaining.previousFocus = entry.previousFocus;
+        }
+      }
+      backdropPointerRef.current = null;
+      if (wasTop) {
+        if (entry.previousFocus?.isConnected) entry.previousFocus.focus();
+        else openDialogs[openDialogs.length - 1]?.element.focus();
+      }
     };
   }, [initialFocusRef, visible]);
 
@@ -53,6 +83,7 @@ export function DialogFrame({
     if (!visible) return;
 
     const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isTopDialog(dialogRef.current)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -61,13 +92,22 @@ export function DialogFrame({
       }
       if (event.key !== "Tab") return;
 
-      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusable || focusable.length === 0) return;
+      )).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled"));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (!focusable.some((element) => element === document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -87,8 +127,23 @@ export function DialogFrame({
   return (
     <div
       ref={backdropRef}
+      onPointerDown={(event) => {
+        backdropPointerRef.current = dismissible && isTopDialog(dialogRef.current)
+          && event.button === 0 && event.target === backdropRef.current
+          ? event.pointerId
+          : null;
+      }}
+      onPointerUp={(event) => {
+        if (event.pointerId !== backdropPointerRef.current || event.target !== backdropRef.current) {
+          backdropPointerRef.current = null;
+        }
+      }}
+      onPointerCancel={() => { backdropPointerRef.current = null; }}
       onClick={(event) => {
-        if (dismissible && event.target === backdropRef.current) onDismiss();
+        const startedOnBackdrop = backdropPointerRef.current !== null;
+        backdropPointerRef.current = null;
+        if (startedOnBackdrop && dismissible && isTopDialog(dialogRef.current)
+          && event.target === backdropRef.current) onDismiss();
       }}
       className={backdropClassName}
       style={{
@@ -101,6 +156,7 @@ export function DialogFrame({
       <div
         ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}

@@ -94,6 +94,7 @@ function CommandPaletteComponent({
                 <button
                   type="button"
                   onMouseEnter={() => onHoverIndex(idx)}
+                  onFocus={() => onHoverIndex(idx)}
                   onClick={() => onOpenHit(hit)}
                   className={`w-full text-left px-4 py-2.5 border-b border-border/50 transition-colors ${
                     selected

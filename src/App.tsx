@@ -2528,6 +2528,8 @@ function App() {
     }
 
     if (commandPaletteVisible) {
+      // The input owns arrow selection; result buttons retain native keyboard behavior.
+      if (target?.tagName !== "INPUT") return;
       if (key === "arrowdown") {
         e.preventDefault();
         workspaceSearch.moveNext();
@@ -2673,9 +2675,6 @@ function App() {
       } else if (editing) {
         e.preventDefault();
         guardedExitEditMode();
-      } else if (shortcutsVisible) {
-        e.preventDefault();
-        closeShortcuts();
       } else if (focusedCharacter) {
         e.preventDefault();
         setFocusedCharacter(null);

@@ -4,6 +4,7 @@ const React = require("react");
 const { flushSync } = require("react-dom");
 const { createRoot } = require("react-dom/client");
 const { installDom } = require("./_helpers/dom.cjs");
+const { pointerClick } = require("./_helpers/pointer.cjs");
 
 const {
   ConfirmDialog,
@@ -216,7 +217,7 @@ test("ConfirmDialog calls onDismiss when the backdrop is clicked", async () => {
   try {
     const backdrop = rendered.host.firstElementChild;
     assert.ok(backdrop);
-    flushSync(() => backdrop.click());
+    flushSync(() => pointerClick(backdrop));
 
     assert.equal(dismissCount, 1);
   } finally {

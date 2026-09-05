@@ -4,6 +4,7 @@ const React = require("react");
 const { flushSync } = require("react-dom");
 const { createRoot } = require("react-dom/client");
 const { installDom } = require("./_helpers/dom.cjs");
+const { dispatchPointer, pointerClick } = require("./_helpers/pointer.cjs");
 const { ShortcutOverlay } = require("../.tmp/workspace-tests/src/components/ShortcutOverlay.js");
 const { CommandPalette } = require("../.tmp/workspace-tests/src/components/CommandPalette.js");
 
@@ -112,7 +113,7 @@ for (const spec of dialogs) {
           if (dismissal === "Escape") {
             assert.equal(pressKey("Escape").defaultPrevented, true);
           } else {
-            flushSync(() => view.host.firstElementChild.click());
+            flushSync(() => pointerClick(view.host.firstElementChild));
           }
           assert.equal(view.dismissCount, opening);
           assert.equal(view.host.childElementCount, 0);
@@ -224,4 +225,135 @@ test("Quick switcher: contains focus with no results and after results change", 
     assert.equal(pressKey("Tab").defaultPrevented, true);
     assert.ok(document.activeElement === input);
   } finally { view.cleanup(); }
+});
+
+for (const spec of dialogs) {
+  test(`${spec.title}: recovers Tab focus after a non-focusable area is clicked`, async () => {
+    await installDom();
+    const view = renderDialog(spec);
+    try {
+      view.open();
+      const controls = view.host.querySelectorAll("button, input");
+      for (const shiftKey of [false, true]) {
+        // happy-dom does not blur on a text click; reproduce the browser's resulting state.
+        document.activeElement.blur();
+        assert.equal(document.activeElement.tagName, "BODY");
+        assert.equal(pressKey("Tab", { shiftKey }).defaultPrevented, true);
+        assert.ok(document.activeElement === controls[shiftKey ? controls.length - 1 : 0]);
+      }
+    } finally { view.cleanup(); }
+  });
+
+  test(`${spec.title}: backdrop ignores drags, cancelled gestures, and stale clicks`, async () => {
+    await installDom();
+    const view = renderDialog(spec);
+    try {
+      view.open();
+      const backdrop = view.host.firstElementChild;
+      const inside = view.host.querySelector(spec.initialSelector);
+      flushSync(() => {
+        dispatchPointer(inside, "pointerdown");
+        dispatchPointer(backdrop, "pointerup");
+        backdrop.click();
+      });
+      assert.equal(view.dismissCount, 0, "a drag out of the card is not backdrop activation");
+      flushSync(() => {
+        dispatchPointer(backdrop, "pointerdown");
+        dispatchPointer(inside, "pointerup");
+        backdrop.click();
+        dispatchPointer(backdrop, "pointerdown");
+        dispatchPointer(backdrop, "pointercancel");
+        backdrop.click();
+      });
+      assert.equal(view.dismissCount, 0);
+      flushSync(() => pointerClick(backdrop));
+      assert.equal(view.dismissCount, 1);
+      view.open();
+      flushSync(() => view.host.firstElementChild.click());
+      assert.equal(view.dismissCount, 1, "reopening cannot reuse the previous gesture");
+    } finally { view.cleanup(); }
+  });
+}
+
+test("Quick switcher: recovers focus when the focused result disappears", async () => {
+  await installDom();
+  const view = renderDialog(dialogs[1]);
+  try {
+    view.open();
+    for (const shiftKey of [false, true]) {
+      view.render({ results: hits });
+      view.host.querySelectorAll("li button")[1].focus();
+      view.render({ results: [] });
+      assert.equal(document.activeElement.tagName, "BODY");
+      assert.equal(pressKey("Tab", { shiftKey }).defaultPrevented, true);
+      assert.ok(document.activeElement === view.host.querySelector("input"));
+    }
+  } finally { view.cleanup(); }
+});
+
+test("stacked dialogs keep keyboard ownership across callback renders and restore each opener", async () => {
+  await installDom();
+  const host = document.createElement("div");
+  const opener = document.createElement("button");
+  document.body.append(opener, host);
+  opener.focus();
+  const root = createRoot(host);
+  let shortcuts = true;
+  let palette = false;
+  const dismissals = [];
+  function render() {
+    flushSync(() => root.render(React.createElement(React.StrictMode, null,
+      React.createElement(ShortcutOverlay, { visible: shortcuts, onClose() {
+        dismissals.push("shortcuts"); shortcuts = false; render();
+      } }),
+      React.createElement(CommandPalette, { ...dialogs[1].props, visible: palette, onClose() {
+        dismissals.push("palette"); palette = false; render();
+      } }),
+    )));
+  }
+  try {
+    render();
+    const close = host.querySelector('button[aria-label="Close"]');
+    palette = true;
+    render();
+    render(); // New callbacks must not promote the underlying dialog.
+    const input = host.querySelector("input");
+    for (const shiftKey of [false, true]) {
+      document.activeElement.blur();
+      assert.equal(pressKey("Tab", { shiftKey }).defaultPrevented, true);
+      const expected = shiftKey ? host.querySelectorAll("li button")[1] : input;
+      assert.ok(document.activeElement === expected);
+    }
+    assert.equal(pressKey("Escape").defaultPrevented, true);
+    assert.deepEqual(dismissals, ["palette"]);
+    assert.ok(document.activeElement === close);
+    assert.equal(host.querySelectorAll('[role="dialog"]').length, 1);
+    pressKey("Escape");
+    assert.deepEqual(dismissals, ["palette", "shortcuts"]);
+    assert.ok(document.activeElement === opener);
+  } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
+});
+
+test("unmounting a covered dialog preserves the foreground dialog's opener chain", async () => {
+  await installDom();
+  const host = document.createElement("div");
+  const opener = document.createElement("button");
+  document.body.append(opener, host);
+  opener.focus();
+  const root = createRoot(host);
+  function render(shortcuts, palette) {
+    flushSync(() => root.render(React.createElement(React.Fragment, null,
+      shortcuts && React.createElement(ShortcutOverlay, { visible: true, onClose() {} }),
+      React.createElement(CommandPalette, { ...dialogs[1].props, visible: palette, onClose() {} }),
+    )));
+  }
+  try {
+    render(true, false);
+    render(true, true);
+    const input = host.querySelector("input");
+    render(false, true);
+    assert.ok(document.activeElement === input);
+    render(false, false);
+    assert.ok(document.activeElement === opener);
+  } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
 });

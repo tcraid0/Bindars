@@ -4,6 +4,7 @@ const React = require("react");
 const { flushSync } = require("react-dom");
 const { createRoot } = require("react-dom/client");
 const { installDom } = require("./_helpers/dom.cjs");
+const { pointerClick } = require("./_helpers/pointer.cjs");
 
 const {
   SnapshotRestoreDialog,
@@ -198,10 +199,13 @@ test("snapshot restore dialog blocks Escape and backdrop dismissal while restori
     const escapeEvent = dispatchKey("Escape");
     const backdrop = rendered.host.firstElementChild;
     assert.ok(backdrop);
-    flushSync(() => backdrop.click());
+    flushSync(() => pointerClick(backdrop));
 
     assert.equal(escapeEvent.defaultPrevented, true);
     assert.equal(dismissCount, 0);
+    const tab = dispatchKey("Tab");
+    assert.equal(tab.defaultPrevented, true);
+    assert.equal(document.activeElement.getAttribute("role"), "dialog");
   } finally {
     rendered.cleanup();
   }
