@@ -86,6 +86,37 @@ function mockThemeStore({ themeRead = [null, false], failThemeRead = false } = {
   return { storeWrites };
 }
 
+function mockStrictModeThemeStore() {
+  const reads = [deferred(), deferred()];
+  const storeWrites = [];
+  let themeReadCount = 0;
+  mockIPC((cmd, args = {}) => {
+    switch (cmd) {
+      case "plugin:store|load":
+        return 1;
+      case "plugin:store|get":
+        if (args.key === "theme") {
+          const read = reads[themeReadCount];
+          themeReadCount += 1;
+          assert.ok(read, "expected at most two StrictMode theme reads");
+          return read.promise;
+        }
+        return [null, false];
+      case "plugin:store|set":
+        storeWrites.push(args);
+        return null;
+      default:
+        throw new Error(`Unexpected IPC command: ${cmd}`);
+    }
+  });
+  return {
+    firstRead: reads[0],
+    secondRead: reads[1],
+    storeWrites,
+    themeReadCount: () => themeReadCount,
+  };
+}
+
 async function renderThemeProbe({ strict = false } = {}) {
   const { useTheme } = require("../.tmp/workspace-tests/src/hooks/useTheme.js");
   let latest = null;
@@ -336,6 +367,33 @@ test("a primary localStorage theme is kept when the store has no value", async (
   }
 });
 
+test("the system-dark fallback is not persisted until the stored read settles", async () => {
+  await installDom();
+  const restore = setupThemeEnvironment({ systemDark: true });
+  const storedTheme = deferred();
+  const { storeWrites } = mockThemeStore({ themeRead: storedTheme.promise });
+  const rendered = await renderThemeProbe();
+
+  try {
+    assert.equal(rendered.latest().theme, "dark");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    assert.equal(window.localStorage.getItem("bindars-theme"), "dark");
+    assert.deepEqual(themeStoreWrites(storeWrites), []);
+
+    await act(async () => {
+      storedTheme.resolve([null, false]);
+    });
+    await waitFor(() => {
+      assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
+    });
+    assert.equal(rendered.latest().theme, "dark");
+  } finally {
+    await rendered.unmount();
+    restore();
+    clearMocks();
+  }
+});
+
 test("an invalid stored value preserves the current fallback", async () => {
   await installDom();
   const restore = setupThemeEnvironment();
@@ -386,34 +444,14 @@ test("a failed stored read preserves the fallback and still settles hydration", 
   }
 });
 
-test("StrictMode double loads resolved out of order apply only the active read", async () => {
+test("StrictMode ignores the stale read when the active read resolves first", async () => {
   await installDom();
   const restore = setupThemeEnvironment();
-  const firstRead = deferred();
-  const secondRead = deferred();
-  const storeWrites = [];
-  let themeReadCount = 0;
-  mockIPC((cmd, args = {}) => {
-    switch (cmd) {
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "theme") {
-          themeReadCount += 1;
-          return themeReadCount === 1 ? firstRead.promise : secondRead.promise;
-        }
-        return [null, false];
-      case "plugin:store|set":
-        storeWrites.push(args);
-        return null;
-      default:
-        throw new Error(`Unexpected IPC command: ${cmd}`);
-    }
-  });
+  const { firstRead, secondRead, storeWrites, themeReadCount } = mockStrictModeThemeStore();
   const rendered = await renderThemeProbe({ strict: true });
 
   try {
-    await waitFor(() => assert.equal(themeReadCount, 2));
+    await waitFor(() => assert.equal(themeReadCount(), 2));
     assert.equal(rendered.latest().theme, "light");
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
@@ -431,6 +469,43 @@ test("StrictMode double loads resolved out of order apply only the active read",
     assert.equal(rendered.latest().theme, "dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
+  } finally {
+    await rendered.unmount();
+    restore();
+    clearMocks();
+  }
+});
+
+test("StrictMode stale read cannot enable persistence before the active read settles", async () => {
+  await installDom();
+  const restore = setupThemeEnvironment();
+  const { firstRead, secondRead, storeWrites, themeReadCount } = mockStrictModeThemeStore();
+  const rendered = await renderThemeProbe({ strict: true });
+
+  try {
+    await waitFor(() => assert.equal(themeReadCount(), 2));
+    assert.equal(rendered.latest().theme, "light");
+    assert.deepEqual(themeStoreWrites(storeWrites), []);
+
+    // The first effect has already been cleaned up, so its result must not
+    // apply a theme or unlock persistence while the active read is pending.
+    await act(async () => {
+      firstRead.resolve(["sepia", true]);
+      await firstRead.promise;
+      await Promise.resolve();
+    });
+    assert.equal(rendered.latest().theme, "light");
+    assert.equal(document.documentElement.getAttribute("data-theme"), "");
+    assert.deepEqual(themeStoreWrites(storeWrites), []);
+
+    await act(async () => {
+      secondRead.resolve(["dark", true]);
+    });
+    await waitFor(() => assert.equal(rendered.latest().theme, "dark"));
+    assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+    await waitFor(() => {
+      assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
+    });
   } finally {
     await rendered.unmount();
     restore();
