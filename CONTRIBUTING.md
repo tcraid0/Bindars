@@ -43,8 +43,11 @@ npm audit --omit=dev --audit-level=moderate
 cd src-tauri && cargo audit --file Cargo.lock
 ```
 
-Run the GitHub `Release` workflow manually from `main` to produce a private
-workflow artifact. The workflow builds one `.deb`, checks its metadata and
+Run the GitHub `Release` workflow manually from `main` to produce an unreleased
+workflow artifact. Artifacts in this public repository are downloadable by
+signed-in users with repository read access; they are not private storage.
+Keep confidential candidates in access-restricted storage instead.
+The workflow builds one `.deb`, checks its metadata and
 contents, verifies the bundled notices, installs it on Ubuntu 22.04, and runs a
 headless launch test. Review the uploaded control file, file manifest, linked
 libraries, checksum, and smoke-test log before creating a version tag.
@@ -57,9 +60,10 @@ after every check passes. AppImage and Arch package publication remain paused.
 Before submitting a PR, these checks must pass:
 
 1. `npx tsc --noEmit`
-2. `cd src-tauri && cargo test --lib`
-3. From the repository root, `npm run test:workspace`
-4. `npm run licenses:check` when a dependency, lockfile, license override, or
+2. `npm run build`
+3. `cd src-tauri && cargo test --lib`
+4. From the repository root, `npm run test:workspace`
+5. `npm run licenses:check` when a dependency, lockfile, license override, or
    release workflow changes
 
 CI runs these automatically on every PR to `main`.

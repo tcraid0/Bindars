@@ -5,8 +5,10 @@ The reading app for markdown. Drop a file in, read it well.
 Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
 Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux is
-the currently supported release platform. Windows and macOS builds are on
-hold until they receive native testing and code signing.
+the currently supported release platform. macOS has an unsigned Apple Silicon
+build and automated checks targeting macOS 15 or newer; signing, notarization,
+and final release testing remain pending. Windows releases also remain pending
+native testing and code signing.
 
 ## What it does
 
@@ -48,8 +50,8 @@ AppImage and Arch package distribution are paused while the project adds a
 repeatable compliance check for bundled native libraries. Other Linux users
 may build from source, but those builds are not official release artifacts.
 
-Windows and macOS release builds are planned after native testing and
-code signing are in place. They are not included as stable downloads yet.
+Windows and macOS are not included as stable downloads yet. The unsigned
+macOS development build is not a distribution-signed release.
 
 ## Build from source
 

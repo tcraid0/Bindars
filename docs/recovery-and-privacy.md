@@ -5,8 +5,9 @@ stores, where it lives, and how to remove it.
 
 ## What is stored, and where
 
-While you edit, Bindars periodically writes recovery snapshots so a crash or
-power loss cannot silently destroy your words.
+While you edit, Bindars periodically writes recovery snapshots to help recover
+work after a crash or power loss. Changes since the last successful snapshot
+can still be lost; snapshots do not replace saving your document or backups.
 
 - Snapshots stay on this device. They are written over Tauri IPC into the
   app-data directory, and the production content-security policy contains
@@ -17,10 +18,18 @@ power loss cannot silently destroy your words.
   name and, for saved files, its **absolute path**. Anyone who can read your
   app-data directory can learn what you write and where your files live.
 
-The snapshot tree lives under the OS-specific per-user app-data directory —
-conceptually `<app-data>/dev.bindars.app/snapshots/v1/`. On Linux that is
-typically `~/.local/share/dev.bindars.app/snapshots/v1/`; on macOS it is under
-`~/Library/Application Support/`; on Windows it is under `%APPDATA%`.
+The snapshot tree lives under the OS-specific per-user app-data directory,
+using the configured application identifier `io.github.tcraid0.bindars`:
+
+- Linux: typically `~/.local/share/io.github.tcraid0.bindars/snapshots/v1/`
+  (or under `$XDG_DATA_HOME` when configured).
+- macOS: `~/Library/Application Support/io.github.tcraid0.bindars/snapshots/v1/`.
+- Windows: `%APPDATA%\io.github.tcraid0.bindars\snapshots\v1\`.
+
+Older builds using `dev.bindars.app` may retain recovery data under that older
+identifier. Clearing history in the current app targets its current app-data
+directory. Builds configured with an isolated test identifier use their own
+directory instead.
 
 ## File permissions
 

@@ -1,6 +1,9 @@
 # Print Test Matrix
 
-Use this checklist when validating Bindars PDF export changes.
+Use this checklist when validating Bindars printing and PDF export changes,
+and run the relevant platform checks on a release candidate. Record the app
+commit/build, OS version, architecture, and results separately. An unchecked
+entry is unverified; this checklist is not a record of passing tests.
 
 ## Platforms
 
@@ -8,6 +11,7 @@ Use this checklist when validating Bindars PDF export changes.
 | --- | --- | --- |
 | Linux | WebKit2GTK | [ ] |
 | Windows | WebView2 | [ ] |
+| macOS | WKWebView | [ ] |
 
 ## Modes
 
@@ -41,7 +45,11 @@ Use one Fountain document that includes:
 
 ## Validation Checklist
 
-- [ ] Print dialog opens without leaving Bindars stuck in print mode afterward
+- [ ] Print action opens the native print dialog
+- [ ] Cancel returns to a usable document without changing its content
+- [ ] Save as PDF creates a readable PDF at the chosen destination
+- [ ] On macOS, verify both printing to an available printer and Save as PDF; record an unavailable printer as untested
+- [ ] Completing printing returns to the normal document view
 - [ ] Header, sidebar, overlays, and controls do not appear in the PDF
 - [ ] Fonts look correct in the exported PDF
 - [ ] Slow or broken images do not block print for more than a few seconds
