@@ -385,6 +385,7 @@ function App() {
   const actionAdmissionOwnerRef = useRef<ActionAdmissionId | null>(null);
   const documentTransitionInFlightRef = useRef(false);
   const nextActionAdmissionIdRef = useRef(0);
+  const startupRestoreSupersededRef = useRef(false);
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
@@ -1019,6 +1020,9 @@ function App() {
     const admissionId = nextActionAdmissionIdRef.current + 1;
     nextActionAdmissionIdRef.current = admissionId;
     actionAdmissionOwnerRef.current = admissionId;
+    if (action.kind !== "close-window" && action.kind !== "quit-app") {
+      startupRestoreSupersededRef.current = true;
+    }
     const blocksDocumentEntry = action.kind !== "close-window";
     documentTransitionInFlightRef.current = blocksDocumentEntry;
     setActionAdmissionInFlight(true);
@@ -1900,6 +1904,10 @@ function App() {
   // Session restore: reopen last file + scroll position on startup
   const handleSessionRestore = useCallback(
     async (session: { filePath: string; headingId: string | null }) => {
+      // Settings can arrive after a newer document action has already finished or
+      // been cancelled. Startup restoration only owns the untouched launch;
+      // the open hook handles supersession once the restoration read starts.
+      if (startupRestoreSupersededRef.current) return;
       const result = await openPathAndScroll(
         session.filePath,
         session.headingId,

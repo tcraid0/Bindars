@@ -1330,6 +1330,7 @@ async function renderContinuityApp({
   snapshotEntries = [],
   snapshotContents = {},
   initialOpenOperation = null,
+  initialSessionOperation = null,
   workspaceFiles = [],
 } = {}) {
   await installDom();
@@ -1389,6 +1390,10 @@ async function renderContinuityApp({
         if (args.key === `annotations:${canonicalPath}`) {
           return [{ highlights: storedHighlights, bookmarks: [], version: 2 }, true];
         }
+        if (args.key === "session" && initialSessionOperation) {
+          initialSessionOperation.args = args;
+          return initialSessionOperation.promise;
+        }
         if (args.key === "session" && restoreHeadingId !== undefined) {
           return [{ filePath: requestedPath, headingId: restoreHeadingId }, true];
         }
@@ -1412,6 +1417,7 @@ async function renderContinuityApp({
         if (deferredOpenDialog) {
           const operation = deferredOpenDialog;
           deferredOpenDialog = null;
+          operation.args = args;
           return operation.promise;
         }
         return openDialogPath;
@@ -1589,8 +1595,10 @@ async function renderContinuityApp({
   }
 
   flushSync(() => root.render(React.createElement(ToastProvider, null, React.createElement(App))));
-  await waitFor(() => assert.ok(host.querySelector(readySelector)));
-  positionReaderAtFirst();
+  if (readySelector) {
+    await waitFor(() => assert.ok(host.querySelector(readySelector)));
+    positionReaderAtFirst();
+  }
 
   return {
     host,
@@ -2599,6 +2607,90 @@ test("the initial native open wins over stored session restore", async () => {
     await waitFor(() => assert.match(rendered.host.textContent, /finder-launch\.md/));
     assert.deepEqual(rendered.openedPaths(), ["/tmp/finder-launch.md"]);
   } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a newer Finder request wins over delayed startup settings", async (context) => {
+  for (const readState of ["pending", "completed", "failed"]) {
+    await context.test(readState, async () => {
+      const settings = deferred();
+      const finderRead = deferred();
+      const finderPath = "/tmp/newer-finder.md";
+      const rendered = await renderContinuityApp({
+        requestedPath: finderPath,
+        initialNativePath: null,
+        initialSessionOperation: settings,
+        initialOpenOperation: finderRead,
+        readySelector: null,
+      });
+      try {
+        await waitFor(() => assert.ok(settings.args));
+        assert.ok(!rendered.host.querySelector("header, .cm-editor"));
+        rendered.setPendingNativeOpenPath(finderPath);
+        await act(async () => {
+          await emit("bindars://native-open-available");
+        });
+        await waitFor(() => assert.equal(finderRead.args?.path, finderPath));
+        if (readState !== "pending") {
+          await act(async () => {
+            if (readState === "failed") finderRead.reject(new Error("File read failed"));
+            else finderRead.resolve(rendered.openResult());
+            try { await finderRead.promise; } catch { /* expected read failure */ }
+          });
+        }
+
+        await act(async () => {
+          settings.resolve([{ filePath: "/tmp/older-session.md", headingId: "old-heading" }, true]);
+          await settings.promise;
+        });
+        await waitFor(() => assert.ok(rendered.host.querySelector("main")));
+        assert.deepEqual(rendered.openedPaths(), [finderPath], "newer intent must prevent the older restoration read from starting");
+        if (readState === "pending") {
+          await act(async () => {
+            finderRead.resolve(rendered.openResult());
+            await finderRead.promise;
+          });
+        }
+        if (readState !== "failed") {
+          await waitFor(() => assert.match(rendered.host.textContent, /newer-finder\.md/));
+        }
+        assert.doesNotMatch(rendered.host.textContent, /older-session\.md/);
+      } finally {
+        settings.resolve([null, false]);
+        finderRead.resolve(rendered.openResult());
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+test("cancelling a newer file-open dialog does not revive delayed startup restoration", async () => {
+  const settings = deferred();
+  const openDialog = deferred();
+  const rendered = await renderContinuityApp({
+    initialNativePath: null,
+    initialSessionOperation: settings,
+    readySelector: null,
+  });
+  try {
+    await waitFor(() => assert.ok(settings.args));
+    rendered.deferNextOpenDialog(openDialog);
+    dispatchShortcut("o");
+    await waitFor(() => assert.ok(openDialog.args));
+    await act(async () => {
+      openDialog.resolve(null);
+      await openDialog.promise;
+    });
+    await act(async () => {
+      settings.resolve([{ filePath: "/tmp/older-session.md", headingId: null }, true]);
+      await settings.promise;
+    });
+    await waitFor(() => assert.ok(rendered.host.querySelector("main")));
+    assert.deepEqual(rendered.openedPaths(), []);
+  } finally {
+    openDialog.resolve(null);
+    settings.resolve([null, false]);
     await rendered.cleanup();
   }
 });
