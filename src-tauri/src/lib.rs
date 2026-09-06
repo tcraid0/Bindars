@@ -18,8 +18,8 @@ mod test_support;
 mod workspace;
 
 use document_io::{
-    open_markdown_file, open_markdown_file_externally, read_markdown_file, resolve_markdown_path,
-    write_markdown_file, write_markdown_file_if_unmodified,
+    open_markdown_file, open_markdown_file_externally, read_markdown_file,
+    write_markdown_file_if_unmodified,
 };
 use exports::{export_html_file, export_markdown_file};
 use file_watcher::{unwatch_file, watch_file, FileWatcher};
@@ -71,10 +71,7 @@ pub fn run() {
         .manage(Arc::clone(&pending_open_path))
         .invoke_handler(tauri::generate_handler![
             read_markdown_file,
-            resolve_markdown_path,
             open_markdown_file,
-            // Keep simple write API for non-editor callsites.
-            write_markdown_file,
             write_markdown_file_if_unmodified,
             export_html_file,
             open_markdown_file_externally,

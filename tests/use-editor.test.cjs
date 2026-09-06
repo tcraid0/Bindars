@@ -124,6 +124,9 @@ async function rejectSave(write, savePromise, error) {
 function mockPendingWrites() {
   const writes = [];
   mockIPC((cmd, args) => {
+    if (cmd !== "write_markdown_file_if_unmodified") {
+      throw new Error(`Unexpected IPC command: ${cmd}`);
+    }
     const write = deferred();
     writes.push({ cmd, args, ...write });
     return write.promise;
