@@ -119,7 +119,7 @@ async function requestQuit() {
   });
 }
 
-async function renderLifecycleApp({ platform = "mac" } = {}) {
+async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [] } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
   window.localStorage.clear();
@@ -135,10 +135,11 @@ async function renderLifecycleApp({ platform = "mac" } = {}) {
     dispatchEvent() { return false; },
   });
   const originalIntersectionObserver = globalThis.IntersectionObserver;
+  const observedHeadings = new Set();
   globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe(node) { observedHeadings.add(node); }
+    unobserve(node) { observedHeadings.delete(node); }
+    disconnect() { observedHeadings.clear(); }
   };
 
   // The App freezes its window close policy from the call-time platform
@@ -155,7 +156,7 @@ async function renderLifecycleApp({ platform = "mac" } = {}) {
   });
 
   mockWindows("main");
-  let diskContent = DOC_CONTENT;
+  let diskContent = content;
   let revisionNumber = 1;
   let failedWritesRemaining = 0;
   let conflictNextWrite = false;
@@ -177,7 +178,7 @@ async function renderLifecycleApp({ platform = "mac" } = {}) {
         if (args.key === "recent-files") return [[], true];
         if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === `annotations:${DOC_PATH}`) {
-          return [{ highlights: [], bookmarks: [], version: 2 }, true];
+          return [{ highlights, bookmarks: [], version: 2 }, true];
         }
         return [null, false];
       case "plugin:store|set":
@@ -319,6 +320,7 @@ async function renderLifecycleApp({ platform = "mac" } = {}) {
     host,
     operationLog: () => [...operationLog],
     openedPaths: () => [...openedPaths],
+    observedHeadings: () => [...observedHeadings],
     fileWrites: () => [...fileWrites],
     diskContent: () => diskContent,
     hideCount: () => operationLog.filter((entry) => entry === "hide").length,
@@ -894,6 +896,160 @@ test("non-macOS dirty close still autosaves and completes the programmatic close
     await rendered.requestClose();
     await waitFor(() => assert.equal(rendered.destroyCount(), 1));
     assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+const MIXED_READER_CONTENT = "# Lifecycle\n\n[Jump](#deeper) words `code` more words.\n\n## Deeper\n\n[Next](next.md) words after link.\n";
+
+async function searchReader(host, query) {
+  dispatchShortcut("f");
+  const input = host.querySelector('input[aria-label="Search in document"]');
+  assert.ok(input);
+  flushSync(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, query);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.ok(host.querySelector("mark.search-highlight-active"), "search should paint matches");
+}
+
+test("reader keeps its focused link and skips the Markdown pipeline on unrelated App updates", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    // Enable the existing probe only after module initialization, avoiding its interval timer.
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__ = true;
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    await rendered.openLifecycleDocument();
+    assert.ok(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length > 0, "probe must observe the initial parse");
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    const link = rendered.host.querySelector('.markdown-body a');
+    assert.ok(link);
+    link.focus();
+    dispatchShortcut("b");
+    dispatchShortcut("j");
+    dispatchShortcut("m");
+    assert.ok(link.isConnected, "sidebar and panel toggles must retain document nodes");
+    assert.ok(document.activeElement === link, "focused link must retain focus");
+    assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 0);
+  } finally {
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__;
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__;
+    await rendered.cleanup();
+  }
+});
+
+test("reader search survives mixed inline text, clearing, and a different document", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    await rendered.openLifecycleDocument();
+    await searchReader(rendered.host, "wo");
+    flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+    await searchReader(rendered.host, "wo");
+    const opening = deferred();
+    rendered.deferNextOpen(opening);
+    await rendered.requestNativeOpen("/tmp/next.md");
+    await act(async () => {
+      opening.resolve({ canonicalPath: "/tmp/next.md", name: "next.md",
+        content: "# Next\n\nUpdated **words** after navigation.",
+        revision: { mtimeMs: 2, size: 40, contentHash: "next" } });
+    });
+    await waitFor(() => assert.match(rendered.host.querySelector('.markdown-body')?.textContent ?? "", /Updated words/));
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("saved highlights survive search and panel changes, then a saved edit returns to the reader", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [{
+    id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
+    color: "yellow", note: "Saved note", nearestHeadingId: "lifecycle", createdAt: 1,
+  }] });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+    await searchReader(rendered.host, "wo");
+    dispatchShortcut("m");
+    flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
+    assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]'));
+    assert.ok(rendered.host.textContent.includes("Saved note"));
+    const edited = MIXED_READER_CONTENT.replace("more words", "revised words");
+    await rendered.enterEditingWithDirtyText(edited);
+    dispatchShortcut("e");
+    await waitFor(() => assert.match(rendered.host.querySelector('.markdown-body')?.textContent ?? "", /revised words/));
+    assert.equal(rendered.diskContent(), edited);
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("Fountain search survives replacing mixed-emphasis screenplay content", async () => {
+  const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
+  try {
+    await rendered.requestNativeOpen("/tmp/script.fountain");
+    await waitFor(() => assert.ok(rendered.host.querySelector('.fountain-body')));
+    await searchReader(rendered.host, "wo");
+    const opening = deferred();
+    rendered.deferNextOpen(opening);
+    await rendered.requestNativeOpen("/tmp/next.fountain");
+    await act(async () => opening.resolve({ canonicalPath: "/tmp/next.fountain", name: "next.fountain",
+      content: "INT. OFFICE - DAY\n\nChanged **words** after navigation.",
+      revision: { mtimeMs: 2, size: 60, contentHash: "next" } }));
+    await waitFor(() => assert.match(rendered.host.querySelector('.fountain-body')?.textContent ?? "", /Changed words/));
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("opening identical text in another file resets search and observes the new headings", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.equal(rendered.observedHeadings().length, 2));
+    await searchReader(rendered.host, "wo");
+    await rendered.requestNativeOpen("/tmp/identical.md");
+    await waitFor(() => {
+      const headings = [...rendered.host.querySelectorAll('.markdown-body h1, .markdown-body h2')];
+      assert.equal(headings.length, 2);
+      assert.ok(headings.every((node) => rendered.observedHeadings().includes(node)), "TOC must observe the replacement document");
+      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+    });
+    assert.ok(!rendered.host.querySelector("mark.search-highlight-active"));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("identical Fountain content at another path clears search without losing text", async () => {
+  const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
+  try {
+    await rendered.requestNativeOpen("/tmp/script.fountain");
+    await waitFor(() => assert.ok(rendered.host.querySelector('.fountain-body')));
+    const article = rendered.host.querySelector('.fountain-body');
+    const originalText = article.textContent;
+    await searchReader(rendered.host, "wo");
+    await rendered.requestNativeOpen("/tmp/identical.fountain");
+    await waitFor(() => {
+      assert.ok(rendered.host.textContent.includes("identical.fountain"));
+      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+    });
+    assert.ok(article === rendered.host.querySelector('.fountain-body'), "identical Fountain source retains its article");
+    assert.equal(article.textContent, originalText);
+    assert.ok(!article.querySelector('mark'));
+    await searchReader(rendered.host, "wo");
+    assert.equal(article.querySelectorAll('mark').length, 2);
+    assert.equal(article.textContent, originalText);
   } finally {
     await rendered.cleanup();
   }

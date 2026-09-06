@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState, useEffect, useCallback } from "react";
+import React, { memo, useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
 import Markdown from "react-markdown";
 import { remarkPlugins, createRehypePlugins } from "../lib/markdown-plugins";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -108,6 +108,172 @@ interface MarkdownContentProps {
   onNavigateToFile?: (path: string, anchor: string | null) => void;
 }
 
+interface MarkdownContextValue extends Omit<MarkdownContentProps, "content"> {
+  assetScopeRoots: AssetScopeRoots;
+  assetScopeResolved: boolean;
+  handleCodeCopyError: (message: string) => void;
+}
+
+const MarkdownContext = createContext<MarkdownContextValue | null>(null);
+
+function useMarkdownContext(): MarkdownContextValue {
+  const context = useContext(MarkdownContext);
+  if (!context) throw new Error("Markdown components require MarkdownContext");
+  return context;
+}
+
+// Component types stay stable when navigation callbacks or asset scope change.
+// Replacing their types would remount marked text and invalidate React's DOM references.
+const markdownComponents: Components = {
+  img: function Image({ node: _node, src, alt, ...props }) {
+    const { filePath, assetScopeRoots, assetScopeResolved } = useMarkdownContext();
+    return (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        filePath={filePath}
+        assetScopeRoots={assetScopeRoots}
+        assetScopeResolved={assetScopeResolved}
+        {...props}
+      />
+    );
+  },
+  a: function Link({ node: _node, href, children, ...props }) {
+    const { filePath, onOpenFragment, onNavigateToFile } = useMarkdownContext();
+    const { toast } = useToast();
+    const isFragment = Boolean(href?.startsWith("#"));
+    const isExternal = Boolean(href && /^https?:\/\//i.test(href));
+    const isMailto = Boolean(href && /^mailto:/i.test(href));
+
+    const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+      if (!href) return;
+
+      if (isFragment) {
+        e.preventDefault();
+        const targetId = decodeUriComponentSafe(href.slice(1));
+        if (!onOpenFragment(targetId)) {
+          toast(`Link target "#${targetId}" not found in this document. Check for typos in the link target.`, "error");
+        }
+        return;
+      }
+
+      e.preventDefault();
+      if (isExternal || isMailto) {
+        void openUrl(href).catch(() => {
+          // No-op: if system opener fails, keep app stable.
+        });
+        return;
+      }
+
+      // Try resolving as a relative supported-file link.
+      if (onNavigateToFile) {
+        const resolved = resolveMarkdownLink(href, filePath);
+        if (resolved) {
+          onNavigateToFile(resolved.path, resolved.anchor);
+          return;
+        }
+      }
+
+      const extMatch = href.match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
+      const ext = extMatch?.[1]?.toLowerCase();
+      if (ext && !isOpenableDocumentExtension(ext)) {
+        toast(`Cannot open .${ext} files — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
+      } else {
+        toast(`Cannot open "${href}" — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
+      }
+    };
+
+    return (
+      <a {...props} href={href} onClick={handleClick}>
+        {children}
+        {isExternal && (
+          <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        )}
+        {isMailto && (
+          <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </svg>
+        )}
+      </a>
+    );
+  },
+  pre: function Pre({ node: _node, children, ...props }) {
+    const { handleCodeCopyError } = useMarkdownContext();
+    const positionedProps = props as typeof props & SourcePositionAttributes;
+    const sourcePosition: SourcePositionAttributes = {
+      "data-bindars-source-line": positionedProps["data-bindars-source-line"],
+      "data-bindars-source-column": positionedProps["data-bindars-source-column"],
+    };
+    const codeChild = React.Children.toArray(children).find(
+      (child): child is React.ReactElement<{
+        className?: string;
+        children?: React.ReactNode;
+        node?: { tagName?: string };
+      }> => {
+        if (!React.isValidElement<{
+          className?: string;
+          children?: React.ReactNode;
+          node?: { tagName?: string };
+        }>(child)) {
+          return false;
+        }
+
+        if (child.type === "code") {
+          return true;
+        }
+
+        return child.props.node?.tagName === "code";
+      },
+    );
+    if (!codeChild) {
+      return <pre {...props}>{children}</pre>;
+    }
+
+    const className = codeChild.props.className;
+    const codeChildren = codeChild.props.children;
+    const match = /language-([^\s]+)/.exec(className || "");
+    const language = match ? match[1] : undefined;
+    const rawCode = extractCodeText(codeChildren).replace(/\n$/, "");
+
+    // Mermaid diagrams: render as diagram instead of a fenced code block.
+    if (language === "mermaid") {
+      return <MermaidBlock chart={rawCode} sourcePosition={sourcePosition} />;
+    }
+
+    return (
+      <CodeBlock
+        language={language}
+        className={className}
+        rawText={rawCode}
+        sourcePosition={sourcePosition}
+        onCopyError={handleCodeCopyError}
+      >
+        {codeChildren}
+      </CodeBlock>
+    );
+  },
+
+  table: ({ node: _node, children, ...props }) => (
+    <div style={{ overflowX: "auto" }}>
+      <table {...props}>{children}</table>
+    </div>
+  ),
+
+  code: ({ className, children }) => {
+    // Inline code and any code that is not wrapped in <pre>.
+    return (
+      <code className={className}>
+        {children}
+      </code>
+    );
+  },
+};
+
 const MarkdownContent = memo(function MarkdownContent({
   content,
   filePath,
@@ -154,164 +320,22 @@ const MarkdownContent = memo(function MarkdownContent({
     [bodyStartLine],
   );
 
-  const components: Components = useMemo(
-    () => ({
-      img: ({ node: _node, src, alt, ...props }) => (
-        <MarkdownImage
-          src={src}
-          alt={alt}
-          filePath={filePath}
-          assetScopeRoots={assetScopeRoots}
-          assetScopeResolved={assetScopeResolved}
-          {...props}
-        />
-      ),
-      a: ({ node: _node, href, children, ...props }) => {
-        const isFragment = Boolean(href?.startsWith("#"));
-        const isExternal = Boolean(href && /^https?:\/\//i.test(href));
-        const isMailto = Boolean(href && /^mailto:/i.test(href));
-
-        const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-          if (!href) return;
-
-          if (isFragment) {
-            e.preventDefault();
-            const targetId = decodeUriComponentSafe(href.slice(1));
-            if (!onOpenFragment(targetId)) {
-              toast(`Link target "#${targetId}" not found in this document. Check for typos in the link target.`, "error");
-            }
-            return;
-          }
-
-          e.preventDefault();
-          if (isExternal || isMailto) {
-            void openUrl(href).catch(() => {
-              // No-op: if system opener fails, keep app stable.
-            });
-            return;
-          }
-
-          // Try resolving as a relative supported-file link.
-          if (onNavigateToFile) {
-            const resolved = resolveMarkdownLink(href, filePath);
-            if (resolved) {
-              onNavigateToFile(resolved.path, resolved.anchor);
-              return;
-            }
-          }
-
-          const extMatch = href.match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
-          const ext = extMatch?.[1]?.toLowerCase();
-          if (ext && !isOpenableDocumentExtension(ext)) {
-            toast(`Cannot open .${ext} files — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
-          } else {
-            toast(`Cannot open "${href}" — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
-          }
-        };
-
-        return (
-          <a {...props} href={href} onClick={handleClick}>
-            {children}
-            {isExternal && (
-              <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            )}
-            {isMailto && (
-              <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-              </svg>
-            )}
-          </a>
-        );
-      },
-      pre: ({ node: _node, children, ...props }) => {
-        const positionedProps = props as typeof props & SourcePositionAttributes;
-        const sourcePosition: SourcePositionAttributes = {
-          "data-bindars-source-line": positionedProps["data-bindars-source-line"],
-          "data-bindars-source-column": positionedProps["data-bindars-source-column"],
-        };
-        const codeChild = React.Children.toArray(children).find(
-          (child): child is React.ReactElement<{
-            className?: string;
-            children?: React.ReactNode;
-            node?: { tagName?: string };
-          }> => {
-            if (!React.isValidElement<{
-              className?: string;
-              children?: React.ReactNode;
-              node?: { tagName?: string };
-            }>(child)) {
-              return false;
-            }
-
-            if (child.type === "code") {
-              return true;
-            }
-
-            return child.props.node?.tagName === "code";
-          },
-        );
-        if (!codeChild) {
-          return <pre {...props}>{children}</pre>;
-        }
-
-        const className = codeChild.props.className;
-        const codeChildren = codeChild.props.children;
-        const match = /language-([^\s]+)/.exec(className || "");
-        const language = match ? match[1] : undefined;
-        const rawCode = extractCodeText(codeChildren).replace(/\n$/, "");
-
-        // Mermaid diagrams: render as diagram instead of a fenced code block.
-        if (language === "mermaid") {
-          return <MermaidBlock chart={rawCode} sourcePosition={sourcePosition} />;
-        }
-
-        return (
-          <CodeBlock
-            language={language}
-            className={className}
-            rawText={rawCode}
-            sourcePosition={sourcePosition}
-            onCopyError={handleCodeCopyError}
-          >
-            {codeChildren}
-          </CodeBlock>
-        );
-      },
-
-      table: ({ node: _node, children, ...props }) => (
-        <div style={{ overflowX: "auto" }}>
-          <table {...props}>{children}</table>
-        </div>
-      ),
-
-      code: ({ className, children }) => {
-        // Inline code and any code that is not wrapped in <pre>.
-        return (
-          <code className={className}>
-            {children}
-          </code>
-        );
-      },
-    }),
-    [filePath, onOpenFragment, onNavigateToFile, assetScopeRoots, assetScopeResolved, handleCodeCopyError],
-  );
+  const context = useMemo(() => ({
+    filePath, onOpenFragment, onNavigateToFile,
+    assetScopeRoots, assetScopeResolved, handleCodeCopyError,
+  }), [filePath, onOpenFragment, onNavigateToFile, assetScopeRoots, assetScopeResolved, handleCodeCopyError]);
 
   return (
-    <>
+    <MarkdownContext.Provider value={context}>
       {frontmatter && <FrontmatterHeader frontmatter={frontmatter} />}
       <Markdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={positionedRehypePlugins}
-        components={components}
+        components={markdownComponents}
       >
         {body}
       </Markdown>
-    </>
+    </MarkdownContext.Provider>
   );
 });
 
@@ -327,8 +351,13 @@ function MarkdownRendererComponent({
   onOpenFragment,
   onNavigateToFile,
 }: MarkdownRendererProps) {
+  const documentKey = useMemo(() => JSON.stringify([filePath, content]), [filePath, content]);
+
   return (
     <article
+      // Search and annotations mutate text inside this document. Replace the whole
+      // article on file or source changes instead of reconciling altered text nodes.
+      key={documentKey}
       ref={contentRef}
       className="markdown-body"
       style={{
