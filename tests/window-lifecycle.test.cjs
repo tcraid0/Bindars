@@ -121,7 +121,7 @@ async function requestQuit() {
   });
 }
 
-async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [] } = {}) {
+async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], initialSessionOperation = null } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
   window.localStorage.clear();
@@ -181,6 +181,10 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
       case "plugin:store|get":
         if (args.key === "recent-files") return [[], true];
         if (args.key === "hasSeenWelcome") return [true, true];
+        if (args.key === "session" && initialSessionOperation) {
+          initialSessionOperation.args = args;
+          return initialSessionOperation.promise;
+        }
         if (args.key === `annotations:${DOC_PATH}`) {
           return [{ highlights, bookmarks: [], version: 2 }, true];
         }
@@ -303,7 +307,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
   flushSync(() => {
     root.render(React.createElement(ToastProvider, null, React.createElement(App)));
   });
-  await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
+  if (!initialSessionOperation) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
 
   async function openLifecycleDocument() {
     nativeOpen.setPendingPath(DOC_PATH);
@@ -512,6 +516,27 @@ test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation
 });
 
 // --- macOS close behavior ---
+
+test("hiding the macOS window during startup still allows stored session restoration", async () => {
+  const settings = deferred();
+  const rendered = await renderLifecycleApp({ initialSessionOperation: settings });
+  try {
+    await waitFor(() => assert.ok(settings.args));
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    await act(async () => {
+      settings.resolve([{ filePath: DOC_PATH, headingId: null }, true]);
+      await settings.promise;
+    });
+    await waitFor(() => assert.ok(rendered.host.textContent.includes(DOC_NAME)));
+    assert.deepEqual(rendered.openedPaths(), [DOC_PATH]);
+    assert.equal(rendered.hideCount(), 1);
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    settings.resolve([null, false]);
+    await rendered.cleanup();
+  }
+});
 
 test("macOS dirty close with a healthy disk flushes the boundary autosave and hides without a dialog", async () => {
   const rendered = await renderLifecycleApp({ platform: "mac" });
