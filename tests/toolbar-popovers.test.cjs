@@ -349,23 +349,23 @@ test("reader: values announce only real changes, reset coalesces, and selected g
     for (const [label, spoken] of [["font size", "Font size 18 pixels"], ["width", "Width 70 characters"], ["line height", "Line height 1.8"]]) {
       const increase = panel.querySelector(`[aria-label="Increase ${label}"]`);
       focus(increase);
-      click(increase);
-      await settle();
+      // Announcements update from an effect after the settings render. A single
+      // event-loop turn can finish before React commits that follow-up update.
+      await React.act(async () => { click(increase); });
       assert.equal(status.textContent, spoken);
       assert.ok(document.activeElement === increase);
     }
     const group = panel.querySelector('[role="group"][aria-label="Font size"]');
     assert.equal(document.getElementById(group.getAttribute("aria-describedby")).textContent, "18px");
-    click(buttonWithText(panel, "Reset to defaults"));
-    await settle();
+    await React.act(async () => { click(buttonWithText(panel, "Reset to defaults")); });
     assert.equal(status.textContent, "Font size 17 pixels. Width 65 characters. Line height 1.7");
     const increase = panel.querySelector('[aria-label="Increase font size"]');
-    for (let i = 0; i < 10; i += 1) click(increase);
-    await settle();
+    await React.act(async () => {
+      for (let i = 0; i < 10; i += 1) click(increase);
+    });
     assert.equal(status.textContent, "Font size 24 pixels");
     const lastText = status.firstChild;
-    click(increase);
-    await settle();
+    await React.act(async () => { click(increase); });
     assert.ok(status.firstChild === lastText, "clamped no-op must not mutate the live region");
     pressKey("Escape");
     assert.equal(view.open("reader").querySelector('[role="status"]').textContent, "");
