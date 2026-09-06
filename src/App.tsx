@@ -379,8 +379,8 @@ function App() {
 
   // Pending action to run after confirm dialog resolves.
   const pendingActionRef = useRef<AdmittedAction | null>(null);
-  // Guards direct-save vs. exit-flow dialog continuations across async writes.
-  const saveContinuationIntentRef = useRef<SaveContinuationIntent | null>(null);
+  // Each dialog owns its continuation, even if a later dialog has the same intent.
+  const saveContinuationRef = useRef<{ intent: SaveContinuationIntent } | null>(null);
   const executePendingActionRef = useRef<(action: PendingAction) => Promise<void>>(async () => {});
   const actionAdmissionOwnerRef = useRef<ActionAdmissionId | null>(null);
   const documentTransitionInFlightRef = useRef(false);
@@ -483,13 +483,13 @@ function App() {
   }, []);
 
   const openSaveConfirmation = useCallback((intent: SaveContinuationIntent) => {
-    saveContinuationIntentRef.current = intent;
+    saveContinuationRef.current = { intent };
     showConfirmDialogRef.current = true;
     setShowConfirmDialog(true);
   }, []);
 
   const openConflictDialog = useCallback((intent: SaveContinuationIntent) => {
-    saveContinuationIntentRef.current = intent;
+    saveContinuationRef.current = { intent };
     showConflictDialogRef.current = true;
     setShowConflictDialog(true);
   }, []);
@@ -822,10 +822,15 @@ function App() {
   const saveCurrentEditsWithRecovery = useCallback(async (
     options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveResult> => {
+    const sessionKey = editorSessionKeyRef.current;
     const outcome = await saveCurrentEdits(options);
     await finishDraftSnapshotAdoption(outcome.draftAdoption);
+    if (!editingRef.current || editorSessionKeyRef.current !== sessionKey) return "stale";
+    // Recovery migration can outlast the file write. Flush the live editor
+    // before a caller treats that earlier write as permission to leave.
+    if (outcome.status === "saved" && flushAndReadDirty()) return "saved-with-newer-edits";
     return outcome.status;
-  }, [finishDraftSnapshotAdoption, saveCurrentEdits]);
+  }, [finishDraftSnapshotAdoption, flushAndReadDirty, saveCurrentEdits]);
 
   const handleSave = useCallback(async () => {
     if (actionAdmissionOwnerRef.current !== null) return;
@@ -900,7 +905,7 @@ function App() {
     dirtyRef.current = false;
     showConflictDialogRef.current = false;
     setShowConflictDialog(false);
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     setSavedFlash(false);
     if (searchVisible) closeSearch();
   }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation]);
@@ -935,7 +940,7 @@ function App() {
     setSavedFlash(false);
     editingRef.current = false;
     dirtyRef.current = false;
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
   }, [editor.exitEditMode, supersedeReconciliation]);
 
   const publishSourceReaderTarget = useCallback((
@@ -1058,7 +1063,7 @@ function App() {
   }, [executeAdmittedAction]);
 
   const continueAfterSuccessfulSave = useCallback((intent: SaveContinuationIntent) => {
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     if (intent === "stay-editing") return;
     if (editingRef.current) {
       exitEditMode(pendingActionRef.current ? "none" : "saved");
@@ -1069,7 +1074,7 @@ function App() {
   }, [exitEditMode, resolvePendingAction]);
 
   const discardEditsAndContinue = useCallback(() => {
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     // Exiting edit mode re-reads the current file from disk.
     exitEditMode(pendingActionRef.current ? "none" : "discarded");
     editingRef.current = false;
@@ -1201,43 +1206,47 @@ function App() {
   }, [captureDiscardedBuffer, discardEditsAndContinue]);
 
   const handleConfirmSave = useCallback(async () => {
+    const continuation = saveContinuationRef.current;
+    if (!continuation) return;
     setShowConfirmDialog(false);
     showConfirmDialogRef.current = false;
-    const continuationIntent = saveContinuationIntentRef.current ?? "continue";
 
     clearAutosaveIssue();
     const result = await saveCurrentEditsWithRecovery();
+    if (result === "stale" || saveContinuationRef.current !== continuation) return;
     recordSaveResult(result);
     const continuationDecision = decideSaveContinuation(result);
     if (continuationDecision === "continue") {
       flashSaved();
-      continueAfterSuccessfulSave(continuationIntent);
+      continueAfterSuccessfulSave(continuation.intent);
       return;
     }
     if (continuationDecision === "reconfirm") {
       flashSaved();
-      openSaveConfirmation(continuationIntent);
+      openSaveConfirmation(continuation.intent);
       return;
     }
     if (result === "conflict") {
-      openConflictDialog(continuationIntent);
+      openConflictDialog(continuation.intent);
       return;
     }
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     cancelPendingAction();
   }, [cancelPendingAction, clearAutosaveIssue, recordSaveResult, saveCurrentEditsWithRecovery, flashSaved, continueAfterSuccessfulSave, openConflictDialog, openSaveConfirmation]);
 
   const handleConfirmCancel = useCallback(() => {
     setShowConfirmDialog(false);
     showConfirmDialogRef.current = false;
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     cancelPendingAction();
   }, [cancelPendingAction]);
 
   const handleConflictOverwrite = useCallback(async () => {
-    const continuationIntent = saveContinuationIntentRef.current ?? "stay-editing";
+    const continuation = saveContinuationRef.current;
+    if (!continuation) return;
     clearAutosaveIssue();
     const result = await saveCurrentEditsWithRecovery({ forceOverwrite: true });
+    if (result === "stale" || saveContinuationRef.current !== continuation) return;
     recordSaveResult(result);
     const continuationDecision = decideSaveContinuation(result);
     if (continuationDecision === "stop") return;
@@ -1246,10 +1255,10 @@ function App() {
     showConflictDialogRef.current = false;
     flashSaved();
     if (continuationDecision === "reconfirm") {
-      openSaveConfirmation(continuationIntent);
+      openSaveConfirmation(continuation.intent);
       return;
     }
-    continueAfterSuccessfulSave(continuationIntent);
+    continueAfterSuccessfulSave(continuation.intent);
   }, [clearAutosaveIssue, recordSaveResult, saveCurrentEditsWithRecovery, flashSaved, continueAfterSuccessfulSave, openSaveConfirmation]);
 
   const handleConflictReload = useCallback(async () => {
@@ -1261,7 +1270,7 @@ function App() {
     clearAutosaveIssue();
     captureDiscardedBuffer();
 
-    if (saveContinuationIntentRef.current === "continue") {
+    if (saveContinuationRef.current?.intent === "continue") {
       discardEditsAndContinue();
       return;
     }
@@ -1272,7 +1281,7 @@ function App() {
   const handleConflictCancel = useCallback(() => {
     setShowConflictDialog(false);
     showConflictDialogRef.current = false;
-    saveContinuationIntentRef.current = null;
+    saveContinuationRef.current = null;
     cancelPendingAction();
   }, [cancelPendingAction]);
 
