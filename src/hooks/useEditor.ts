@@ -466,6 +466,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     }));
   }, []);
 
+  // Consumers should depend on the members they use, not this per-render result object.
   return {
     buffer: state.buffer,
     dirty: state.dirty,

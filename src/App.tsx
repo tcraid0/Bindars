@@ -565,7 +565,7 @@ function App() {
     if (status === "saved") dirtyRef.current = false;
     if (status === "saved-with-newer-edits") dirtyRef.current = true;
     return { status, draftAdoption };
-  }, [adoptSavedFile, editor, fileName, filePath]);
+  }, [adoptSavedFile, editor.save, editor.saveAs, fileName, filePath]);
 
   const performAutosave = useCallback(async () => {
     const outcome = await saveCurrentEdits({ quiet: true });
@@ -649,7 +649,7 @@ function App() {
       dirty: editorState.dirty,
       expectedRevision: editorState.expectedRevision,
     };
-  }, [editor, getOpenOwnership, getPublishedDocument]);
+  }, [editor.getReconciliationState, getOpenOwnership, getPublishedDocument]);
 
   const probeForReconciliation = useCallback(async (
     snapshot: ReconciliationSnapshot,
@@ -758,7 +758,10 @@ function App() {
   }, [
     adoptReconciledDocument,
     clearReconciliationError,
-    editor,
+    editor.refreshDirtyExpectedRevision,
+    editor.refreshCleanExpectedRevision,
+    editor.refreshCleanBuffer,
+    editor.protectFromExternalChange,
     refreshReconciledRevision,
     reportReconciliationError,
   ]);
@@ -900,7 +903,7 @@ function App() {
     saveContinuationIntentRef.current = null;
     setSavedFlash(false);
     if (searchVisible) closeSearch();
-  }, [closeSearch, editor, searchVisible, supersedePendingOpen, supersedeReconciliation]);
+  }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation]);
 
   const enterEditMode = useCallback(() => {
     if (
@@ -933,7 +936,7 @@ function App() {
     editingRef.current = false;
     dirtyRef.current = false;
     saveContinuationIntentRef.current = null;
-  }, [editor, supersedeReconciliation]);
+  }, [editor.exitEditMode, supersedeReconciliation]);
 
   const publishSourceReaderTarget = useCallback((
     readerTarget: ReaderAnchor | null,
@@ -1460,7 +1463,7 @@ function App() {
         : current);
       toast("Couldn't restore the snapshot. The current text was not changed.", "error");
     }
-  }, [beginEditSession, closeRestoreDialog, editor, getCurrentSnapshotDocument, getPublishedDocument, snapshotCurrentState, toast, waitForSnapshotQueue]);
+  }, [beginEditSession, closeRestoreDialog, editor.flushAndReadBuffer, editor.updateBuffer, getCurrentSnapshotDocument, getPublishedDocument, snapshotCurrentState, toast, waitForSnapshotQueue]);
 
   const restoreDraftSnapshot = useCallback(async (draft: SnapshotDraft) => {
     const request = restoreRequestRef.current;
@@ -1492,7 +1495,7 @@ function App() {
         : current);
       toast("Couldn't restore that draft.", "error");
     }
-  }, [beginEditSession, closeRestoreDialog, editor, setVirtualContent, toast]);
+  }, [beginEditSession, closeRestoreDialog, editor.updateBuffer, setVirtualContent, toast]);
 
   const handleRestoreChoice = useCallback((id: string) => {
     const current = restoreDialog;
@@ -1678,16 +1681,17 @@ function App() {
     setSearchVisible(true);
   }, [content, editing, readerDocumentReady]);
 
-  // Close search when content changes (new file opened)
-  const prevContentRef = useRef(content);
+  // Reset search when the reader document changes, including identical text in another file.
+  const prevSearchDocumentRef = useRef({ content, filePath });
   useEffect(() => {
-    if (prevContentRef.current !== content) {
-      prevContentRef.current = content;
+    const previous = prevSearchDocumentRef.current;
+    if (previous.content !== content || previous.filePath !== filePath) {
+      prevSearchDocumentRef.current = { content, filePath };
       if (searchVisible) {
         search.clear();
       }
     }
-  }, [content, searchVisible, search.clear]);
+  }, [content, filePath, searchVisible, search.clear]);
 
   const updateReadingProgressNow = useCallback(() => {
     const scrollEl = mainScrollRef.current;
@@ -1732,7 +1736,7 @@ function App() {
 
   // Extract headings after the reader DOM renders. Active tracking is colocated
   // with the TOC so heading changes do not rerender the full App tree.
-  const headings = useHeadings(contentRef, content, !editing && readerDocumentReady);
+  const headings = useHeadings(contentRef, content, !editing && readerDocumentReady, filePath);
 
   const scrollToHeading = useCallback(
     (
@@ -2062,7 +2066,7 @@ function App() {
     addHighlight(anchor, color, headingId);
   }, [addHighlight]);
 
-  // Apply annotation highlights to DOM after content renders
+  // Repaint for document identity changes, even when another file has identical text.
   useEffect(() => {
     if (editing || !readerDocumentReady) return;
     const container = contentRef.current;
@@ -2079,7 +2083,7 @@ function App() {
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [content, editing, highlights, readerDocumentReady]);
+  }, [content, filePath, editing, highlights, readerDocumentReady]);
 
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {
@@ -2906,6 +2910,8 @@ function App() {
             />
           ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
             <FountainRenderer
+              // As with Markdown, discard marked DOM as a unit on source changes.
+              key={content}
               parsed={preparedDocument.parsedFountain}
               settings={settings}
               contentRef={contentRef}

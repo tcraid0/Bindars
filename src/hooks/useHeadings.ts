@@ -16,6 +16,7 @@ export function useHeadings(
   contentRef: React.RefObject<HTMLElement | null>,
   content: string | null,
   enabled = true,
+  filePath: string | null = null,
 ): HeadingItem[] {
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
 
@@ -50,7 +51,7 @@ export function useHeadings(
     });
 
     return () => cancelAnimationFrame(timer);
-  }, [content, enabled]);
+  }, [content, enabled, filePath]);
 
   return headings;
 }
