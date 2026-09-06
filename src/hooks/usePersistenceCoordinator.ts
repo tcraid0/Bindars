@@ -3,6 +3,7 @@ import { clearSnapshotHistory, writeDocumentSnapshot } from "../lib/snapshots";
 import type { SnapshotDocument } from "../lib/snapshots";
 import type { CapturedEditorBuffer } from "./useEditor";
 import type { EditorSaveResult } from "../lib/editor-save";
+import { normalizeFileError } from "../lib/native-file-error";
 
 export const SNAPSHOT_INTERVAL_MS = 10_000;
 export const AUTOSAVE_IDLE_MS = 2_500;
@@ -57,10 +58,6 @@ interface AutomaticSnapshotRetryState {
   consecutiveFailures: number;
   coolingDown: boolean;
   reportedThisSession: boolean;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function automaticRequestMatches(
@@ -238,7 +235,7 @@ export function usePersistenceCoordinator({
           if (required) throw error;
 
           if (sessionKeyRef.current === requestedSession) {
-            const message = errorMessage(error);
+            const message = normalizeFileError(error, "Bindars could not access recovery data.").message;
             if (automaticRequestMatches(lastAutomaticRequestRef.current, automaticRequest)) {
               lastAutomaticRequestRef.current = null;
             }

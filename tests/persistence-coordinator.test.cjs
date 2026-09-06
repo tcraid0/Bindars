@@ -232,16 +232,22 @@ test("the interval flush catches continuous typing before React has published di
   }
 });
 
-test("automatic snapshot retries reset after success and warn only once per session", async (context) => {
+test("structured automatic snapshot failures use safe messages and retain retry behavior", async (context) => {
   await installDom();
   context.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
   const attempts = [];
   const reported = [];
+  const nativeFailure = {
+    category: "unknown",
+    operation: "accessRecoveryData",
+    message: "Bindars could not access recovery data.",
+    detail: "/private/recovery/snapshots: permission denied",
+  };
   let buffer = "important words";
   mockIPC((command, args) => {
     assert.equal(command, "write_document_snapshot");
     attempts.push(args);
-    if (attempts.length === 1 || attempts.length === 3) throw new Error("disk full");
+    if (attempts.length === 1 || attempts.length === 3) throw nativeFailure;
     return {
       snapshot: { id: "saved.md", createdAtMs: 2, size: args.content.length },
       merged: false,
@@ -259,8 +265,8 @@ test("automatic snapshot retries reset after success and warn only once per sess
 
   try {
     await flushPromises();
-    assert.equal(rendered.api().snapshotError, "disk full");
-    assert.deepEqual(reported, ["disk full"]);
+    assert.equal(rendered.api().snapshotError, nativeFailure.message);
+    assert.deepEqual(reported, [nativeFailure.message]);
 
     context.mock.timers.tick(AUTOMATIC_SNAPSHOT_RETRY_BASE_MS - 1);
     await flushPromises();
@@ -275,14 +281,14 @@ test("automatic snapshot retries reset after success and warn only once per sess
       "a retry must preserve the last known-good recovery point",
     );
     assert.equal(rendered.api().snapshotError, null);
-    assert.deepEqual(reported, ["disk full"]);
+    assert.deepEqual(reported, [nativeFailure.message]);
 
     buffer = "important words after recovery";
     context.mock.timers.tick(SNAPSHOT_INTERVAL_MS);
     await flushPromises();
     assert.equal(attempts.length, 3);
-    assert.equal(rendered.api().snapshotError, "disk full");
-    assert.deepEqual(reported, ["disk full"]);
+    assert.equal(rendered.api().snapshotError, nativeFailure.message);
+    assert.deepEqual(reported, [nativeFailure.message]);
 
     context.mock.timers.tick(AUTOMATIC_SNAPSHOT_RETRY_BASE_MS - 1);
     await flushPromises();
