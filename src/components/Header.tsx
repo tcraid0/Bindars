@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useCallback, useId } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import type { Theme, FileType } from "../types";
@@ -10,6 +10,7 @@ import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
 import { replaceOpenableDocumentExtension } from "../lib/openable-files";
+import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
 interface HeaderProps {
   fileName: string | null;
@@ -21,6 +22,9 @@ interface HeaderProps {
   onToggleSidebar: () => void;
   onToggleToc: () => void;
   onToggleReaderControls: () => void;
+  readerControlsVisible: boolean;
+  readerControlsId: string;
+  readerControlsTriggerRef: React.RefObject<HTMLButtonElement | null>;
   canGoBack: boolean;
   canGoForward: boolean;
   onGoBack: () => void;
@@ -86,6 +90,9 @@ function HeaderComponent({
   onToggleSidebar,
   onToggleToc,
   onToggleReaderControls,
+  readerControlsVisible,
+  readerControlsId,
+  readerControlsTriggerRef,
   canGoBack,
   canGoForward,
   onGoBack,
@@ -113,39 +120,29 @@ function HeaderComponent({
 }: HeaderProps) {
   const { toast } = useToast();
   const [exportOpen, setExportOpen] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const exportTriggerRef = useRef<HTMLButtonElement>(null);
+  const exportPanelRef = useRef<HTMLDivElement>(null);
+  const exportId = useId();
+  const dismissExport = useDismissiblePopover({
+    open: exportOpen && Boolean(fileName) && !isEditing,
+    triggerRef: exportTriggerRef,
+    panelRef: exportPanelRef,
+    onClose: () => setExportOpen(false),
+  });
 
-  // Close dropdown on outside click or Escape
   useEffect(() => {
-    if (!exportOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
-        setExportOpen(false);
-      }
-    };
-    const keyHandler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setExportOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("keydown", keyHandler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("keydown", keyHandler);
-    };
-  }, [exportOpen]);
+    if (!fileName || isEditing) setExportOpen(false);
+  }, [fileName, isEditing]);
 
   const handlePrint = useCallback(() => {
-    setExportOpen(false);
+    dismissExport(true);
     onPrint();
-  }, [onPrint]);
+  }, [dismissExport, onPrint]);
 
   const handlePresent = useCallback(() => {
-    setExportOpen(false);
+    dismissExport(true);
     onPresent();
-  }, [onPresent]);
+  }, [dismissExport, onPresent]);
 
   const handleOpenExternal = useCallback(async () => {
     if (!filePath) return;
@@ -158,7 +155,7 @@ function HeaderComponent({
   }, [filePath, toast]);
 
   const handleExportHtml = useCallback(async () => {
-    setExportOpen(false);
+    dismissExport(true);
     const el = document.querySelector(".markdown-body, .fountain-body");
     if (!el) return;
 
@@ -209,7 +206,7 @@ function HeaderComponent({
       console.warn("[export] Failed to export HTML:", err);
       toast("Couldn't export HTML", "error");
     }
-  }, [fileName, filePath, toast]);
+  }, [dismissExport, fileName, filePath, toast]);
 
   return (
     <header
@@ -373,7 +370,11 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onToggleReaderControls}
+          ref={readerControlsTriggerRef}
           aria-label="Toggle reader settings"
+          aria-haspopup="dialog"
+          aria-expanded={readerControlsVisible}
+          aria-controls={readerControlsVisible ? readerControlsId : undefined}
           className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
           title="Reader settings"
         >
@@ -387,14 +388,19 @@ function HeaderComponent({
           <>
             {/* Export dropdown */}
             {fileName && (
-              <div ref={exportRef} className="relative">
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setExportOpen((v) => !v)}
+                  onClick={(event) => {
+                    // WebKit does not focus buttons on pointer activation.
+                    // Keep Escape and subsequent Tab navigation in this disclosure.
+                    event.currentTarget.focus();
+                    setExportOpen((v) => !v);
+                  }}
+                  ref={exportTriggerRef}
                   aria-label="Export options"
-                  aria-haspopup="menu"
                   aria-expanded={exportOpen}
-                  aria-controls="export-menu"
+                  aria-controls={exportOpen ? exportId : undefined}
                   className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                     exportOpen ? "text-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
@@ -408,14 +414,15 @@ function HeaderComponent({
                 </button>
                 {exportOpen && (
                   <div
-                    id="export-menu"
-                    role="menu"
+                    id={exportId}
+                    ref={exportPanelRef}
+                    role="group"
+                    aria-label="Export options"
                     className="absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
                     style={{ animation: "fadeIn 100ms ease" }}
                   >
                     <button
                       type="button"
-                      role="menuitem"
                       onClick={handlePrint}
                       className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2"
                     >
@@ -429,7 +436,6 @@ function HeaderComponent({
                     </button>
                     <button
                       type="button"
-                      role="menuitem"
                       onClick={handleExportHtml}
                       className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2"
                     >
@@ -442,7 +448,6 @@ function HeaderComponent({
                     {fileType !== "fountain" && (
                       <button
                         type="button"
-                        role="menuitem"
                         onClick={handlePresent}
                         disabled={!canPresent}
                         className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"

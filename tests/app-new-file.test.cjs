@@ -3591,7 +3591,7 @@ test("presentation defers watcher reconciliation until the reader returns", asyn
     const exportButton = rendered.host.querySelector('[aria-label="Export options"]');
     assert.ok(exportButton);
     flushSync(() => exportButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    const presentButton = Array.from(rendered.host.querySelectorAll('[role="menuitem"]'))
+    const presentButton = Array.from(rendered.host.querySelectorAll('[role="group"][aria-label="Export options"] button'))
       .find((button) => button.textContent.includes("Present as Slides"));
     assert.ok(presentButton);
     assert.equal(presentButton.disabled, false);

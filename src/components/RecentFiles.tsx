@@ -1,4 +1,6 @@
 import type { RecentFile } from "../types";
+import { useRef } from "react";
+import { focusAfterRemoval } from "../lib/focus-after-removal";
 
 interface RecentFilesProps {
   files: RecentFile[];
@@ -35,16 +37,13 @@ export function RecentFiles({
   onOpen,
   onRemove,
 }: RecentFilesProps) {
-  if (files.length === 0) {
-    return (
-      <div className="px-4 py-8 text-center text-text-muted text-sm">
-        No recent files
-      </div>
-    );
-  }
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className="flex-1">
+    <div ref={containerRef} tabIndex={-1} role="group" aria-label="Recent files" className="flex-1 focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2">
+      {files.length === 0 && (
+        <div className="px-4 py-8 text-center text-text-muted text-sm">No recent files</div>
+      )}
       {files.map((file) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
@@ -77,11 +76,12 @@ export function RecentFiles({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                focusAfterRemoval(e.currentTarget.parentElement, containerRef.current);
                 onRemove(file.path);
               }}
               aria-label={`Remove ${file.name} from recent files`}
               disabled={isOpening}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120"
               title="Remove from recent"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

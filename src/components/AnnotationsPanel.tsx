@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
@@ -6,6 +6,8 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
+import { focusAfterRemoval } from "../lib/focus-after-removal";
+import { isImeCompositionKey } from "../lib/keyboard";
 
 interface AnnotationsPanelProps {
   visible: boolean;
@@ -59,6 +61,18 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   const [noteBuffer, setNoteBuffer] = useState("");
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
   const cancelledRef = useRef(false);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const restoreNoteFocusRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const id = restoreNoteFocusRef.current;
+    if (editingNoteId || !id) return;
+    restoreNoteFocusRef.current = null;
+    const action = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>("[data-note-action]") ?? [])
+      .find((button) => button.dataset.noteAction === id);
+    (action ?? closeRef.current)?.focus();
+  }, [editingNoteId]);
 
   // Auto-focus textarea when editing starts
   useEffect(() => {
@@ -93,15 +107,20 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
   const handleNoteKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (isImeCompositionKey(e.nativeEvent)) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
+        e.stopPropagation();
+        restoreNoteFocusRef.current = editingNoteId;
         saveNote();
       } else if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
+        restoreNoteFocusRef.current = editingNoteId;
         cancelEditNote();
       }
     },
-    [saveNote, cancelEditNote],
+    [saveNote, cancelEditNote, editingNoteId],
   );
 
   const handleExport = useCallback(async () => {
@@ -127,6 +146,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
   return (
     <aside
+      ref={panelRef}
       className="print-hide w-[280px] shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
       style={reducedMotion ? undefined : { animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
@@ -151,6 +171,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
           <button
             type="button"
             onClick={onClose}
+            ref={closeRef}
             aria-label="Close annotations"
             className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
           >
@@ -253,8 +274,11 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 <button
                   type="button"
                   aria-label="Remove highlight"
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary shrink-0 p-0.5 rounded transition-opacity duration-100"
-                  onClick={() => onRemoveHighlight(hl.id)}
+                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary shrink-0 p-0.5 rounded transition-opacity duration-100"
+                  onClick={(event) => {
+                    focusAfterRemoval(event.currentTarget.parentElement, closeRef.current);
+                    onRemoveHighlight(hl.id);
+                  }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -283,8 +307,9 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                     <button
                       type="button"
                       aria-label="Edit note"
+                      data-note-action={hl.id}
                       onClick={() => startEditNote(hl)}
-                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary p-0.5 rounded transition-opacity duration-100 shrink-0"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary p-0.5 rounded transition-opacity duration-100 shrink-0"
                     >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -297,7 +322,8 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                     <button
                       type="button"
                       onClick={() => startEditNote(hl)}
-                      className="opacity-0 group-hover:opacity-100 text-xs text-accent hover:underline transition-opacity duration-100"
+                      data-note-action={hl.id}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-xs text-accent hover:underline transition-opacity duration-100"
                     >
                       Add note
                     </button>

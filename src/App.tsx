@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -305,6 +305,8 @@ function App() {
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
   const [tocVisible, setTocVisible] = useState(true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
+  const readerControlsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const readerControlsId = useId();
   const [isDragging, setIsDragging] = useState(false);
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
@@ -2765,6 +2767,9 @@ function App() {
           onToggleSidebar={toggleSidebar}
           onToggleToc={toggleToc}
           onToggleReaderControls={toggleReaderControls}
+          readerControlsVisible={readerControlsVisible}
+          readerControlsId={readerControlsId}
+          readerControlsTriggerRef={readerControlsTriggerRef}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           onGoBack={guardedGoBack}
@@ -2970,6 +2975,8 @@ function App() {
         {!focusMode && !presentationMode && (
           <ReaderControls
             visible={readerControlsVisible}
+            id={readerControlsId}
+            triggerRef={readerControlsTriggerRef}
             settings={settings}
             theme={theme}
             fileType={fileType}

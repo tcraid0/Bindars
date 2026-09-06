@@ -91,7 +91,7 @@ const TOCItem = memo(function TOCItem({
             onToggleBookmark(heading.id, heading.text);
           }}
           className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-accent transition-opacity duration-150 ${
-            bookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            bookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={bookmarked ? "text-accent" : ""}>
