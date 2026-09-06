@@ -17,10 +17,12 @@ let flushSync;
 
 function deferred() {
   let resolve;
-  const promise = new Promise((promiseResolve) => {
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
+    reject = promiseReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function successfulSnapshotWrite(args) {
@@ -163,6 +165,8 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
   let deferredOpen = null;
   let deferredWrite = null;
   let deferredSnapshotWrite = null;
+  let deferredSnapshotDocumentKind = null;
+  let deferredDraftRetirement = null;
   let failedHidesRemaining = 0;
   let failedExitsRemaining = 0;
   const operationLog = [];
@@ -257,7 +261,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
           operationLog.push("snapshot-finish");
           return successfulSnapshotWrite(args);
         };
-        if (deferredSnapshotWrite) {
+        if (deferredSnapshotWrite && (!deferredSnapshotDocumentKind || args.document.kind === deferredSnapshotDocumentKind)) {
           const pending = deferredSnapshotWrite;
           deferredSnapshotWrite = null;
           pending.args = args;
@@ -269,6 +273,12 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
       case "unwatch_file":
         return null;
       case "retire_snapshot_draft":
+        if (deferredDraftRetirement) {
+          const operation = deferredDraftRetirement;
+          deferredDraftRetirement = null;
+          operation.args = args;
+          return operation.promise;
+        }
         return null;
       case "list_snapshot_drafts":
         return { drafts: [], skippedCount: 0 };
@@ -333,7 +343,11 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     conflictNextWrite() { conflictNextWrite = true; },
     deferNextOpen(operation) { deferredOpen = operation; },
     deferNextWrite(operation) { deferredWrite = operation; },
-    deferNextSnapshotWrite(operation) { deferredSnapshotWrite = operation; },
+    deferNextSnapshotWrite(operation, documentKind = null) {
+      deferredSnapshotWrite = operation;
+      deferredSnapshotDocumentKind = documentKind;
+    },
+    deferNextDraftRetirement(operation) { deferredDraftRetirement = operation; },
     openLifecycleDocument,
     enterEditingWithDirtyText,
     requestNativeOpen,
@@ -362,6 +376,140 @@ function confirmDialog(host) {
 function noDialog(host) {
   assert.ok(!host.querySelector('[role="dialog"]'), "expected no open dialog");
 }
+
+test("Save As reconfirms typing during recovery work before leaving the document", async (context) => {
+  for (const action of ["editor exit", "Finder open", "close", "quit"]) {
+    for (const recoveryStep of ["file snapshot", "draft retirement", "failed retirement"]) {
+      await context.test(`${action}: ${recoveryStep}`, async () => {
+        const rendered = await renderLifecycleApp();
+        const recovery = deferred();
+        const savedWords = "Words saved before recovery cleanup.";
+        const newerWords = `${savedWords}\nMore words typed during cleanup.`;
+        const finderPath = "/tmp/after-save-as.md";
+        try {
+          dispatchShortcut("n");
+          await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+          updateEditor(rendered.host, savedWords);
+          if (action === "editor exit") dispatchShortcut("e");
+          else if (action === "Finder open") await rendered.requestNativeOpen(finderPath);
+          else if (action === "close") await rendered.requestClose();
+          else await rendered.requestQuit();
+          const dialog = await waitFor(() => confirmDialog(rendered.host));
+          assert.match(dialog.textContent, /Unsaved changes/);
+          if (recoveryStep === "file snapshot") rendered.deferNextSnapshotWrite(recovery, "file");
+          else rendered.deferNextDraftRetirement(recovery);
+          clickButton(rendered.host, "Save", dialog);
+          await waitFor(() => assert.ok(recovery.args));
+          assert.equal(rendered.diskContent(), savedWords);
+          if (recoveryStep === "file snapshot") assert.equal(recovery.args.document.kind, "file");
+
+          // Do not wait for CodeMirror's debounced publication: the continuation
+          // must flush the live editor after the last awaited recovery operation.
+          updateEditor(rendered.host, newerWords);
+          await act(async () => {
+            if (recoveryStep === "failed retirement") recovery.reject(new Error("recovery storage unavailable"));
+            else recovery.resolve(null);
+            try { await recovery.promise; } catch { /* expected recovery failure */ }
+          });
+
+          const reconfirm = await waitFor(() => confirmDialog(rendered.host));
+          assert.match(reconfirm.textContent, /Unsaved changes/);
+          assert.equal(findEditorView(rendered.host).state.sliceDoc(), newerWords);
+          assert.equal(rendered.fileWrites().length, 1);
+          assert.equal(rendered.hideCount(), 0);
+          assert.equal(rendered.exitCalls().length, 0);
+          assert.equal(rendered.openedPaths().includes(finderPath), false);
+          clickButton(rendered.host, "Save", reconfirm);
+
+          await waitFor(() => assert.equal(rendered.diskContent(), newerWords));
+          if (action === "editor exit") await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+          else if (action === "Finder open") await waitFor(() => assert.ok(rendered.openedPaths().includes(finderPath)));
+          else if (action === "close") await waitFor(() => assert.equal(rendered.hideCount(), 1));
+          else await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+          assert.equal(rendered.destroyCount(), 0);
+          noDialog(rendered.host);
+        } finally {
+          recovery.resolve(null);
+          await rendered.cleanup();
+        }
+      });
+    }
+  }
+});
+
+test("a late Save As recovery completion leaves a newer draft and its confirmation intact", async () => {
+  const rendered = await renderLifecycleApp();
+  const retirement = deferred();
+  try {
+    dispatchShortcut("n");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "First draft saved.");
+    dispatchShortcut("e");
+    const dialog = await waitFor(() => confirmDialog(rendered.host));
+    rendered.deferNextDraftRetirement(retirement);
+    clickButton(rendered.host, "Save", dialog);
+    await waitFor(() => assert.ok(retirement.args));
+
+    dispatchShortcut("n");
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    updateEditor(rendered.host, "Keep this newer draft.");
+    await rendered.requestQuit();
+    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    await act(async () => {
+      retirement.resolve(null);
+      await retirement.promise;
+    });
+
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Keep this newer draft.");
+    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    assert.equal(rendered.exitCalls().length, 0);
+    // The old save must neither execute nor cancel the newer quit admission.
+    clickButton(rendered.host, "Discard", newerDialog);
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    retirement.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation", async () => {
+  const rendered = await renderLifecycleApp();
+  const overwrite = deferred();
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to save.`);
+    rendered.conflictNextWrite();
+    await rendered.requestQuit();
+    const conflict = await waitFor(() => confirmDialog(rendered.host));
+    assert.match(conflict.textContent, /File changed/);
+    rendered.deferNextWrite(overwrite);
+    clickButton(rendered.host, "Overwrite", conflict);
+    await waitFor(() => assert.equal(overwrite.args?.force, true));
+    await cancelDialog(rendered.host);
+    await rendered.requestQuit();
+    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    assert.match(newerDialog.textContent, /Unsaved changes/);
+    await act(async () => {
+      overwrite.resolve({
+        conflict: false,
+        canonicalPath: DOC_PATH,
+        name: DOC_NAME,
+        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
+      });
+      await overwrite.promise;
+    });
+
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    assert.equal(rendered.exitCalls().length, 0);
+    await cancelDialog(rendered.host);
+    await rendered.requestQuit();
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    overwrite.resolve(null);
+    await rendered.cleanup();
+  }
+});
 
 // --- macOS close behavior ---
 
