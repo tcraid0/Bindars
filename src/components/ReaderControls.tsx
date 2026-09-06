@@ -1,7 +1,8 @@
-import { memo, useRef, useCallback } from "react";
+import { memo, useRef, useCallback, useEffect, useState, useId } from "react";
 import type { ReaderSettings, FontFamily, ParagraphSpacing, PrintLayout, Theme } from "../types";
 import { resolveFontCss } from "../lib/reader-settings";
 import type { SnapshotStorageStats } from "../lib/snapshots";
+import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
 const FONT_OPTIONS: { value: FontFamily; label: string }[] = [
   { value: "newsreader", label: "Newsreader" },
@@ -47,6 +48,8 @@ function formatByteCount(bytes: number): string {
 
 interface ReaderControlsProps {
   visible: boolean;
+  id: string;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
   settings: ReaderSettings;
   theme: Theme;
   fileType?: "markdown" | "fountain";
@@ -62,6 +65,8 @@ interface ReaderControlsProps {
 
 function ReaderControlsComponent({
   visible,
+  id,
+  triggerRef,
   settings,
   theme,
   fileType,
@@ -75,6 +80,29 @@ function ReaderControlsComponent({
   onClose,
 }: ReaderControlsProps) {
   const swatchRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const dismiss = useDismissiblePopover({
+    open: visible, triggerRef, panelRef, initialFocusRef: closeRef, onClose,
+  });
+  const [valueAnnouncement, setValueAnnouncement] = useState("");
+  const previousSettingsRef = useRef(settings);
+  const wasVisibleRef = useRef(false);
+
+  useEffect(() => {
+    const previous = previousSettingsRef.current;
+    const changes: string[] = [];
+    if (visible && wasVisibleRef.current) {
+      if (settings.fontSize !== previous.fontSize) changes.push(`Font size ${settings.fontSize} pixels`);
+      if (settings.contentWidth !== previous.contentWidth) changes.push(`Width ${settings.contentWidth} characters`);
+      if (settings.lineHeight !== previous.lineHeight) changes.push(`Line height ${settings.lineHeight.toFixed(1)}`);
+    }
+    // One region coalesces reset changes; opening and unrelated settings stay quiet.
+    if (changes.length > 0 || !visible) setValueAnnouncement(changes.join(". "));
+    previousSettingsRef.current = settings;
+    wasVisibleRef.current = visible;
+  }, [visible, settings]);
 
   const handleSwatchKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -99,6 +127,10 @@ function ReaderControlsComponent({
 
   return (
     <div
+      id={id}
+      ref={panelRef}
+      role="dialog"
+      aria-labelledby={titleId}
       className="print-hide fixed right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2 overflow-y-auto"
       style={{
         top: "var(--header-height, 52px)",
@@ -113,10 +145,11 @@ function ReaderControlsComponent({
       }}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-text-primary">Reader Settings</span>
+        <h2 id={titleId} className="text-sm font-semibold text-text-primary">Reader Settings</h2>
         <button
           type="button"
-          onClick={onClose}
+          ref={closeRef}
+          onClick={() => dismiss(true)}
           aria-label="Close reader settings"
           className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
         >
@@ -126,6 +159,8 @@ function ReaderControlsComponent({
           </svg>
         </button>
       </div>
+
+      <span className="sr-only" role="status" aria-atomic="true">{valueAnnouncement}</span>
 
       {/* Font size */}
       <ControlRow
@@ -154,12 +189,13 @@ function ReaderControlsComponent({
       {/* Font family */}
       <div className="mt-3 pt-3 border-t border-border">
         <span className="text-xs text-text-secondary block mb-1.5">Font</span>
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid grid-cols-2 gap-1" role="group" aria-label="Font">
           {FONT_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => onUpdate({ fontFamily: opt.value })}
+              aria-pressed={settings.fontFamily === opt.value}
               className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left leading-tight ${
                 settings.fontFamily === opt.value
                   ? "bg-accent text-white font-medium"
@@ -177,12 +213,13 @@ function ReaderControlsComponent({
       {/* Paragraph spacing */}
       <div className="mt-3 pt-3 border-t border-border">
         <span className="text-xs text-text-secondary block mb-1.5">Paragraph spacing</span>
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="group" aria-label="Paragraph spacing">
           {SPACING_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => onUpdate({ paragraphSpacing: opt.value })}
+              aria-pressed={settings.paragraphSpacing === opt.value}
               className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
                 settings.paragraphSpacing === opt.value
                   ? "bg-accent text-white font-medium"
@@ -198,12 +235,13 @@ function ReaderControlsComponent({
       {fileType !== "fountain" && (
         <div className="mt-3 pt-3 border-t border-border">
           <span className="text-xs text-text-secondary block mb-1.5">Print layout</span>
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="group" aria-label="Print layout">
             {PRINT_LAYOUT_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => onUpdate({ printLayout: opt.value })}
+                aria-pressed={settings.printLayout === opt.value}
                 className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
                   settings.printLayout === opt.value
                     ? "bg-accent text-white font-medium"
@@ -315,7 +353,10 @@ function ReaderControlsComponent({
         )}
         <button
           type="button"
-          onClick={onClearRecoveryHistory}
+          onClick={() => {
+            dismiss(true);
+            onClearRecoveryHistory();
+          }}
           className="w-full py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-md transition-colors duration-120"
         >
           Clear recovery history…
@@ -369,8 +410,9 @@ function ControlRow({
   onDecrease: () => void;
   onIncrease: () => void;
 }) {
+  const valueId = useId();
   return (
-    <div className="flex items-center justify-between py-1.5">
+    <div className="flex items-center justify-between py-1.5" role="group" aria-label={label} aria-describedby={valueId}>
       <span className="text-xs text-text-secondary">{label}</span>
       <div className="flex items-center gap-2">
         <button
@@ -381,7 +423,7 @@ function ControlRow({
         >
           -
         </button>
-        <span className="text-xs text-text-primary w-10 text-center font-mono">{value}</span>
+        <span id={valueId} className="text-xs text-text-primary w-10 text-center font-mono">{value}</span>
         <button
           type="button"
           onClick={onIncrease}
