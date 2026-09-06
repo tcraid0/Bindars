@@ -2443,6 +2443,39 @@ test("Ctrl+S remains global while the CodeMirror search panel owns focus", async
   }
 });
 
+test("automatic snapshot warnings show safe native messages and leave document saves working", async () => {
+  const rendered = await renderContinuityApp();
+  const nativeMessage = "Bindars could not access recovery data.";
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    rendered.failNextSnapshotWrite({
+      category: "unknown",
+      operation: "accessRecoveryData",
+      message: nativeMessage,
+      detail: "/private/recovery/snapshots: permission denied",
+    });
+    const words = `${rendered.diskContent()}\n\nWords protected by a normal save.`;
+    updateEditor(rendered.host, words);
+    await waitForEditorPublication();
+
+    await waitFor(() => {
+      const warning = rendered.host.querySelector('[aria-label^="Save warning:"]');
+      assert.ok(warning);
+      const expected = `Recovery snapshots are temporarily unavailable; retrying automatically: ${nativeMessage}`;
+      assert.equal(warning.getAttribute("aria-label"), `Save warning: ${expected}`);
+      assert.equal(warning.getAttribute("title"), expected);
+    });
+    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+
+    dispatchShortcut("s");
+    await waitFor(() => assert.equal(rendered.diskContent(), words));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test("an idle autosave conflict warns quietly and waits for manual save to open one dialog", async () => {
   const rendered = await renderContinuityApp();
   try {
