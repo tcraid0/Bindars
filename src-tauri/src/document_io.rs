@@ -51,17 +51,6 @@ fn read_markdown_file_impl(path: String) -> Result<String, NativeFileError> {
 }
 
 #[tauri::command]
-pub(crate) async fn resolve_markdown_path(path: String) -> Result<String, NativeFileError> {
-    run_blocking_file_io(move || resolve_markdown_path_impl(path)).await
-}
-
-fn resolve_markdown_path_impl(path: String) -> Result<String, NativeFileError> {
-    let requested_path = PathBuf::from(path);
-    let canonical_path = canonicalize_markdown_path(&requested_path)?;
-    Ok(canonical_path.to_string_lossy().into_owned())
-}
-
-#[tauri::command]
 pub(crate) async fn open_markdown_file(path: String) -> Result<OpenFileResult, NativeFileError> {
     run_blocking_file_io(move || open_markdown_file_impl(path)).await
 }
@@ -81,34 +70,6 @@ pub(crate) fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, Na
         content,
         revision,
     })
-}
-
-/// Compatibility write command retained for non-editor writes and tests.
-/// Editor save flows should use `write_markdown_file_if_unmodified`.
-#[tauri::command]
-pub(crate) async fn write_markdown_file(
-    path: String,
-    content: String,
-) -> Result<(), NativeFileError> {
-    run_blocking_file_io(move || write_markdown_file_impl(path, content)).await
-}
-
-fn write_markdown_file_impl(path: String, content: String) -> Result<(), NativeFileError> {
-    let requested_path = PathBuf::from(&path);
-    let canonical_path = canonicalize_markdown_write_path(&requested_path)?;
-
-    if content.len() as u64 > MAX_MARKDOWN_BYTES {
-        return Err(NativeFileError::invalid(
-            NativeFileOperation::ValidateDocument,
-            format!(
-                "Content is too large. Maximum supported size is {} MiB.",
-                MAX_MARKDOWN_SIZE_MIB
-            ),
-        ));
-    }
-
-    write_markdown_contents_atomic(&canonical_path, &content)?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -679,15 +640,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolve_markdown_path_returns_canonical_path() {
+    fn external_open_resolves_supported_symlink_to_canonical_path() {
         let target = temp_path("md");
         let link = temp_path("md");
 
         fs::write(&target, "# canonical").expect("write target fixture");
         symlink(&target, &link).expect("create symlink");
 
-        let resolved =
-            resolve_markdown_path_impl(link.to_string_lossy().into_owned()).expect("resolve path");
+        let resolved = resolve_external_markdown_path_impl(link.to_string_lossy().into_owned())
+            .expect("resolve path");
         assert_eq!(
             PathBuf::from(resolved),
             fs::canonicalize(&target).expect("canonical target")
@@ -727,23 +688,6 @@ mod tests {
         cleanup(&path);
     }
 
-    #[test]
-    fn writes_to_existing_markdown_file() {
-        let path = temp_path("md");
-        fs::write(&path, "# Original").expect("write fixture");
-
-        let result = write_markdown_file_impl(
-            path.to_string_lossy().into_owned(),
-            "# Updated\n\nNew content".to_string(),
-        );
-        assert!(result.is_ok());
-
-        let content = fs::read_to_string(&path).expect("read back");
-        assert_eq!(content, "# Updated\n\nNew content");
-
-        cleanup(&path);
-    }
-
     #[cfg(unix)]
     #[test]
     fn atomic_markdown_write_preserves_existing_unix_permissions() {
@@ -752,11 +696,18 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o640))
             .expect("set fixture permissions");
 
-        write_markdown_file_impl(
+        let result = write_markdown_file_if_unmodified_impl(
             path.to_string_lossy().into_owned(),
             "# Still private".to_string(),
+            Some(read_file_revision(&path).expect("read expected revision")),
+            Some(false),
         )
         .expect("write markdown");
+        assert!(!result.conflict);
+        assert_eq!(
+            fs::read_to_string(&path).expect("read written file"),
+            "# Still private"
+        );
 
         let mode = fs::metadata(&path)
             .expect("inspect written file")
@@ -1005,9 +956,11 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o444))
             .expect("make fixture read-only");
 
-        let error = write_markdown_file_impl(
+        let error = write_markdown_file_if_unmodified_impl(
             path.to_string_lossy().into_owned(),
             "# Must remain".to_string(),
+            Some(read_file_revision(&path).expect("read expected revision")),
+            Some(false),
         )
         .expect_err("read-only target should be refused");
 
@@ -1045,9 +998,11 @@ mod tests {
             let path = root.join(format!("document-{index}.md"));
             fs::write(&path, "initial").expect("write concurrent fixture");
             threads.push(std::thread::spawn(move || {
-                write_markdown_file_impl(
+                write_markdown_file_if_unmodified_impl(
                     path.to_string_lossy().into_owned(),
                     format!("updated-{index}"),
+                    Some(read_file_revision(&path).expect("read expected revision")),
+                    Some(false),
                 )
             }));
         }
@@ -1287,9 +1242,11 @@ mod tests {
         let path = temp_path("fountain");
         fs::write(&path, "INT. ROOM - DAY").expect("write fixture");
 
-        let result = write_markdown_file_impl(
+        let result = write_markdown_file_if_unmodified_impl(
             path.to_string_lossy().into_owned(),
             "INT. ROOM - NIGHT\n\nJANE\n(whispering)\nGo.".to_string(),
+            Some(read_file_revision(&path).expect("read expected revision")),
+            Some(false),
         );
         assert!(result.is_ok());
 
@@ -1304,8 +1261,12 @@ mod tests {
         let path = temp_path("txt");
         fs::write(&path, "plain text").expect("write fixture");
 
-        let result =
-            write_markdown_file_impl(path.to_string_lossy().into_owned(), "new".to_string());
+        let result = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "new".to_string(),
+            None,
+            Some(false),
+        );
         assert!(result
             .expect_err("non-markdown should error")
             .contains("Not a supported file type"));
@@ -1314,27 +1275,27 @@ mod tests {
     }
 
     #[test]
-    fn write_rejects_nonexistent_file() {
-        let path = temp_path("md");
-        let error =
-            write_markdown_file_impl(path.to_string_lossy().into_owned(), "new".to_string())
-                .expect_err("missing file should error");
-
-        assert_eq!(error.category, NativeFileErrorCategory::NotFound);
-        assert_eq!(error.operation, NativeFileOperation::ResolveDocument);
-        assert_eq!(error.message, "This file is no longer available.");
-    }
-
-    #[test]
     fn write_rejects_oversized_content() {
         let path = temp_path("md");
         fs::write(&path, "# Placeholder").expect("write fixture");
 
-        let oversized = "x".repeat((MAX_MARKDOWN_BYTES + 1) as usize);
-        let result = write_markdown_file_impl(path.to_string_lossy().into_owned(), oversized);
-        assert!(result
-            .expect_err("oversized content should error")
-            .contains("too large"));
+        for force in [false, true] {
+            let oversized = "x".repeat((MAX_MARKDOWN_BYTES + 1) as usize);
+            let error = write_markdown_file_if_unmodified_impl(
+                path.to_string_lossy().into_owned(),
+                oversized,
+                Some(read_file_revision(&path).expect("read expected revision")),
+                Some(force),
+            )
+            .expect_err("oversized content should error even on force overwrite");
+            assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+            assert_eq!(error.operation, NativeFileOperation::ValidateDocument);
+            assert!(error.contains("too large"));
+            assert_eq!(
+                fs::read_to_string(&path).expect("read unchanged file"),
+                "# Placeholder"
+            );
+        }
 
         cleanup(&path);
     }
@@ -1348,8 +1309,12 @@ mod tests {
         fs::write(&target, "plain text").expect("write target fixture");
         symlink(&target, &link).expect("create symlink");
 
-        let result =
-            write_markdown_file_impl(link.to_string_lossy().into_owned(), "new".to_string());
+        let result = write_markdown_file_if_unmodified_impl(
+            link.to_string_lossy().into_owned(),
+            "new".to_string(),
+            None,
+            Some(false),
+        );
         assert!(result
             .expect_err("symlink target should be validated")
             .contains("Not a supported file type"));
@@ -1364,8 +1329,13 @@ mod tests {
         fs::write(&path, "# Init").expect("write fixture");
 
         let unicode = "# Héllo 世界\n\n  indented\ttabs\n\n🎉 emoji";
-        write_markdown_file_impl(path.to_string_lossy().into_owned(), unicode.to_string())
-            .expect("write Unicode and whitespace");
+        write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            unicode.to_string(),
+            Some(read_file_revision(&path).expect("read expected revision")),
+            Some(false),
+        )
+        .expect("write Unicode and whitespace");
 
         let content = fs::read_to_string(&path).expect("read back");
         assert_eq!(content, unicode);
