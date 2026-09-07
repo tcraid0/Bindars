@@ -1,6 +1,10 @@
-import GithubSlugger from "github-slugger";
-import MarkdownIt from "markdown-it";
-import type Token from "markdown-it/lib/token.mjs";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import rehypeSlug from "rehype-slug";
+import { toString as hastToString } from "hast-util-to-string";
+import { visit } from "unist-util-visit";
+import type { Element as HastElement, Root as HastRoot } from "hast";
 import type {
   SceneItem,
   WorkspaceDocIndex,
@@ -12,14 +16,31 @@ import { extractFrontmatter } from "./frontmatter";
 import type { DocumentComplexityOptions } from "./document-complexity";
 import { assertDocumentComplexity, isDocumentComplexityError } from "./document-complexity";
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
+import { remarkPlugins } from "./markdown-plugins";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 import { replaceOpenableDocumentExtension } from "./openable-files";
 
 const MAX_BODY_TEXT_CHARS = 30_000;
-// One parse per document serves both headings and links. Raw HTML is parsed
-// as opaque html tokens so, like the renderer (which drops raw HTML), neither
-// links nor heading text inside it are indexed.
-const markdownParser = new MarkdownIt({ html: true, linkify: false });
+/**
+ * The index parses with the reader's own remark plugin list and the same
+ * remark-rehype + rehype-slug steps MarkdownRenderer runs, so heading ids and
+ * link targets follow one set of syntax rules: setext and nested headings,
+ * entities, images, footnote numbering, SmartyPants dashes, and dropped raw
+ * HTML all come out as the reader renders them. `markdown-render.test.mjs`
+ * still compares the two, because the reader adds sanitize and KaTeX after
+ * slugging and this pipeline stops at the slug.
+ *
+ * Cost: about 0.9 ms per KiB on Node (measured on a 408-file, 1.7 MiB corpus:
+ * 1.5 s against 55 ms for the markdown-it parser this replaced, most of it in
+ * SmartyPants). Indexing reads files in batches of eight and yields between
+ * batches, so a batch of typical 5-20 KiB documents costs 40-150 ms of
+ * main-thread time; the result is cached per workspace.
+ */
+const indexPipeline = unified()
+  .use(remarkParse)
+  .use(remarkPlugins)
+  .use(remarkRehype)
+  .use(rehypeSlug);
 // v7: heading ids follow the rendered slug pipeline; v6 entries hold ids the
 // reader no longer produces for some headings.
 export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v7";
@@ -142,13 +163,12 @@ export function buildWorkspaceDoc(
 
   assertDocumentComplexity(content, "markdown", complexityOptions);
   const { frontmatter, body } = extractFrontmatter(content);
-  const env: MarkdownEnv = {};
-  const tokens = markdownParser.parse(body, env);
-  const headingRows = extractHeadings(tokens, collectFootnoteNumbers(tokens, env));
+  const tree = indexPipeline.runSync(indexPipeline.parse(body)) as HastRoot;
+  const headingRows = extractHeadings(tree);
   const headings = headingRows.map((row) => ({ id: row.id, text: row.text }));
   const title = getTitle(frontmatter, headings, meta.name);
 
-  const links = extractLinks(tokens, meta.path);
+  const links = extractLinks(tree, meta.path);
   const scenes = extractScenes(headingRows);
   const bodyText = toSearchableText(body);
 
@@ -229,142 +249,32 @@ function getTitle(
   return fallback || null;
 }
 
-interface MarkdownEnv {
-  /** markdown-it stores link reference definitions here, keyed by normalized label. */
-  references?: Record<string, unknown>;
-}
+const HEADING_TAG_RE = /^h[1-6]$/;
 
-const FOOTNOTE_REFERENCE_RE = /\[\^([^\]\s]+)\]/g;
-const FOOTNOTE_DEFINITION_LINE_RE = /^ {0,3}\[\^([^\]\s]+)\]:/;
-
-function normalizeFootnoteLabel(label: string): string {
-  return label.toLowerCase();
+function elementClassNames(element: HastElement): string[] {
+  const className = element.properties.className;
+  return Array.isArray(className) ? className.map(String) : [];
 }
 
 /**
- * remark-gfm renders `[^label]` as its footnote number when a definition
- * exists, numbering by first reference in document order and matching labels
- * case-insensitively. markdown-it has no footnote syntax: a multi-word
- * definition stays a paragraph starting with `[^label]:`, and a single-word
- * one (`[^n]: note`) is consumed as a link reference definition, turning each
- * `[^n]` into a reference link whose text is `^n`. Both forms are recognised
- * here so heading ids match the rendered ones.
+ * Headings the reader's table of contents would list: every slugged heading
+ * except the visually hidden "Footnotes" label remark-gfm appends, which
+ * `useHeadings` skips by the same `sr-only` class.
  */
-function collectFootnoteNumbers(tokens: Token[], env: MarkdownEnv): Map<string, number> {
-  const defined = new Set<string>();
-  for (const label of Object.keys(env.references ?? {})) {
-    if (label.startsWith("^")) defined.add(normalizeFootnoteLabel(label.slice(1)));
-  }
-  for (const token of tokens) {
-    if (token.type !== "inline") continue;
-    for (const line of token.content.split("\n")) {
-      const match = FOOTNOTE_DEFINITION_LINE_RE.exec(line);
-      if (match) defined.add(normalizeFootnoteLabel(match[1]));
-    }
-  }
-
-  const numbers = new Map<string, number>();
-  if (defined.size === 0) return numbers;
-  const assign = (label: string): void => {
-    const key = normalizeFootnoteLabel(label);
-    if (defined.has(key) && !numbers.has(key)) numbers.set(key, numbers.size + 1);
-  };
-  const visit = (children: Token[]): void => {
-    for (const child of children) {
-      if (child.type === "text") {
-        for (const match of child.content.matchAll(FOOTNOTE_REFERENCE_RE)) assign(match[1]);
-      } else if (child.type === "link_open") {
-        const label = referenceLinkFootnoteLabel(children, child);
-        if (label) assign(label);
-      }
-      if (child.children) visit(child.children);
-    }
-  };
-  for (const token of tokens) {
-    if (token.type === "inline" && token.children) visit(token.children);
-  }
-  return numbers;
-}
-
-/** The `^label` text of a reference link markdown-it built from `[^label]`, if any. */
-function referenceLinkFootnoteLabel(siblings: Token[], linkOpen: Token): string | null {
-  const index = siblings.indexOf(linkOpen);
-  const text = siblings[index + 1];
-  const close = siblings[index + 2];
-  if (text?.type !== "text" || close?.type !== "link_close" || !text.content.startsWith("^")) {
-    return null;
-  }
-  return text.content.slice(1);
-}
-
-/**
- * Headings come from the same token stream as links, so ATX and setext
- * headings, headings inside lists and quotes, closing `#` runs, entities, and
- * inline markup all follow markdown-it rather than a second hand-written
- * parser. The id must equal the one rehype-slug assigns to the rendered
- * heading, because the palette navigates by it; `markdown-render.test.mjs`
- * compares the two pipelines shape by shape.
- */
-function extractHeadings(tokens: Token[], footnotes: Map<string, number>): HeadingWithLine[] {
-  const slugger = new GithubSlugger();
+function extractHeadings(tree: HastRoot): HeadingWithLine[] {
   const headings: HeadingWithLine[] = [];
 
-  tokens.forEach((token, index) => {
-    if (token.type !== "heading_open") return;
-    const inline = tokens[index + 1];
-    const rawText = inline?.type === "inline" ? inlineText(inline.children ?? [], footnotes) : "";
-    const text = rawText.trim();
+  visit(tree, "element", (node) => {
+    if (!HEADING_TAG_RE.test(node.tagName)) return;
+    const id = node.properties.id;
+    if (typeof id !== "string" || !id) return;
+    if (elementClassNames(node).includes("sr-only")) return;
+    const text = hastToString(node).trim();
     if (!text) return;
-
-    // Slug the untrimmed text: rehype-slug keeps the whitespace an image or
-    // dropped tag leaves behind (`## ![x](a.png) after` renders as `-after`).
-    const id = slugger.slug(toRenderedHeadingSlugText(rawText));
-    headings.push({ id, text, line: (token.map?.[0] ?? 0) + 1 });
+    headings.push({ id, text, line: node.position?.start.line ?? 0 });
   });
 
   return headings;
-}
-
-/**
- * Text the renderer would slug: images and raw HTML contribute nothing, line
- * breaks inside a setext heading stay newlines (which the slugger drops rather
- * than hyphenates), and defined footnote references become their number.
- */
-function inlineText(children: Token[], footnotes: Map<string, number>): string {
-  let text = "";
-  for (let index = 0; index < children.length; index += 1) {
-    const child = children[index];
-    switch (child.type) {
-      case "text":
-        text += child.content.replace(FOOTNOTE_REFERENCE_RE, (whole, label: string) => {
-          const number = footnotes.get(normalizeFootnoteLabel(label));
-          return number === undefined ? whole : String(number);
-        });
-        break;
-      case "code_inline":
-        text += child.content;
-        break;
-      case "softbreak":
-      case "hardbreak":
-        text += "\n";
-        break;
-      case "image":
-      case "html_inline":
-        break;
-      case "link_open": {
-        const label = referenceLinkFootnoteLabel(children, child);
-        const number = label === null ? undefined : footnotes.get(normalizeFootnoteLabel(label));
-        if (number !== undefined) {
-          text += String(number);
-          index += 2;
-        }
-        break;
-      }
-      default:
-        if (child.children) text += inlineText(child.children, footnotes);
-    }
-  }
-  return text;
 }
 
 function extractScenes(headings: HeadingWithLine[]): SceneItem[] {
@@ -383,37 +293,27 @@ function extractScenes(headings: HeadingWithLine[]): SceneItem[] {
   return scenes;
 }
 
-function extractLinks(tokens: Token[], currentFilePath: string): string[] {
+/**
+ * Every anchor the reader would render, resolved by the same rule its click
+ * handler uses. Reference-style links are already resolved by remark-rehype;
+ * footnote and fragment links, external URLs, and unsupported files fall out
+ * of `resolveMarkdownLink`.
+ */
+function extractLinks(tree: HastRoot, currentFilePath: string): string[] {
   const targets = new Set<string>();
 
-  for (const raw of extractLinkHrefs(tokens)) {
-    const href = raw.trim();
-    if (!href) continue;
+  visit(tree, "element", (node) => {
+    if (node.tagName !== "a") return;
+    const href = node.properties.href;
+    if (typeof href !== "string" || !href.trim()) return;
 
-    const resolved = resolveMarkdownLink(href, currentFilePath);
-    if (!resolved) continue;
+    const resolved = resolveMarkdownLink(href.trim(), currentFilePath);
+    if (!resolved) return;
     const targetKey = toPathIdentityKey(resolved.path);
-    if (!targetKey) continue;
-    targets.add(targetKey);
-  }
+    if (targetKey) targets.add(targetKey);
+  });
 
   return Array.from(targets);
-}
-
-function extractLinkHrefs(tokens: Token[]): string[] {
-  const hrefs: string[] = [];
-
-  for (const token of tokens) {
-    if (token.type === "link_open") {
-      const href = token.attrGet("href");
-      if (href) hrefs.push(href);
-    }
-    if (token.children) {
-      hrefs.push(...extractLinkHrefs(token.children));
-    }
-  }
-
-  return hrefs;
 }
 
 function toSearchableText(markdown: string): string {
@@ -435,11 +335,6 @@ function toSearchableText(markdown: string): string {
   }
 
   return text;
-}
-
-function toRenderedHeadingSlugText(value: string): string {
-  // Keep workspace-index heading IDs aligned with remark-smartypants before rehype-slug.
-  return value.replace(/(^|[^-])--(?!-)/g, "$1—");
 }
 
 function finiteNumberOrDefault(value: unknown, fallback: number): number {

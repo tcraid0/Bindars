@@ -5,9 +5,9 @@
     "cargo": "src-tauri/Cargo.lock third-party packages"
   },
   "summary": {
-    "npmPackages": 312,
+    "npmPackages": 305,
     "cargoPackages": 563,
-    "documents": 397,
+    "documents": 392,
     "reviewRequired": 0,
     "inventoryWarnings": 16,
     "standardLicenseOverrides": 10
@@ -17187,27 +17187,6 @@
       ]
     },
     {
-      "id": "npm:argparse@2.0.1",
-      "kind": "npm",
-      "name": "argparse",
-      "version": "2.0.1",
-      "lockPath": "node_modules/argparse",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "Python-2.0",
-      "authors": [],
-      "repository": "nodeca/argparse",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:8cb1adb54549bbffc30325e4a0a245978750efb5f150d684b700e1f92e0ebfcc"
-      ]
-    },
-    {
       "id": "npm:array-iterate@2.0.1",
       "kind": "npm",
       "name": "array-iterate",
@@ -18611,29 +18590,6 @@
       ]
     },
     {
-      "id": "npm:entities@4.5.0",
-      "kind": "npm",
-      "name": "entities",
-      "version": "4.5.0",
-      "lockPath": "node_modules/markdown-it/node_modules/entities",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "BSD-2-Clause",
-      "authors": [
-        "Felix Boehm <me@feedic.com>"
-      ],
-      "repository": "git://github.com/fb55/entities.git",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:0e57eeaccc07eadeb2c7f720ab2601ef37e02fbc6a86cd6667caf7bf5c614de6"
-      ]
-    },
-    {
       "id": "npm:entities@6.0.1",
       "kind": "npm",
       "name": "entities",
@@ -19538,27 +19494,6 @@
       ]
     },
     {
-      "id": "npm:linkify-it@5.0.2",
-      "kind": "npm",
-      "name": "linkify-it",
-      "version": "5.0.2",
-      "lockPath": "node_modules/linkify-it",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT",
-      "authors": [],
-      "repository": "markdown-it/linkify-it",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:655fb7baa3721defda72c48e7e4e0e12ee0699c13f4697bbc5fc1704839a252f"
-      ]
-    },
-    {
       "id": "npm:lodash-es@4.18.1",
       "kind": "npm",
       "name": "lodash-es",
@@ -19628,27 +19563,6 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:ea559213e0e927a249bd60f4f6a27d1a272fb5d38d2babbd723099c66a17c5af"
-      ]
-    },
-    {
-      "id": "npm:markdown-it@14.3.0",
-      "kind": "npm",
-      "name": "markdown-it",
-      "version": "14.3.0",
-      "lockPath": "node_modules/markdown-it",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT",
-      "authors": [],
-      "repository": "markdown-it/markdown-it",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:9fc15c73fe40f618d0485364854183747b26d00163810e8ba4a8f8f1cd68f851"
       ]
     },
     {
@@ -20087,27 +20001,6 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:c37a32dd1cd44e7b68afdf88cb45eb2c4028574f7d894c720371d5688f73ef45"
-      ]
-    },
-    {
-      "id": "npm:mdurl@2.0.0",
-      "kind": "npm",
-      "name": "mdurl",
-      "version": "2.0.0",
-      "lockPath": "node_modules/mdurl",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT",
-      "authors": [],
-      "repository": "markdown-it/mdurl",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:a094e8da18394b1d8eee1098a6a0d69d189db0a81c2bdf29711eea4d3695e560"
       ]
     },
     {
@@ -21139,29 +21032,6 @@
       ]
     },
     {
-      "id": "npm:punycode.js@2.3.1",
-      "kind": "npm",
-      "name": "punycode.js",
-      "version": "2.3.1",
-      "lockPath": "node_modules/punycode.js",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT",
-      "authors": [
-        "Mathias Bynens <https://mathiasbynens.be/>"
-      ],
-      "repository": "https://github.com/mathiasbynens/punycode.js.git",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:e7f14c40a4fc6bcd3ac4cbbabe5b6a2fd9c4063f4fe124e3a5222fb3ce13f479"
-      ]
-    },
-    {
       "id": "npm:react-dom@19.2.4",
       "kind": "npm",
       "name": "react-dom",
@@ -22012,27 +21882,6 @@
       ]
     },
     {
-      "id": "npm:uc.micro@2.1.0",
-      "kind": "npm",
-      "name": "uc.micro",
-      "version": "2.1.0",
-      "lockPath": "node_modules/uc.micro",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT",
-      "authors": [],
-      "repository": "markdown-it/uc.micro",
-      "attribution": null,
-      "selectedLicense": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:e7f14c40a4fc6bcd3ac4cbbabe5b6a2fd9c4063f4fe124e3a5222fb3ce13f479"
-      ]
-    },
-    {
       "id": "npm:ufo@1.6.3",
       "kind": "npm",
       "name": "ufo",
@@ -22605,7 +22454,6 @@
     {
       "id": "sha256:0e57eeaccc07eadeb2c7f720ab2601ef37e02fbc6a86cd6667caf7bf5c614de6",
       "packages": [
-        "npm:entities@4.5.0",
         "npm:entities@6.0.1"
       ],
       "sources": [
@@ -24171,15 +24019,6 @@
       ]
     },
     {
-      "id": "sha256:655fb7baa3721defda72c48e7e4e0e12ee0699c13f4697bbc5fc1704839a252f",
-      "packages": [
-        "npm:linkify-it@5.0.2"
-      ],
-      "sources": [
-        "LICENSE"
-      ]
-    },
-    {
       "id": "sha256:65dc2a869ff7fe71d6c062f9f0977b0274e109e0a407fa4eea2570063902c2e7",
       "packages": [
         "cargo:typenum@1.19.0"
@@ -25047,15 +24886,6 @@
       ]
     },
     {
-      "id": "sha256:8cb1adb54549bbffc30325e4a0a245978750efb5f150d684b700e1f92e0ebfcc",
-      "packages": [
-        "npm:argparse@2.0.1"
-      ],
-      "sources": [
-        "LICENSE"
-      ]
-    },
-    {
       "id": "sha256:8d1f81ea4e87111d557b185d58d996e7bcb974c19c364197fffd4e814fd9b6fa",
       "packages": [
         "cargo:lock_api@0.4.14",
@@ -25413,15 +25243,6 @@
       ]
     },
     {
-      "id": "sha256:9fc15c73fe40f618d0485364854183747b26d00163810e8ba4a8f8f1cd68f851",
-      "packages": [
-        "npm:markdown-it@14.3.0"
-      ],
-      "sources": [
-        "LICENSE"
-      ]
-    },
-    {
       "id": "sha256:9fe3e95ca3e8ef778fc93263946e9c4e8a10ff3afe9c3333f54402bb99079bc1",
       "packages": [
         "npm:d3-format@3.1.2"
@@ -25438,15 +25259,6 @@
       ],
       "sources": [
         "LICENSE-MIT"
-      ]
-    },
-    {
-      "id": "sha256:a094e8da18394b1d8eee1098a6a0d69d189db0a81c2bdf29711eea4d3695e560",
-      "packages": [
-        "npm:mdurl@2.0.0"
-      ],
-      "sources": [
-        "LICENSE"
       ]
     },
     {
@@ -26548,17 +26360,6 @@
       ],
       "sources": [
         "LICENSE"
-      ]
-    },
-    {
-      "id": "sha256:e7f14c40a4fc6bcd3ac4cbbabe5b6a2fd9c4063f4fe124e3a5222fb3ce13f479",
-      "packages": [
-        "npm:punycode.js@2.3.1",
-        "npm:uc.micro@2.1.0"
-      ],
-      "sources": [
-        "LICENSE-MIT.txt",
-        "LICENSE.txt"
       ]
     },
     {

@@ -258,9 +258,11 @@ test("workspace heading IDs match the rendered SmartyPants slug pipeline", () =>
 });
 
 test("workspace heading IDs match rendered IDs across inline markup, entities, and heading forms", () => {
-  // The index and the reader use different parser libraries, so this table is
-  // the invariant that keeps palette navigation working. Every rendered id in
-  // a document must appear, in order, in the index.
+  // The index runs the reader's remark plugins, remark-rehype, and rehype-slug,
+  // then stops; the reader continues into sanitize and KaTeX. This table is
+  // the invariant that keeps palette navigation working: every rendered id in
+  // a document must appear, in order, in the index (minus the hidden
+  // "Footnotes" label the reader renders with `sr-only`).
   const documents = [
     "## Code `x_y` here",
     "## snake_case_name",
@@ -294,6 +296,12 @@ test("workspace heading IDs match rendered IDs across inline markup, entities, a
     "## a[^N] b\n\n[^n]: Case-insensitive label",
     "Intro[^b] then[^a].\n\n## a[^a] b[^b]\n\n[^a]: A\n[^b]: B",
     "## a[^missing] stays literal",
+    "## a\\[^n] escaped\n\n[^n]: The note",
+    "## [link[^n]](x.md)\n\n[^n]: x",
+    "## a[^n][^n] twice\n\n[^n]: x",
+    "[^b]: B\n[^a]: A\n\n## a[^a] b[^b] defined first",
+    "# Title\n\nText[^1]\n\n[^1]: note\n\n## Footnotes",
+    "## `[^n]` in code\n\n[^n]: x",
     "- ## in list",
     "> ## in quote",
     "## a\n## a\n## a-1",
@@ -302,7 +310,9 @@ test("workspace heading IDs match rendered IDs across inline markup, entities, a
   ];
 
   for (const markdown of documents) {
-    const rendered = [...renderMarkdown(markdown).matchAll(/<h[1-6] id="([^"]*)"/g)].map((m) => m[1]);
+    const rendered = [...renderMarkdown(markdown).matchAll(/<h[1-6] (?:class="sr-only" )?id="([^"]*)"/g)]
+      .map((m) => m[1])
+      .filter((id) => id !== "footnote-label");
     const indexed = buildWorkspaceDoc(buildMeta(), markdown).headings.map((h) => h.id);
     assert.deepEqual(indexed, rendered, markdown);
   }
