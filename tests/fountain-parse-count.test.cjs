@@ -55,8 +55,9 @@ test("one open Fountain revision is parsed once across reader consumers and rend
     assert.equal(prepared.status, "ready");
     assert.equal(parseCount, 1);
     assert.equal(prepared.parsedFountain.scenes.length, 1);
-    assert.equal(fountain.extractCharacters(prepared.parsedFountain).length, 1);
-    assert.equal(fountain.computeScriptStats(prepared.parsedFountain).scenes.length, 1);
+    const stats = fountain.computeScriptStats(prepared.parsedFountain);
+    assert.equal(stats.scenes.length, 1);
+    assert.equal(stats.characters.length, 1);
 
     renderToStaticMarkup(React.createElement(FountainRenderer, {
       parsed: prepared.parsedFountain,

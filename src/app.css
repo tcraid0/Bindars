@@ -1080,6 +1080,19 @@ mark.annotation-highlight-pink {
   color: var(--text-primary);
 }
 
+/* Fountain treats every line break and leading space inside a block as intentional. */
+.fountain-action,
+.fountain-dialogue,
+.fountain-lyrics,
+.fountain-centered,
+.fountain-title,
+.fountain-credit,
+.fountain-author,
+.fountain-draft-date,
+.fountain-title-entry {
+  white-space: pre-wrap;
+}
+
 .fountain-title-page {
   text-align: center;
   padding: 4em 0 3em;

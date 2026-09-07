@@ -1,6 +1,5 @@
 import { memo, useEffect, useRef } from "react";
 import type {
-  CharacterInfo,
   HeadingItem,
   SceneItem,
   ScriptCharacterStats,
@@ -12,7 +11,6 @@ export interface TableOfContentsProps {
   headings: HeadingItem[];
   activeId: string | null;
   scenes?: SceneItem[];
-  characters?: CharacterInfo[];
   sceneStatsByHeadingId?: Record<string, ScriptSceneStats>;
   scriptCharacters?: ScriptCharacterStats[];
   focusedCharacter?: string | null;
@@ -40,12 +38,6 @@ function formatCompactWordCount(count: number): string {
     return `${compact}k words`;
   }
   return `${count} words`;
-}
-
-function isScriptCharacterStats(
-  value: CharacterInfo | ScriptCharacterStats,
-): value is ScriptCharacterStats {
-  return "dialogueWordCount" in value;
 }
 
 interface TOCItemProps {
@@ -108,7 +100,6 @@ function TableOfContentsComponent({
   headings,
   activeId,
   scenes = [],
-  characters = [],
   sceneStatsByHeadingId = {},
   scriptCharacters = [],
   focusedCharacter,
@@ -204,13 +195,11 @@ function TableOfContentsComponent({
           </ul>
         </div>
       )}
-      {(scriptCharacters.length > 0 || characters.length > 0) && (
+      {scriptCharacters.length > 0 && (
         <div className="px-4 pb-3">
           <h3 className="ui-subsection-label mb-1.5">Characters</h3>
           <ul className="space-y-0.5">
-            {(scriptCharacters.length > 0 ? scriptCharacters : characters).map((char) => {
-              const isScriptCharacter = isScriptCharacterStats(char);
-
+            {scriptCharacters.map((char) => {
               return (
                 <li key={char.name}>
                   <button
@@ -224,16 +213,14 @@ function TableOfContentsComponent({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{char.name}</span>
-                      {isScriptCharacter && char.speakingTimeMinutes > 0 && (
+                      {char.speakingTimeMinutes > 0 && (
                         <span className="block text-[10px] text-text-muted">
                           ~{char.speakingTimeMinutes.toFixed(1)} min
                         </span>
                       )}
                     </span>
                     <span className="text-text-muted shrink-0 ml-auto">
-                      {isScriptCharacter
-                        ? formatCompactWordCount(char.dialogueWordCount)
-                        : char.dialogueCount}
+                      {formatCompactWordCount(char.dialogueWordCount)}
                     </span>
                   </button>
                 </li>

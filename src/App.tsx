@@ -18,7 +18,7 @@ import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { FocusBar } from "./components/FocusBar";
 import { SearchBar } from "./components/SearchBar";
 import { FountainRenderer } from "./components/FountainRenderer";
-import { extractCharacters, computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
+import { computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
 import { MarkdownEditor } from "./components/MarkdownEditor";
 import type { EditorSurfacePosition, MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -1844,11 +1844,6 @@ function App() {
     [scrollToFragment],
   );
 
-  const characters = useMemo(() => {
-    if (!parsedFountain) return [];
-    return extractCharacters(parsedFountain);
-  }, [parsedFountain]);
-
   const scriptStats = useMemo(() => {
     if (!parsedFountain) return null;
     return computeScriptStats(parsedFountain);
@@ -3060,7 +3055,6 @@ function App() {
           onActiveHeadingChange={handleActiveHeadingChange}
           scenes={sceneItems}
           sceneStatsByHeadingId={sceneStatsByHeadingId}
-          characters={characters}
           scriptCharacters={fileType === "fountain" ? scriptStats?.characters ?? [] : []}
           focusedCharacter={focusedCharacter}
           onToggleCharacterFocus={handleToggleCharacterFocus}

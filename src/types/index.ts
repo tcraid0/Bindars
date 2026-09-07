@@ -186,12 +186,6 @@ export interface SceneItem {
   headingId: string | null;
 }
 
-export interface CharacterInfo {
-  name: string;
-  dialogueCount: number;
-  firstSceneId: string | null;
-}
-
 export interface ParsedSceneHeading {
   intExt: "INT" | "EXT" | "INT/EXT" | null;
   location: string;

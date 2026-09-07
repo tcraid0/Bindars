@@ -1,62 +1,23 @@
-import { memo, useEffect, useMemo } from "react";
+import { Fragment, memo, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { normalizeCharacterName } from "../lib/fountain";
+import { normalizeCharacterName, splitFountainInline } from "../lib/fountain";
 import type { FountainToken, FountainTitlePageEntry, ParsedFountain } from "../lib/fountain";
 import { resolveParagraphSpacingCss, resolveReaderSurfaceStyle } from "../lib/reader-settings";
 import type { ReaderSettings } from "../types";
 
-/**
- * Parse Fountain inline emphasis markers and return React elements.
- * Supports: ***bold italic***, **bold**, *italic*, _underline_
- */
+/** Render Fountain inline emphasis (***, **, *, _) and backslash escapes. */
 function renderFountainText(text: string): ReactNode {
-  // Match emphasis patterns in priority order (longest markers first)
-  const EMPHASIS_RE =
-    /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_)/g;
-
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = EMPHASIS_RE.exec(text)) !== null) {
-    // Push preceding plain text
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-
-    if (match[2] != null) {
-      // ***bold italic***
-      parts.push(
-        <strong key={key}>
-          <em>{match[2]}</em>
-        </strong>,
-      );
-    } else if (match[3] != null) {
-      // **bold**
-      parts.push(<strong key={key}>{match[3]}</strong>);
-    } else if (match[4] != null) {
-      // *italic*
-      parts.push(<em key={key}>{match[4]}</em>);
-    } else if (match[5] != null) {
-      // _underline_
-      parts.push(
-        <span key={key} style={{ textDecoration: "underline" }}>
-          {match[5]}
-        </span>,
-      );
-    }
-    key++;
-    lastIndex = match.index + match[0].length;
+  const segments = splitFountainInline(text);
+  if (segments.every((segment) => !segment.bold && !segment.italic && !segment.underline)) {
+    return segments.map((segment) => segment.text).join("");
   }
-
-  // Trailing plain text
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  // If no emphasis found, return the original string (avoids unnecessary wrapper)
-  return parts.length === 1 && typeof parts[0] === "string" ? text : parts;
+  return segments.map((segment, index) => {
+    let node: ReactNode = segment.text;
+    if (segment.italic) node = <em>{node}</em>;
+    if (segment.bold) node = <strong>{node}</strong>;
+    if (segment.underline) node = <span style={{ textDecoration: "underline" }}>{node}</span>;
+    return <Fragment key={index}>{node}</Fragment>;
+  });
 }
 
 interface FountainRendererProps {
@@ -254,10 +215,10 @@ function FountainTitlePage({ entries }: { entries: FountainTitlePageEntry[] }) {
 
   return (
     <header className="fountain-title-page">
-      {title && <h1 className="fountain-title">{title}</h1>}
-      {credit && <p className="fountain-credit">{credit}</p>}
-      {author && <p className="fountain-author">{author}</p>}
-      {draftDate && <p className="fountain-draft-date">{draftDate}</p>}
+      {title && <h1 className="fountain-title">{renderFountainText(title)}</h1>}
+      {credit && <p className="fountain-credit">{renderFountainText(credit)}</p>}
+      {author && <p className="fountain-author">{renderFountainText(author)}</p>}
+      {draftDate && <p className="fountain-draft-date">{renderFountainText(draftDate)}</p>}
       {entries
         .filter(
           (e) =>
@@ -267,7 +228,7 @@ function FountainTitlePage({ entries }: { entries: FountainTitlePageEntry[] }) {
         )
         .map((e, i) => (
           <p key={i} className="fountain-title-entry">
-            {e.value}
+            {renderFountainText(e.value)}
           </p>
         ))}
     </header>
