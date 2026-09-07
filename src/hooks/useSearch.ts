@@ -28,12 +28,29 @@ export function clearSearchHighlights(container: HTMLElement) {
   clearMarks(container, isSearchMark);
 }
 
+/**
+ * Text the reader can actually show a highlight in. KaTeX keeps a visually
+ * hidden MathML copy of every formula, so a match there counts but never
+ * appears; and SVG `<text>` renders only SVG children, so a `<mark>` inserted
+ * into a diagram label makes the label vanish. Mermaid's HTML labels live in
+ * `<foreignObject>` and highlight normally.
+ */
+function isSearchableTextNode(node: Node): boolean {
+  const element = node.parentElement;
+  if (!element) return false;
+  if (element.closest(".katex-mathml")) return false;
+  if (element.closest("svg") && !element.closest("foreignObject")) return false;
+  return true;
+}
+
 export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[] {
   if (!query.trim()) return [];
 
   const matches: HTMLElement[] = [];
   const lowerQuery = query.toLowerCase();
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (isSearchableTextNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
 
   const textNodes: Text[] = [];
   let node: Text | null;

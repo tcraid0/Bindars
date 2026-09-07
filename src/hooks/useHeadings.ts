@@ -1,10 +1,14 @@
 import { useState, useEffect } from "react";
 import type { HeadingItem } from "../types";
 
-/** Strip KaTeX aria-hidden decorative spans to get clean heading text for TOC. */
+/**
+ * Clean heading text for the TOC. KaTeX renders each formula twice: an
+ * aria-hidden visual copy and a MathML copy whose `<annotation>` repeats the
+ * TeX source. Dropping both leaves the MathML text once.
+ */
 function getCleanHeadingText(node: Element): string {
   const clone = node.cloneNode(true) as Element;
-  for (const el of clone.querySelectorAll('[aria-hidden="true"]')) el.remove();
+  for (const el of clone.querySelectorAll('[aria-hidden="true"], annotation')) el.remove();
   return clone.textContent?.trim() || "";
 }
 

@@ -2009,11 +2009,13 @@ function App() {
       return;
     }
 
-    if (!scrollToHeading(pendingReaderTarget.headingId, { behavior: "auto" })) {
-      toast(`Heading "${pendingReaderTarget.headingId}" not found — it may have been renamed or removed.`, "error");
+    // Links may target footnotes and other non-heading fragments; headings
+    // still route through scrollToHeading inside scrollToFragment.
+    if (!scrollToFragment(pendingReaderTarget.headingId, { behavior: "auto" })) {
+      toast(`"${pendingReaderTarget.headingId}" was not found in this document — it may have been renamed or removed.`, "error");
     }
     setPendingReaderTarget(null);
-  }, [content, editing, filePath, pendingReaderTarget, scrollToHeading, toast, updateReadingProgressNow]);
+  }, [content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
 
   const handleActiveHeadingChange = useCallback((headingId: string | null) => {
     activeHeadingIdRef.current = headingId;
