@@ -1,7 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { storeGet, storeSet } from "../lib/store";
-import { isFontFamily, isParagraphSpacing, isPrintLayout } from "../lib/reader-settings";
+import { isFontFamily, isParagraphSpacing } from "../lib/reader-settings";
 import type { ReaderSettings } from "../types";
+import { useDeferredState } from "./useDeferredState";
+import type { StatePause } from "./useDeferredState";
 
 const STORE_KEY = "reader-settings";
 const STORE_DEBOUNCE_MS = 300;
@@ -16,8 +18,6 @@ const DEFAULTS: ReaderSettings = {
   paragraphSpacing: "comfortable",
   sceneLensEnabled: false,
   reducedEffects: false,
-  printLayout: "standard",
-  printWithTheme: false,
 };
 
 const LIMITS = {
@@ -35,7 +35,6 @@ function getInitialSettings(): ReaderSettings {
       // Validate enum fields against known values
       if (!isFontFamily(merged.fontFamily)) merged.fontFamily = DEFAULTS.fontFamily;
       if (!isParagraphSpacing(merged.paragraphSpacing)) merged.paragraphSpacing = DEFAULTS.paragraphSpacing;
-      if (!isPrintLayout(merged.printLayout)) merged.printLayout = DEFAULTS.printLayout;
       return merged;
     }
   } catch {
@@ -52,8 +51,8 @@ function hasLocalSettings(): boolean {
   }
 }
 
-export function useReaderSettings() {
-  const [settings, setSettingsState] = useState<ReaderSettings>(getInitialSettings);
+export function useReaderSettings(pause?: StatePause) {
+  const [settings, setSettingsState] = useDeferredState<ReaderSettings>(getInitialSettings, pause);
   const storeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingStoreRef = useRef<ReaderSettings | null>(null);
   const userUpdatedRef = useRef(false);
@@ -73,7 +72,6 @@ export function useReaderSettings() {
         const merged = { ...prev, ...stored };
         if (!isFontFamily(merged.fontFamily)) merged.fontFamily = DEFAULTS.fontFamily;
         if (!isParagraphSpacing(merged.paragraphSpacing)) merged.paragraphSpacing = DEFAULTS.paragraphSpacing;
-        if (!isPrintLayout(merged.printLayout)) merged.printLayout = DEFAULTS.printLayout;
         return merged;
       });
     });
@@ -131,7 +129,6 @@ export function useReaderSettings() {
         );
         if (!isFontFamily(next.fontFamily)) next.fontFamily = DEFAULTS.fontFamily;
         if (!isParagraphSpacing(next.paragraphSpacing)) next.paragraphSpacing = DEFAULTS.paragraphSpacing;
-        if (!isPrintLayout(next.printLayout)) next.printLayout = DEFAULTS.printLayout;
         persistSettings(next);
         return next;
       });

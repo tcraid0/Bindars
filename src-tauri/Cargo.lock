@@ -264,9 +264,14 @@ name = "bindars"
 version = "1.4.3"
 dependencies = [
  "base64 0.22.1",
+ "dispatch2",
  "dunce",
  "log",
  "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "serde",
  "serde_json",
  "tauri",

@@ -3,6 +3,7 @@ import { MERMAID_RENDER_TIMEOUT_MS } from "../components/MermaidBlock";
 export const PRINT_PREPARE_TIMEOUT_MS = MERMAID_RENDER_TIMEOUT_MS + 1_000;
 export const PRINT_CLEANUP_TIMEOUT_MS = 30_000;
 const PRINT_LAYOUT_SETTLE_FRAMES = 2;
+const FRAME_FALLBACK_MS = 100;
 
 type TimeoutHandle = ReturnType<typeof globalThis.setTimeout>;
 
@@ -12,6 +13,7 @@ interface FontSetLike {
 
 interface PrintImageLike {
   complete: boolean;
+  loading?: string;
   addEventListener(type: "load" | "error", listener: () => void, options?: { once?: boolean }): void;
   removeEventListener(type: "load" | "error", listener: () => void): void;
 }
@@ -33,7 +35,9 @@ interface WaitOptions {
 
 interface FrameOptions {
   requestAnimationFrameFn?: typeof globalThis.requestAnimationFrame;
+  cancelAnimationFrameFn?: typeof globalThis.cancelAnimationFrame;
   setTimeoutFn?: typeof globalThis.setTimeout;
+  clearTimeoutFn?: typeof globalThis.clearTimeout;
 }
 
 interface PreparePrintDocumentOptions extends WaitOptions, FrameOptions {
@@ -43,22 +47,27 @@ interface PreparePrintDocumentOptions extends WaitOptions, FrameOptions {
 }
 
 export function createPrintCleanupController(
-  cleanup: () => void,
+  cleanup: () => boolean | void,
   timeoutMs = PRINT_CLEANUP_TIMEOUT_MS,
   setTimeoutFn = globalThis.setTimeout,
   clearTimeoutFn = globalThis.clearTimeout,
 ) {
   let timeoutHandle: TimeoutHandle | null = null;
-
-  return {
+  const controller = {
     arm() {
       if (timeoutHandle !== null) {
         clearTimeoutFn(timeoutHandle);
       }
       timeoutHandle = setTimeoutFn(() => {
         timeoutHandle = null;
-        cleanup();
+        controller.check();
       }, timeoutMs);
+    },
+    check() {
+      // A checkpoint is not a maximum native dialog lifetime. Keep checking
+      // if media or a queued native operation still owns the document.
+      if (cleanup() === false) controller.arm();
+      else controller.disarm();
     },
     disarm() {
       if (timeoutHandle === null) {
@@ -68,6 +77,7 @@ export function createPrintCleanupController(
       timeoutHandle = null;
     },
   };
+  return controller;
 }
 
 export async function preparePrintDocument({
@@ -75,19 +85,21 @@ export async function preparePrintDocument({
   root,
   timeoutMs = PRINT_PREPARE_TIMEOUT_MS,
   requestAnimationFrameFn = globalThis.requestAnimationFrame,
+  cancelAnimationFrameFn = globalThis.cancelAnimationFrame,
   setTimeoutFn = globalThis.setTimeout,
   clearTimeoutFn = globalThis.clearTimeout,
   settleFrames = PRINT_LAYOUT_SETTLE_FRAMES,
 }: PreparePrintDocumentOptions): Promise<void> {
-  await waitForAnimationFrames(settleFrames, { requestAnimationFrameFn, setTimeoutFn });
+  const frameOptions = { requestAnimationFrameFn, cancelAnimationFrameFn, setTimeoutFn, clearTimeoutFn };
+  await waitForAnimationFrames(settleFrames, frameOptions);
 
   await Promise.all([
     waitForFonts(fonts, { timeoutMs, setTimeoutFn, clearTimeoutFn }),
     waitForImages(getImages(root), { timeoutMs, setTimeoutFn, clearTimeoutFn }),
-    waitForMermaidDiagrams(root, { timeoutMs, requestAnimationFrameFn, setTimeoutFn }),
+    waitForMermaidDiagrams(root, { timeoutMs, ...frameOptions }),
   ]);
 
-  await waitForAnimationFrames(1, { requestAnimationFrameFn, setTimeoutFn });
+  await waitForAnimationFrames(1, frameOptions);
 }
 
 export async function waitForFonts(
@@ -115,17 +127,19 @@ export async function waitForImages(
     clearTimeoutFn = globalThis.clearTimeout,
   }: WaitOptions = {},
 ): Promise<void> {
+  // Waiting alone does not start offscreen lazy images. Restore the loading
+  // preference afterward; already-started requests can finish normally.
+  const lazyImages = images.filter((image) => image.loading === "lazy");
+  for (const image of lazyImages) image.loading = "eager";
   const pending = images.filter((image) => !image.complete);
-  if (pending.length === 0) {
-    return;
-  }
-
-  await Promise.race([
-    Promise.allSettled(
+  try {
+    // Each image has its own deadline and removes its event listeners.
+    await Promise.allSettled(
       pending.map((image) => waitForImage(image, timeoutMs, setTimeoutFn, clearTimeoutFn)),
-    ),
-    waitForTimeout(timeoutMs, setTimeoutFn),
-  ]);
+    );
+  } finally {
+    for (const image of lazyImages) image.loading = "lazy";
+  }
 }
 
 export async function waitForMermaidDiagrams(
@@ -133,8 +147,10 @@ export async function waitForMermaidDiagrams(
   {
     timeoutMs = PRINT_PREPARE_TIMEOUT_MS,
     requestAnimationFrameFn = globalThis.requestAnimationFrame,
+    cancelAnimationFrameFn = globalThis.cancelAnimationFrame,
     setTimeoutFn = globalThis.setTimeout,
-  }: Pick<PreparePrintDocumentOptions, "timeoutMs" | "requestAnimationFrameFn" | "setTimeoutFn"> = {},
+    clearTimeoutFn = globalThis.clearTimeout,
+  }: WaitOptions & FrameOptions = {},
 ): Promise<void> {
   if (!root || mermaidDiagramsReady(root)) {
     return;
@@ -142,7 +158,7 @@ export async function waitForMermaidDiagrams(
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await waitForAnimationFrames(1, { requestAnimationFrameFn, setTimeoutFn });
+    await waitForAnimationFrames(1, { requestAnimationFrameFn, cancelAnimationFrameFn, setTimeoutFn, clearTimeoutFn });
     if (mermaidDiagramsReady(root)) {
       return;
     }
@@ -153,7 +169,9 @@ export async function waitForAnimationFrames(
   frameCount: number,
   {
     requestAnimationFrameFn = globalThis.requestAnimationFrame,
+    cancelAnimationFrameFn = globalThis.cancelAnimationFrame,
     setTimeoutFn = globalThis.setTimeout,
+    clearTimeoutFn = globalThis.clearTimeout,
   }: FrameOptions = {},
 ): Promise<void> {
   if (frameCount <= 0) {
@@ -162,11 +180,18 @@ export async function waitForAnimationFrames(
 
   for (let remaining = frameCount; remaining > 0; remaining -= 1) {
     await new Promise<void>((resolve) => {
+      let frameHandle: number | null = null;
+      const finish = () => {
+        clearTimeoutFn(timeoutHandle);
+        if (frameHandle !== null) cancelAnimationFrameFn?.(frameHandle);
+        resolve();
+      };
+      // Hidden webviews can suspend animation frames. Resource preparation
+      // must still reach its deadlines and release queued frame callbacks.
+      const timeoutHandle = setTimeoutFn(finish, FRAME_FALLBACK_MS);
       if (typeof requestAnimationFrameFn === "function") {
-        requestAnimationFrameFn(() => resolve());
-        return;
+        frameHandle = requestAnimationFrameFn(finish);
       }
-      setTimeoutFn(() => resolve(), 16);
     });
   }
 }

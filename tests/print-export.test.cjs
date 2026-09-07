@@ -92,6 +92,20 @@ test("waitForImages stops waiting after the timeout cap", async () => {
   assert.equal(image.listenerCount("error"), 0);
 });
 
+test("print requests offscreen lazy images and restores their preference after load or failure", async () => {
+  for (const outcome of ["load", "error", "timeout"]) {
+    const image = createImage();
+    image.loading = "lazy";
+    const pending = waitForImages([image], { timeoutMs: 10 });
+    assert.equal(image.loading, "eager");
+    if (outcome !== "timeout") image.dispatch(outcome);
+    await pending;
+    assert.equal(image.loading, "lazy");
+    assert.equal(image.listenerCount("load"), 0);
+    assert.equal(image.listenerCount("error"), 0);
+  }
+});
+
 test("waitForFonts resolves when fonts.ready rejects", async () => {
   await assert.doesNotReject(() =>
     waitForFonts(
@@ -145,6 +159,19 @@ test("preparePrintDocument accepts a null root", async () => {
   );
 });
 
+test("preparation finishes and cancels callbacks when animation frames are suspended", async () => {
+  let nextFrame = 0;
+  const canceled = [];
+  await preparePrintDocument({
+    root: null,
+    fonts: null,
+    requestAnimationFrameFn: () => ++nextFrame,
+    cancelAnimationFrameFn: (handle) => canceled.push(handle),
+    setTimeoutFn: (callback) => setTimeout(callback, 0),
+  });
+  assert.deepEqual(canceled, [1, 2, 3]);
+});
+
 test("print cleanup timeout constant stays at 30 seconds", () => {
   assert.equal(PRINT_CLEANUP_TIMEOUT_MS, 30_000);
 });
@@ -154,4 +181,30 @@ test("print prepare timeout covers Mermaid render timeout", () => {
     PRINT_PREPARE_TIMEOUT_MS > MERMAID_RENDER_TIMEOUT_MS,
     "print/export preflight should wait longer than Mermaid's render timeout",
   );
+});
+
+test("cleanup checkpoints keep retrying until printing is safe and disarm once", () => {
+  let safe = false;
+  let cleaned = 0;
+  let next;
+  let handle = 0;
+  const canceled = [];
+  const controller = createPrintCleanupController(() => {
+    if (!safe) return false;
+    cleaned += 1;
+    return true;
+  }, 30_000, (callback, milliseconds) => {
+    assert.equal(milliseconds, 30_000);
+    next = callback;
+    return ++handle;
+  }, (id) => canceled.push(id));
+  controller.arm();
+  next();
+  next();
+  assert.equal(cleaned, 0);
+  assert.equal(handle, 3, "an active operation must not abandon recovery after 30 seconds");
+  safe = true;
+  controller.check();
+  assert.equal(cleaned, 1);
+  assert.deepEqual(canceled, [3]);
 });

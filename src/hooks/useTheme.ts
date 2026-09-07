@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { storeSet, storeTryGet } from "../lib/store";
 import type { Theme } from "../types";
+import { useDeferredState } from "./useDeferredState";
+import type { StatePause } from "./useDeferredState";
 
 const STORE_KEY = "theme";
 const THEMES: Theme[] = ["light", "sepia", "dark", "deep-dark"];
@@ -24,8 +26,8 @@ function getInitialTheme(): Theme {
   return "light";
 }
 
-export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+export function useTheme(pause?: StatePause) {
+  const [theme, setThemeState] = useDeferredState<Theme>(getInitialTheme, pause);
   // Set by the first user theme change this session. The stored value that
   // finishes loading afterwards must never overwrite that newer intent.
   const userUpdatedRef = useRef(false);
@@ -35,7 +37,7 @@ export function useTheme() {
   // Store persistence stays disabled until the stored value has been read
   // successfully (or a user has chosen a theme), so a temporary startup
   // default cannot overwrite a saved theme after a delayed or failed read.
-  const [storeWriteEnabled, setStoreWriteEnabled] = useState(false);
+  const [storeWriteEnabled, setStoreWriteEnabled] = useDeferredState(false, pause);
 
   // Load from Tauri store on mount (overrides localStorage if present)
   useEffect(() => {

@@ -6,7 +6,6 @@ const {
   PARAGRAPH_SPACING_MAP,
   isFontFamily,
   isParagraphSpacing,
-  isPrintLayout,
   resolveFontCss,
   resolveParagraphSpacingCss,
 } = require("../.tmp/workspace-tests/src/lib/reader-settings.js");
@@ -54,12 +53,4 @@ test("paragraph spacing resolver falls back to comfortable when invalid", () => 
   assert.equal(resolveParagraphSpacingCss("spacious"), "1.5em");
   assert.equal(resolveParagraphSpacingCss("wide"), "1.25em");
   assert.equal(resolveParagraphSpacingCss(undefined), "1.25em");
-});
-
-test("print layout type guard accepts only supported values", () => {
-  assert.equal(isPrintLayout("standard"), true);
-  assert.equal(isPrintLayout("book"), true);
-  assert.equal(isPrintLayout("continuous"), false);
-  assert.equal(isPrintLayout(""), false);
-  assert.equal(isPrintLayout(null), false);
 });

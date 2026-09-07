@@ -22,8 +22,6 @@ const readerSettings = {
   paragraphSpacing: "comfortable",
   sceneLensEnabled: true,
   reducedEffects: false,
-  printLayout: "standard",
-  printWithTheme: false,
 };
 
 function renderMarkdown(markdown) {

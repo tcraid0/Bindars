@@ -6,49 +6,41 @@ const path = require("node:path");
 const css = fs.readFileSync(path.join(__dirname, "../src/app.css"), "utf8");
 const mermaidBlock = fs.readFileSync(path.join(__dirname, "../src/components/MermaidBlock.tsx"), "utf8");
 
+// These are CSS contracts, not layout/PDF tests. Match declarations attached
+// to the requested selector, rather than accepting a rule elsewhere in the file.
+function printDeclarations(selector) {
+  const printCss = css.slice(css.indexOf("@media print")).replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...printCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) => selectors.split(",").some((value) => value.trim() === selector))
+    .map(([, , declarations]) => declarations)
+    .join("\n");
+}
+
 test("reader surfaces have no delayed entrance animation", () => {
   assert.doesNotMatch(css, /\.file-content-enter/);
   assert.doesNotMatch(css, /@keyframes\s+contentAppear/);
   assert.match(css, /\.empty-state-title\s*\{/);
 });
 
-test("print css scopes themed output behind active print state", () => {
-  assert.equal(
-    css.includes("body[data-print-themed]"),
-    false,
-    "themed print selectors must require data-printing as well",
-  );
-  assert.equal(
-    css.includes("body[data-printing][data-print-themed]"),
-    true,
-    "themed print selector should be explicitly gated",
+test("print has one format without themed or book selectors", () => {
+  assert.doesNotMatch(css, /data-print-themed|data-print-layout/);
+});
+
+test("print surfaces stay neutral without an active JavaScript print session", () => {
+  for (const selector of ["#root", "#root > div", ".reading-surface"]) {
+    const declarations = printDeclarations(selector);
+    assert.match(declarations, /background(?:-color)?:\s*white\s*!important\s*;/);
+    assert.match(declarations, /color:\s*black\s*!important\s*;/);
+  }
+  assert.match(
+    printDeclarations(".reading-surface"),
+    /background-image:\s*none\s*!important\s*;/,
   );
 });
 
-test("print css neutralizes reading surface background for standard pdf output", () => {
-  assert.equal(
-    css.includes("body[data-printing] .reading-surface"),
-    true,
-    "reading surface print reset selector must exist",
-  );
-  assert.equal(
-    css.includes("background-image: none !important;"),
-    true,
-    "reading surface print reset should disable theme textures/gradients",
-  );
-});
-
-test("print css keeps section page breaks only in book layout", () => {
-  assert.equal(
-    css.includes("body[data-printing][data-print-layout=\"book\"] .markdown-body h2"),
-    true,
-    "book layout h2 page-break selector should exist",
-  );
-  assert.equal(
-    css.includes("page-break-before: auto;"),
-    true,
-    "standard layout should not force section page breaks",
-  );
+test("Markdown sections and frontmatter remain continuous", () => {
+  assert.match(printDeclarations(".markdown-body h2"), /page-break-before:\s*auto/);
+  assert.match(printDeclarations(".frontmatter-header"), /page-break-after:\s*auto/);
 });
 
 test("print css resets viewport height and overflow on root containers", () => {
@@ -80,14 +72,9 @@ test("print CSS hides chrome via data-printing attribute outside @media print", 
   );
 });
 
-test("print CSS keeps the print handoff overlay scoped to active print state", () => {
-  const printStart = css.indexOf("@media print");
-  const beforePrintBlock = css.slice(0, printStart);
-
-  assert.ok(
-    beforePrintBlock.includes("body[data-printing]::before"),
-    "body[data-printing]::before overlay selector must exist outside @media print",
-  );
+test("print status is hidden on paper without masking the reader", () => {
+  assert.doesNotMatch(css, /body\[data-printing\]::before/);
+  assert.match(printDeclarations(".print-status"), /display:\s*none !important/);
 });
 
 test("screen css lets mermaid diagrams keep intrinsic width", () => {
@@ -151,12 +138,19 @@ test("screen css lets mermaid html labels overflow their foreignObject bounds", 
   );
 });
 
-test("frontmatter title-page break is scoped to book layout", () => {
-  assert.equal(
-    css.includes("body[data-printing][data-print-layout=\"book\"] .frontmatter-header"),
-    true,
-    "frontmatter title-page behavior should be scoped to book layout",
-  );
+test("Fountain keeps structural page breaks and neutral title colors", () => {
+  for (const selector of [".fountain-title-page", ".fountain-page-break"]) {
+    assert.match(printDeclarations(selector), /page-break-after:\s*always/);
+  }
+  for (const selector of [".fountain-body", ".fountain-title", ".fountain-author", ".fountain-scene-heading"]) {
+    assert.match(printDeclarations(selector), /color:\s*black !important/);
+  }
+});
+
+test("Mermaid artwork keeps its matching backdrop and colors on paper", () => {
+  const declarations = printDeclarations(".mermaid-diagram");
+  assert.match(declarations, /background:\s*var\(--bg-secondary\) !important/);
+  assert.match(declarations, /print-color-adjust:\s*exact/);
 });
 
 test("print css forces black text on table headers and cells", () => {
@@ -185,19 +179,19 @@ test("print css resets hljs colors for non-themed output", () => {
   const printBlock = css.slice(printStart);
 
   assert.ok(
-    printBlock.includes("body:not([data-print-themed]) .hljs"),
+    printBlock.includes(".hljs"),
     "non-themed hljs base color reset must exist in print CSS",
   );
   assert.ok(
-    printBlock.includes("body:not([data-print-themed]) .hljs-keyword"),
+    printBlock.includes(".hljs-keyword"),
     "non-themed hljs keyword color reset must exist in print CSS",
   );
   assert.ok(
-    printBlock.includes("body:not([data-print-themed]) .hljs-string"),
+    printBlock.includes(".hljs-string"),
     "non-themed hljs string color reset must exist in print CSS",
   );
   assert.ok(
-    printBlock.includes("body:not([data-print-themed]) .hljs-comment"),
+    printBlock.includes(".hljs-comment"),
     "non-themed hljs comment color reset must exist in print CSS",
   );
 });
@@ -239,7 +233,7 @@ test("print css keeps large printable blocks together where possible", () => {
     ".markdown-body section.footnotes",
   ]) {
     assert.ok(
-      printBlock.includes(selector) && printBlock.includes("break-inside: avoid;"),
+      printBlock.includes(selector) && printDeclarations(selector).includes("break-inside: avoid;"),
       `${selector} must opt into break-inside avoidance in print`,
     );
   }
@@ -254,4 +248,10 @@ test("print css repeats table headers across page breaks", () => {
       printBlock.includes("display: table-header-group;"),
     "print CSS should promote table headers to repeat across pages",
   );
+});
+
+test("native and CSS print margins agree in physical units", () => {
+  assert.match(printDeclarations("@page"), /margin:\s*2cm\s*;/);
+  const native = fs.readFileSync(path.join(__dirname, "../src-tauri/src/printing.rs"), "utf8");
+  assert.match(native, /PRINT_MARGIN_POINTS:\s*f64\s*=\s*2\.0\s*\/\s*2\.54\s*\*\s*72\.0/);
 });

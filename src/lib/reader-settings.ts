@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { FontFamily, ParagraphSpacing, PrintLayout, ReaderSettings } from "../types";
+import type { FontFamily, ParagraphSpacing, ReaderSettings } from "../types";
 
 type ReaderSurfaceStyle = Pick<
   CSSProperties,
@@ -19,11 +19,6 @@ export const VALID_SPACINGS: readonly ParagraphSpacing[] = [
   "compact",
   "comfortable",
   "spacious",
-];
-
-export const VALID_PRINT_LAYOUTS: readonly PrintLayout[] = [
-  "standard",
-  "book",
 ];
 
 export const FONT_CSS_MAP: Record<FontFamily, string> = {
@@ -52,13 +47,6 @@ export function isParagraphSpacing(value: unknown): value is ParagraphSpacing {
   return (
     typeof value === "string" &&
     (VALID_SPACINGS as readonly string[]).includes(value)
-  );
-}
-
-export function isPrintLayout(value: unknown): value is PrintLayout {
-  return (
-    typeof value === "string" &&
-    (VALID_PRINT_LAYOUTS as readonly string[]).includes(value)
   );
 }
 
