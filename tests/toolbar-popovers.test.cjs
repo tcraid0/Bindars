@@ -11,7 +11,6 @@ const { ConfirmDialog } = require("../.tmp/workspace-tests/src/components/Confir
 const { useReaderSettings } = require("../.tmp/workspace-tests/src/hooks/useReaderSettings.js");
 const store = require("../.tmp/workspace-tests/src/lib/store.js");
 test.mock.method(store, "storeSet", async () => true);
-const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 const defaults = {
   fontSize: 17, contentWidth: 65, lineHeight: 1.7, fontFamily: "newsreader",
@@ -251,26 +250,53 @@ test("export: pointer activation establishes keyboard ownership even when the br
   } finally { view.cleanup(); }
 });
 
-test("export: cancelled HTML save returns focus before opening the native dialog", async (t) => {
-  const view = await setup();
-  const body = document.createElement("div");
-  body.className = "markdown-body";
-  document.body.append(body);
-  let calls = 0;
-  t.mock.method(require("@tauri-apps/plugin-dialog"), "save", async () => {
-    calls += 1;
-    assert.ok(document.activeElement === view.trigger("export"));
-    return null;
+test("export: HTML export is absent from Markdown and Fountain menus", async () => {
+  for (const props of [{}, { fileName: "script.fountain", fileType: "fountain" }]) {
+    const view = await setup(props);
+    try {
+      const panel = view.open("export");
+      assert.equal(
+        [...panel.querySelectorAll("button")].some((button) => button.textContent.includes("Export as HTML")),
+        false,
+      );
+    } finally { view.cleanup(); }
+  }
+});
+
+test("export: Fountain keeps print-only keyboard and focus behavior", async () => {
+  const actions = [];
+  const view = await setup({
+    fileName: "script.fountain",
+    fileType: "fountain",
+    onAction: (...args) => actions.push(args),
   });
   try {
-    const html = buttonWithText(view.open("export"), "Export as HTML");
-    focus(html);
-    click(html);
-    await settle();
-    assert.equal(calls, 1);
+    const panel = view.open("export");
+    const buttons = [...panel.querySelectorAll("button")];
+    assert.equal(buttons.length, 1);
+    assert.match(buttons[0].textContent, /Print to PDF/);
+    assert.equal(buttons.some((button) => button.textContent.includes("Present")), false);
+    assert.ok(document.activeElement === view.trigger("export"));
+    focus(buttons[0]);
+    assert.equal(pressKey("Escape").defaultPrevented, true);
     assert.ok(view.panel("export") === null);
     assert.ok(document.activeElement === view.trigger("export"));
-  } finally { body.remove(); view.cleanup(); }
+
+    const opened = view.open("export");
+    focus(opened.querySelector("button"));
+    assert.equal(pressKey("Tab").defaultPrevented, false);
+    const outside = buttonWithText(view.host, "Outside");
+    focus(outside);
+    assert.ok(view.panel("export") === null);
+    assert.ok(document.activeElement === outside);
+
+    const printPanel = view.open("export");
+    focus(printPanel.querySelector("button"));
+    click(printPanel.querySelector("button"));
+    assert.ok(view.panel("export") === null);
+    assert.deepEqual(actions.map(([action]) => action), ["print"]);
+    assert.ok(actions[0][1] === view.trigger("export"));
+  } finally { view.cleanup(); }
 });
 
 test("reader: external close and unmount restore the opener and remove listeners", async () => {

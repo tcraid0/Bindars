@@ -8,7 +8,6 @@
   },
   "scripts": {
     "dev": "vite",
-    "generate:katex-css": "node scripts/generate-katex-css.mjs",
     "verify:smartypants-node": "node scripts/verify-smartypants-node.mjs",
     "validate:macos-app": "node scripts/validate-macos-app.mjs",
     "licenses:generate": "node scripts/third-party-notices.mjs generate",
