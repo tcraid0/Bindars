@@ -6,6 +6,8 @@ Bindars is a **local-only** desktop application. It reads and renders markdown f
 
 The primary trust boundary is **untrusted markdown content**: a malicious `.md` file should not be able to execute code, access files outside its directory, or crash the application.
 
+Rendering policy that follows from this: raw HTML is removed before rendering (never inserted into the DOM); `href` and `src` values are limited to `http`, `https`, `mailto`, and relative paths; images load only from relative paths inside the document's folder and only through Tauri's asset protocol, whose scope is limited to the user's home and temporary folders; Mermaid runs at `securityLevel: "strict"`; and the webview may not navigate away from the app origin.
+
 ## Supported Versions
 
 | Version | Supported |

@@ -34,10 +34,11 @@ function makeDoc(name) {
   };
 }
 
-test("workspace index cache version invalidates entries built under an older complexity policy", () => {
-  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 6);
-  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v6");
+test("workspace index cache version invalidates entries built under older heading ids or complexity policy", () => {
+  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 7);
+  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v7");
   assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v5"));
+  assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v6"));
 });
 
 test("buildWorkspaceStateFromCache restores cached diagnostics", () => {

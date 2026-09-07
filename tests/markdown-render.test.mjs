@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
@@ -13,6 +14,7 @@ const { FountainRenderer } = require("../.tmp/workspace-tests/src/components/Fou
 const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { buildWorkspaceDoc } = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
+const { extractFrontmatter } = require("../.tmp/workspace-tests/src/lib/frontmatter.js");
 
 const readerSettings = {
   fontSize: 18,
@@ -252,6 +254,90 @@ test("workspace heading IDs match the rendered SmartyPants slug pipeline", () =>
     "## \"Quoted\" and 'Single'",
   ]) {
     assert.equal(indexedHeadingId(markdown), renderedHeadingId(markdown));
+  }
+});
+
+test("workspace heading IDs match rendered IDs across inline markup, entities, and heading forms", () => {
+  // The index runs the reader's remark plugins, remark-rehype, and rehype-slug,
+  // then stops; the reader continues into sanitize and KaTeX. This table is
+  // the invariant that keeps palette navigation working: every rendered id in
+  // a document must appear, in order, in the index (minus the hidden
+  // "Footnotes" label the reader renders with `sr-only`).
+  const documents = [
+    "## Code `x_y` here",
+    "## snake_case_name",
+    "## get_user_by_id and MAX_RETRY_COUNT",
+    "## Math $$a+b$$ end",
+    "## <b>html</b> tag",
+    "## a<br>b",
+    "## a &amp; b &copy;",
+    "## [link](x.md) text",
+    "## ![img](a.png) after",
+    "## ~~strike~~ it",
+    "## **bold** _it_",
+    "## a\\*b",
+    "## Ünïcode Ça",
+    "## 😀 emoji",
+    "## a[^1]\n\n[^1]: n",
+    "## a * b * c",
+    "##   trailing #",
+    "## heading ##",
+    "## trailing spaces   ",
+    "##\tTab after hashes",
+    "## 1. numbered",
+    "## Ends with dollar $5 and $10",
+    "## with trailing\\",
+    "Setext\n======",
+    "Setext two\n---",
+    "First\nsecond\n======",
+    "First  \nsecond\n======",
+    "## a[^n]\n\n[^n]: The note",
+    "## a[^n]\n\n[^n]: note",
+    "## a[^N] b\n\n[^n]: Case-insensitive label",
+    "Intro[^b] then[^a].\n\n## a[^a] b[^b]\n\n[^a]: A\n[^b]: B",
+    "## a[^missing] stays literal",
+    "## a\\[^n] escaped\n\n[^n]: The note",
+    "## [link[^n]](x.md)\n\n[^n]: x",
+    "## a[^n][^n] twice\n\n[^n]: x",
+    "[^b]: B\n[^a]: A\n\n## a[^a] b[^b] defined first",
+    "# Title\n\nText[^1]\n\n[^1]: note\n\n## Footnotes",
+    "## `[^n]` in code\n\n[^n]: x",
+    "- ## in list",
+    "> ## in quote",
+    "## a\n## a\n## a-1",
+    "## $$x$$\n\n## x",
+    "#Nospace is a paragraph",
+  ];
+
+  for (const markdown of documents) {
+    const rendered = [...renderMarkdown(markdown).matchAll(/<h[1-6] (?:class="sr-only" )?id="([^"]*)"/g)]
+      .map((m) => m[1])
+      .filter((id) => id !== "footnote-label");
+    const indexed = buildWorkspaceDoc(buildMeta(), markdown).headings.map((h) => h.id);
+    assert.deepEqual(indexed, rendered, markdown);
+  }
+});
+
+test("the bundled welcome document renders its inline math example", () => {
+  const source = fs.readFileSync(new URL("../src/assets/welcome.md", import.meta.url), "utf8");
+  const { body } = extractFrontmatter(source);
+  const html = renderMarkdown(body);
+
+  assert.match(html, /Inline math like <span class="katex">/);
+  assert.doesNotMatch(html, /\$E = mc\^2\$/);
+  assert.equal((html.match(/class="katex"/g) || []).length, 2, "one inline and one display formula");
+});
+
+test("blocked images say what was blocked", () => {
+  const cases = [
+    ["![Remote](https://example.com/a.png)", /image not shown: remote and URL images are not loaded: Remote/],
+    ["![Parent](../a.png)", /image not shown: only images inside the document(?:'|&#x27;)s folder are shown: Parent/],
+    ["![Root](/etc/a.png)", /image not shown: absolute paths are not supported: Root/],
+    ["![Inline](data:image/png;base64,AAAA)", /image not shown: the source is missing or uses an unsupported URL: Inline/],
+  ];
+
+  for (const [markdown, expected] of cases) {
+    assert.match(renderMarkdownRenderer(markdown), expected, markdown);
   }
 });
 

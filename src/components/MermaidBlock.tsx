@@ -276,6 +276,7 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
     return (
       <div className="mermaid-error" {...sourcePosition}>
         <span className="mermaid-error-label">Diagram error</span>
+        <p className="mermaid-error-message">{error}</p>
         <pre><code>{chart}</code></pre>
       </div>
     );

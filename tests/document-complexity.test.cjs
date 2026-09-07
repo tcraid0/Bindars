@@ -528,6 +528,57 @@ test("many sequential emphasized phrases do not count as nested", () => {
   assert.equal(checkDocumentComplexity(paragraph, "markdown").ok, true);
 });
 
+test("openers that nothing closes do not count as nesting", () => {
+  // Emphasis nests only when a closer pairs with an opener. These shapes hold
+  // hundreds of left-flanking runs the parser leaves as literal text: star
+  // ratings followed by punctuation, masked passwords in a tight list, and a
+  // paragraph of unclosed `**`. Each renders in well under 50 ms and must stay
+  // accepted; the scanner once rejected the 5 KiB ratings paragraph.
+  const documents = {
+    ratings: Array.from({ length: 300 }, (_, i) => `Rating ${i}: *****.`).join("\n"),
+    maskedList: Array.from({ length: 300 }, (_, i) => `- pw${i}: ****,`).join("\n"),
+    unclosedStrong: Array.from({ length: 200 }, () => "**open").join(" "),
+    unclosedUnderscore: Array.from({ length: 200 }, () => "_open").join(" "),
+  };
+
+  for (const [label, source] of Object.entries(documents)) {
+    const result = checkDocumentComplexity(source, "markdown");
+    assert.equal(result.ok, true, label);
+    assert.ok(
+      result.measurement.units < DOCUMENT_COMPLEXITY_POLICY.markdown.maxUnits / 4,
+      `${label} must stay far below the structural-unit total`,
+    );
+  }
+});
+
+test("a reachable closer keeps every earlier opener counted, conservatively", () => {
+  // The same openers become a real nested chain as soon as one run can close
+  // them, including a run the GFM tilde rule forces closed.
+  const openers = "*a ".repeat(MARKDOWN_MAX_INLINE_NESTING + 1);
+  assert.equal(checkDocumentComplexity(`${openers}x*`, "markdown").ok, false);
+  assert.equal(checkDocumentComplexity(`${openers}x~*`, "markdown").ok, false);
+  assert.equal(checkDocumentComplexity(`${"*a ".repeat(MARKDOWN_MAX_INLINE_NESTING)}x*`, "markdown").ok, true);
+
+  // Openers sealed behind a link label cannot be consumed, but the closer is
+  // still evidence of a chain the parser may build, so they still count.
+  const sealed = `${"*a [b ".repeat(MARKDOWN_MAX_INLINE_NESTING + 1)}x*`;
+  assert.equal(checkDocumentComplexity(sealed, "markdown").ok, false);
+});
+
+test("the structural-unit total still rejects the quadratic closer-only shape", () => {
+  // 30,000 closers with no opener make micromark's attention resolver walk
+  // back over every earlier run; the shape measures about one unit per run and
+  // stays rejected. Any change to the unit ceiling has to face this fixture.
+  const closers = Array.from({ length: 30_000 }, () => "a*").join(" ");
+  const result = checkDocumentComplexity(closers, "markdown");
+  assert.equal(result.ok, false);
+  assert.equal(result.error.violation.kind, "structural");
+
+  const accepted = checkDocumentComplexity(Array.from({ length: 10_000 }, () => "a*").join(" "), "markdown");
+  assert.equal(accepted.ok, true);
+  assert.ok(accepted.measurement.units >= 10_000);
+});
+
 test("strong, underscore, and strikethrough delimiters share the inline-nesting ceiling", () => {
   for (const marker of ["**", "_", "~~"]) {
     assert.equal(
@@ -600,8 +651,8 @@ test("no run the parser cannot use as a closer can release inline nesting", () =
 test("an empty list item does not end the paragraph that holds open delimiters", () => {
   // A lone `+` is an empty list item, which cannot interrupt a paragraph, so
   // the parser keeps every delimiter open across it. Only a blank line does.
-  const markerOnly = `${"*a\n+\n".repeat(6)}x`;
-  const blankLines = `${"*a\n\n".repeat(6)}x`;
+  const markerOnly = `${"*a\n+\n".repeat(6)}x${" b*".repeat(6)}`;
+  const blankLines = `${"*a\n\n".repeat(6)}x${" b*".repeat(6)}`;
 
   assert.equal(
     checkDocumentComplexity(markerOnly, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
@@ -657,8 +708,8 @@ test("inline nesting survives CRLF and lone-CR soft breaks, and resets on either
   // must behave exactly like LF for inline state: a soft break keeps every
   // opener, and a blank line drops them.
   for (const ending of ["\n", "\r\n", "\r"]) {
-    const softBreaks = `${`*a${ending}`.repeat(6)}x`;
-    const blankLines = `${`*a${ending}${ending}`.repeat(6)}x`;
+    const softBreaks = `${`*a${ending}`.repeat(6)}x${" b*".repeat(6)}`;
+    const blankLines = `${`*a${ending}${ending}`.repeat(6)}x${" b*".repeat(6)}`;
 
     assert.equal(
       checkDocumentComplexity(softBreaks, "markdown", { maxMarkdownInlineNesting: 4 }).ok,
@@ -681,7 +732,7 @@ test("Unicode whitespace and punctuation classify delimiters like the parser doe
   const fullStop = "。";
 
   assert.equal(
-    checkDocumentComplexity(`${`a${ideographicSpace}*b`.repeat(6)}`, "markdown", {
+    checkDocumentComplexity(`${`a${ideographicSpace}*b`.repeat(6)}x*`, "markdown", {
       maxMarkdownInlineNesting: 4,
     }).ok,
     false,
@@ -710,15 +761,15 @@ test("spending the code-span lookahead budget degrades conservatively", () => {
   const padding = "word ".repeat(1_000);
   let burnBudget = "";
   for (let size = 2; size <= 7; size += 1) burnBudget += `${"`".repeat(size)}${padding}`;
-  const heavyCodeSpan = `\`${"*a ".repeat(MARKDOWN_MAX_INLINE_NESTING + 1)}\``;
+  const heavyCodeSpan = `\`${"*a ".repeat(MARKDOWN_MAX_INLINE_NESTING + 1)}x*\``;
 
   // Each half is cheap on its own, and the code span suppresses its delimiters.
   assert.equal(checkDocumentComplexity(burnBudget, "markdown").ok, true);
   assert.equal(checkDocumentComplexity(heavyCodeSpan, "markdown").ok, true);
 
   // Together, the budget is gone before the span is reached, so the span's
-  // openers — one past the inline ceiling — are charged and the document is
-  // refused rather than mismeasured.
+  // openers — one past the inline ceiling — and its closer are charged and the
+  // document is refused rather than mismeasured.
   assert.equal(
     checkDocumentComplexity(`${burnBudget} ${heavyCodeSpan}`, "markdown").ok,
     false,

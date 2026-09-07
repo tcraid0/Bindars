@@ -4335,6 +4335,36 @@ test("virtual save-as scopes restoration to the adopted document", async () => {
   }
 });
 
+test("a link to a footnote in another file scrolls to that footnote after opening", async () => {
+  // Cross-file anchors used to go through the heading lookup only, so a
+  // footnote or any other non-heading fragment reported "not found".
+  const rendered = await renderContinuityApp({
+    initialContent: [
+      "# First",
+      "",
+      "[Note](other.md#user-content-fn-1)",
+      "",
+      "## Second",
+      "",
+      "Text[^1]",
+      "",
+      "[^1]: The note",
+    ].join("\n"),
+  });
+  try {
+    const link = rendered.host.querySelector('a[href="other.md#user-content-fn-1"]');
+    assert.ok(link);
+    flushSync(() => {
+      link.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /other\.md/));
+    await waitFor(() => assert.equal(rendered.scrolledIds.at(-1), "user-content-fn-1"));
+    assert.doesNotMatch(rendered.host.textContent, /was not found|not found/);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test("heading restoration uses the canonical path returned by open", async () => {
   const rendered = await renderContinuityApp({
     requestedPath: "/tmp/link-to-continuity.md",

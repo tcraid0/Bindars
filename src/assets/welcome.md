@@ -31,7 +31,7 @@ function greet(name) {
 
 ### Math Equations
 
-Inline math like $E = mc^2$ and display equations are rendered with KaTeX:
+Inline math like $$E = mc^2$$ and display equations are rendered with KaTeX:
 
 $$
 \int_{-\infty}^{\infty} e^{-x^2} \, dx = \sqrt{\pi}

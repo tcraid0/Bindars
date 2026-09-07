@@ -55,15 +55,21 @@ function MarkdownImage({
 }) {
   const [failed, setFailed] = useState(false);
 
-  if (!src) return <span className="text-text-muted">[missing image]</span>;
+  // The sanitizer already removed `data:`, `file:`, and other non-web sources
+  // before this component runs, so an empty src is either that or an authoring
+  // mistake; the message covers both.
+  if (!src) {
+    return (
+      <ImageNotice
+        reason="the source is missing or uses an unsupported URL"
+        label={alt}
+      />
+    );
+  }
 
   const resolvedPath = resolveImagePath(src, filePath);
   if (!resolvedPath) {
-    return (
-      <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
-        [image blocked: {alt || src}]
-      </span>
-    );
+    return <ImageNotice reason={describeBlockedImageSource(src)} label={alt || src} />;
   }
 
   const blockedByScope =
@@ -71,9 +77,10 @@ function MarkdownImage({
     !isPathAllowedByAssetScope(resolvedPath, assetScopeRoots);
   if (blockedByScope) {
     return (
-      <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
-        [image blocked by app scope: {alt || src}]
-      </span>
+      <ImageNotice
+        reason="it is outside the folders Bindars can read (your home and temporary folders)"
+        label={alt || src}
+      />
     );
   }
 
@@ -95,6 +102,24 @@ function MarkdownImage({
       onError={() => setFailed(true)}
     />
   );
+}
+
+function ImageNotice({ reason, label }: { reason: string; label?: string }) {
+  return (
+    <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
+      [image not shown: {reason}{label ? `: ${label}` : ""}]
+    </span>
+  );
+}
+
+const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
+
+/** Why resolveImagePath refused a source, in the order it checks. */
+function describeBlockedImageSource(src: string): string {
+  const trimmed = decodeUriComponentSafe(src.trim().split(/[?#]/, 1)[0]);
+  if (URI_SCHEME_RE.test(trimmed)) return "remote and URL images are not loaded";
+  if (/^[\\/]/.test(trimmed)) return "absolute paths are not supported";
+  return "only images inside the document's folder are shown";
 }
 
 /* ------------------------------------------------------------------ */
@@ -178,6 +203,10 @@ const markdownComponents: Components = {
       const ext = extMatch?.[1]?.toLowerCase();
       if (ext && !isOpenableDocumentExtension(ext)) {
         toast(`Cannot open .${ext} files — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
+      } else if (ext && (URI_SCHEME_RE.test(href) || /^[\\/]/.test(href))) {
+        // A supported extension that resolveMarkdownLink still refused: the
+        // path is absolute, a drive-letter path, or a non-web URL.
+        toast(`Cannot open "${href}" — absolute paths and URLs to local files are not supported; use a link relative to this document`, "error");
       } else {
         toast(`Cannot open "${href}" — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
       }

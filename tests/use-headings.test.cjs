@@ -53,3 +53,32 @@ test("useHeadings clears stale reader state and rebinds when unchanged content r
     host.remove();
   }
 });
+
+test("useHeadings lists a math heading once, without the KaTeX TeX annotation", async () => {
+  await installDom();
+  const { useHeadings } = require("../.tmp/workspace-tests/src/hooks/useHeadings.js");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  let latest = [];
+
+  function Probe() {
+    const contentRef = React.useRef(null);
+    latest = useHeadings(contentRef, "math");
+    return React.createElement("article", { ref: contentRef },
+      React.createElement("h2", { id: "energy", dangerouslySetInnerHTML: { __html:
+        'Energy <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></mrow>'
+        + '<annotation encoding="application/x-tex">E = mc^2</annotation></semantics></math></span>'
+        + '<span class="katex-html" aria-hidden="true"><span class="mord">E=mc</span></span></span> law',
+      } }));
+  }
+
+  try {
+    flushSync(() => root.render(React.createElement(Probe)));
+    await settleHeadingExtraction();
+    assert.deepEqual(latest, [{ id: "energy", text: "Energy E=mc2 law", level: 2 }]);
+  } finally {
+    flushSync(() => root.unmount());
+    host.remove();
+  }
+});

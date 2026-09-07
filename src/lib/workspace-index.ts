@@ -1,6 +1,10 @@
-import GithubSlugger from "github-slugger";
-import MarkdownIt from "markdown-it";
-import type Token from "markdown-it/lib/token.mjs";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import rehypeSlug from "rehype-slug";
+import { toString as hastToString } from "hast-util-to-string";
+import { visit } from "unist-util-visit";
+import type { Element as HastElement, Root as HastRoot } from "hast";
 import type {
   SceneItem,
   WorkspaceDocIndex,
@@ -12,22 +16,43 @@ import { extractFrontmatter } from "./frontmatter";
 import type { DocumentComplexityOptions } from "./document-complexity";
 import { assertDocumentComplexity, isDocumentComplexityError } from "./document-complexity";
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
-import { updateMarkdownFenceState, type MarkdownFenceState } from "./markdown-fences";
+import { remarkPlugins } from "./markdown-plugins";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 import { replaceOpenableDocumentExtension } from "./openable-files";
 
 const MAX_BODY_TEXT_CHARS = 30_000;
-// Raw HTML links are intentionally not indexed; the renderer does not enable raw HTML.
-const markdownLinkParser = new MarkdownIt({ html: false, linkify: false });
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v6";
+/**
+ * The index parses with the reader's own remark plugin list and the same
+ * remark-rehype + rehype-slug steps MarkdownRenderer runs, so heading ids and
+ * link targets follow one set of syntax rules: setext and nested headings,
+ * entities, images, footnote numbering, SmartyPants dashes, and dropped raw
+ * HTML all come out as the reader renders them. `markdown-render.test.mjs`
+ * still compares the two, because the reader adds sanitize and KaTeX after
+ * slugging and this pipeline stops at the slug.
+ *
+ * Cost: about 0.9 ms per KiB on Node (measured on a 408-file, 1.7 MiB corpus:
+ * 1.5 s against 55 ms for the markdown-it parser this replaced, most of it in
+ * SmartyPants). Indexing reads files in batches of eight and yields between
+ * batches, so a batch of typical 5-20 KiB documents costs 40-150 ms of
+ * main-thread time; the result is cached per workspace.
+ */
+const indexPipeline = unified()
+  .use(remarkParse)
+  .use(remarkPlugins)
+  .use(remarkRehype)
+  .use(rehypeSlug);
+// v7: heading ids follow the rendered slug pipeline; v6 entries hold ids the
+// reader no longer produces for some headings.
+export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v7";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
   "workspace:index:v2",
   "workspace:index:v3",
   "workspace:index:v4",
   "workspace:index:v5",
+  "workspace:index:v6",
 ] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 6 as const;
+export const WORKSPACE_INDEX_CACHE_VERSION = 7 as const;
 export const WORKSPACE_INDEX_CACHE_KEYS = [
   ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   WORKSPACE_INDEX_CACHE_KEY,
@@ -138,11 +163,12 @@ export function buildWorkspaceDoc(
 
   assertDocumentComplexity(content, "markdown", complexityOptions);
   const { frontmatter, body } = extractFrontmatter(content);
-  const headingRows = extractHeadings(body);
+  const tree = indexPipeline.runSync(indexPipeline.parse(body)) as HastRoot;
+  const headingRows = extractHeadings(tree);
   const headings = headingRows.map((row) => ({ id: row.id, text: row.text }));
   const title = getTitle(frontmatter, headings, meta.name);
 
-  const links = extractLinks(body, meta.path);
+  const links = extractLinks(tree, meta.path);
   const scenes = extractScenes(headingRows);
   const bodyText = toSearchableText(body);
 
@@ -223,27 +249,29 @@ function getTitle(
   return fallback || null;
 }
 
-function extractHeadings(markdown: string): HeadingWithLine[] {
-  const lines = markdown.split(/\r?\n/);
-  const slugger = new GithubSlugger();
+const HEADING_TAG_RE = /^h[1-6]$/;
+
+function elementClassNames(element: HastElement): string[] {
+  const className = element.properties.className;
+  return Array.isArray(className) ? className.map(String) : [];
+}
+
+/**
+ * Headings the reader's table of contents would list: every slugged heading
+ * except the visually hidden "Footnotes" label remark-gfm appends, which
+ * `useHeadings` skips by the same `sr-only` class.
+ */
+function extractHeadings(tree: HastRoot): HeadingWithLine[] {
   const headings: HeadingWithLine[] = [];
-  let fenceState: MarkdownFenceState | null = null;
 
-  lines.forEach((line, index) => {
-    const previousFenceState = fenceState;
-    fenceState = updateMarkdownFenceState(line, fenceState);
-    if (previousFenceState || fenceState) {
-      return;
-    }
-
-    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (!match) return;
-
-    const text = stripMarkdownInline(match[2]);
+  visit(tree, "element", (node) => {
+    if (!HEADING_TAG_RE.test(node.tagName)) return;
+    const id = node.properties.id;
+    if (typeof id !== "string" || !id) return;
+    if (elementClassNames(node).includes("sr-only")) return;
+    const text = hastToString(node).trim();
     if (!text) return;
-
-    const id = slugger.slug(toRenderedHeadingSlugText(text));
-    headings.push({ id, text, line: index + 1 });
+    headings.push({ id, text, line: node.position?.start.line ?? 0 });
   });
 
   return headings;
@@ -265,38 +293,27 @@ function extractScenes(headings: HeadingWithLine[]): SceneItem[] {
   return scenes;
 }
 
-function extractLinks(markdown: string, currentFilePath: string): string[] {
+/**
+ * Every anchor the reader would render, resolved by the same rule its click
+ * handler uses. Reference-style links are already resolved by remark-rehype;
+ * footnote and fragment links, external URLs, and unsupported files fall out
+ * of `resolveMarkdownLink`.
+ */
+function extractLinks(tree: HastRoot, currentFilePath: string): string[] {
   const targets = new Set<string>();
-  const tokens = markdownLinkParser.parse(markdown, {});
 
-  for (const raw of extractLinkHrefs(tokens)) {
-    const href = raw.trim();
-    if (!href) continue;
+  visit(tree, "element", (node) => {
+    if (node.tagName !== "a") return;
+    const href = node.properties.href;
+    if (typeof href !== "string" || !href.trim()) return;
 
-    const resolved = resolveMarkdownLink(href, currentFilePath);
-    if (!resolved) continue;
+    const resolved = resolveMarkdownLink(href.trim(), currentFilePath);
+    if (!resolved) return;
     const targetKey = toPathIdentityKey(resolved.path);
-    if (!targetKey) continue;
-    targets.add(targetKey);
-  }
+    if (targetKey) targets.add(targetKey);
+  });
 
   return Array.from(targets);
-}
-
-function extractLinkHrefs(tokens: Token[]): string[] {
-  const hrefs: string[] = [];
-
-  for (const token of tokens) {
-    if (token.type === "link_open") {
-      const href = token.attrGet("href");
-      if (href) hrefs.push(href);
-    }
-    if (token.children) {
-      hrefs.push(...extractLinkHrefs(token.children));
-    }
-  }
-
-  return hrefs;
 }
 
 function toSearchableText(markdown: string): string {
@@ -318,23 +335,6 @@ function toSearchableText(markdown: string): string {
   }
 
   return text;
-}
-
-function stripMarkdownInline(value: string): string {
-  return value
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
-    .trim();
-}
-
-function toRenderedHeadingSlugText(value: string): string {
-  // Keep workspace-index heading IDs aligned with remark-smartypants before rehype-slug.
-  return value.replace(/(^|[^-])--(?!-)/g, "$1—");
 }
 
 function finiteNumberOrDefault(value: unknown, fallback: number): number {
