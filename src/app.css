@@ -1786,9 +1786,15 @@ body[data-printing] .print-hide {
     margin-top: 2em;
   }
 
+  /*
+   * Screenplay columns measured from the paper's left edge: dialogue 2.5in,
+   * parenthetical 3.0in, character 3.7in. The body already sits about 1.5in
+   * in (2cm page margin plus 0.7in padding), so these indents are the
+   * remainder, in rendered Courier character widths.
+   */
   .fountain-character {
     text-align: left !important;
-    margin-left: 37ch;
+    margin-left: 20ch;
     text-transform: uppercase;
     font-weight: 700;
     margin-top: 1em;
@@ -1796,13 +1802,13 @@ body[data-printing] .print-hide {
 
   .fountain-dialogue {
     max-width: 35ch;
-    margin-left: 25ch;
+    margin-left: 9ch;
     margin-right: 0;
   }
 
   .fountain-parenthetical {
     max-width: 25ch;
-    margin-left: 31ch;
+    margin-left: 14ch;
     font-style: normal !important;
   }
 
