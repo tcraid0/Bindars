@@ -5181,3 +5181,26 @@ test('a deleted workspace result preserves the current document and reports the 
     assert.ok(view.host.querySelector('#second'));
   } finally { await view.cleanup(); }
 });
+
+test("save-and-exit with an unmoved caret preserves the original reader offset", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    rendered.positionReaderAtFirst();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = findEditorView(rendered.host);
+    assert.equal(view.state.selection.main.head, 2);
+    flushSync(() => view.dispatch({ changes: { from: 2, to: 7, insert: "Intro" } }));
+    assert.equal(view.state.selection.main.head, 2, "caret stays at the initial target");
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    dispatchEditorKey(rendered.host, "Escape");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.match(rendered.host.querySelector("h1").textContent, /Intro/);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    assert.equal(rendered.readerScrollTop(), 0);
+    reconciliation.resolve(rendered.openResult(rendered.diskContent(), rendered.revision()));
+  } finally {
+    await rendered.cleanup();
+  }
+});

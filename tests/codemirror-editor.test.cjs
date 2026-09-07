@@ -107,7 +107,7 @@ test("CodeMirrorEditor mounts exact empty and non-empty documents and focuses it
       assert.equal(view.state.doc.toString(), initialDocument);
       assert.ok(document.activeElement === view.contentDOM);
       assert.equal(view.contentDOM.getAttribute("role"), "textbox");
-      assert.equal(view.contentDOM.getAttribute("aria-label"), "Edit markdown");
+      assert.equal(view.contentDOM.getAttribute("aria-label"), "Edit document");
       assert.equal(view.contentDOM.getAttribute("aria-multiline"), "true");
       assert.equal(view.contentDOM.getAttribute("spellcheck"), "false");
       assert.equal(view.contentDOM.getAttribute("contenteditable"), "true");
@@ -616,6 +616,7 @@ test("Fountain sessions do not install Markdown formatting state", async () => {
 
   try {
     const view = findEditorView(rendered.host);
+    assert.equal(view.contentDOM.getAttribute("aria-label"), "Edit document");
     assert.equal(view.state.field(markdownFormattingEnabled, false), undefined);
   } finally {
     rendered.cleanup();

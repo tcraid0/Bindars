@@ -374,7 +374,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             EditorState.allowMultipleSelections.of(true),
             EditorView.lineWrapping,
             EditorView.contentAttributes.of({
-              "aria-label": "Edit markdown",
+              "aria-label": "Edit document",
               "aria-multiline": "true",
               spellcheck: "false",
             }),

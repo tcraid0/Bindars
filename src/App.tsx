@@ -20,7 +20,7 @@ import { SearchBar } from "./components/SearchBar";
 import { FountainRenderer } from "./components/FountainRenderer";
 import { computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
 import { MarkdownEditor } from "./components/MarkdownEditor";
-import type { EditorSurfacePosition, MarkdownEditorHandle } from "./components/MarkdownEditor";
+import type { MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
 import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -208,15 +208,6 @@ function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
 }
 
-function survivingEditorSource(
-  transition: EditTransition | null,
-  position: EditorSurfacePosition | null,
-): SourcePoint | null {
-  if (!transition || !position) return null;
-  if (position.viewportMoved && position.viewport) return position.viewport;
-  return position.cursor;
-}
-
 function App() {
   const [printPhase, setPrintPhase] = useState<"preparing" | "printing" | null>(null);
   const printSessionRef = useRef<{ invoked: boolean; nativePending: boolean } | null>(null);
@@ -263,21 +254,14 @@ function App() {
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
 
   const editorSurfaceRef = useRef<MarkdownEditorHandle | null>(null);
-  const dirtyRef = useRef(false);
   const flushPendingBuffer = useCallback(() => {
-    const dirty = editorSurfaceRef.current?.flushPendingChanges() ?? null;
-    if (dirty !== null) dirtyRef.current = dirty;
-    return dirty;
+    return editorSurfaceRef.current?.flushPendingChanges() ?? null;
   }, []);
   const editor = useEditor(flushPendingBuffer);
-  const publishEditorBuffer = useCallback((nextBuffer: string) => {
-    const dirty = editor.updateBuffer(nextBuffer);
-    dirtyRef.current = dirty;
-    return dirty;
-  }, [editor.updateBuffer]);
+  const publishEditorBuffer = editor.updateBuffer;
   const flushAndReadDirty = useCallback(() => {
-    return flushPendingBuffer() ?? dirtyRef.current;
-  }, [flushPendingBuffer]);
+    return editor.captureSnapshotBuffer()?.dirty ?? false;
+  }, [editor.captureSnapshotBuffer]);
   const { toast } = useToast();
 
   const preparedDocument = useMemo(
@@ -618,8 +602,6 @@ function App() {
     }
 
     const status: EditorSaveResult = result.status;
-    if (status === "saved") dirtyRef.current = false;
-    if (status === "saved-with-newer-edits") dirtyRef.current = true;
     return { status, draftAdoption };
   }, [adoptSavedFile, editor.save, editor.saveAs, fileName, filePath]);
 
@@ -961,7 +943,6 @@ function App() {
     setEditing(true);
     setEditorSessionKey(nextSessionKey);
     editingRef.current = true;
-    dirtyRef.current = false;
     showConflictDialogRef.current = false;
     setShowConflictDialog(false);
     saveContinuationRef.current = null;
@@ -998,7 +979,6 @@ function App() {
     setEditing(false);
     setSavedFlash(false);
     editingRef.current = false;
-    dirtyRef.current = false;
     saveContinuationRef.current = null;
   }, [editor.exitEditMode, supersedeReconciliation]);
 
@@ -1023,31 +1003,16 @@ function App() {
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
     let readerTarget: ReaderAnchor | null = null;
-    const survivingSource = survivingEditorSource(transition, surfacePosition);
-
-    if (transition && positionOutcome === "discarded") {
+    if (transition && positionOutcome !== "none") {
       readerTarget = transition.originalReaderAnchor;
-    } else if (transition && positionOutcome === "saved") {
-      readerTarget = transition.originalReaderAnchor;
-      if (survivingSource) {
+      if (surfacePosition && (surfacePosition.viewportMoved
+        || !sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget))) {
         readerTarget = {
-          source: survivingSource,
-          // Moved editor positions restore by semantic block, not identical
-          // pixel offset, because reader and editor wrapping differ.
+          source: surfacePosition.viewportMoved && surfacePosition.viewport
+            ? surfacePosition.viewport : surfacePosition.cursor,
+          // Moved positions restore by block because editor and reader wrapping differ.
           viewportOffsetPx: 0,
         };
-      }
-    } else if (transition && positionOutcome === "clean") {
-      if (!surfacePosition) {
-        readerTarget = transition.originalReaderAnchor;
-      } else {
-        readerTarget = !surfacePosition.viewportMoved
-          && sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget)
-          ? transition.originalReaderAnchor
-          : {
-              source: survivingSource ?? surfacePosition.cursor,
-              viewportOffsetPx: 0,
-            };
       }
     }
 
@@ -1139,7 +1104,6 @@ function App() {
       exitEditMode(pendingActionRef.current ? "none" : "saved");
     }
     editingRef.current = false;
-    dirtyRef.current = false;
     resolvePendingAction();
   }, [exitEditMode, resolvePendingAction]);
 
@@ -1148,7 +1112,6 @@ function App() {
     // Exiting edit mode re-reads the current file from disk.
     exitEditMode(pendingActionRef.current ? "none" : "discarded");
     editingRef.current = false;
-    dirtyRef.current = false;
     resolvePendingAction();
   }, [exitEditMode, resolvePendingAction]);
 
@@ -1363,10 +1326,9 @@ function App() {
 
   useEffect(() => {
     editingRef.current = editing;
-    dirtyRef.current = editor.dirty;
     showConfirmDialogRef.current = showConfirmDialog;
     showConflictDialogRef.current = showConflictDialog;
-  }, [editing, editor.dirty, showConfirmDialog, showConflictDialog]);
+  }, [editing, showConfirmDialog, showConflictDialog]);
 
   useEffect(() => {
     if (!editing) return;
@@ -1536,7 +1498,6 @@ function App() {
       const name = readerPublication?.fileName ?? document.name;
       beginEditSession(baseline, revision, path, name, null, document);
       const dirty = editor.updateBuffer(restoredContent);
-      dirtyRef.current = dirty;
       closeRestoreDialog();
       toast(dirty ? "Snapshot restored. Save when you're ready." : "That snapshot already matches the current text.", "info");
     } catch (error) {
@@ -1567,8 +1528,7 @@ function App() {
 
       setVirtualContent("", draft.name);
       beginEditSession("", null, null, draft.name, null, document);
-      const dirty = editor.updateBuffer(restoredContent);
-      dirtyRef.current = dirty;
+      editor.updateBuffer(restoredContent);
       closeRestoreDialog();
       toast("Recovered draft restored. Save it to choose a file location.", "info");
     } catch (error) {
