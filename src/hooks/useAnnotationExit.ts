@@ -26,11 +26,15 @@ export function useAnnotationExit(
   const attempt = useCallback(async (request: PendingExit, retry: boolean) => {
     const version = ++request.attempt;
     setWaiting(true);
-    if (retry) retrySave();
-    await Promise.race([
-      waitForSaves(),
-      new Promise<void>((resolve) => { timer.current = setTimeout(resolve, ANNOTATION_EXIT_WAIT_MS); }),
-    ]);
+    try {
+      if (retry) retrySave();
+      await Promise.race([
+        waitForSaves(),
+        new Promise<void>((resolve) => { timer.current = setTimeout(resolve, ANNOTATION_EXIT_WAIT_MS); }),
+      ]);
+    } catch {
+      // A failed wait, like a timeout, requires checking pending work below.
+    }
     if (pending.current !== request || request.attempt !== version) return;
     if (timer.current) clearTimeout(timer.current);
     const remaining = Object.keys(pendingRecords());

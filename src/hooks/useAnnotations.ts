@@ -34,14 +34,13 @@ export function useAnnotations(filePath: string | null) {
     if (entry.writing || entry.revision === entry.savedRevision) return;
     entry.writing = true;
     entry.saveError = null;
-    notify();
     const operation = queue.current.then(async () => {
       // Capture the newest snapshot only when this document's turn arrives.
       // A retry never queues a previously failed snapshot behind a newer edit.
       while (entry.revision !== entry.savedRevision) {
         const revision = entry.revision;
-        const record = storedAnnotationRecord(entry);
         try {
+          const record = storedAnnotationRecord(entry);
           await saveAnnotations(path, record);
           entry.savedRevision = revision;
           entry.saveError = null;
@@ -54,7 +53,11 @@ export function useAnnotations(filePath: string | null) {
       entry.writing = false;
       notify();
     });
-    queue.current = operation;
+    // Unexpected callback failures must not prevent later documents from saving.
+    queue.current = operation.catch((error) => {
+      console.error("[annotations] Save queue callback failed:", error);
+    });
+    notify();
   }, [notify]);
 
   useEffect(() => {

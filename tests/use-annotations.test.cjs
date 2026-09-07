@@ -140,3 +140,58 @@ test('a stale note callback retains its originating document and quit lock preve
   view.api().setLocked(true); await view.change((api)=>api.updateHighlight('h',{note:'blocked'}));
   assert.equal(view.api().highlights[0].note,'original'); view.api().setLocked(false);
 });
+
+test('record preparation failure leaves work retryable and other documents can save', async (t) => {
+  const { disk } = backingStore(t);
+  const records = require('../.tmp/workspace-tests/src/lib/annotation-record.js');
+  const prepare = records.storedAnnotationRecord;
+  let fail = true;
+  t.mock.method(records, 'storedAnnotationRecord', (entry) => {
+    if (fail) { fail = false; throw new Error('unexpected preparation failure'); }
+    return prepare(entry);
+  });
+  const view = await mount(t);
+  await view.change(api => api.updateHighlight('h', { note: 'preserve me' }));
+  assert.equal(view.api().saving, false);
+  assert.equal(view.api().canRetrySave, true);
+  assert.ok(view.api().saveError);
+  assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note, 'preserve me');
+  await view.render('/b.md');
+  await view.change(api => api.toggleBookmark('b', 'B'));
+  assert.equal(disk.get('/b.md').bookmarks.length, 1);
+  await view.change(api => api.retrySave());
+  await view.api().waitForSaves();
+  assert.equal(disk.get('/a.md').highlights[0].note, 'preserve me');
+  assert.deepEqual(view.api().pendingRecords(), {});
+});
+
+test('a rejected completion callback does not poison the next save', async (t) => {
+  const { disk } = backingStore(t);
+  const useState = React.useState;
+  let failRefresh = false;
+  t.mock.method(React, 'useState', (...args) => {
+    const [value, setValue] = useState(...args);
+    return [value, update => {
+      if (failRefresh && typeof update === 'function') {
+        failRefresh = false;
+        throw new Error('completion notification failed');
+      }
+      setValue(update);
+    }];
+  });
+  let first = true;
+  t.mock.method(storage, 'saveAnnotations', async (path, value) => {
+    disk.set(path, copy(value));
+    if (first) { first = false; failRefresh = true; }
+  });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  const view = await mount(t);
+  await view.change(api => api.updateHighlight('h', { note: 'first' }));
+  await view.api().waitForSaves();
+  assert.ok(errors.some(args => String(args[0]).includes('Save queue callback failed')));
+  await view.change(api => api.updateHighlight('h', { note: 'latest' }));
+  assert.equal(disk.get('/a.md').highlights[0].note, 'latest');
+  assert.equal(view.api().saving, false);
+  assert.deepEqual(view.api().pendingRecords(), {});
+});

@@ -53,3 +53,27 @@ test('recovery-copy cancellation and write failure leave choices usable; success
     assert.ok([...host.querySelectorAll('button')].every(b=>!b.disabled));
   }finally{await act(async()=>root.unmount());host.remove();clearMocks();}
 });
+
+for (const failure of ['wait', 'retry']) {
+  test(`a rejected ${failure} leaves quit choices usable and a later retry can finish`, async (t) => {
+    const v = await render(t, { '/a.md': {} });
+    if (failure === 'wait') v.wait(async () => { throw new Error('queue rejected'); });
+    let allowed;
+    await act(async () => { v.api().requestExit().then(result => allowed = result); });
+    if (failure === 'retry') {
+      v.retry(() => { throw new Error('retry rejected'); });
+      await act(async () => v.api().retry());
+    }
+    assert.deepEqual(v.api().paths, ['/a.md']);
+    assert.equal(v.api().waiting, false);
+    assert.equal(allowed, undefined);
+    await act(async () => v.api().keepOpen());
+    assert.equal(allowed, false);
+    allowed = undefined;
+    v.wait(async () => {});
+    v.retry(() => v.records({}));
+    await act(async () => { v.api().requestExit().then(result => allowed = result); });
+    await act(async () => v.api().retry());
+    assert.equal(allowed, true);
+  });
+}

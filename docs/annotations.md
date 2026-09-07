@@ -14,13 +14,14 @@ and the reader's annotation text are unchanged. This distinguishes identical
 passages when creating a highlight and when reopening an unchanged document.
 
 After edits, a highlight needs an exact match for its quotation and all stored
-context. An originally duplicated context cannot justify moving to the only
-remaining copy after deletion. Bindars does not choose the first match or use
-fuzzy similarity to guess. Nearby edits can therefore leave a legitimate note
+context. For new highlights with occurrence evidence, an originally duplicated
+context cannot justify moving to the only remaining copy after deletion. Bindars
+does not choose the first match or use fuzzy similarity to guess. Nearby edits can therefore leave a legitimate note
 with **Location uncertain**. Deleted or empty quotations show **Location
 unavailable**. Both states keep the note available for editing, removal, and
 export. Legacy annotations lack the original occurrence evidence; full-context
-matching cannot reconstruct evidence that was never saved.
+matching cannot reconstruct evidence that was never saved. A legacy highlight
+can therefore attach to a sole remaining identical passage after deletion.
 
 Annotations belong to the canonical path returned when opening a document.
 Renaming or moving a file does not migrate its annotations. Replacing a file at
