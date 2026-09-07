@@ -22,7 +22,14 @@ export type PreparedReaderDocument =
   | {
       status: "too-complex";
       message: string;
+    }
+  | {
+      status: "parse-failed";
+      message: string;
     };
+
+export const FOUNTAIN_PARSE_FAILED_MESSAGE =
+  "This screenplay could not be parsed for display. You can still edit it.";
 
 /** Validate and prepare all reader consumers once for a content revision. */
 export function prepareReaderDocument(
@@ -52,6 +59,15 @@ export function prepareReaderDocument(
     if (isDocumentComplexityError(error)) {
       return { status: "too-complex", message: error.message };
     }
+    if (fileType === "fountain") {
+      return { status: "parse-failed", message: describeParseFailure(error) };
+    }
     throw error;
   }
+}
+
+function describeParseFailure(error: unknown): string {
+  // fountain-js appends an issue-tracker plea on a second line; keep the first.
+  const detail = error instanceof Error ? error.message.split("\n")[0].trim() : "";
+  return detail ? `${FOUNTAIN_PARSE_FAILED_MESSAGE} (${detail})` : FOUNTAIN_PARSE_FAILED_MESSAGE;
 }

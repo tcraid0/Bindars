@@ -261,6 +261,48 @@ This changes no macOS runtime code or printing behavior. The recorded GUI-build
 source hash predates this conditional-compilation correction; CI verifies the
 updated source on Linux and macOS.
 
+## Fountain column placement — 2026-09-07
+
+The earlier campaigns checked Fountain content completeness, page breaks, and
+native dialog behavior but never measured where the screenplay columns landed.
+Measuring the retained `test-fixtures/html-export-removal-20260906/fountain.pdf`
+(Letter) showed dialogue at 4.20in and character cues at 5.48in from the
+paper's left edge. The print stylesheet had written the industry positions
+(2.5in, 3.0in, 3.7in) as indents inside a body that already sits about 1.5in
+in, so everything was pushed right by roughly the page margin and dialogue
+wrapped early against the right edge.
+
+The indents are now 9ch, 14ch, and 20ch (dialogue, parenthetical, character),
+chosen from the rendered Courier character width in that PDF rather than the
+nominal 0.1in, and verified in an isolated packaged app built from `313c1e4`
+plus the stylesheet change. Fixture, configuration, PDF, and extracted text
+positions are in the ignored `test-fixtures/fountain-review-20260907/`.
+
+| Field | Value |
+| --- | --- |
+| Product / identifier | Bindars Fountain Review / `io.github.tcraid0.bindars.fountain-review-20260907` |
+| OS | macOS 26.6.2 (25G83), arm64 |
+| Executable SHA-256 | `2b87918a456c44ec8235ef34c44aa3b1ec14401b18eb55d082f9e0feb5c2ee34` |
+| PDF SHA-256 | `cff1f6ac7055b4e08dac66243541fa434f387d9fafedb7ec52cf80e029bae2ac` (`column-check.pdf`, 3 pages, Letter) |
+
+Text origins measured from the paper's left edge, page 2:
+
+| Element | Before (2026-09-06) | After | Standard |
+| --- | --- | --- | --- |
+| Scene heading and action | 1.53in | 1.53in | 1.5in |
+| Dialogue | 4.20in | 2.49in | 2.5in |
+| Parenthetical | not in fixture | 3.03in | 3.0–3.1in |
+| Character cue | 5.48in | 3.67in | 3.7in |
+
+The same PDF confirmed the reader fixes from the Fountain review: a
+three-line action block printed as three lines with its four leading spaces
+intact; `snake_case_name` printed without underline; `\*literal stars\*`
+printed as literal asterisks; bold and italic runs printed as separate font
+runs; the emphasized title `_**COLUMN CHECK**_` printed without markers; dual
+dialogue kept two columns; the explicit break started page 3. The isolated app
+was quit afterward. Windows, Linux, A4 paper, and physical printers remain
+unverified.
+
 ## Platforms
 
 | Platform | Webview | Status |

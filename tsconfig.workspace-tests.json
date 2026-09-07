@@ -19,7 +19,7 @@
     "src/components/AppErrorBoundary.tsx",
     "src/components/MermaidBlock.tsx",
     "src/components/MarkdownRenderer.tsx",
-    "src/components/DocumentComplexityNotice.tsx",
+    "src/components/DocumentNotice.tsx",
     "src/components/CodeBlock.tsx",
     "src/components/ToastProvider.tsx",
     "src/components/ConfirmDialog.tsx",

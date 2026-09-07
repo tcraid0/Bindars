@@ -1,7 +1,6 @@
-import { Fountain, rules } from "fountain-js";
+import { Fountain, Lexer, rules } from "fountain-js";
 import type { Token } from "fountain-js/dist.esm/token";
 import type {
-  CharacterInfo,
   ParsedSceneHeading,
   ScriptCharacterStats,
   ScriptSceneStats,
@@ -44,8 +43,6 @@ const SPOKEN_WORDS_PER_MINUTE = 150;
 const SCENE_HEADING_TEXT_RE = /^(?:INT\.?\/EXT\.?|INT\/EXT\.?|I\.?\/E\.?|INT\.?|EXT\.?|EST\.?)\s+\S/i;
 const SCENE_HEADING_PREFIX_RE = /^(INT\.?\/EXT\.?|INT\/EXT\.?|I\.?\/E\.?|INT\.?|EXT\.?)\s+(.+)$/i;
 const ESTABLISHING_PREFIX_RE = /^EST\.?\s+(.+)$/i;
-const FOUNTAIN_EMPHASIS_RE = /\*{1,3}(.+?)\*{1,3}/g;
-const FOUNTAIN_UNDERLINE_RE = /_(.+?)_/g;
 const NON_SCREENPLAY_STATS_TOKEN_TYPES = new Set(["spaces", "page_break", "section", "synopsis", "note"]);
 
 function slugify(text: string): string {
@@ -61,11 +58,21 @@ function normalizeTitleKey(type: string): string {
   return type.replace(/_/g, " ").trim();
 }
 
+/**
+ * fountain-js pairs dual dialogue through a static flag on its Lexer that is
+ * only written when a dialogue block is lexed. Because it tokenizes in reverse,
+ * the flag left behind is the caret state of the first dialogue block, and the
+ * next parse of any text inherits it. The field is private in the library's
+ * type declarations; tests/fountain-parser-robustness.test.cjs guards the name.
+ */
+const fountainLexerState = Lexer as unknown as { lastLineWasDualDialogue: boolean };
+
 export function parseFountain(
   text: string,
   complexityOptions: DocumentComplexityOptions = {},
 ): ParsedFountain {
   assertDocumentComplexity(text, "fountain", complexityOptions);
+  fountainLexerState.lastLineWasDualDialogue = false;
   const fountain = new Fountain();
   const output = fountain.parse(text, true);
 
@@ -122,6 +129,9 @@ function fountainSourceBlocks(content: string): FountainSourceBlock[] {
   const normalized = content
     .replace(rules.boneyard, (match) => match.replace(/[^\r\n]/g, " "))
     .replace(/\r\n|\r/g, "\n");
+  // The blank-line rule matches zero characters at the start of an empty
+  // string, which would leave exec() stuck at index 0 below.
+  if (normalized.length === 0) return [];
   const blankLineFlags = rules.blank_lines.flags.includes("g")
     ? rules.blank_lines.flags
     : `${rules.blank_lines.flags}g`;
@@ -224,16 +234,129 @@ function findFountainSceneSourceCandidates(
   return aligned;
 }
 
-const CHARACTER_EXTENSION_RE = /\s*\((?:V\.?O\.?|O\.?S\.?|O\.?C\.?|CONT'?D)\)\s*/gi;
+/** Extensions such as (V.O.), (CONT'D) or (INTO PHONE) trail the cue. */
+const CHARACTER_EXTENSIONS_RE = /(?:\s*\([^)]*\))+\s*$/;
 
 export function normalizeCharacterName(raw: string): string {
-  return raw.replace(CHARACTER_EXTENSION_RE, "").trim().toUpperCase();
+  return raw.replace(CHARACTER_EXTENSIONS_RE, "").trim().toUpperCase();
 }
 
-function stripFountainEmphasis(text: string): string {
-  return text
-    .replace(FOUNTAIN_EMPHASIS_RE, "$1")
-    .replace(FOUNTAIN_UNDERLINE_RE, "$1");
+export interface FountainInlineSegment {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+}
+
+type InlineStyle = Pick<FountainInlineSegment, "bold" | "italic" | "underline">;
+
+const PLAIN_INLINE_STYLE: InlineStyle = { bold: false, italic: false, underline: false };
+
+/** The characters a backslash escapes; mirrors `rules.escape` in fountain-js. */
+export const FOUNTAIN_ESCAPABLE_CHARACTERS = new Set("@#!*_$~`+=.><\\/");
+
+/**
+ * Split inline emphasis into styled segments. Markers are ***, **, * and _.
+ * A marker opens only when followed by a non-space, closes only when preceded
+ * by one, and never spans a line break; _ must also sit at a word boundary so
+ * identifiers like snake_case stay literal. Unmatched markers are text.
+ * Both the reader and the search index use this, so they cannot disagree.
+ */
+export function splitFountainInline(text: string): FountainInlineSegment[] {
+  return splitInline(text, PLAIN_INLINE_STYLE);
+}
+
+export function fountainPlainText(text: string): string {
+  return splitFountainInline(text).map((segment) => segment.text).join("");
+}
+
+function splitInline(text: string, style: InlineStyle): FountainInlineSegment[] {
+  const segments: FountainInlineSegment[] = [];
+  let literal = "";
+  const flush = () => {
+    if (literal) segments.push({ text: literal, ...style });
+    literal = "";
+  };
+
+  let index = 0;
+  while (index < text.length) {
+    if (isEscapeAt(text, index)) {
+      literal += text[index + 1];
+      index += 2;
+      continue;
+    }
+    const marker = openingMarkerAt(text, index);
+    const closeIndex = marker ? findClosingMarker(text, index + marker.length, marker) : -1;
+    if (marker && closeIndex !== -1) {
+      flush();
+      const inner = text.slice(index + marker.length, closeIndex);
+      segments.push(...splitInline(inner, styleWithMarker(style, marker)));
+      index = closeIndex + marker.length;
+      continue;
+    }
+    literal += text[index];
+    index += 1;
+  }
+  flush();
+  return segments;
+}
+
+function isEscapeAt(text: string, index: number): boolean {
+  return text[index] === "\\" && FOUNTAIN_ESCAPABLE_CHARACTERS.has(text[index + 1] ?? "");
+}
+
+function markerRunAt(text: string, index: number): string | null {
+  if (text[index] === "_") return "_";
+  if (text[index] !== "*") return null;
+  let length = 1;
+  while (length < 3 && text[index + length] === "*") length += 1;
+  return "*".repeat(length);
+}
+
+function isWordCharacter(char: string | undefined): boolean {
+  return char !== undefined && /\w/.test(char);
+}
+
+function openingMarkerAt(text: string, index: number): string | null {
+  const marker = markerRunAt(text, index);
+  if (!marker) return null;
+  const next = text[index + marker.length];
+  if (next === undefined || /\s/.test(next)) return null;
+  if (marker === "_" && isWordCharacter(text[index - 1])) return null;
+  return marker;
+}
+
+function findClosingMarker(text: string, from: number, marker: string): number {
+  let index = from;
+  while (index < text.length) {
+    if (text[index] === "\n") return -1;
+    if (isEscapeAt(text, index)) {
+      index += 2;
+      continue;
+    }
+    const run = markerRunAt(text, index);
+    if (!run) {
+      index += 1;
+      continue;
+    }
+    const closes =
+      run === marker
+      && index > from
+      && !/\s/.test(text[index - 1])
+      && (marker !== "_" || !isWordCharacter(text[index + 1]));
+    if (closes) return index;
+    index += run.length;
+  }
+  return -1;
+}
+
+function styleWithMarker(style: InlineStyle, marker: string): InlineStyle {
+  switch (marker) {
+    case "***": return { ...style, bold: true, italic: true };
+    case "**": return { ...style, bold: true };
+    case "*": return { ...style, italic: true };
+    default: return { ...style, underline: true };
+  }
 }
 
 function countTokenWords(text?: string): number {
@@ -253,51 +376,31 @@ function normalizeScenePrefix(prefix: string): ParsedSceneHeading["intExt"] {
   return null;
 }
 
-function normalizeSceneLocation(raw: string): string {
-  return raw.trim().replace(/^\.\s*/, "");
-}
-
-function stripForcedSceneHeadingDot(text: string): string {
-  return text.startsWith(".") ? text.slice(1).trimStart() : text;
-}
-
-export function isSceneHeadingText(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed.startsWith(".")) {
-    return stripForcedSceneHeadingDot(trimmed).length > 0;
-  }
-  return SCENE_HEADING_TEXT_RE.test(trimmed);
-}
-
+/**
+ * Whether a Markdown heading reads as a scene heading. Fountain files never
+ * use this: their scenes come from the parser, which also drops the forced
+ * leading dot, so only the INT/EXT/EST forms are recognized here.
+ */
 export function isMarkdownSceneHeadingText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.startsWith(".")) {
-    return false;
-  }
-  return isSceneHeadingText(trimmed);
+  return SCENE_HEADING_TEXT_RE.test(text.trim());
 }
 
 function splitSceneLocationAndTime(raw: string): Pick<ParsedSceneHeading, "location" | "timeOfDay"> {
   const trimmed = raw.trim();
   const dashIndex = trimmed.lastIndexOf(" - ");
   if (dashIndex === -1) {
-    return {
-      location: normalizeSceneLocation(trimmed),
-      timeOfDay: null,
-    };
+    return { location: trimmed, timeOfDay: null };
   }
 
   return {
-    location: normalizeSceneLocation(trimmed.slice(0, dashIndex)),
+    location: trimmed.slice(0, dashIndex).trim(),
     timeOfDay: trimmed.slice(dashIndex + 3).trim().toUpperCase() || null,
   };
 }
 
+/** Parse a scene heading token's text; forced-heading dots are already gone. */
 export function parseSceneHeading(text: string): ParsedSceneHeading {
-  const trimmed = stripForcedSceneHeadingDot(text.trim());
+  const trimmed = text.trim();
   const establishingMatch = ESTABLISHING_PREFIX_RE.exec(trimmed);
   if (establishingMatch) {
     const { location, timeOfDay } = splitSceneLocationAndTime(establishingMatch[1]);
@@ -508,33 +611,6 @@ export function computeScriptStats(parsed: ParsedFountain): ScriptStats {
   };
 }
 
-export function extractCharacters(parsed: ParsedFountain): CharacterInfo[] {
-  const map = new Map<string, { dialogueCount: number; firstSceneId: string | null }>();
-  let currentSceneId: string | null = null;
-  let sceneIdx = 0;
-
-  for (const token of parsed.tokens) {
-    if (token.type === "scene_heading") {
-      currentSceneId = parsed.scenes[sceneIdx]?.id ?? null;
-      sceneIdx++;
-    }
-    if (token.type === "character" && token.text) {
-      const name = normalizeCharacterName(token.text);
-      if (!name) continue;
-      const existing = map.get(name);
-      if (existing) {
-        existing.dialogueCount++;
-      } else {
-        map.set(name, { dialogueCount: 1, firstSceneId: currentSceneId });
-      }
-    }
-  }
-
-  return Array.from(map.entries())
-    .map(([name, info]) => ({ name, ...info }))
-    .sort((a, b) => b.dialogueCount - a.dialogueCount);
-}
-
 export function fountainToSearchableText(parsed: ParsedFountain): string {
   const result: string[] = [];
   let pendingSpace = false;
@@ -553,13 +629,13 @@ export function fountainToSearchableText(parsed: ParsedFountain): string {
   };
 
   for (const entry of parsed.titlePage) {
-    append(stripFountainEmphasis(entry.value));
+    append(fountainPlainText(entry.value));
     if (result.length >= 30_000) return result.join("");
   }
 
   for (const token of parsed.tokens) {
     if (token.text && token.type !== "spaces" && token.type !== "page_break") {
-      append(stripFountainEmphasis(token.text));
+      append(fountainPlainText(token.text));
       if (result.length >= 30_000) break;
     }
   }

@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const {
   computeScriptStats,
   isMarkdownSceneHeadingText,
-  isSceneHeadingText,
   parseFountain,
   parseSceneHeading,
 } = require("../.tmp/workspace-tests/src/lib/fountain.js");
@@ -33,8 +32,10 @@ test("parseSceneHeading supports int slash ext headings", () => {
   });
 });
 
-test("parseSceneHeading supports forced interior scene headings", () => {
-  assert.deepEqual(parseSceneHeading(".INT. HOUSE - DAY"), {
+test("parseSceneHeading reads forced interior headings as the parser emits them", () => {
+  // fountain-js strips the forcing dot before the text reaches this function.
+  const [scene] = parseFountain(".INT. HOUSE - DAY").tokens;
+  assert.deepEqual(parseSceneHeading(scene.text), {
     intExt: "INT",
     location: "HOUSE",
     timeOfDay: "DAY",
@@ -65,8 +66,8 @@ test("parseSceneHeading keeps time of day optional", () => {
   });
 });
 
-test("parseSceneHeading treats forced headings as non INT EXT locations", () => {
-  assert.deepEqual(parseSceneHeading(".FLASHBACK"), {
+test("parseSceneHeading treats headings without a prefix as bare locations", () => {
+  assert.deepEqual(parseSceneHeading("FLASHBACK"), {
     intExt: null,
     location: "FLASHBACK",
     timeOfDay: null,
@@ -89,30 +90,25 @@ test("parseSceneHeading splits EST headings on the last dash", () => {
   });
 });
 
-test("parseSceneHeading splits forced headings on the last dash", () => {
-  assert.deepEqual(parseSceneHeading(".FLASHBACK - LATE NIGHT"), {
+test("parseSceneHeading splits bare locations on the last dash", () => {
+  assert.deepEqual(parseSceneHeading("FLASHBACK - LATE NIGHT"), {
     intExt: null,
     location: "FLASHBACK",
     timeOfDay: "LATE NIGHT",
   });
 });
 
-test("isSceneHeadingText matches Fountain scene heading forms", () => {
-  assert.equal(isSceneHeadingText("INT./EXT. CAR - DAY"), true);
-  assert.equal(isSceneHeadingText("INT WAREHOUSE - DAY"), true);
-  assert.equal(isSceneHeadingText("EXT FIELD"), true);
-  assert.equal(isSceneHeadingText("EST THE WHITE HOUSE - DAWN"), true);
-  assert.equal(isSceneHeadingText(".FLASHBACK - NIGHT"), true);
-  assert.equal(isSceneHeadingText("INTERIOR NOTES"), false);
-  assert.equal(isSceneHeadingText(""), false);
-});
-
-test("isMarkdownSceneHeadingText excludes forced-dot Fountain headings", () => {
-  assert.equal(isMarkdownSceneHeadingText("INT. HOUSE - DAY"), true);
+test("isMarkdownSceneHeadingText recognizes prefixed headings and nothing else", () => {
+  assert.equal(isMarkdownSceneHeadingText("INT./EXT. CAR - DAY"), true);
+  assert.equal(isMarkdownSceneHeadingText("INT WAREHOUSE - DAY"), true);
+  assert.equal(isMarkdownSceneHeadingText("EXT FIELD"), true);
   assert.equal(isMarkdownSceneHeadingText("EST THE WHITE HOUSE - DAWN"), true);
+  assert.equal(isMarkdownSceneHeadingText("  INT. HOUSE - DAY  "), true);
+  assert.equal(isMarkdownSceneHeadingText("INTERIOR NOTES"), false);
   assert.equal(isMarkdownSceneHeadingText(".FLASHBACK - NIGHT"), false);
   assert.equal(isMarkdownSceneHeadingText(".NET Migration"), false);
   assert.equal(isMarkdownSceneHeadingText(".env setup"), false);
+  assert.equal(isMarkdownSceneHeadingText(""), false);
 });
 
 test("computeScriptStats derives scene and character stats from parsed fountain", () => {

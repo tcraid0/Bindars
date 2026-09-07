@@ -5,7 +5,6 @@ const {
   parseFountain,
   fountainToSearchableText,
   normalizeCharacterName,
-  extractCharacters,
 } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const {
   buildWorkspaceDoc,
@@ -235,90 +234,4 @@ test("normalizeCharacterName strips V.O., O.S., CONT'D extensions", () => {
   assert.equal(normalizeCharacterName("MIKE (O.C.)"), "MIKE");
   assert.equal(normalizeCharacterName("sarah"), "SARAH");
   assert.equal(normalizeCharacterName("  Bob  "), "BOB");
-});
-
-test("extractCharacters collects unique characters with correct counts", () => {
-  const content = [
-    "INT. OFFICE - DAY",
-    "",
-    "SARAH",
-    "Hello.",
-    "",
-    "JOHN",
-    "Hi there.",
-    "",
-    "SARAH",
-    "How are you?",
-    "",
-    "EXT. PARK - NIGHT",
-    "",
-    "SARAH (V.O.)",
-    "It was a long day.",
-  ].join("\n");
-
-  const parsed = parseFountain(content);
-  const chars = extractCharacters(parsed);
-
-  assert.equal(chars.length, 2);
-  assert.equal(chars[0].name, "SARAH");
-  assert.equal(chars[0].dialogueCount, 3);
-  assert.equal(chars[1].name, "JOHN");
-  assert.equal(chars[1].dialogueCount, 1);
-});
-
-test("extractCharacters sorts by dialogue count descending", () => {
-  const content = [
-    "INT. OFFICE - DAY",
-    "",
-    "JOHN",
-    "Line one.",
-    "",
-    "JOHN",
-    "Line two.",
-    "",
-    "SARAH",
-    "One line.",
-    "",
-    "MIKE",
-    "First.",
-    "",
-    "MIKE",
-    "Second.",
-    "",
-    "MIKE",
-    "Third.",
-  ].join("\n");
-
-  const parsed = parseFountain(content);
-  const chars = extractCharacters(parsed);
-
-  assert.equal(chars[0].name, "MIKE");
-  assert.equal(chars[0].dialogueCount, 3);
-  assert.equal(chars[1].name, "JOHN");
-  assert.equal(chars[1].dialogueCount, 2);
-  assert.equal(chars[2].name, "SARAH");
-  assert.equal(chars[2].dialogueCount, 1);
-});
-
-test("extractCharacters tracks firstSceneId", () => {
-  const content = [
-    "INT. OFFICE - DAY",
-    "",
-    "SARAH",
-    "Hello.",
-    "",
-    "EXT. PARK - NIGHT",
-    "",
-    "JOHN",
-    "Hi.",
-  ].join("\n");
-
-  const parsed = parseFountain(content);
-  const chars = extractCharacters(parsed);
-
-  const sarah = chars.find((c) => c.name === "SARAH");
-  const john = chars.find((c) => c.name === "JOHN");
-
-  assert.equal(sarah.firstSceneId, "int-office-day");
-  assert.equal(john.firstSceneId, "ext-park-night");
 });

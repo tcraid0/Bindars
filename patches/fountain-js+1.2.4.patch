@@ -1,0 +1,26 @@
+diff --git a/node_modules/fountain-js/dist.esm/token.js b/node_modules/fountain-js/dist.esm/token.js
+index 71c5c8c..e7c1bc8 100644
+--- a/node_modules/fountain-js/dist.esm/token.js
++++ b/node_modules/fountain-js/dist.esm/token.js
+@@ -119,7 +119,7 @@ export class DialogueBlock {
+                     return [...p, new ParentheticalToken(text)];
+                 }
+                 if (rules.lyrics.test(text)) {
+-                    if (previousToken.type === 'lyrics') {
++                    if (previousToken?.type === 'lyrics') {
+                         p[lastIndex].text =
+                             `${previousToken.text}\n${text.replace(/^~/, '')}`;
+                         return p;
+diff --git a/node_modules/fountain-js/dist/token.js b/node_modules/fountain-js/dist/token.js
+index 5a559d6..b69b38c 100644
+--- a/node_modules/fountain-js/dist/token.js
++++ b/node_modules/fountain-js/dist/token.js
+@@ -127,7 +127,7 @@ class DialogueBlock {
+                     return [...p, new ParentheticalToken(text)];
+                 }
+                 if (rules_1.rules.lyrics.test(text)) {
+-                    if (previousToken.type === 'lyrics') {
++                    if (previousToken?.type === 'lyrics') {
+                         p[lastIndex].text =
+                             `${previousToken.text}\n${text.replace(/^~/, '')}`;
+                         return p;

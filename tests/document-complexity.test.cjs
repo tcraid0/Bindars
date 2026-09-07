@@ -32,8 +32,8 @@ const {
   tryBuildWorkspaceDoc,
 } = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
 const {
-  DocumentComplexityNotice,
-} = require("../.tmp/workspace-tests/src/components/DocumentComplexityNotice.js");
+  DocumentNotice,
+} = require("../.tmp/workspace-tests/src/components/DocumentNotice.js");
 const { WorkspacePanel } = require("../.tmp/workspace-tests/src/components/WorkspacePanel.js");
 
 function contentWithExactUnits(format, units) {
@@ -326,8 +326,9 @@ test("workspace indexing distinguishes complexity skips for both formats", () =>
 
 test("the rejection notice uses the shared non-technical message", () => {
   const html = renderToStaticMarkup(
-    React.createElement(DocumentComplexityNotice, {
+    React.createElement(DocumentNotice, {
       contentRef: React.createRef(),
+      title: `Document ${DOCUMENT_COMPLEXITY_REASON}`,
       message: DOCUMENT_COMPLEXITY_MESSAGE,
     }),
   );
