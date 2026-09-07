@@ -9,7 +9,6 @@ mod document_io;
 mod exports;
 mod file_errors;
 mod file_watcher;
-mod images;
 mod native_lifecycle;
 mod navigation;
 mod printing;
@@ -22,9 +21,8 @@ use document_io::{
     open_markdown_file, open_markdown_file_externally, read_markdown_file,
     write_markdown_file_if_unmodified,
 };
-use exports::{export_html_file, export_markdown_file};
+use exports::export_markdown_file;
 use file_watcher::{unwatch_file, watch_file, FileWatcher};
-use images::read_image_file_as_base64;
 #[cfg(any(windows, target_os = "linux"))]
 use native_lifecycle::initial_cli_open_path;
 #[cfg(desktop)]
@@ -75,9 +73,7 @@ pub fn run() {
             read_markdown_file,
             open_markdown_file,
             write_markdown_file_if_unmodified,
-            export_html_file,
             open_markdown_file_externally,
-            read_image_file_as_base64,
             export_markdown_file,
             take_pending_open_path,
             exit_after_guarded_quit,

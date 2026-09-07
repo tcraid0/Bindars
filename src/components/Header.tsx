@@ -1,15 +1,10 @@
 import { memo, useState, useRef, useEffect, useCallback, useId } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import type { Theme, FileType } from "../types";
-import { embedImages } from "../lib/embed-images";
-import { buildExportHtml, serializeExportRoot } from "../lib/export-html";
-import { waitForMermaidDiagrams } from "../lib/print-export";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
-import { replaceOpenableDocumentExtension } from "../lib/openable-files";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
 interface HeaderProps {
@@ -57,28 +52,6 @@ const themeLabels: Record<Theme, string> = {
   dark: "Dark",
   "deep-dark": "Midnight",
 };
-
-const EXPORT_CSS_VAR_NAMES = [
-  "--bg-primary",
-  "--bg-secondary",
-  "--bg-tertiary",
-  "--text-primary",
-  "--text-secondary",
-  "--text-muted",
-  "--accent",
-  "--accent-hover",
-  "--border",
-  "--code-bg",
-  "--syntax-base",
-  "--syntax-comment",
-  "--syntax-keyword",
-  "--syntax-string",
-  "--syntax-number",
-  "--syntax-builtin",
-  "--syntax-attr",
-  "--syntax-variable",
-  "--syntax-deletion",
-];
 
 function HeaderComponent({
   fileName,
@@ -153,60 +126,6 @@ function HeaderComponent({
       toast("Couldn't open with default app", "error");
     }
   }, [filePath, toast]);
-
-  const handleExportHtml = useCallback(async () => {
-    dismissExport(true);
-    const el = document.querySelector(".markdown-body, .fountain-body");
-    if (!el) return;
-
-    const defaultName = fileName
-      ? replaceOpenableDocumentExtension(fileName, ".html")
-      : "export.html";
-    try {
-      const savePath = await save({
-        defaultPath: defaultName,
-        filters: [{ name: "HTML", extensions: ["html"] }],
-      });
-      if (!savePath) return;
-
-      await waitForMermaidDiagrams(el);
-
-      const themeAttr = document.documentElement.getAttribute("data-theme") || "light";
-      const computedStyles = getComputedStyle(document.documentElement);
-      const cssVars = EXPORT_CSS_VAR_NAMES
-        .map((name) => `${name}: ${computedStyles.getPropertyValue(name)};`)
-        .join("\n      ");
-
-      const { html: bodyHtml, failedCount } = await embedImages(
-        serializeExportRoot(el),
-        filePath,
-      );
-      const hasMath = el.querySelector(".katex") !== null;
-      const katexCss = hasMath
-        ? (await import("../lib/generated/katex-css-embedded")).katexCssEmbedded
-        : null;
-      const html = buildExportHtml({
-        title: fileName || "Exported Document",
-        themeAttr,
-        cssVars,
-        bodyHtml,
-        katexCss,
-      });
-
-      await invoke("export_html_file", { path: savePath, content: html });
-      if (failedCount > 0) {
-        toast(
-          failedCount === 1
-            ? "Exported HTML, but 1 local image could not be embedded."
-            : `Exported HTML, but ${failedCount} local images could not be embedded.`,
-          "info",
-        );
-      }
-    } catch (err) {
-      console.warn("[export] Failed to export HTML:", err);
-      toast("Couldn't export HTML", "error");
-    }
-  }, [dismissExport, fileName, filePath, toast]);
 
   return (
     <header
@@ -433,17 +352,6 @@ function HeaderComponent({
                       </svg>
                       Print to PDF
                       <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("print")}</kbd>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleExportHtml}
-                      className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2"
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-                        <polyline points="13 2 13 9 20 9" />
-                      </svg>
-                      Export as HTML
                     </button>
                     {fileType !== "fountain" && (
                       <button

@@ -69,7 +69,22 @@ test("retired document commands are absent from the registered IPC surface", () 
   const registration = source.match(/tauri::generate_handler!\[([\s\S]*?)\]/);
   assert.ok(registration, "expected the native command registration");
   assert.doesNotMatch(registration[1], /\b(?:resolve_markdown_path|write_markdown_file)\b/);
+  assert.doesNotMatch(registration[1], /\b(?:export_html_file|read_image_file_as_base64)\b/);
   assert.match(registration[1], /\bwrite_markdown_file_if_unmodified\b/);
+  assert.match(registration[1], /\bexport_markdown_file\b/);
+  assert.match(registration[1], /\bprint_current_webview\b/);
+});
+
+test("Header opens documents externally through the validated backend command", () => {
+  const headerSource = fs.readFileSync(
+    path.join(projectRoot, "src/components/Header.tsx"),
+    "utf8",
+  );
+  assert.match(
+    headerSource,
+    /invoke\("open_markdown_file_externally", \{ path: filePath \}\)/,
+  );
+  assert.doesNotMatch(headerSource, /\bopenPath\(/);
 });
 
 test("hide-on-close is permitted without granting an unused show permission", () => {

@@ -24,7 +24,7 @@ native testing and code signing.
 - Position-continuous CodeMirror editing with undo history and find/replace
 - New documents with guarded Save/Save As and external-change reconciliation
 - Optional Markdown heading formatting with an instant plain-markup fallback
-- Print and HTML export
+- Print and Save as PDF
 - Keyboard-driven workflow - press `?` for the full shortcut list
 
 ## Install
