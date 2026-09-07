@@ -8,6 +8,7 @@ const {
 } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
 const {
   clearAnnotationHighlights,
+  createAnchor,
   findAnchor,
   wrapRange,
 } = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
@@ -18,7 +19,11 @@ function setContent(html) {
 }
 
 function annotate(container, exact, id = "hl-1") {
-  const range = findAnchor({ prefix: "", exact, suffix: "" }, container);
+  const { collectText, rangeForOffsets } = require("../.tmp/workspace-tests/src/lib/dom-text.js");
+  const { text, spans } = collectText(container);
+  const offset = text.indexOf(exact);
+  const selection = rangeForOffsets(spans, offset, offset + exact.length);
+  const range = findAnchor(createAnchor(selection, container), container);
   assert.ok(range, `expected range for ${exact}`);
   wrapRange(range, "annotation-highlight-yellow", id);
 }
@@ -106,7 +111,15 @@ test("overlapping annotation and search ranges preserve each other", async () =>
   assert.equal(container.textContent, "Alpha beta gamma delta.");
 });
 
-test.todo("search matches a query spanning an annotation boundary (cross-node)");
+test("search matches a query spanning an annotation boundary", async () => {
+  await installDom();
+  const container = setContent("<p>Alpha beta gamma.</p>");
+  annotate(container, "beta");
+  assert.equal(highlightSearchMatches(container, "Alpha beta").length, 1);
+  assert.equal(container.textContent, "Alpha beta gamma.");
+  clearSearchHighlights(container);
+  assert.equal(container.querySelector('mark[data-highlight-id]').textContent, "beta");
+});
 
 test("identical annotation and search ranges can be cleared independently", async () => {
   await installDom();

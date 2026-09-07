@@ -54,7 +54,9 @@ test("search skips the visually hidden KaTeX MathML copy of a formula", async ()
   try {
     // "mc" exists only inside the formula: the hidden MathML copy would count
     // as a match the reader can never show.
-    assert.deepEqual(highlightSearchMatches(rendered.article, "mc"), []);
+    const formulaMatches = highlightSearchMatches(rendered.article, "mc");
+    assert.equal(formulaMatches.length, 1);
+    assert.ok(formulaMatches.every((mark) => !mark.closest(".katex-mathml")));
     clearSearchHighlights(rendered.article);
 
     const matches = highlightSearchMatches(rendered.article, "energy");

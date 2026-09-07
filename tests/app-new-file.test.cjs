@@ -229,6 +229,13 @@ async function renderEditorApp({
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
@@ -953,6 +960,13 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
@@ -1086,6 +1100,13 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
@@ -1197,6 +1218,13 @@ test("App save-as preserves typing and adopts the canonical path before the next
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
@@ -1386,6 +1414,13 @@ async function renderContinuityApp({
     : initialNativePath);
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":

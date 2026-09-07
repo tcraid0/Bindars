@@ -105,6 +105,13 @@ async function renderApp({
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return null;
+      case "save_annotations":
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":

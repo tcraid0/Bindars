@@ -1,5 +1,10 @@
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 
+function literal(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/[\\`*_{}\[\]()#!|~$+\-.=:]/g, "\\$&");
+}
+
 export function buildAnnotationMarkdown(
   fileName: string,
   highlights: Highlight[],
@@ -13,7 +18,7 @@ export function buildAnnotationMarkdown(
     day: "numeric",
   });
 
-  lines.push(`# Annotations: ${fileName}`);
+  lines.push(`# Annotations: ${literal(fileName.replace(/\r?\n/g, " "))}`);
   lines.push("");
   lines.push(`*Exported from Bindars on ${date}*`);
   lines.push("");
@@ -22,7 +27,7 @@ export function buildAnnotationMarkdown(
     lines.push("## Bookmarks");
     lines.push("");
     for (const bm of bookmarks) {
-      lines.push(`- **${bm.headingText.replace(/\n/g, " ")}**`);
+      lines.push(`- **${literal(bm.headingText.replace(/\r?\n/g, " "))}**`);
     }
     lines.push("");
   }
@@ -52,18 +57,18 @@ export function buildAnnotationMarkdown(
     for (const [headingId, group] of groups) {
       const headingText = headingId ? headingMap.get(headingId) : null;
       if (headingText) {
-        lines.push(`### ${headingText}`);
+        lines.push(`### ${literal(headingText.replace(/\r?\n/g, " "))}`);
         lines.push("");
       }
 
       for (const hl of group) {
-        const safeExact = hl.exact.replace(/\n+/g, " ");
+        const safeExact = literal(hl.exact).replace(/\r?\n/g, "\n> ");
         lines.push(`> "${safeExact}"`);
         lines.push(`>`);
         lines.push(`> — *${hl.color} highlight*`);
         lines.push("");
         if (hl.note) {
-          const safeNote = hl.note.replace(/\n+/g, " ").trim();
+          const safeNote = literal(hl.note.trim()).replace(/\r?\n/g, "  \n");
           lines.push(`**Note:** ${safeNote}`);
           lines.push("");
         }

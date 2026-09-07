@@ -21,6 +21,8 @@ import { FountainRenderer } from "./components/FountainRenderer";
 import { computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
 import { MarkdownEditor } from "./components/MarkdownEditor";
 import type { EditorSurfacePosition, MarkdownEditorHandle } from "./components/MarkdownEditor";
+import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
+import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { SnapshotRestoreDialog } from "./components/SnapshotRestoreDialog";
 import type { SnapshotRestoreChoice } from "./components/SnapshotRestoreDialog";
@@ -72,10 +74,11 @@ import { canEnterEditMode, canEnterPresentationMode, canToggleEditMode, decideNa
 import type { PendingAction, RetryablePendingAction } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
-import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
+import { resolveAnchor, prepareAnnotationDocument, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
 import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
+import { initializeAnnotationStorage } from "./lib/annotation-storage";
 import { storeGet, storeSet } from "./lib/store";
 import { signalAppReady } from "./lib/app-ready";
 import {
@@ -299,9 +302,29 @@ function App() {
     updateHighlight,
     toggleBookmark,
     isBookmarked,
+    removeBookmark,
+    restoreRecord: restoreAnnotationRecord,
+    dataWarning: annotationDataWarning,
+    saving: annotationsSaving,
+    waitForSaves: waitForAnnotationSaves,
+    pendingRecords: pendingAnnotationRecords,
+    setLocked: setAnnotationsLocked,
+    getMutationVersion: getAnnotationMutationVersion,
     retryLoad: retryAnnotationLoad,
     retrySave: retryAnnotationSave,
   } = useAnnotations(filePath);
+
+  const annotationExit = useAnnotationExit(pendingAnnotationRecords, waitForAnnotationSaves, retryAnnotationSave);
+
+  useEffect(() => {
+    let active = true;
+    void initializeAnnotationStorage().then((status) => {
+      if (active && !status.settingsReady) toast("Settings storage is unavailable. Existing data was preserved; preference changes cannot be saved.", "error");
+    }).catch(() => {
+      if (active) toast("Annotation storage could not be initialized. Existing data was preserved. Retry from the Annotations panel.", "error");
+    });
+    return () => { active = false; };
+  }, [toast]);
 
   const [sidebarVisible, setSidebarVisible] = useState(() => {
     try {
@@ -311,6 +334,8 @@ function App() {
     }
   });
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
+  const flushAnnotationNoteRef = useRef<(() => void) | null>(null);
+  const [annotationLocations, setAnnotationLocations] = useState<Record<string, string>>({});
   const [tocVisible, setTocVisible] = useState(true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
   const readerControlsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -389,7 +414,7 @@ function App() {
   const pendingActionRef = useRef<AdmittedAction | null>(null);
   // Each dialog owns its continuation, even if a later dialog has the same intent.
   const saveContinuationRef = useRef<{ intent: SaveContinuationIntent } | null>(null);
-  const executePendingActionRef = useRef<(action: PendingAction) => Promise<void>>(async () => {});
+  const executePendingActionRef = useRef<(action: PendingAction, annotationVersion: number) => Promise<void>>(async () => {});
   const actionAdmissionOwnerRef = useRef<ActionAdmissionId | null>(null);
   const documentTransitionInFlightRef = useRef(false);
   const nextActionAdmissionIdRef = useRef(0);
@@ -428,7 +453,7 @@ function App() {
   const boundaryFlushInFlightRef = useRef(false);
   const flushBeforeContinuationRef = useRef<() => void>(() => {});
   const welcomePublicationRef = useRef(0);
-  const isProgrammaticCloseRef = useRef(false);
+  const programmaticCloseRef = useRef<{ annotationVersion: number } | null>(null);
   // A close continuation is draining snapshots or crossing the native close
   // handoff. Further close requests must not bypass its safety checks.
   const closeDrainPendingRef = useRef(false);
@@ -1081,17 +1106,25 @@ function App() {
   const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
     void (async () => {
       try {
+        const terminating = admitted.action.kind === "quit-app" || (admitted.action.kind === "close-window" && closePolicy !== "hide");
+        // Commit the note buffer while its originating document can still mutate.
+        flushSync(() => flushAnnotationNoteRef.current?.());
+        if (terminating) {
+          setAnnotationsLocked(true);
+          if (!await annotationExit.requestExit()) return;
+        }
         if (admitted.action.kind !== "close-window") {
           await waitForSnapshotQueue();
         }
-        await executePendingActionRef.current(admitted.action);
+        await executePendingActionRef.current(admitted.action, getAnnotationMutationVersion());
       } catch (error) {
         console.error("[action-guard] Admitted action failed:", error);
       } finally {
+        setAnnotationsLocked(false);
         finishActionAdmission(admitted.admissionId);
       }
     })();
-  }, [finishActionAdmission, waitForSnapshotQueue]);
+  }, [finishActionAdmission, waitForSnapshotQueue, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion]);
 
   const resolvePendingAction = useCallback(() => {
     const admitted = pendingActionRef.current;
@@ -1632,19 +1665,25 @@ function App() {
       if (isPrintInvoked()) { event.preventDefault(); return; }
       const decision = decideNativeCloseRequest({
         closePolicy,
-        programmaticCloseInFlight: isProgrammaticCloseRef.current,
+        programmaticCloseInFlight: programmaticCloseRef.current !== null,
         closeDrainPending: closeDrainPendingRef.current,
         actionAdmissionInFlight: actionAdmissionOwnerRef.current !== null,
       });
 
       switch (decision) {
         case "complete-programmatic-close": {
-          isProgrammaticCloseRef.current = false;
+          const approvedClose = programmaticCloseRef.current;
+          programmaticCloseRef.current = null;
           closeDrainPendingRef.current = false;
           // `appWindow.close()` crosses the native IPC boundary before this
           // callback runs. Any editor active now belongs to a newer session and
           // must cancel the stale close, even if it is not dirty yet.
-          if (editingRef.current) {
+          flushSync(() => flushAnnotationNoteRef.current?.());
+          // Consent covers only this close and this annotation revision. The
+          // close IPC may already have returned, allowing newer edits meanwhile.
+          const hasUnapprovedAnnotations = Object.keys(pendingAnnotationRecords()).length > 0
+            && approvedClose?.annotationVersion !== getAnnotationMutationVersion();
+          if (editingRef.current || hasUnapprovedAnnotations) {
             event.preventDefault();
           }
           return;
@@ -1664,8 +1703,9 @@ function App() {
           guardActionRef.current({ kind: "close-window" });
           return;
         case "allow-native-close": {
-          // Allow native OS close behavior when there are no unsaved edits.
-          if (!editingRef.current || !flushAndReadDirty()) {
+          // A reader note is unsaved work even when the document editor is clean.
+          flushSync(() => flushAnnotationNoteRef.current?.());
+          if ((!editingRef.current || !flushAndReadDirty()) && Object.keys(pendingAnnotationRecords()).length === 0) {
             return;
           }
 
@@ -1709,7 +1749,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [closePolicy, flushAndReadDirty]);
+  }, [closePolicy, flushAndReadDirty, pendingAnnotationRecords, getAnnotationMutationVersion]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -2126,25 +2166,52 @@ function App() {
     if (editing || !readerDocumentReady) return;
     const container = contentRef.current;
     if (!container || !isDocumentOpen(content)) return;
-
-    const frameId = requestAnimationFrame(() => {
+    if (!highlights.length) {
       clearAnnotationHighlights(container);
-      for (const hl of highlights) {
-        const range = findAnchor({ prefix: hl.prefix, exact: hl.exact, suffix: hl.suffix }, container);
-        if (range) {
-          wrapRange(range, `annotation-highlight-${hl.color}`, hl.id);
-        }
-      }
-    });
+      setAnnotationLocations({});
+      return;
+    }
 
-    return () => cancelAnimationFrame(frameId);
+    let cancelled = false;
+    let paintVersion = 0;
+    let frameId = 0;
+    const repaint = () => {
+      const version = ++paintVersion;
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        void prepareAnnotationDocument(container, content).then((evidence) => {
+          if (cancelled || version !== paintVersion || contentRef.current !== container) return;
+          clearAnnotationHighlights(container);
+          const locations: Record<string, string> = {};
+          for (const hl of highlights) {
+            const result = resolveAnchor(hl, container, evidence);
+            locations[hl.id] = result.status;
+            if (result.range) wrapRange(result.range, `annotation-highlight-${hl.color}`, hl.id);
+          }
+          setAnnotationLocations(locations);
+        }).catch(() => {
+          if (!cancelled && version === paintVersion) {
+            clearAnnotationHighlights(container);
+            setAnnotationLocations(Object.fromEntries(highlights.map((h) => [h.id, "uncertain"])));
+          }
+        });
+      });
+    };
+    container.addEventListener("bindars:diagram-rendered", repaint);
+    repaint();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      container.removeEventListener("bindars:diagram-rendered", repaint);
+    };
   }, [content, filePath, editing, highlights, readerDocumentReady]);
 
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {
     const container = contentRef.current;
     if (!container) return;
-    const mark = container.querySelector(`mark[data-highlight-id="${id}"]`);
+    const mark = Array.from(container.querySelectorAll<HTMLElement>("mark[data-highlight-id]"))
+      .find((element) => element.dataset.highlightId === id);
     if (mark) {
       mark.scrollIntoView({ behavior: motionScrollBehavior, block: "center" });
     }
@@ -2400,7 +2467,7 @@ function App() {
     dismissError(documentError?.ownerToken);
   }, [dismissError, documentError?.ownerToken]);
 
-  executePendingActionRef.current = async (action) => {
+  executePendingActionRef.current = async (action, annotationVersion) => {
     switch (action.kind) {
       case "close-window": {
         const appWindow = getCurrentWindow();
@@ -2424,14 +2491,14 @@ function App() {
             closeDrainPendingRef.current = false;
             await appWindow.hide();
           } else {
-            isProgrammaticCloseRef.current = true;
+            programmaticCloseRef.current = { annotationVersion };
             // Keep the drain guard set until the resulting close-requested
             // callback performs the final new-session check.
             await appWindow.close();
           }
         } catch (err) {
           closeDrainPendingRef.current = false;
-          isProgrammaticCloseRef.current = false;
+          programmaticCloseRef.current = null;
           console.error("[close-guard] Programmatic close or hide failed:", err);
           toast("Couldn't close the window. Your document is still open.", "error");
         }
@@ -3067,9 +3134,18 @@ function App() {
         />
 
         <AnnotationsPanel
+          key={filePath}
+          flushNoteRef={flushAnnotationNoteRef}
           visible={annotationsPanelVisible && !focusMode && !editing && !presentationMode}
           annotationStatus={annotationStatus}
           annotationsReady={annotationsReady}
+          saving={annotationsSaving}
+          mutationsDisabled={actionAdmissionInFlight}
+          dataWarning={annotationDataWarning}
+          locations={annotationLocations}
+          onRemoveBookmark={removeBookmark}
+          filePath={filePath}
+          onRestoreRecord={restoreAnnotationRecord}
           loadError={annotationLoadError}
           saveError={annotationSaveError}
           canRetrySave={canRetryAnnotationSave}
@@ -3105,8 +3181,10 @@ function App() {
         )}
       </div>
 
-      {!editing && readerDocumentReady && annotationsReady && isDocumentOpen(content) && !presentationMode && (
+      {!editing && !actionAdmissionInFlight && readerDocumentReady && annotationsReady && isDocumentOpen(content) && !presentationMode && (
         <HighlightToolbar
+          key={JSON.stringify([filePath, content])}
+          source={content ?? ""}
           contentRef={contentRef}
           isEditing={editing}
           getActiveHeadingId={getActiveHeadingId}
@@ -3172,6 +3250,9 @@ function App() {
         onOpenHit={openWorkspaceHit}
         onHoverIndex={workspaceSearch.setSelectedIndex}
       />
+      <AnnotationExitDialog paths={annotationExit.paths} waiting={annotationExit.waiting}
+        onKeepOpen={annotationExit.keepOpen} onRetry={annotationExit.retry}
+        onQuit={annotationExit.quitWithoutSaving} pendingRecords={pendingAnnotationRecords} />
       <ConfirmDialog
         visible={showConfirmDialog}
         title="Unsaved changes"

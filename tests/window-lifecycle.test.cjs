@@ -121,7 +121,7 @@ async function requestQuit() {
   });
 }
 
-async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], initialSessionOperation = null } = {}) {
+async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
   window.localStorage.clear();
@@ -154,7 +154,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     enumerable: true,
     value: platform === "mac"
       ? { platform: "MacIntel" }
-      : { platform: "X11; Darwin arm64" },
+      : { platform: platform === "windows" ? "Win32" : platform === "linux" ? "Linux x86_64" : "X11; Darwin arm64" },
   });
 
   mockWindows("main");
@@ -168,6 +168,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
   let deferredSnapshotDocumentKind = null;
   let deferredDraftRetirement = null;
   let failedHidesRemaining = 0;
+  let failedClosesRemaining = 0;
   let failedExitsRemaining = 0;
   const operationLog = [];
   const openedPaths = [];
@@ -176,6 +177,14 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
 
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return args.path === DOC_PATH ? { highlights, bookmarks: [], version: 2 } : null;
+      case "save_annotations":
+        return annotationWrite(args);
+      case "plugin:store|save":
+        return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
@@ -201,6 +210,10 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         operationLog.push("hide");
         return null;
       case "plugin:window|close":
+        if (failedClosesRemaining > 0) {
+          failedClosesRemaining -= 1;
+          throw new Error("window close failed");
+        }
         operationLog.push("close");
         return null;
       case "plugin:window|destroy":
@@ -343,6 +356,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     exitCalls: () => operationLog.filter((entry) => entry === "exit"),
     failNextWrite(times = 1) { failedWritesRemaining += times; },
     failNextHide(times = 1) { failedHidesRemaining += times; },
+    failNextClose() { failedClosesRemaining += 1; },
     failNextExit(times = 1) { failedExitsRemaining += times; },
     conflictNextWrite() { conflictNextWrite = true; },
     deferNextOpen(operation) { deferredOpen = operation; },
@@ -1226,4 +1240,185 @@ test("identical Fountain content at another path clears search without losing te
   } finally {
     await rendered.cleanup();
   }
+});
+
+const ANNOTATION_FIXTURE = { id: "pending-note", prefix: "", exact: "Opening words.", suffix: "",
+  color: "yellow", note: "Keep me", nearestHeadingId: "lifecycle", createdAt: 1 };
+async function removeFixtureAnnotation(rendered) {
+  await rendered.openLifecycleDocument();
+  dispatchShortcut("m");
+  await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove highlight"]')));
+  flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
+}
+
+test("quit waits for annotation disk acknowledgement with a clean editor", async () => {
+  const write = deferred(); const records = [];
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite(args) {
+    records.push(args); return write.promise;
+  } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestQuit();
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0].annotations.highlights, []);
+    assert.equal(rendered.exitCalls().length, 0);
+    await act(async () => write.resolve());
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally { write.resolve(); await rendered.cleanup(); }
+});
+
+test("failed annotation quit can keep the app open and retry the latest record", async () => {
+  let fail = true; const writes = [];
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite(args) {
+    writes.push(args); if (fail) throw new Error("disk full");
+  } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestQuit();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    assert.equal(rendered.exitCalls().length, 0);
+    clickButton(rendered.host, "Keep open");
+    await act(async () => { await Promise.resolve(); });
+    assert.equal(rendered.exitCalls().length, 0);
+    await rendered.requestQuit();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    fail = false;
+    clickButton(rendered.host, "Retry saving");
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(writes.length, 2);
+    assert.deepEqual(writes[1], writes[0]);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const platform of ["windows", "linux"]) {
+  test(`${platform} clean native close cannot bypass pending annotations`, async () => {
+    const write = deferred();
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE], annotationWrite: () => write.promise });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      assert.equal(rendered.closeCount(), 0);
+      assert.equal(rendered.destroyCount(), 0);
+      await act(async () => write.resolve());
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    } finally { write.resolve(); await rendered.cleanup(); }
+  });
+}
+
+test("macOS hide keeps pending annotations without asking to discard them", async () => {
+  const write = deferred();
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite: () => write.promise });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.exitCalls().length, 0);
+    assert.doesNotMatch(rendered.host.textContent, /Annotations haven't been saved/);
+  } finally { write.resolve(); await rendered.cleanup(); }
+});
+
+test("failed location evidence removes stale paint while keeping notes accessible", async (t) => {
+  const anchor = { id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
+    color: "yellow", note: "Still accessible", nearestHeadingId: "lifecycle", createdAt: 1 };
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT,
+    highlights: [anchor, { ...anchor, id: "second" }] });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+    const anchoring = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
+    t.mock.method(anchoring, "prepareAnnotationDocument", async () => { throw new Error("digest unavailable"); });
+    dispatchShortcut("m");
+    flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
+    await waitFor(() => assert.match(rendered.host.textContent, /Location uncertain/));
+    assert.ok(!rendered.host.querySelector('mark[data-highlight-id]'));
+    assert.match(rendered.host.textContent, /Still accessible/);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const platform of ["windows", "linux"]) {
+  test(`${platform} Quit without saving completes only its approved close handshake`, async () => {
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE],
+      annotationWrite() { throw new Error("disk full"); } });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Quit without saving");
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+      assert.equal(rendered.destroyCount(), 0);
+      // The close IPC response and the native close-requested event are separate.
+      await rendered.requestClose();
+      await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+      assert.equal(rendered.closeCount(), 1);
+      // The harness keeps the view mounted after destroy. Consent must be spent.
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      assert.equal(rendered.destroyCount(), 1);
+      clickButton(rendered.host, "Keep open");
+    } finally { await rendered.cleanup(); }
+  });
+
+  test(`${platform} newer annotations cancel a previously approved unsaved close`, async () => {
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE],
+      annotationWrite() { throw new Error("disk full"); } });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Quit without saving");
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+      const bookmark = rendered.host.querySelector('[aria-label="Add bookmark"]');
+      assert.ok(bookmark);
+      flushSync(() => bookmark.click());
+      await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]')));
+      await rendered.requestClose();
+      assert.equal(rendered.destroyCount(), 0, "the old decision must not discard the newer bookmark");
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Keep open");
+      assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+test("a note draft entered after close acknowledgement cancels the old discard decision", async () => {
+  const writes = [];
+  const rendered = await renderLifecycleApp({ platform: "windows",
+    highlights: [ANNOTATION_FIXTURE, { ...ANNOTATION_FIXTURE, id: "remaining" }],
+    annotationWrite(args) { writes.push(args); throw new Error("disk full"); } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    clickButton(rendered.host, "Quit without saving");
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    flushSync(() => rendered.host.querySelector('[aria-label="Edit note"]').click());
+    const input = rendered.host.querySelector("textarea");
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, "New draft after consent");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await rendered.requestClose();
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(writes[writes.length - 1].annotations.highlights[0].note, "New draft after consent");
+    assert.match(rendered.host.textContent, /New draft after consent/);
+  } finally { await rendered.cleanup(); }
+});
+
+test("a failed native close cannot leave discard consent for the next close request", async () => {
+  const rendered = await renderLifecycleApp({ platform: "linux", highlights: [ANNOTATION_FIXTURE],
+    annotationWrite() { throw new Error("disk full"); } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    rendered.failNextClose();
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    clickButton(rendered.host, "Quit without saving");
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't close the window/));
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    assert.equal(rendered.destroyCount(), 0);
+    clickButton(rendered.host, "Keep open");
+  } finally { await rendered.cleanup(); }
 });
