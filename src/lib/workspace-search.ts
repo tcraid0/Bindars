@@ -36,15 +36,17 @@ export function searchWorkspaceDocs(
     const recentBoost = recentBoostByPath.get(doc.path) ?? 0;
     const title = (doc.title || doc.name).toLowerCase();
 
+    const name = doc.name.toLowerCase();
     const titleIdx = title.indexOf(q);
-    if (titleIdx >= 0) {
-      const exact = title === q ? 30 : 0;
-      const starts = titleIdx === 0 ? 20 : 0;
+    const nameIdx = name.indexOf(q);
+    if (titleIdx >= 0 || nameIdx >= 0) {
+      const titleBonus = titleIdx < 0 ? 0 : (title === q ? 30 : 0) + (titleIdx === 0 ? 20 : 0);
+      const nameBonus = nameIdx < 0 ? 0 : (name === q ? 30 : 0) + (nameIdx === 0 ? 20 : 0);
       hits.push({
         path: doc.path,
         relPath: doc.relPath,
         kind: "title",
-        score: 110 + exact + starts + recentBoost,
+        score: 110 + Math.max(titleBonus, nameBonus) + recentBoost,
         headingId: null,
         snippet: doc.title || doc.name,
       });

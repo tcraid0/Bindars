@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { BacklinkItem, MentionItem, SceneItem, WorkspaceDocIndex } from "../types";
 import { toPathIdentityKey } from "../lib/paths";
+import { replaceOpenableDocumentExtension } from "../lib/openable-files";
 
 interface WorkspaceInsights {
   backlinks: BacklinkItem[];
@@ -20,7 +21,7 @@ export function useWorkspaceInsights(docs: WorkspaceDocIndex[], currentFilePath:
 
 function normalizeMentionTerm(input: string | null): string | null {
   if (!input) return null;
-  const term = input.replace(/\.(md|markdown)$/i, "").trim();
+  const term = replaceOpenableDocumentExtension(input, "").trim();
   if (term.length < 3) return null;
   return term;
 }
@@ -65,7 +66,8 @@ export function computeWorkspaceInsights(
   for (const doc of docs) {
     if (toPathIdentityKey(doc.path) === currentPathKey) continue;
 
-    if (doc.links.includes(currentPathKey)) {
+    const linked = doc.links.includes(currentPathKey);
+    if (linked) {
       backlinks.push({
         fromPath: doc.path,
         relPath: doc.relPath,
@@ -73,7 +75,7 @@ export function computeWorkspaceInsights(
       });
     }
 
-    if (mentionTerm && !doc.links.includes(currentPathKey)) {
+    if (mentionTerm && !linked) {
       const idx = findWordMatchIndex(doc.bodyText, mentionTerm);
       if (idx >= 0) {
         mentions.push({

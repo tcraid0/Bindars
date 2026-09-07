@@ -18,7 +18,7 @@ native testing and code signing.
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
 - Highlights and bookmarks with text anchoring
-- Workspace search across all your markdown files through the command palette
+- Workspace quick switcher for Markdown and Fountain files
 - Fountain screenplay rendering with character focus and scene navigation
 - Focus mode and presentation mode
 - Position-continuous CodeMirror editing with undo history and find/replace
@@ -29,6 +29,20 @@ native testing and code signing.
 
 See [annotation behavior and recovery](docs/annotations.md) for location, saving,
 and document-path limitations.
+
+### Workspace search
+
+Choose a folder in the Workspace panel, then use Search or the quick switcher
+shortcut to find filenames, document titles, headings, and body excerpts.
+Choose **Reindex** after files change: editing, saving, adding, renaming, or
+deleting a file does not automatically update the workspace snapshot.
+
+Results appear when indexing finishes; the previous snapshot stays available
+during a refresh. Search covers the first 30,000 characters of body text and
+up to two matching headings per file. Markdown body excerpts omit code, math,
+diagrams, and images. A heading result jumps to that heading; a content result
+opens the document, where you can use in-document search to find the phrase.
+This is a quick navigation tool, not an exhaustive full-document search.
 
 ### Rendering rules
 

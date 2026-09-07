@@ -54,7 +54,7 @@ Select any text to highlight it in one of four colors. Open the annotations pane
 
 ### Workspace
 
-Set a workspace folder to search across all your Markdown files with the command palette (**{{shortcut:workspaceSwitcher}}**). Bindars indexes headings, content, and links for fast full-text search.
+Choose a workspace folder to find Markdown and Fountain files with the command palette (**{{shortcut:workspaceSwitcher}}**). Search filenames, titles, headings, and body excerpts. Use **Reindex** in the Workspace panel after files change; the index does not update automatically.
 
 ## Keyboard Shortcuts
 

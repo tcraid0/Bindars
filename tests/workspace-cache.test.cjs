@@ -6,20 +6,10 @@ const {
   buildWorkspaceErrorState,
   buildWorkspaceRefreshErrorState,
   LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
-  normalizeWorkspaceIndexCache,
+  isWorkspaceIndexCache,
   WORKSPACE_INDEX_CACHE_KEY,
   WORKSPACE_INDEX_CACHE_VERSION,
 } = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
-
-function makeMeta(name) {
-  return {
-    path: `/workspace/${name}`,
-    relPath: name,
-    name,
-    mtimeMs: 0,
-    size: 0,
-  };
-}
 
 function makeDoc(name) {
   return {
@@ -35,8 +25,9 @@ function makeDoc(name) {
 }
 
 test("workspace index cache version invalidates entries built under older heading ids or complexity policy", () => {
-  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 7);
-  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v7");
+  assert.equal(WORKSPACE_INDEX_CACHE_VERSION, 8);
+  assert.equal(WORKSPACE_INDEX_CACHE_KEY, "workspace:index:v8");
+  assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v7"));
   assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v5"));
   assert.ok(LEGACY_WORKSPACE_INDEX_CACHE_KEYS.includes("workspace:index:v6"));
 });
@@ -46,26 +37,20 @@ test("buildWorkspaceStateFromCache restores cached diagnostics", () => {
     version: WORKSPACE_INDEX_CACHE_VERSION,
     rootPath: "/workspace",
     indexedAt: 1234,
-    files: [
-      makeMeta("a.md"),
-      makeMeta("b.md"),
-      makeMeta("c.md"),
-      makeMeta("d.md"),
-    ],
-    docs: [makeDoc("a.md"), makeDoc("b.md"), makeDoc("c.md")],
-    processedCount: 4,
+    fileCount: 4,
+    docs: [makeDoc("a.md"), makeDoc("b.md")],
     readFailedCount: 1,
     complexitySkippedCount: 1,
     listSkippedCount: 2,
     limitHit: true,
-  }, "/workspace");
+  });
 
   assert.deepEqual(state, {
     rootPath: "/workspace",
     status: "ready",
     fileCount: 4,
     processedCount: 4,
-    indexedCount: 3,
+    indexedCount: 2,
     indexedAt: 1234,
     error: null,
     listSkippedCount: 2,
@@ -204,55 +189,57 @@ test("buildWorkspaceRefreshErrorState ignores last-good diagnostics from another
   });
 });
 
-test("normalizeWorkspaceIndexCache clamps malformed persisted diagnostics", () => {
-  const normalized = normalizeWorkspaceIndexCache({
-    version: WORKSPACE_INDEX_CACHE_VERSION,
-    rootPath: "/workspace",
-    indexedAt: Number.POSITIVE_INFINITY,
-    files: [makeMeta("a.md"), makeMeta("b.md")],
-    docs: "not docs",
-    processedCount: 99,
-    readFailedCount: -4,
-    complexitySkippedCount: -2,
-    listSkippedCount: "many",
-    limitHit: "yes",
-  });
 
-  assert.equal(normalized.indexedAt, 0);
-  assert.equal(normalized.files.length, 2);
-  assert.deepEqual(normalized.docs, []);
-  assert.equal(normalized.processedCount, 2);
-  assert.equal(normalized.readFailedCount, 0);
-  assert.equal(normalized.complexitySkippedCount, 0);
-  assert.equal(normalized.listSkippedCount, 0);
-  assert.equal(normalized.limitHit, false);
+function validCache() {
+  return {
+    version: WORKSPACE_INDEX_CACHE_VERSION, rootPath: '/workspace', indexedAt: 1234,
+    fileCount: 1, docs: [makeDoc('good.md')], readFailedCount: 0,
+    complexitySkippedCount: 0, listSkippedCount: 0, limitHit: false,
+  };
+}
+
+test('current cache survives a JSON round trip and restores complete and partial counts', () => {
+  const cache = JSON.parse(JSON.stringify(validCache()));
+  assert.equal(isWorkspaceIndexCache(cache, '/workspace'), true);
+  cache.fileCount = 3;
+  cache.readFailedCount = 1;
+  cache.complexitySkippedCount = 1;
+  assert.equal(isWorkspaceIndexCache(cache, '/workspace'), true);
+  const state = buildWorkspaceStateFromCache(cache);
+  assert.equal(state.processedCount, 3);
+  assert.equal(state.indexedCount, 1);
+  assert.equal(state.readFailedCount, 1);
+  assert.equal(state.complexitySkippedCount, 1);
+  assert.equal(isWorkspaceIndexCache(cache, '/different'), false);
 });
 
-test("buildWorkspaceStateFromCache normalizes malformed persisted arrays before deriving state", () => {
-  const state = buildWorkspaceStateFromCache({
-    version: WORKSPACE_INDEX_CACHE_VERSION,
-    rootPath: "/workspace",
-    indexedAt: 4321,
-    files: null,
-    docs: null,
-    processedCount: 4,
-    readFailedCount: 2.8,
-    complexitySkippedCount: 3.8,
-    listSkippedCount: 1.2,
-    limitHit: true,
-  }, "/workspace");
-
-  assert.deepEqual(state, {
-    rootPath: "/workspace",
-    status: "ready",
-    fileCount: 0,
-    processedCount: 0,
-    indexedCount: 0,
-    indexedAt: 4321,
-    error: null,
-    listSkippedCount: 1,
-    readFailedCount: 2,
-    complexitySkippedCount: 3,
-    limitHit: true,
+for (const [label, mutate] of [
+  ['previous version', c => { c.version = 7; }],
+  ['invalid timestamp', c => { c.indexedAt = Infinity; }],
+  ['negative count', c => { c.readFailedCount = -1; }],
+  ['fractional count', c => { c.fileCount = 1.5; }],
+  ['incomplete snapshot', c => { c.fileCount = 2; }],
+  ['invalid limit flag', c => { c.limitHit = 'yes'; }],
+  ['null docs', c => { c.docs = null; }],
+  ['null document', c => { c.docs = [null]; }],
+  ['missing path', c => { delete c.docs[0].path; }],
+  ['non-string title', c => { c.docs[0].title = {}; }],
+  ['non-string body', c => { c.docs[0].bodyText = 42; }],
+  ['null heading', c => { c.docs[0].headings = [null]; }],
+  ['bad heading text', c => { c.docs[0].headings = [{id:'x',text:3}]; }],
+  ['invalid links', c => { c.docs[0].links = [null]; }],
+  ['null scene', c => { c.docs[0].scenes = [null]; }],
+  ['invalid scene target', c => { c.docs[0].scenes = [{id:'x',label:'X',line:1,headingId:4}]; }],
+]) {
+  test(`derived cache rejects ${label} instead of salvaging an unsafe payload`, () => {
+    const cache = validCache();
+    mutate(cache);
+    assert.equal(isWorkspaceIndexCache(cache, '/workspace'), false);
   });
+}
+
+test('missing or non-object caches are safe misses', () => {
+  for (const value of [null, undefined, [], 1, 'cache']) {
+    assert.equal(isWorkspaceIndexCache(value, '/workspace'), false);
+  }
 });

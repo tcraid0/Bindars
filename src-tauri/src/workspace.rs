@@ -2,7 +2,6 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 use crate::document_io::{canonicalize_directory_path, is_markdown_path};
@@ -18,8 +17,6 @@ struct WorkspaceFileMeta {
     path: String,
     rel_path: String,
     name: String,
-    mtime_ms: u64,
-    size: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,8 +84,8 @@ fn list_workspace_markdown_files_impl(
             continue;
         }
 
-        let metadata = match fs::metadata(&canonical_file) {
-            Ok(m) if m.is_file() => m,
+        match fs::metadata(&canonical_file) {
+            Ok(m) if m.is_file() => (),
             _ => {
                 skipped_count += 1;
                 continue;
@@ -114,21 +111,12 @@ fn list_workspace_markdown_files_impl(
             continue;
         }
 
-        let mtime_ms = metadata
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
         files_by_rel.insert(
             rel_path_string.clone(),
             WorkspaceFileMeta {
                 path: canonical_file.to_string_lossy().into_owned(),
                 rel_path: rel_path_string,
                 name,
-                mtime_ms,
-                size: metadata.len(),
             },
         );
 
