@@ -54,7 +54,6 @@
     "src/lib/markdown-fences.ts",
     "src/lib/embed-images.ts",
     "src/lib/print-export.ts",
-    "src/lib/print-state.ts",
     "src/lib/reader-settings.ts",
     "src/lib/markdown-plugins.ts",
     "src/lib/sanitize-schema.ts",

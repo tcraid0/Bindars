@@ -1,5 +1,5 @@
 import { memo, useRef, useCallback, useEffect, useState, useId } from "react";
-import type { ReaderSettings, FontFamily, ParagraphSpacing, PrintLayout, Theme } from "../types";
+import type { ReaderSettings, FontFamily, ParagraphSpacing, Theme } from "../types";
 import { resolveFontCss } from "../lib/reader-settings";
 import type { SnapshotStorageStats } from "../lib/snapshots";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
@@ -17,11 +17,6 @@ const SPACING_OPTIONS: { value: ParagraphSpacing; label: string }[] = [
   { value: "compact", label: "Compact" },
   { value: "comfortable", label: "Comfortable" },
   { value: "spacious", label: "Spacious" },
-];
-
-const PRINT_LAYOUT_OPTIONS: { value: PrintLayout; label: string }[] = [
-  { value: "standard", label: "Standard" },
-  { value: "book", label: "Book" },
 ];
 
 const THEME_SWATCHES: { value: Theme; label: string; bg: string; border: string; checkDark: boolean }[] = [
@@ -52,7 +47,6 @@ interface ReaderControlsProps {
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   settings: ReaderSettings;
   theme: Theme;
-  fileType?: "markdown" | "fountain";
   onSetTheme: (theme: Theme) => void;
   onUpdate: (updates: Partial<ReaderSettings>) => void;
   onReset: () => void;
@@ -69,7 +63,6 @@ function ReaderControlsComponent({
   triggerRef,
   settings,
   theme,
-  fileType,
   onSetTheme,
   onUpdate,
   onReset,
@@ -232,29 +225,6 @@ function ReaderControlsComponent({
         </div>
       </div>
 
-      {fileType !== "fountain" && (
-        <div className="mt-3 pt-3 border-t border-border">
-          <span className="text-xs text-text-secondary block mb-1.5">Print layout</span>
-          <div className="flex gap-1" role="group" aria-label="Print layout">
-            {PRINT_LAYOUT_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onUpdate({ printLayout: opt.value })}
-                aria-pressed={settings.printLayout === opt.value}
-                className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
-                  settings.printLayout === opt.value
-                    ? "bg-accent text-white font-medium"
-                    : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="mt-3 pt-3 border-t border-border space-y-2">
         <ToggleRow
           label="Scene lens"
@@ -266,13 +236,6 @@ function ReaderControlsComponent({
           checked={settings.reducedEffects}
           onToggle={() => onUpdate({ reducedEffects: !settings.reducedEffects })}
         />
-        {fileType !== "fountain" && (
-          <ToggleRow
-            label="Print with theme"
-            checked={settings.printWithTheme}
-            onToggle={() => onUpdate({ printWithTheme: !settings.printWithTheme })}
-          />
-        )}
       </div>
 
       {/* Theme swatches */}

@@ -12,6 +12,7 @@ mod file_watcher;
 mod images;
 mod native_lifecycle;
 mod navigation;
+mod printing;
 mod snapshots;
 #[cfg(test)]
 mod test_support;
@@ -70,6 +71,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::clone(&pending_open_path))
         .invoke_handler(tauri::generate_handler![
+            printing::print_current_webview,
             read_markdown_file,
             open_markdown_file,
             write_markdown_file_if_unmodified,

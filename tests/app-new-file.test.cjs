@@ -5,7 +5,7 @@ const React = require("react");
 const { act } = React;
 const { undo } = require("@codemirror/commands");
 const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
-const { emit } = require("@tauri-apps/api/event");
+const { emit, TauriEvent } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
@@ -1332,6 +1332,9 @@ async function renderContinuityApp({
   initialOpenOperation = null,
   initialSessionOperation = null,
   workspaceFiles = [],
+  storedReaderSettings = null,
+  themeRead = null,
+  settingsRead = null,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1373,6 +1376,7 @@ async function renderContinuityApp({
   const fileWrites = [];
   let windowCloseCount = 0;
   let windowDestroyCount = 0;
+  let guardedExitCount = 0;
   let documentSnapshotListCount = 0;
   let snapshotWriteError = null;
   let snapshotListError = null;
@@ -1386,6 +1390,9 @@ async function renderContinuityApp({
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [[], true];
+        if (args.key === "theme" && themeRead) return themeRead;
+        if (args.key === "reader-settings" && settingsRead) return settingsRead;
+        if (args.key === "reader-settings" && storedReaderSettings) return [storedReaderSettings, true];
         if (args.key === "workspace:root" && workspaceFiles.length) return ["/tmp", true];
         if (args.key === `annotations:${canonicalPath}`) {
           return [{ highlights: storedHighlights, bookmarks: [], version: 2 }, true];
@@ -1412,6 +1419,9 @@ async function renderContinuityApp({
         // The Tauri API destroys the window when a close request goes
         // unprevented; count it so tests can catch a close-guard escape.
         windowDestroyCount += 1;
+        return null;
+      case "exit_after_guarded_quit":
+        guardedExitCount += 1;
         return null;
       case "plugin:dialog|open":
         if (deferredOpenDialog) {
@@ -1631,6 +1641,7 @@ async function renderContinuityApp({
     fileWrites: () => [...fileWrites],
     windowCloseCount: () => windowCloseCount,
     windowDestroyCount: () => windowDestroyCount,
+    guardedExitCount: () => guardedExitCount,
     documentSnapshotListCount: () => documentSnapshotListCount,
     failNextSnapshotWrite(error) { snapshotWriteError = error; },
     failNextSnapshotList(error) { snapshotListError = error; },
@@ -1752,6 +1763,162 @@ test("read-only Markdown document offers Save As and adopts the writable copy", 
   } finally {
     await rendered.cleanup();
   }
+});
+
+// All documents, IPC, and print invocations in these regressions are in memory.
+async function renderPrintApp(t, options) {
+  const preparation = require("../.tmp/workspace-tests/src/lib/print-export.js");
+  const pending = [];
+  t.mock.method(preparation, "preparePrintDocument", ({ root }) => {
+    const operation = deferred();
+    pending.push({ ...operation, root });
+    return operation.promise;
+  });
+  const rendered = await renderContinuityApp(options);
+  const originalPrint = window.print;
+  const print = t.mock.fn(() => {});
+  window.print = print;
+  t.after(async () => {
+    if (rendered.host.isConnected) await rendered.cleanup();
+    window.print = originalPrint;
+  });
+  return { ...rendered, pending, print };
+}
+
+test("print admits one preparation and restores the reader after the dialog", async (t) => {
+  const view = await renderPrintApp(t);
+  view.print.mock.mockImplementation(() => window.dispatchEvent(new window.Event("beforeprint")));
+  await act(async () => {
+    dispatchShortcut("p");
+    dispatchShortcut("p");
+  });
+  assert.equal(view.pending.length, 1);
+  assert.match(view.host.querySelector(".print-status").textContent, /Preparing print/);
+  assert.ok(view.host.querySelector(".markdown-body"));
+  assert.equal(view.print.mock.callCount(), 0);
+
+  await act(async () => view.pending[0].resolve());
+  assert.equal(view.print.mock.callCount(), 1);
+  assert.match(view.host.querySelector(".print-status").textContent, /Print dialog requested/);
+  await act(async () => {
+    dispatchShortcut("p");
+    window.dispatchEvent(new window.Event("afterprint"));
+  });
+  assert.equal(view.pending.length, 1);
+  assert.equal(document.body.hasAttribute("data-printing"), false);
+  assert.ok(view.host.querySelector(".print-status") === null);
+  assert.ok(view.host.querySelector('[aria-label="Export options"]'));
+  assert.equal(view.diskContent(), "# First\n\nOpening words.\n\n## Second\n\nClosing words.");
+});
+
+test("a browser-initiated print supersedes pending preparation without a second invocation", async (t) => {
+  const view = await renderPrintApp(t);
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => window.dispatchEvent(new window.Event("beforeprint")));
+  await act(async () => view.pending[0].resolve());
+  assert.equal(view.print.mock.callCount(), 0);
+  await act(async () => window.dispatchEvent(new window.Event("afterprint")));
+  assert.equal(document.body.hasAttribute("data-printing"), false);
+});
+
+for (const change of ["document", "content", "editor", "unmount"]) {
+  test(`pending print cannot continue after a ${change} change`, async (t) => {
+    const view = await renderPrintApp(t);
+    await act(async () => dispatchShortcut("p"));
+    if (change === "document" || change === "content") {
+      view.setDiskContent("# Replacement document");
+      view.setPendingNativeOpenPath(change === "document" ? "/tmp/replacement.md" : "/tmp/continuity.md");
+      await act(async () => emit("bindars://native-open-available"));
+      await waitFor(() => assert.ok(view.host.querySelector("#replacement-document")));
+    } else if (change === "editor") {
+      await act(async () => dispatchShortcut("e"));
+      await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    } else {
+      await view.cleanup();
+    }
+    await act(async () => view.pending[0].resolve());
+    assert.equal(view.print.mock.callCount(), 0);
+    assert.equal(document.body.hasAttribute("data-printing"), false);
+  });
+}
+
+for (const completion of ["resolve", "reject"]) {
+  test(`canceled print's late ${completion} cannot invoke print or clear a newer session`, async (t) => {
+    const view = await renderPrintApp(t);
+    await act(async () => dispatchShortcut("p"));
+    await act(async () => clickButton(view.host, "Cancel", view.host.querySelector(".print-status")));
+    assert.ok(document.activeElement === view.host.querySelector("main"));
+    assert.equal(document.body.hasAttribute("data-printing"), false);
+    await act(async () => dispatchShortcut("p"));
+    assert.equal(view.pending.length, 2);
+    await act(async () => view.pending[0][completion](new Error("Old preparation failed")));
+    assert.equal(view.print.mock.callCount(), 0);
+    assert.equal(document.body.hasAttribute("data-printing"), true);
+    assert.doesNotMatch(view.host.textContent, /Couldn't print document/);
+    await act(async () => view.pending[1].resolve());
+    assert.equal(view.print.mock.callCount(), 1);
+  });
+}
+
+for (const failure of ["preparation", "native invocation"]) {
+  test(`print ${failure} failure is announced, restores the reader, and permits retry`, async (t) => {
+    const view = await renderPrintApp(t);
+    if (failure === "native invocation") {
+      // Matches macOS Tauri's promise-returning window.print bridge.
+      view.print.mock.mockImplementation(() => {
+        window.dispatchEvent(new window.Event("beforeprint"));
+        return Promise.reject(new Error("Print IPC rejected"));
+      });
+    }
+    await act(async () => dispatchShortcut("p"));
+    await act(async () => {
+      if (failure === "preparation") view.pending[0].reject(new Error("Preparation failed"));
+      else view.pending[0].resolve();
+    });
+    assert.equal(document.body.hasAttribute("data-printing"), false);
+    assert.ok(view.host.querySelector('[aria-label="Export options"]'));
+    assert.match(view.host.textContent, /Couldn't print document/);
+    view.print.mock.mockImplementation(() => {});
+    await act(async () => dispatchShortcut("p"));
+    await act(async () => view.pending[1].resolve());
+    assert.equal(view.print.mock.callCount(), failure === "preparation" ? 1 : 2);
+  });
+}
+
+test("print fallback invalidates preparation so a late completion cannot print", async (t) => {
+  const preparation = require("../.tmp/workspace-tests/src/lib/print-export.js");
+  let timeoutCleanup;
+  t.mock.method(preparation, "createPrintCleanupController", (cleanup) => {
+    timeoutCleanup = cleanup;
+    return { arm() {}, disarm() {} };
+  });
+  const view = await renderPrintApp(t);
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => timeoutCleanup());
+  await act(async () => view.pending[0].resolve());
+  assert.equal(view.print.mock.callCount(), 0);
+  assert.equal(document.body.hasAttribute("data-printing"), false);
+});
+
+test("obsolete print settings do not affect Markdown or Fountain printing", async (t) => {
+  const view = await renderPrintApp(t, {
+    storedReaderSettings: { printWithTheme: true, printLayout: "book" },
+  });
+  for (const path of ["/tmp/continuity.md", "/tmp/screenplay.fountain"]) {
+    if (path.endsWith(".fountain")) {
+      view.setDiskContent("Title: Script\n\nINT. ROOM - DAY\n\nA quiet room.");
+      view.setPendingNativeOpenPath(path);
+      await act(async () => emit("bindars://native-open-available"));
+      await waitFor(() => assert.ok(view.host.querySelector(".fountain-body")));
+    }
+    await act(async () => dispatchShortcut("p"));
+    assert.equal(document.body.getAttribute("data-printing"), "true");
+    assert.equal(document.body.hasAttribute("data-print-themed"), false);
+    assert.equal(document.body.hasAttribute("data-print-layout"), false);
+    await act(async () => view.pending.at(-1).resolve());
+    await act(async () => window.dispatchEvent(new window.Event("afterprint")));
+  }
+  assert.equal(view.print.mock.callCount(), 2);
 });
 
 test("oversized Markdown keeps exact editing and print available without entering presentation", async () => {
@@ -4653,4 +4820,168 @@ test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", 
     assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 0);
     assert.ok(document.activeElement === opener);
   } finally { await rendered.cleanup(); }
+});
+
+async function renderNativePrintApp(t, options) {
+  const invocation = require("../.tmp/workspace-tests/src/lib/print-invocation.js");
+  const operation = deferred();
+  t.mock.method(invocation, "hasNativePrintCompletion", () => true);
+  const invoke = t.mock.method(invocation, "invokePrint", () => operation.promise);
+  await installDom();
+  const originalMatchMedia = window.matchMedia.bind(window);
+  const media = new window.EventTarget();
+  media.matches = false;
+  t.mock.method(window, "matchMedia", (query) => query === "print" ? media : originalMatchMedia(query));
+  const view = await renderPrintApp(t, options);
+  t.after(async () => {
+    media.matches = false;
+    await act(async () => {
+      operation.resolve();
+      window.dispatchEvent(new window.Event("afterprint"));
+    });
+  });
+  return { ...view, operation, invoke, media };
+}
+
+for (const browserEvents of [true, false]) {
+  test(`native printing waits for both completion and media exit (browser events: ${browserEvents})`, async (t) => {
+    const helpers = require("../.tmp/workspace-tests/src/lib/print-export.js");
+    const factory = helpers.createPrintCleanupController;
+    let checkpoint;
+    t.mock.method(helpers, "createPrintCleanupController", (cleanup) => factory(cleanup, 30_000,
+      (callback) => { checkpoint = callback; return 1; }, () => {}));
+    const view = await renderNativePrintApp(t);
+    await act(async () => dispatchShortcut("p"));
+    await act(async () => view.pending[0].resolve());
+    assert.equal(view.invoke.mock.callCount(), 1);
+    await act(async () => checkpoint());
+    assert.ok(view.host.querySelector("header") === null, "false media while IPC is pending is not completion");
+    view.media.matches = true;
+    if (browserEvents) await act(async () => window.dispatchEvent(new window.Event("beforeprint")));
+    await act(async () => {
+      checkpoint(); checkpoint();
+      window.dispatchEvent(new window.Event("afterprint"));
+      window.dispatchEvent(new window.Event("focus"));
+      dispatchShortcut("p");
+    });
+    assert.ok(view.host.querySelector("header") === null);
+    assert.equal(view.invoke.mock.callCount(), 1);
+    await act(async () => view.operation.resolve());
+    assert.ok(view.host.querySelector("header") === null, "native completion must not override active print media");
+    view.media.matches = false;
+    await act(async () => {
+      if (browserEvents) view.media.dispatchEvent(new window.Event("change"));
+      else checkpoint();
+    });
+    assert.ok(view.host.querySelector("header"));
+    assert.equal(document.body.hasAttribute("data-printing"), false);
+  });
+}
+
+test("native setup errors recover without browser events and allow retry", async (t) => {
+  const view = await renderNativePrintApp(t);
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  await act(async () => view.operation.reject(new Error("No native window")));
+  assert.ok(view.host.querySelector("header"));
+  assert.match(view.host.textContent, /Couldn't print document/);
+  view.invoke.mock.mockImplementation(() => Promise.resolve());
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[1].resolve());
+  assert.equal(view.invoke.mock.callCount(), 2);
+  assert.ok(view.host.querySelector("header"));
+});
+
+test("print protects the reader from shortcuts, native opens, close and watcher reloads", async (t) => {
+  const view = await renderNativePrintApp(t);
+  const original = view.host.querySelector("article").textContent;
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  await act(async () => {
+    dispatchShortcut("e"); dispatchShortcut("n");
+    dispatchShortcut("t", { shiftKey: true });
+    dispatchWindowKey("F5");
+    view.setPendingNativeOpenPath("/tmp/other.md");
+    await emit("bindars://native-open-available");
+    await emit(TauriEvent.WINDOW_CLOSE_REQUESTED);
+    view.setDiskContent("# Changed during printing");
+    await emit("file-changed", { path: "/tmp/continuity.md" });
+    await waitForReconciliationWindow();
+  });
+  assert.ok(view.host.querySelector("header") === null);
+  assert.ok(view.host.querySelector(".cm-editor") === null);
+  assert.ok(view.host.querySelector(".presentation-overlay") === null);
+  assert.equal(view.host.querySelector("article").textContent, original);
+  assert.equal(view.windowCloseCount(), 0);
+  assert.equal(view.windowDestroyCount(), 0);
+  assert.match(view.host.textContent, /Close the print dialog/);
+  await act(async () => view.operation.resolve());
+  await waitFor(() => assert.ok(view.host.querySelector("#changed-during-printing")));
+  assert.ok(view.host.querySelector("header"));
+});
+
+test("a native quit request still exits through the guard while a print is invoked", async (t) => {
+  const view = await renderNativePrintApp(t);
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  assert.ok(view.host.querySelector("header") === null);
+  await act(async () => emit("bindars://quit-requested"));
+  await waitFor(() => assert.equal(view.guardedExitCount(), 1));
+  assert.equal(view.windowDestroyCount(), 0);
+  assert.doesNotMatch(view.host.textContent, /Try quitting again/);
+  // The mocked exit does not terminate, so the print session itself is untouched.
+  assert.ok(view.host.querySelector("header") === null);
+  assert.equal(document.body.getAttribute("data-printing"), "true");
+});
+
+test("an already running watcher probe cannot replace the printed reader", async (t) => {
+  const view = await renderNativePrintApp(t);
+  const probe = deferred();
+  view.deferNextOpen(probe);
+  await act(async () => {
+    await emit("file-changed", { path: "/tmp/continuity.md" });
+    await waitForReconciliationWindow();
+  });
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  view.setDiskContent("# Delayed reload");
+  await act(async () => probe.resolve(view.openResult("# Delayed reload", 2)));
+  assert.ok(view.host.querySelector("#first"));
+  assert.ok(view.host.querySelector("header") === null);
+  await act(async () => view.operation.resolve());
+  await waitFor(() => assert.ok(view.host.querySelector("#delayed-reload")));
+});
+
+test("late theme and settings hydration wait until printing ends", async (t) => {
+  const theme = deferred();
+  const settings = deferred();
+  const view = await renderNativePrintApp(t, { themeRead: theme.promise, settingsRead: settings.promise });
+  const originalTheme = document.documentElement.getAttribute("data-theme");
+  const originalStyle = view.host.querySelector("main").getAttribute("style");
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  await act(async () => {
+    theme.resolve(["dark", true]);
+    settings.resolve([{ fontSize: 24 }, true]);
+  });
+  assert.equal(document.documentElement.getAttribute("data-theme"), originalTheme);
+  assert.equal(view.host.querySelector("main").getAttribute("style"), originalStyle);
+  assert.ok(view.host.querySelector("header") === null);
+  await act(async () => view.operation.resolve());
+  assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
+  assert.ok(view.host.querySelector("header"));
+});
+
+test("unmount does not release native ownership before operation and media end", async (t) => {
+  const view = await renderNativePrintApp(t);
+  await act(async () => dispatchShortcut("p"));
+  await act(async () => view.pending[0].resolve());
+  view.media.matches = true;
+  await view.cleanup();
+  assert.equal(document.body.getAttribute("data-printing"), "true");
+  await act(async () => view.operation.resolve());
+  assert.equal(document.body.getAttribute("data-printing"), "true");
+  view.media.matches = false;
+  await act(async () => view.media.dispatchEvent(new window.Event("change")));
+  assert.equal(document.body.hasAttribute("data-printing"), false);
 });

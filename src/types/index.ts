@@ -15,7 +15,6 @@ export type FontFamily =
   | "atkinson"
   | "opendyslexic";
 export type ParagraphSpacing = "compact" | "comfortable" | "spacious";
-export type PrintLayout = "standard" | "book";
 
 export interface ReaderSettings {
   fontSize: number;
@@ -25,8 +24,6 @@ export interface ReaderSettings {
   paragraphSpacing: ParagraphSpacing;
   sceneLensEnabled: boolean;
   reducedEffects: boolean;
-  printLayout: PrintLayout;
-  printWithTheme: boolean;
 }
 
 export interface RecentFile {

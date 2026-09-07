@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
+import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -71,8 +72,8 @@ import type { PendingAction, RetryablePendingAction } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
 import { findAnchor, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
-import { applyPrintState } from "./lib/print-state";
 import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
+import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
 import { storeGet, storeSet } from "./lib/store";
 import { signalAppReady } from "./lib/app-ready";
@@ -213,8 +214,14 @@ function survivingEditorSource(
 }
 
 function App() {
-  const { theme, setTheme, cycleTheme } = useTheme();
-  const { settings, updateSettings, resetSettings } = useReaderSettings();
+  const [printPhase, setPrintPhase] = useState<"preparing" | "printing" | null>(null);
+  const printSessionRef = useRef<{ invoked: boolean; nativePending: boolean } | null>(null);
+  const printMountedRef = useRef(true);
+  const printDisposeRef = useRef<(() => void) | null>(null);
+  const isPrintInvoked = useCallback(() => Boolean(printSessionRef.current?.invoked), []);
+  const printPause = { paused: printPhase === "printing", isPaused: isPrintInvoked };
+  const { theme, setTheme, cycleTheme } = useTheme(printPause);
+  const { settings, updateSettings, resetSettings } = useReaderSettings(printPause);
   const markdownFormatting = useMarkdownFormatting();
   const markdownFormattingEnabled = markdownFormatting.loaded && markdownFormatting.enabled;
   const {
@@ -326,7 +333,7 @@ function App() {
   const [restoreDialog, setRestoreDialog] = useState<RestoreDialogState | null>(null);
   const [restoringSnapshotId, setRestoringSnapshotId] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [printing, setPrinting] = useState(false);
+  const printing = printPhase !== null;
   const [presentationMode, setPresentationMode] = useState(false);
   const [actionAdmissionInFlight, setActionAdmissionInFlight] = useState(false);
   const [documentTransitionInFlight, setDocumentTransitionInFlight] = useState(false);
@@ -389,7 +396,6 @@ function App() {
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
-  const appRootRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
   const activeHeadingIdRef = useRef<string | null>(null);
@@ -495,23 +501,16 @@ function App() {
     setShowConflictDialog(true);
   }, []);
 
-  const setPrintAttributes = useCallback(
-    (printing: boolean) => {
-      applyPrintState({
-        printing,
-        themed: settings.printWithTheme,
-        layout: settings.printLayout,
-        targets: [document.body, appRootRef.current],
-      });
-    },
-    [settings.printLayout, settings.printWithTheme],
-  );
-
   const clearPrintSession = useCallback(() => {
+    if (printSessionRef.current?.nativePending || window.matchMedia?.("print").matches) return false;
+    printSessionRef.current = null;
     printCleanupControllerRef.current?.disarm();
-    setPrinting(false);
-    setPrintAttributes(false);
-  }, [setPrintAttributes]);
+    if (printMountedRef.current) setPrintPhase(null);
+    document.body.removeAttribute("data-printing");
+    printDisposeRef.current?.();
+    printDisposeRef.current = null;
+    return true;
+  }, []);
 
   const armPrintCleanup = useCallback(() => {
     if (!printCleanupControllerRef.current) {
@@ -521,19 +520,49 @@ function App() {
   }, [clearPrintSession]);
 
   const handlePrint = useCallback(async () => {
-    setPrintAttributes(true);
-    setPrinting(true);
+    const root = contentRef.current;
+    if (printSessionRef.current || !root || !isDocumentOpen(content)
+      || editing || loading || presentationMode || documentTransitionInFlight) return;
+
+    const session = { invoked: false, nativePending: false };
+    printSessionRef.current = session;
+    document.body.setAttribute("data-printing", "true");
+    setPrintPhase("preparing");
     armPrintCleanup();
 
     try {
-      await preparePrintDocument({ root: contentRef.current });
-      window.print();
+      await preparePrintDocument({ root });
+      // Preparation belongs to this exact reader, even if a later operation
+      // has already published a new document or entered the editor.
+      if (printSessionRef.current !== session) return;
+      if (contentRef.current !== root || !root.isConnected || editingRef.current
+        || loadedContentRef.current !== content || currentFilePathRef.current !== filePath) {
+        clearPrintSession();
+        return;
+      }
+      const nativeCompletion = hasNativePrintCompletion();
+      session.invoked = true;
+      session.nativePending = nativeCompletion;
+      flushSync(() => setPrintPhase("printing"));
+      armPrintCleanup();
+      await invokePrint(nativeCompletion);
+      if (printSessionRef.current !== session) return;
+      session.nativePending = false;
+      if (nativeCompletion) printCleanupControllerRef.current?.check();
     } catch (err) {
-      console.warn("[print] Failed to prepare document for print:", err);
-      clearPrintSession();
-      toast("Couldn't prepare document for print.", "error");
+      if (printSessionRef.current !== session) return;
+      session.nativePending = false;
+      console.warn("[print] Failed to print document:", err);
+      printCleanupControllerRef.current?.check();
+      if (printMountedRef.current) toast("Couldn't print document. Please try again.", "error");
     }
-  }, [armPrintCleanup, clearPrintSession, setPrintAttributes, toast]);
+  }, [armPrintCleanup, clearPrintSession, content, filePath, editing, loading,
+    presentationMode, documentTransitionInFlight, toast]);
+
+  // Invalidate pending preparation before a changed reader can be printed.
+  useLayoutEffect(() => {
+    if (!printSessionRef.current?.invoked) clearPrintSession();
+  }, [content, filePath, fileType, editing, loading, presentationMode, documentTransitionInFlight, settings, theme, clearPrintSession]);
 
   const saveCurrentEdits = useCallback(async (
     options: SaveCurrentEditsOptions = {},
@@ -620,7 +649,7 @@ function App() {
       publishedRevision: published.fileRevision,
       ownershipToken: `${ownership.generation}:${nextActionAdmissionIdRef.current}:${editorSessionKeyRef.current}`,
       userOpenInFlight: ownership.userOpenInFlight,
-      guardedActionInFlight: actionAdmissionOwnerRef.current !== null,
+      guardedActionInFlight: actionAdmissionOwnerRef.current !== null || isPrintInvoked(),
     };
 
     if (!editingRef.current) {
@@ -780,6 +809,9 @@ function App() {
   });
 
   useReconciliationLifecycle({ onSignal: scheduleReconciliation });
+  useEffect(() => {
+    if (printPhase === null) resumeDeferredReconciliation();
+  }, [printPhase, resumeDeferredReconciliation]);
 
   const loadRecoveryStorageStats = useCallback(async (): Promise<void> => {
     const request = recoveryStorageStatsRequestRef.current + 1;
@@ -1133,6 +1165,7 @@ function App() {
   }, [editing, exitEditMode, flushAndReadDirty, flushBeforeContinuation]);
 
   const toggleEditMode = useCallback(() => {
+    if (isPrintInvoked()) return;
     if (editing) {
       guardedExitEditMode();
     } else {
@@ -1142,6 +1175,11 @@ function App() {
 
   // Guard: run an action only if editor is clean, else flush pending autosave.
   const guardAction = useCallback((action: PendingAction): GuardAdmission => {
+    // Quit is the one action admitted during an invoked print. Cmd-Q arrives
+    // here from the native menu, not the keydown handler, and it is the only
+    // escape if native completion never arrives. The quit continuation still
+    // runs the unsaved-document decision and the snapshot drain.
+    if (isPrintInvoked() && action.kind !== "quit-app") return "busy";
     if (
       actionAdmissionOwnerRef.current !== null
       || pendingActionRef.current
@@ -1549,7 +1587,8 @@ function App() {
     const admission = guardAction({ kind: "open-file-path", path });
     if (admission === "busy") {
       toast(
-        "Bindars is finishing another file action. Try opening the file again in a moment.",
+        isPrintInvoked() ? "Close the print dialog, then try opening the file again."
+          : "Bindars is finishing another file action. Try opening the file again in a moment.",
         "error",
       );
     }
@@ -1589,6 +1628,7 @@ function App() {
     let unlisten: (() => void) | null = null;
 
     const handleCloseRequest = (event: { preventDefault: () => void }) => {
+      if (isPrintInvoked()) { event.preventDefault(); return; }
       const decision = decideNativeCloseRequest({
         closePolicy,
         programmaticCloseInFlight: isProgrammaticCloseRef.current,
@@ -2298,6 +2338,7 @@ function App() {
   }, []);
 
   const enterPresentation = useCallback(() => {
+    if (isPrintInvoked()) return;
     if (
       actionAdmissionOwnerRef.current !== null
       || !isDocumentOpen(content)
@@ -2497,6 +2538,13 @@ function App() {
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return;
+    // Native sheet events do not enter the webview. While pagination owns this
+    // reader, skip app shortcuts but let system keys such as Cmd-Q through;
+    // only a second Cmd/Ctrl-P must lose its default action.
+    if (isPrintInvoked()) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") e.preventDefault();
+      return;
+    }
     if (showConfirmDialog || showConflictDialog || showClearRecoveryDialog || restoreDialog) return;
     if (isImeCompositionKey(e)) return;
 
@@ -2740,22 +2788,50 @@ function App() {
     return () => window.removeEventListener("keydown", stableKeyDownHandler);
   }, []);
 
-  // Toggle print attributes on body + app root to isolate print rendering from app chrome.
+  // All signals request the same guarded cleanup; no event can bypass active
+  // print media or a native request still waiting for its completion callback.
   useEffect(() => {
+    printMountedRef.current = true;
+    const media = window.matchMedia?.("print");
     const beforePrint = () => {
-      setPrintAttributes(true);
-      setPrinting(true);
+      if (!printSessionRef.current?.invoked) {
+        printSessionRef.current = { invoked: true, nativePending: false };
+      }
+      document.body.setAttribute("data-printing", "true");
+      flushSync(() => setPrintPhase("printing"));
       armPrintCleanup();
     };
-    const afterPrint = () => clearPrintSession();
-    window.addEventListener("beforeprint", beforePrint);
-    window.addEventListener("afterprint", afterPrint);
-    return () => {
-      clearPrintSession();
-      window.removeEventListener("beforeprint", beforePrint);
-      window.removeEventListener("afterprint", afterPrint);
+    const check = () => {
+      if (printSessionRef.current?.invoked) printCleanupControllerRef.current?.check();
     };
-  }, [armPrintCleanup, clearPrintSession, setPrintAttributes]);
+    const mediaChanged = () => {
+      if (media?.matches && !printSessionRef.current?.invoked) beforePrint();
+      else if (!media?.matches) check();
+    };
+    const detach = () => {
+      window.removeEventListener("afterprint", check);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      media?.removeEventListener("change", mediaChanged);
+    };
+    window.addEventListener("beforeprint", beforePrint);
+    window.addEventListener("afterprint", check);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    media?.addEventListener("change", mediaChanged);
+    return () => {
+      printMountedRef.current = false;
+      window.removeEventListener("beforeprint", beforePrint);
+      if (printSessionRef.current?.invoked) {
+        // The native operation outlives React teardown. Retain only recovery
+        // listeners until it ends; never update unmounted React state.
+        printDisposeRef.current = detach;
+      } else {
+        detach();
+        clearPrintSession();
+      }
+    };
+  }, [armPrintCleanup, clearPrintSession]);
 
   // Signal app readiness once session restore and recent files are loaded
   const appReady = sessionRestored && recentFilesLoaded;
@@ -2768,7 +2844,6 @@ function App() {
 
   return (
     <div
-      ref={appRootRef}
       className={`h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${settings.reducedEffects ? "reduced-effects" : ""}`}
       style={
         {
@@ -2777,6 +2852,18 @@ function App() {
         } as CSSProperties
       }
     >
+      {printing && (
+        <div className="print-status">
+          <span role="status">{printPhase === "preparing" ? "Preparing print…" : "Print dialog requested"}</span>
+          {printPhase === "preparing" && (
+            <button type="button" onClick={() => {
+              clearPrintSession();
+              mainScrollRef.current?.focus({ preventScroll: true });
+            }}>Cancel</button>
+          )}
+        </div>
+      )}
+
       {!focusMode && !printing && !presentationMode && (
         <Header
           fileName={fileName}
@@ -3002,7 +3089,6 @@ function App() {
             triggerRef={readerControlsTriggerRef}
             settings={settings}
             theme={theme}
-            fileType={fileType}
             onSetTheme={setTheme}
             onUpdate={updateSettings}
             onReset={resetSettings}

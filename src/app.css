@@ -1304,14 +1304,31 @@ body[data-printing] .print-hide {
   display: none !important;
 }
 
-/* Fixed overlay masks app chrome during the handoff into the native print dialog. */
-body[data-printing]::before {
-  content: "";
+/* Keep the document visible while preparing; this status never prints. */
+.print-status {
   position: fixed;
-  inset: 0;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 99999;
-  background: var(--bg-primary);
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.print-status button {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.print-status button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 /* ── Print stylesheet ── */
@@ -1333,7 +1350,7 @@ body[data-printing]::before {
     overflow: visible !important;
   }
 
-  body::before {
+  .print-status {
     display: none !important;
   }
 
@@ -1359,32 +1376,18 @@ body[data-printing]::before {
     display: block !important;
   }
 
-  body[data-printing] .reading-surface {
+  /* Print colors must survive cleanup of the temporary print session. */
+  .reading-surface {
     background: white !important;
     background-image: none !important;
   }
 
-  /* Keep printable surface neutral unless themed print is explicitly enabled. */
-  body[data-printing] #root,
-  body[data-printing] #root > div,
-  body[data-printing] .reading-surface {
+  /* Keep the printable surface neutral. */
+  #root,
+  #root > div,
+  .reading-surface {
     background-color: white !important;
     color: black !important;
-  }
-
-  /* When print-with-theme is active, preserve theme colors */
-  body[data-printing][data-print-themed] {
-    background: var(--bg-primary) !important;
-    color: var(--text-primary) !important;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-  }
-
-  body[data-printing][data-print-themed] #root,
-  body[data-printing][data-print-themed] #root > div,
-  body[data-printing][data-print-themed] .reading-surface {
-    background: var(--bg-primary) !important;
-    color: var(--text-primary) !important;
   }
 
   /* Hide all chrome */
@@ -1403,7 +1406,7 @@ body[data-printing]::before {
     position: static !important;
   }
 
-  /* ── Frontmatter: standard layout is compact and continuous ── */
+  /* ── Frontmatter: compact and continuous ── */
   .frontmatter-header {
     page-break-after: auto;
     min-height: auto;
@@ -1413,35 +1416,15 @@ body[data-printing]::before {
     margin-bottom: 0.8cm !important;
   }
 
-  /* Book layout retains title-page behavior and section pagination. */
-  body[data-printing][data-print-layout="book"] .frontmatter-header {
-    page-break-after: always;
-    min-height: 170mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border-bottom: none !important;
-    padding-bottom: 0 !important;
-    margin-bottom: 0 !important;
-  }
-
   .frontmatter-title {
     font-size: 28pt !important;
     color: black !important;
     letter-spacing: -0.02em;
   }
 
-  body[data-printing][data-print-themed] .frontmatter-title {
-    color: var(--text-primary) !important;
-  }
-
   .frontmatter-meta {
     font-size: 14pt !important;
     color: #444 !important;
-  }
-
-  body[data-printing][data-print-themed] .frontmatter-meta {
-    color: var(--text-secondary) !important;
   }
 
   .frontmatter-description {
@@ -1450,19 +1433,10 @@ body[data-printing]::before {
     margin-top: 1em;
   }
 
-  body[data-printing][data-print-themed] .frontmatter-description {
-    color: var(--text-secondary) !important;
-  }
-
   .frontmatter-tag {
     background: none !important;
     border: 1px solid #ccc;
     color: #333 !important;
-  }
-
-  body[data-printing][data-print-themed] .frontmatter-tag {
-    border-color: var(--border) !important;
-    color: var(--accent) !important;
   }
 
   /* ── Body typography ── */
@@ -1476,10 +1450,6 @@ body[data-printing]::before {
     hyphens: auto;
     hanging-punctuation: first;
     text-rendering: optimizeLegibility;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body {
-    color: var(--text-primary) !important;
   }
 
   /* Widow/orphan control */
@@ -1523,15 +1493,6 @@ body[data-printing]::before {
     font-weight: 600 !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body h1,
-  body[data-printing][data-print-themed] .markdown-body h2,
-  body[data-printing][data-print-themed] .markdown-body h3,
-  body[data-printing][data-print-themed] .markdown-body h4,
-  body[data-printing][data-print-themed] .markdown-body h5,
-  body[data-printing][data-print-themed] .markdown-body h6 {
-    color: var(--text-primary) !important;
-  }
-
   .markdown-body h1:not(.frontmatter-title) {
     font-size: 22pt !important;
     margin-top: 2cm !important;
@@ -1543,25 +1504,9 @@ body[data-printing]::before {
     break-before: auto;
   }
 
-  body[data-printing][data-print-layout="book"] .markdown-body h2 {
-    page-break-before: always;
-    break-before: page;
-  }
-
-  /* In book mode, frontmatter already breaks to a new page. */
-  body[data-printing][data-print-layout="book"] .markdown-body .frontmatter-header ~ h2:first-of-type {
-    page-break-before: auto;
-    break-before: auto;
-  }
-
   .markdown-body h1,
   .markdown-body h2 {
     border-bottom-color: #999 !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body h1,
-  body[data-printing][data-print-themed] .markdown-body h2 {
-    border-bottom-color: var(--border) !important;
   }
 
   .markdown-body h3 {
@@ -1582,10 +1527,6 @@ body[data-printing]::before {
     color: #555 !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body h6 {
-    color: var(--text-secondary) !important;
-  }
-
   /* ── Code blocks ── */
   .markdown-body pre {
     font-size: 9pt !important;
@@ -1598,55 +1539,49 @@ body[data-printing]::before {
     page-break-inside: avoid;
   }
 
-  body[data-printing][data-print-themed] .markdown-body pre {
-    background: var(--bg-tertiary) !important;
-    border-color: var(--border) !important;
-    border-left-color: var(--accent) !important;
-  }
-
-  /* Force github-light hljs colors in standard (non-themed) print */
-  body:not([data-print-themed]) .hljs {
+  /* Keep syntax colors readable on white paper. */
+  .hljs {
     color: #24292e !important;
   }
 
-  body:not([data-print-themed]) .hljs-keyword,
-  body:not([data-print-themed]) .hljs-selector-tag,
-  body:not([data-print-themed]) .hljs-type {
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-type {
     color: #d73a49 !important;
   }
 
-  body:not([data-print-themed]) .hljs-built_in,
-  body:not([data-print-themed]) .hljs-title,
-  body:not([data-print-themed]) .hljs-section {
+  .hljs-built_in,
+  .hljs-title,
+  .hljs-section {
     color: #6f42c1 !important;
   }
 
-  body:not([data-print-themed]) .hljs-string,
-  body:not([data-print-themed]) .hljs-addition {
+  .hljs-string,
+  .hljs-addition {
     color: #032f62 !important;
   }
 
-  body:not([data-print-themed]) .hljs-comment,
-  body:not([data-print-themed]) .hljs-quote {
+  .hljs-comment,
+  .hljs-quote {
     color: #6a737d !important;
   }
 
-  body:not([data-print-themed]) .hljs-number,
-  body:not([data-print-themed]) .hljs-literal {
+  .hljs-number,
+  .hljs-literal {
     color: #005cc5 !important;
   }
 
-  body:not([data-print-themed]) .hljs-attr,
-  body:not([data-print-themed]) .hljs-attribute {
+  .hljs-attr,
+  .hljs-attribute {
     color: #005cc5 !important;
   }
 
-  body:not([data-print-themed]) .hljs-variable,
-  body:not([data-print-themed]) .hljs-template-variable {
+  .hljs-variable,
+  .hljs-template-variable {
     color: #e36209 !important;
   }
 
-  body:not([data-print-themed]) .hljs-deletion {
+  .hljs-deletion {
     color: #d73a49 !important;
   }
 
@@ -1658,11 +1593,6 @@ body[data-printing]::before {
     padding-left: 0.5cm !important;
     font-style: italic;
     color: #444 !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body blockquote {
-    border-left-color: var(--accent) !important;
-    color: var(--text-secondary) !important;
   }
 
   /* ── Tables ── */
@@ -1690,16 +1620,6 @@ body[data-printing]::before {
     color: black !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body th {
-    border-bottom-color: var(--text-primary) !important;
-    color: var(--text-primary) !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body td {
-    border-bottom-color: var(--border) !important;
-    color: var(--text-primary) !important;
-  }
-
   /* ── Images ── */
   .markdown-body img {
     page-break-inside: avoid;
@@ -1725,14 +1645,6 @@ body[data-printing]::before {
   .markdown-body a {
     color: black !important;
     text-decoration: underline !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body a {
-    color: var(--accent) !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body a[href^="http"]::after {
-    color: var(--text-muted) !important;
   }
 
   /* Hide copy buttons, language labels */
@@ -1763,10 +1675,6 @@ body[data-printing]::before {
     margin: 1.5em 0 !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body hr {
-    background: var(--border) !important;
-  }
-
   /* ── Inline code ── */
   .markdown-body code:not(pre code) {
     font-family: "Courier New", monospace !important;
@@ -1775,11 +1683,6 @@ body[data-printing]::before {
     padding: 0 !important;
     border-radius: 0 !important;
     color: black !important;
-  }
-
-  body[data-printing][data-print-themed] .markdown-body code:not(pre code) {
-    background: var(--code-bg) !important;
-    color: var(--text-primary) !important;
   }
 
   /* ── KaTeX math ── */
@@ -1800,10 +1703,6 @@ body[data-printing]::before {
     position: relative !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body input[type="checkbox"] {
-    border-color: var(--text-secondary) !important;
-  }
-
   .markdown-body input[type="checkbox"]:checked::after {
     content: "\2713";
     position: absolute;
@@ -1813,13 +1712,12 @@ body[data-printing]::before {
     color: #333;
   }
 
-  body[data-printing][data-print-themed] .markdown-body input[type="checkbox"]:checked::after {
-    color: var(--text-primary) !important;
-  }
-
   /* ── Mermaid diagrams ── */
+  /* SVGs retain their own palette, like images. Keep their matching backdrop. */
   .mermaid-diagram {
-    background: none !important;
+    background: var(--bg-secondary) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
     page-break-inside: avoid;
   }
 
@@ -1834,11 +1732,6 @@ body[data-printing]::before {
     color: #333 !important;
   }
 
-  body[data-printing][data-print-themed] .markdown-body section.footnotes {
-    border-top-color: var(--border) !important;
-    color: var(--text-secondary) !important;
-  }
-
   /* ── Fountain: screenplay-standard print formatting ── */
   .fountain-body {
     max-width: none !important;
@@ -1851,6 +1744,17 @@ body[data-printing]::before {
     font-family: "Courier New", Courier, monospace !important;
     font-size: 12pt !important;
     line-height: 1.0 !important;
+  }
+
+  .fountain-title,
+  .fountain-author {
+    color: black !important;
+  }
+
+  .fountain-credit,
+  .fountain-draft-date,
+  .fountain-title-entry {
+    color: #444 !important;
   }
 
   .fountain-title-page {

@@ -16,6 +16,12 @@ const capabilities = JSON.parse(
   ),
 );
 
+test("the zero-margin macOS window.print bridge is not permitted", () => {
+  // macOS printing goes through print_current_webview. Without this grant a
+  // misdetected platform fails loudly instead of silently printing without margins.
+  assert.equal(capabilities.permissions.includes("core:webview:allow-print"), false);
+});
+
 test("the close-request handler can complete both close steps", () => {
   assert.match(appSource, /\.onCloseRequested\(/);
   assert.ok(
@@ -80,4 +86,14 @@ test("hide-on-close is permitted without granting an unused show permission", ()
     !capabilities.permissions.includes("core:window:allow-show"),
     "window reveal is performed by native Rust handlers (Dock reopen and Finder-open while hidden), which do not pass through the webview capability gate",
   );
+});
+
+test("the custom print command uses the invoking webview without destination arguments", () => {
+  const native = fs.readFileSync(path.join(projectRoot, "src-tauri/src/printing.rs"), "utf8");
+  const registration = fs.readFileSync(path.join(projectRoot, "src-tauri/src/lib.rs"), "utf8");
+  assert.match(registration, /printing::print_current_webview/);
+  assert.match(native, /pub async fn print_current_webview\(webview: tauri::Webview\)/);
+  assert.match(native, /validate_caller\(webview\.label\(\), local\)/);
+  assert.deepEqual(capabilities.windows, ["main"]);
+  assert.equal(capabilities.remote, undefined);
 });

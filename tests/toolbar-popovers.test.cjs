@@ -15,8 +15,8 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 const defaults = {
   fontSize: 17, contentWidth: 65, lineHeight: 1.7, fontFamily: "newsreader",
-  paragraphSpacing: "comfortable", printLayout: "standard",
-  sceneLensEnabled: false, reducedEffects: false, printWithTheme: false,
+  paragraphSpacing: "comfortable",
+  sceneLensEnabled: false, reducedEffects: false,
 };
 
 function Toolbar({ modal = false, onAction = () => {}, ...headerOverrides }) {
@@ -338,7 +338,8 @@ test("reader: values announce only real changes, reset coalesces, and selected g
     const status = panel.querySelector('[role="status"]');
     assert.equal(status.textContent, "");
     assert.equal(status.getAttribute("aria-atomic"), "true");
-    for (const [label, selected] of [["Font", "Newsreader"], ["Paragraph spacing", "Comfortable"], ["Print layout", "Standard"]]) {
+    assert.doesNotMatch(panel.textContent, /Print layout|Print with theme/);
+    for (const [label, selected] of [["Font", "Newsreader"], ["Paragraph spacing", "Comfortable"]]) {
       const group = panel.querySelector(`[role="group"][aria-label="${label}"]`);
       assert.equal(group.querySelectorAll('[aria-pressed="true"]').length, 1);
       assert.equal(group.querySelector('[aria-pressed="true"]').textContent.trim(), selected);
