@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
@@ -13,6 +14,7 @@ const { FountainRenderer } = require("../.tmp/workspace-tests/src/components/Fou
 const { parseFountain } = require("../.tmp/workspace-tests/src/lib/fountain.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { buildWorkspaceDoc } = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
+const { extractFrontmatter } = require("../.tmp/workspace-tests/src/lib/frontmatter.js");
 
 const readerSettings = {
   fontSize: 18,
@@ -253,6 +255,16 @@ test("workspace heading IDs match the rendered SmartyPants slug pipeline", () =>
   ]) {
     assert.equal(indexedHeadingId(markdown), renderedHeadingId(markdown));
   }
+});
+
+test("the bundled welcome document renders its inline math example", () => {
+  const source = fs.readFileSync(new URL("../src/assets/welcome.md", import.meta.url), "utf8");
+  const { body } = extractFrontmatter(source);
+  const html = renderMarkdown(body);
+
+  assert.match(html, /Inline math like <span class="katex">/);
+  assert.doesNotMatch(html, /\$E = mc\^2\$/);
+  assert.equal((html.match(/class="katex"/g) || []).length, 2, "one inline and one display formula");
 });
 
 test("MarkdownRenderer does not serialize react-markdown node props", () => {
