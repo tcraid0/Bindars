@@ -139,3 +139,22 @@ test("extension variants merge into one character for stats and focus", () => {
   const html = renderBody("SARAH (INTO PHONE)\nHello?");
   assert.match(html, /data-character="SARAH">SARAH \(INTO PHONE\)</);
 });
+
+test("dual dialogue renders two columns with speaker attributes and degrades on stray markers", () => {
+  const pair = renderBody("BOB\nHi.\n\nCAROL^\n(soft)\nHey.\n\nDAN\nYo.");
+  assert.equal(
+    pair,
+    '<div class="fountain-dual-dialogue">'
+      + '<div class="fountain-dual-column"><p class="fountain-character" data-character="BOB">BOB</p><p class="fountain-dialogue" data-character="BOB">Hi.</p></div>'
+      + '<div class="fountain-dual-column"><p class="fountain-character" data-character="CAROL">CAROL</p><p class="fountain-parenthetical" data-character="CAROL">(soft)</p><p class="fountain-dialogue" data-character="CAROL">Hey.</p></div>'
+      + '</div>'
+      + '<p class="fountain-character" data-character="DAN">DAN</p><p class="fountain-dialogue" data-character="DAN">Yo.</p>',
+  );
+  // A caret with nothing before it has no partner: render the block normally.
+  assert.equal(
+    renderBody("BOB^\nHi."),
+    '<p class="fountain-character" data-character="BOB">BOB</p><p class="fountain-dialogue" data-character="BOB">Hi.</p>',
+  );
+  // Speaker tagging continues after the pair.
+  assert.match(renderBody("A\nOne.\n\nB^\nTwo.\n\nThree.\n\nC\nFour."), /data-character="C">Four\./);
+});

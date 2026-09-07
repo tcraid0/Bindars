@@ -376,51 +376,31 @@ function normalizeScenePrefix(prefix: string): ParsedSceneHeading["intExt"] {
   return null;
 }
 
-function normalizeSceneLocation(raw: string): string {
-  return raw.trim().replace(/^\.\s*/, "");
-}
-
-function stripForcedSceneHeadingDot(text: string): string {
-  return text.startsWith(".") ? text.slice(1).trimStart() : text;
-}
-
-export function isSceneHeadingText(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed.startsWith(".")) {
-    return stripForcedSceneHeadingDot(trimmed).length > 0;
-  }
-  return SCENE_HEADING_TEXT_RE.test(trimmed);
-}
-
+/**
+ * Whether a Markdown heading reads as a scene heading. Fountain files never
+ * use this: their scenes come from the parser, which also drops the forced
+ * leading dot, so only the INT/EXT/EST forms are recognized here.
+ */
 export function isMarkdownSceneHeadingText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.startsWith(".")) {
-    return false;
-  }
-  return isSceneHeadingText(trimmed);
+  return SCENE_HEADING_TEXT_RE.test(text.trim());
 }
 
 function splitSceneLocationAndTime(raw: string): Pick<ParsedSceneHeading, "location" | "timeOfDay"> {
   const trimmed = raw.trim();
   const dashIndex = trimmed.lastIndexOf(" - ");
   if (dashIndex === -1) {
-    return {
-      location: normalizeSceneLocation(trimmed),
-      timeOfDay: null,
-    };
+    return { location: trimmed, timeOfDay: null };
   }
 
   return {
-    location: normalizeSceneLocation(trimmed.slice(0, dashIndex)),
+    location: trimmed.slice(0, dashIndex).trim(),
     timeOfDay: trimmed.slice(dashIndex + 3).trim().toUpperCase() || null,
   };
 }
 
+/** Parse a scene heading token's text; forced-heading dots are already gone. */
 export function parseSceneHeading(text: string): ParsedSceneHeading {
-  const trimmed = stripForcedSceneHeadingDot(text.trim());
+  const trimmed = text.trim();
   const establishingMatch = ESTABLISHING_PREFIX_RE.exec(trimmed);
   if (establishingMatch) {
     const { location, timeOfDay } = splitSceneLocationAndTime(establishingMatch[1]);

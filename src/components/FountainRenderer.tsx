@@ -36,77 +36,58 @@ const FountainContent = memo(function FountainContent({
 }: {
   parsed: ParsedFountain;
 }) {
-  // Group tokens, collecting dual-dialogue blocks into paired arrays.
-  // Track current character name for data-character attributes.
-  type SingleGroup = { kind: "single"; token: FountainToken; index: number; sceneId?: string; sourceLine?: number; sourceColumn?: number; characterName?: string };
-  type DualGroup = { kind: "dual"; left: Array<FountainToken & { _charName?: string }>; right: Array<FountainToken & { _charName?: string }>; index: number };
+  // fountain-js wraps a dual pair as dual_dialogue_begin, the left block, a
+  // dialogue_begin tagged dual="right", the right block, dual_dialogue_end.
+  // Every other token renders on its own, tagged with the current speaker.
+  type Element = {
+    token: FountainToken;
+    index: number;
+    sceneId?: string;
+    sourceLine?: number;
+    sourceColumn?: number;
+    characterName?: string;
+  };
+  type Group =
+    | ({ kind: "single" } & Element)
+    | { kind: "dual"; left: Element[]; right: Element[]; index: number };
 
   const groups = useMemo(() => {
-    const result: Array<SingleGroup | DualGroup> = [];
-
+    const result: Group[] = [];
     let sceneIdx = 0;
-    let currentChar = "";
-    let i = 0;
-    while (i < parsed.tokens.length) {
-      const token = parsed.tokens[i];
+    let currentCharacter = "";
+    let dual: { kind: "dual"; left: Element[]; right: Element[]; index: number } | null = null;
+    let dualSide: "left" | "right" = "left";
+
+    parsed.tokens.forEach((token, index) => {
       if (token.type === "dual_dialogue_begin") {
-        // Collect tokens until dual_dialogue_end
-        i++;
-        const left: Array<FountainToken & { _charName?: string }> = [];
-        const right: Array<FountainToken & { _charName?: string }> = [];
-        let seenDual = false;
-        let dualChar = "";
-        while (i < parsed.tokens.length && parsed.tokens[i].type !== "dual_dialogue_end") {
-          const t = parsed.tokens[i];
-          if (t.type === "dialogue_begin") {
-            if (t.dual === "right") seenDual = true;
-            i++;
-            continue;
-          }
-          if (t.type === "dialogue_end") {
-            i++;
-            continue;
-          }
-          if (t.type === "character" && t.text) {
-            if (seenDual || t.dual === "right") {
-              dualChar = normalizeCharacterName(t.text);
-            } else {
-              currentChar = normalizeCharacterName(t.text);
-            }
-          }
-          if (t.dual === "right" || seenDual) {
-            seenDual = true;
-            right.push({ ...t, _charName: (t.type === "character" || t.type === "dialogue" || t.type === "parenthetical") ? (dualChar || undefined) : undefined });
-          } else {
-            left.push({ ...t, _charName: (t.type === "character" || t.type === "dialogue" || t.type === "parenthetical") ? (currentChar || undefined) : undefined });
-          }
-          i++;
-        }
-        result.push({ kind: "dual", left, right, index: i });
-        i++; // skip dual_dialogue_end
-      } else if (token.type === "scene_heading") {
-        const scene = parsed.scenes[sceneIdx];
-        sceneIdx++;
-        result.push({
-          kind: "single",
-          token,
-          index: i,
-          sceneId: scene?.id,
-          sourceLine: scene?.source?.line,
-          sourceColumn: scene?.source?.column,
-        });
-        i++;
-      } else {
-        if (token.type === "character" && token.text) {
-          currentChar = normalizeCharacterName(token.text);
-        }
-        const charName = (token.type === "character" || token.type === "dialogue" || token.type === "parenthetical")
-          ? (currentChar || undefined)
-          : undefined;
-        result.push({ kind: "single", token, index: i, characterName: charName });
-        i++;
+        dual = { kind: "dual", left: [], right: [], index };
+        dualSide = "left";
+        return;
       }
-    }
+      if (token.type === "dual_dialogue_end") {
+        if (dual) result.push(dual);
+        dual = null;
+        return;
+      }
+      if (token.type === "dialogue_begin" && token.dual === "right") dualSide = "right";
+      if (token.type === "character" && token.text) currentCharacter = normalizeCharacterName(token.text);
+
+      const element: Element = { token, index };
+      if (token.type === "scene_heading") {
+        const scene = parsed.scenes[sceneIdx];
+        sceneIdx += 1;
+        element.sceneId = scene?.id;
+        element.sourceLine = scene?.source?.line;
+        element.sourceColumn = scene?.source?.column;
+      } else if (SPEECH_TOKEN_TYPES.has(token.type) && currentCharacter) {
+        element.characterName = currentCharacter;
+      }
+
+      if (dual) dual[dualSide].push(element);
+      else result.push({ kind: "single", ...element });
+    });
+    // An unterminated pair still shows its content, in the left column.
+    if (dual) result.push(dual);
 
     return result;
   }, [parsed]);
@@ -121,32 +102,21 @@ const FountainContent = memo(function FountainContent({
           return (
             <div key={group.index} className="fountain-dual-dialogue">
               <div className="fountain-dual-column">
-                {group.left.map((t, j) => (
-                  <FountainElement key={j} token={t} characterName={t._charName} />
-                ))}
+                {group.left.map((element) => <FountainElement key={element.index} {...element} />)}
               </div>
               <div className="fountain-dual-column">
-                {group.right.map((t, j) => (
-                  <FountainElement key={j} token={t} characterName={t._charName} />
-                ))}
+                {group.right.map((element) => <FountainElement key={element.index} {...element} />)}
               </div>
             </div>
           );
         }
-        return (
-          <FountainElement
-            key={group.index}
-            token={group.token}
-            sceneId={group.sceneId}
-            sourceLine={group.sourceLine}
-            sourceColumn={group.sourceColumn}
-            characterName={group.characterName}
-          />
-        );
+        return <FountainElement key={group.index} {...group} />;
       })}
     </>
   );
 });
+
+const SPEECH_TOKEN_TYPES = new Set(["character", "dialogue", "parenthetical"]);
 
 /* ------------------------------------------------------------------ */
 /*  FountainRenderer — thin style shell                                */
@@ -248,6 +218,7 @@ function FountainElement({
   sourceColumn?: number;
   characterName?: string;
 }) {
+  const text = token.text ? renderFountainText(token.text) : null;
   switch (token.type) {
     case "scene_heading":
       return (
@@ -257,7 +228,7 @@ function FountainElement({
           data-bindars-source-line={sourceLine}
           data-bindars-source-column={sourceColumn}
         >
-          {token.text ? renderFountainText(token.text) : null}
+          {text}
           {token.scene_number && (
             <span className="fountain-scene-number">
               {token.scene_number}
@@ -267,46 +238,40 @@ function FountainElement({
       );
 
     case "action":
-      return <p className="fountain-action">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-action">{text}</p>;
 
     case "character":
-      return <p className="fountain-character" data-character={characterName}>{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-character" data-character={characterName}>{text}</p>;
 
     case "dialogue":
-      return <p className="fountain-dialogue" data-character={characterName}>{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-dialogue" data-character={characterName}>{text}</p>;
 
     case "parenthetical":
-      return <p className="fountain-parenthetical" data-character={characterName}>{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-parenthetical" data-character={characterName}>{text}</p>;
 
     case "transition":
-      return <p className="fountain-transition">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-transition">{text}</p>;
 
     case "centered":
-      return <p className="fountain-centered">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-centered">{text}</p>;
 
     case "section":
-      return <p className="fountain-section">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-section">{text}</p>;
 
     case "synopsis":
-      return <p className="fountain-synopsis">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-synopsis">{text}</p>;
 
     case "note":
-      return <p className="fountain-note">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-note">{text}</p>;
 
     case "lyrics":
-      return <p className="fountain-lyrics">{token.text ? renderFountainText(token.text) : null}</p>;
+      return <p className="fountain-lyrics">{text}</p>;
 
     case "page_break":
       return <hr className="fountain-page-break" />;
 
-    case "dialogue_begin":
-    case "dialogue_end":
-    case "dual_dialogue_begin":
-    case "dual_dialogue_end":
-    case "spaces":
-      return null;
-
     default:
+      // dialogue_begin, dialogue_end, dual_dialogue_*, spaces
       return null;
   }
 }
