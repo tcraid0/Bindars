@@ -20,15 +20,18 @@ const MAX_BODY_TEXT_CHARS = 30_000;
 // as opaque html tokens so, like the renderer (which drops raw HTML), neither
 // links nor heading text inside it are indexed.
 const markdownParser = new MarkdownIt({ html: true, linkify: false });
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v6";
+// v7: heading ids follow the rendered slug pipeline; v6 entries hold ids the
+// reader no longer produces for some headings.
+export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v7";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
   "workspace:index:v2",
   "workspace:index:v3",
   "workspace:index:v4",
   "workspace:index:v5",
+  "workspace:index:v6",
 ] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 6 as const;
+export const WORKSPACE_INDEX_CACHE_VERSION = 7 as const;
 export const WORKSPACE_INDEX_CACHE_KEYS = [
   ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   WORKSPACE_INDEX_CACHE_KEY,
@@ -139,8 +142,9 @@ export function buildWorkspaceDoc(
 
   assertDocumentComplexity(content, "markdown", complexityOptions);
   const { frontmatter, body } = extractFrontmatter(content);
-  const tokens = markdownParser.parse(body, {});
-  const headingRows = extractHeadings(tokens);
+  const env: MarkdownEnv = {};
+  const tokens = markdownParser.parse(body, env);
+  const headingRows = extractHeadings(tokens, collectFootnoteNumbers(tokens, env));
   const headings = headingRows.map((row) => ({ id: row.id, text: row.text }));
   const title = getTitle(frontmatter, headings, meta.name);
 
@@ -225,6 +229,74 @@ function getTitle(
   return fallback || null;
 }
 
+interface MarkdownEnv {
+  /** markdown-it stores link reference definitions here, keyed by normalized label. */
+  references?: Record<string, unknown>;
+}
+
+const FOOTNOTE_REFERENCE_RE = /\[\^([^\]\s]+)\]/g;
+const FOOTNOTE_DEFINITION_LINE_RE = /^ {0,3}\[\^([^\]\s]+)\]:/;
+
+function normalizeFootnoteLabel(label: string): string {
+  return label.toLowerCase();
+}
+
+/**
+ * remark-gfm renders `[^label]` as its footnote number when a definition
+ * exists, numbering by first reference in document order and matching labels
+ * case-insensitively. markdown-it has no footnote syntax: a multi-word
+ * definition stays a paragraph starting with `[^label]:`, and a single-word
+ * one (`[^n]: note`) is consumed as a link reference definition, turning each
+ * `[^n]` into a reference link whose text is `^n`. Both forms are recognised
+ * here so heading ids match the rendered ones.
+ */
+function collectFootnoteNumbers(tokens: Token[], env: MarkdownEnv): Map<string, number> {
+  const defined = new Set<string>();
+  for (const label of Object.keys(env.references ?? {})) {
+    if (label.startsWith("^")) defined.add(normalizeFootnoteLabel(label.slice(1)));
+  }
+  for (const token of tokens) {
+    if (token.type !== "inline") continue;
+    for (const line of token.content.split("\n")) {
+      const match = FOOTNOTE_DEFINITION_LINE_RE.exec(line);
+      if (match) defined.add(normalizeFootnoteLabel(match[1]));
+    }
+  }
+
+  const numbers = new Map<string, number>();
+  if (defined.size === 0) return numbers;
+  const assign = (label: string): void => {
+    const key = normalizeFootnoteLabel(label);
+    if (defined.has(key) && !numbers.has(key)) numbers.set(key, numbers.size + 1);
+  };
+  const visit = (children: Token[]): void => {
+    for (const child of children) {
+      if (child.type === "text") {
+        for (const match of child.content.matchAll(FOOTNOTE_REFERENCE_RE)) assign(match[1]);
+      } else if (child.type === "link_open") {
+        const label = referenceLinkFootnoteLabel(children, child);
+        if (label) assign(label);
+      }
+      if (child.children) visit(child.children);
+    }
+  };
+  for (const token of tokens) {
+    if (token.type === "inline" && token.children) visit(token.children);
+  }
+  return numbers;
+}
+
+/** The `^label` text of a reference link markdown-it built from `[^label]`, if any. */
+function referenceLinkFootnoteLabel(siblings: Token[], linkOpen: Token): string | null {
+  const index = siblings.indexOf(linkOpen);
+  const text = siblings[index + 1];
+  const close = siblings[index + 2];
+  if (text?.type !== "text" || close?.type !== "link_close" || !text.content.startsWith("^")) {
+    return null;
+  }
+  return text.content.slice(1);
+}
+
 /**
  * Headings come from the same token stream as links, so ATX and setext
  * headings, headings inside lists and quotes, closing `#` runs, entities, and
@@ -233,14 +305,14 @@ function getTitle(
  * heading, because the palette navigates by it; `markdown-render.test.mjs`
  * compares the two pipelines shape by shape.
  */
-function extractHeadings(tokens: Token[]): HeadingWithLine[] {
+function extractHeadings(tokens: Token[], footnotes: Map<string, number>): HeadingWithLine[] {
   const slugger = new GithubSlugger();
   const headings: HeadingWithLine[] = [];
 
   tokens.forEach((token, index) => {
     if (token.type !== "heading_open") return;
     const inline = tokens[index + 1];
-    const rawText = inline?.type === "inline" ? inlineText(inline.children ?? []) : "";
+    const rawText = inline?.type === "inline" ? inlineText(inline.children ?? [], footnotes) : "";
     const text = rawText.trim();
     if (!text) return;
 
@@ -253,24 +325,43 @@ function extractHeadings(tokens: Token[]): HeadingWithLine[] {
   return headings;
 }
 
-/** Text the renderer would slug: images and raw HTML contribute nothing. */
-function inlineText(children: Token[]): string {
+/**
+ * Text the renderer would slug: images and raw HTML contribute nothing, line
+ * breaks inside a setext heading stay newlines (which the slugger drops rather
+ * than hyphenates), and defined footnote references become their number.
+ */
+function inlineText(children: Token[], footnotes: Map<string, number>): string {
   let text = "";
-  for (const child of children) {
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
     switch (child.type) {
       case "text":
+        text += child.content.replace(FOOTNOTE_REFERENCE_RE, (whole, label: string) => {
+          const number = footnotes.get(normalizeFootnoteLabel(label));
+          return number === undefined ? whole : String(number);
+        });
+        break;
       case "code_inline":
         text += child.content;
         break;
       case "softbreak":
       case "hardbreak":
-        text += " ";
+        text += "\n";
         break;
       case "image":
       case "html_inline":
         break;
+      case "link_open": {
+        const label = referenceLinkFootnoteLabel(children, child);
+        const number = label === null ? undefined : footnotes.get(normalizeFootnoteLabel(label));
+        if (number !== undefined) {
+          text += String(number);
+          index += 2;
+        }
+        break;
+      }
       default:
-        if (child.children) text += inlineText(child.children);
+        if (child.children) text += inlineText(child.children, footnotes);
     }
   }
   return text;

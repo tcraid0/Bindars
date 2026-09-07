@@ -323,3 +323,22 @@ test("workspace scene headings keep source line numbers from the token stream", 
     ["ext-street---night", 8],
   ]);
 });
+
+test("workspace heading text shows footnote numbers the way the reader does", () => {
+  const headings = headingsFor([
+    "Intro[^b] then[^a].",
+    "",
+    "## Claim[^a] and rebuttal[^b]",
+    "",
+    "## Single[^s]",
+    "",
+    "[^a]: First defined, second referenced",
+    "[^b]: Second defined, first referenced",
+    "[^s]: note",
+  ].join("\n"));
+
+  assert.deepEqual(headings, [
+    { id: "claim2-and-rebuttal1", text: "Claim2 and rebuttal1" },
+    { id: "single3", text: "Single3" },
+  ]);
+});
