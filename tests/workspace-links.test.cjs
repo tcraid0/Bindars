@@ -278,3 +278,48 @@ test("workspace heading extraction does not close a longer fence with a shorter 
 
   assert.deepEqual(headings.map((heading) => heading.text), ["Real Heading"]);
 });
+
+test("workspace heading extraction indexes setext, nested, and closing-hash headings", () => {
+  const headings = headingsFor([
+    "Title",
+    "=====",
+    "",
+    "Sub",
+    "---",
+    "",
+    "- ## In a list",
+    "",
+    "> ## In a quote",
+    "",
+    "## Closed ##",
+    "",
+    "## get_user_by_id",
+  ].join("\n"));
+
+  assert.deepEqual(headings, [
+    { id: "title", text: "Title" },
+    { id: "sub", text: "Sub" },
+    { id: "in-a-list", text: "In a list" },
+    { id: "in-a-quote", text: "In a quote" },
+    { id: "closed", text: "Closed" },
+    { id: "get_user_by_id", text: "get_user_by_id" },
+  ]);
+});
+
+test("workspace scene headings keep source line numbers from the token stream", () => {
+  const doc = buildWorkspaceDoc(makeMeta(), [
+    "# Script",
+    "",
+    "INT. OFFICE - DAY",
+    "=================",
+    "",
+    "Action.",
+    "",
+    "## EXT. STREET - NIGHT",
+  ].join("\n"));
+
+  assert.deepEqual(doc.scenes.map((scene) => [scene.headingId, scene.line]), [
+    ["int-office---day", 3],
+    ["ext-street---night", 8],
+  ]);
+});

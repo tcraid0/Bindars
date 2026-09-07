@@ -12,13 +12,14 @@ import { extractFrontmatter } from "./frontmatter";
 import type { DocumentComplexityOptions } from "./document-complexity";
 import { assertDocumentComplexity, isDocumentComplexityError } from "./document-complexity";
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
-import { updateMarkdownFenceState, type MarkdownFenceState } from "./markdown-fences";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 import { replaceOpenableDocumentExtension } from "./openable-files";
 
 const MAX_BODY_TEXT_CHARS = 30_000;
-// Raw HTML links are intentionally not indexed; the renderer does not enable raw HTML.
-const markdownLinkParser = new MarkdownIt({ html: false, linkify: false });
+// One parse per document serves both headings and links. Raw HTML is parsed
+// as opaque html tokens so, like the renderer (which drops raw HTML), neither
+// links nor heading text inside it are indexed.
+const markdownParser = new MarkdownIt({ html: true, linkify: false });
 export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v6";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
@@ -138,11 +139,12 @@ export function buildWorkspaceDoc(
 
   assertDocumentComplexity(content, "markdown", complexityOptions);
   const { frontmatter, body } = extractFrontmatter(content);
-  const headingRows = extractHeadings(body);
+  const tokens = markdownParser.parse(body, {});
+  const headingRows = extractHeadings(tokens);
   const headings = headingRows.map((row) => ({ id: row.id, text: row.text }));
   const title = getTitle(frontmatter, headings, meta.name);
 
-  const links = extractLinks(body, meta.path);
+  const links = extractLinks(tokens, meta.path);
   const scenes = extractScenes(headingRows);
   const bodyText = toSearchableText(body);
 
@@ -223,30 +225,55 @@ function getTitle(
   return fallback || null;
 }
 
-function extractHeadings(markdown: string): HeadingWithLine[] {
-  const lines = markdown.split(/\r?\n/);
+/**
+ * Headings come from the same token stream as links, so ATX and setext
+ * headings, headings inside lists and quotes, closing `#` runs, entities, and
+ * inline markup all follow markdown-it rather than a second hand-written
+ * parser. The id must equal the one rehype-slug assigns to the rendered
+ * heading, because the palette navigates by it; `markdown-render.test.mjs`
+ * compares the two pipelines shape by shape.
+ */
+function extractHeadings(tokens: Token[]): HeadingWithLine[] {
   const slugger = new GithubSlugger();
   const headings: HeadingWithLine[] = [];
-  let fenceState: MarkdownFenceState | null = null;
 
-  lines.forEach((line, index) => {
-    const previousFenceState = fenceState;
-    fenceState = updateMarkdownFenceState(line, fenceState);
-    if (previousFenceState || fenceState) {
-      return;
-    }
-
-    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (!match) return;
-
-    const text = stripMarkdownInline(match[2]);
+  tokens.forEach((token, index) => {
+    if (token.type !== "heading_open") return;
+    const inline = tokens[index + 1];
+    const rawText = inline?.type === "inline" ? inlineText(inline.children ?? []) : "";
+    const text = rawText.trim();
     if (!text) return;
 
-    const id = slugger.slug(toRenderedHeadingSlugText(text));
-    headings.push({ id, text, line: index + 1 });
+    // Slug the untrimmed text: rehype-slug keeps the whitespace an image or
+    // dropped tag leaves behind (`## ![x](a.png) after` renders as `-after`).
+    const id = slugger.slug(toRenderedHeadingSlugText(rawText));
+    headings.push({ id, text, line: (token.map?.[0] ?? 0) + 1 });
   });
 
   return headings;
+}
+
+/** Text the renderer would slug: images and raw HTML contribute nothing. */
+function inlineText(children: Token[]): string {
+  let text = "";
+  for (const child of children) {
+    switch (child.type) {
+      case "text":
+      case "code_inline":
+        text += child.content;
+        break;
+      case "softbreak":
+      case "hardbreak":
+        text += " ";
+        break;
+      case "image":
+      case "html_inline":
+        break;
+      default:
+        if (child.children) text += inlineText(child.children);
+    }
+  }
+  return text;
 }
 
 function extractScenes(headings: HeadingWithLine[]): SceneItem[] {
@@ -265,9 +292,8 @@ function extractScenes(headings: HeadingWithLine[]): SceneItem[] {
   return scenes;
 }
 
-function extractLinks(markdown: string, currentFilePath: string): string[] {
+function extractLinks(tokens: Token[], currentFilePath: string): string[] {
   const targets = new Set<string>();
-  const tokens = markdownLinkParser.parse(markdown, {});
 
   for (const raw of extractLinkHrefs(tokens)) {
     const href = raw.trim();
@@ -318,18 +344,6 @@ function toSearchableText(markdown: string): string {
   }
 
   return text;
-}
-
-function stripMarkdownInline(value: string): string {
-  return value
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
-    .trim();
 }
 
 function toRenderedHeadingSlugText(value: string): string {

@@ -257,6 +257,50 @@ test("workspace heading IDs match the rendered SmartyPants slug pipeline", () =>
   }
 });
 
+test("workspace heading IDs match rendered IDs across inline markup, entities, and heading forms", () => {
+  // The index and the reader use different parser libraries, so this table is
+  // the invariant that keeps palette navigation working. Every rendered id in
+  // a document must appear, in order, in the index.
+  const documents = [
+    "## Code `x_y` here",
+    "## snake_case_name",
+    "## get_user_by_id and MAX_RETRY_COUNT",
+    "## Math $$a+b$$ end",
+    "## <b>html</b> tag",
+    "## a<br>b",
+    "## a &amp; b &copy;",
+    "## [link](x.md) text",
+    "## ![img](a.png) after",
+    "## ~~strike~~ it",
+    "## **bold** _it_",
+    "## a\\*b",
+    "## Ünïcode Ça",
+    "## 😀 emoji",
+    "## a[^1]\n\n[^1]: n",
+    "## a * b * c",
+    "##   trailing #",
+    "## heading ##",
+    "## trailing spaces   ",
+    "##\tTab after hashes",
+    "## 1. numbered",
+    "## Ends with dollar $5 and $10",
+    "## with trailing\\",
+    "Setext\n======",
+    "Setext two\n---",
+    "- ## in list",
+    "> ## in quote",
+    "## a\n## a\n## a-1",
+    "## $$x$$\n\n## x",
+    "#Nospace is a paragraph",
+  ];
+
+  for (const markdown of documents) {
+    const rendered = [...renderMarkdown(markdown).matchAll(/<h[1-6] id="([^"]*)"/g)].map((m) => m[1]);
+    const indexed = buildWorkspaceDoc(buildMeta(), markdown).headings.map((h) => h.id);
+    assert.deepEqual(indexed, rendered, markdown);
+  }
+});
+
 test("the bundled welcome document renders its inline math example", () => {
   const source = fs.readFileSync(new URL("../src/assets/welcome.md", import.meta.url), "utf8");
   const { body } = extractFrontmatter(source);
