@@ -128,8 +128,9 @@ export const SMARTYPANTS_MAX_CHARS = 65_536;
  * - one structural unit per MARKDOWN_INDENT_COLUMNS_PER_UNIT prefix-whitespace
  *   columns, so many moderately indented lines cannot sum to
  *   unbounded container open/close work under the unit ceiling.
- * - MARKDOWN_MAX_INLINE_NESTING: outstanding inline-emphasis delimiters
- *   within one source block. See `applyInlineDelimiterRun` for its invariant.
+ * - MARKDOWN_MAX_INLINE_NESTING: inline-emphasis delimiters outstanding
+ *   within one source block when a closer can pair with one of them. See
+ *   `applyInlineDelimiterRun` for its invariant.
  *
  * These were briefly raised to 512/512/1,024 on the strength of a per-shape
  * worst case that turned out not to be the worst case, and restored here.
@@ -402,8 +403,8 @@ function countStructuralUnits(
         textRunLength = 0;
         lineHasContent = true;
         if (!inlineSuppressed) {
-          const open = applyInlineDelimiterRun(inline, content, index, runLength, code);
-          if (open > markdownLimits.maxInlineNesting) return maxUnits + 1;
+          const depth = applyInlineDelimiterRun(inline, content, index, runLength, code);
+          if (depth > markdownLimits.maxInlineNesting) return maxUnits + 1;
         }
         index += runLength - 1;
       } else if (isInlineMatchingBarrier(code)) {
@@ -729,23 +730,32 @@ function delimiterSlot(code: number): number {
 
 /**
  * Update the outstanding-opener estimate for one delimiter run and return the
- * new total.
+ * nesting depth this run could produce: the outstanding total when the run is
+ * a closer with a same-character opener to reach, and 0 otherwise.
  *
- * The invariant this maintains is that the total never falls below the inline
- * nesting depth the installed parser can still build, because every emphasis
- * node consumes at least one outstanding opener character, and every opener of
- * a nested chain is outstanding at once when its innermost opener is scanned.
- * Keeping the estimate safe therefore means never releasing an opener the
- * parser would keep:
+ * Emphasis nests only when a closer pairs with an opener, so a block whose
+ * openers are never closed (a paragraph of `*****.` ratings, or `****,`
+ * masked passwords) builds no tree however many openers it holds. Reporting
+ * depth only at closers keeps those documents accepted while every nested
+ * chain is still caught: its innermost closer arrives while every opener of
+ * the chain is outstanding. Sealed openers still count here even though this
+ * closer cannot consume them, because sealing is an approximation of link
+ * resolution and must not hide a chain the parser really builds.
+ *
+ * The invariant is that the total never falls below the inline nesting depth
+ * the installed parser can still build, because every emphasis node consumes
+ * at least one outstanding opener character. Keeping the estimate safe
+ * therefore means never releasing an opener the parser would keep:
  *
  * - Each delimiter character owns its own stack, so an inert `~` cannot cancel
  *   an open `*`.
  * - A run only closes when micromark's flanking rules let it, including the
- *   extra restriction that makes intraword `_` inert in `user_name`.
+ *   extra restriction that makes intraword `_` inert in `user_name` and the
+ *   GFM rule that an adjacent `~` forces `*` and `_` open or closed.
  * - micromark's rule of three is applied with the same current run sizes; when
  *   it blocks the nearest opener this scan stops instead of searching earlier
  *   openers, which can only leave more outstanding.
- * - Closers cannot reach openers sealed behind a link, autolink, or raw-HTML
+ * - Closers cannot consume openers sealed behind a link, autolink, or raw-HTML
  *   barrier.
  *
  * Every divergence from the parser therefore over-counts rather than under-
@@ -760,7 +770,8 @@ function applyInlineDelimiterRun(
   runLength: number,
   code: number,
 ): number {
-  const before = classifyCharacter(content.charCodeAt(index - 1));
+  const beforeCode = content.charCodeAt(index - 1);
+  const before = classifyCharacter(beforeCode);
   const afterCode = content.charCodeAt(index + runLength);
   const after = classifyCharacter(afterCode);
 
@@ -777,25 +788,29 @@ function applyInlineDelimiterRun(
   if (code === DELIMITER_TILDE) {
     // GFM strikethrough never uses a run longer than two tildes, so a longer
     // run is literal text that neither opens nor closes.
-    if (runLength > 2) return state.totalOpen;
+    if (runLength > 2) return 0;
     canOpen = leftFlanking;
     canClose = rightFlanking;
-  } else if (code === DELIMITER_UNDERSCORE) {
-    canOpen = leftFlanking && (before !== CHARACTER_OTHER || !rightFlanking);
-    canClose = rightFlanking && (after !== CHARACTER_OTHER || !leftFlanking);
   } else {
-    // Asterisk. GFM registers `~` as an attention marker, which lets a
-    // following tilde force `*`/`_` open. The mirrored rule that forces a run
-    // closed is deliberately not applied, because closing early would
-    // under-count.
-    canOpen = leftFlanking || afterCode === DELIMITER_TILDE;
-    canClose = rightFlanking;
+    // GFM registers `~` as an attention marker: a tilde directly after a run
+    // forces it open and a tilde directly before it forces it closed
+    // (attention.js `open`/`close`).
+    const open = leftFlanking || afterCode === DELIMITER_TILDE;
+    const close = rightFlanking || beforeCode === DELIMITER_TILDE;
+    if (code === DELIMITER_UNDERSCORE) {
+      canOpen = open && (before !== CHARACTER_OTHER || !close);
+      canClose = close && (after !== CHARACTER_OTHER || !open);
+    } else {
+      canOpen = open;
+      canClose = close;
+    }
   }
 
   const slot = delimiterSlot(code);
-  if (slot < 0) return state.totalOpen;
+  if (slot < 0) return 0;
   const stack = state.stacks[slot];
   let remaining = runLength;
+  const depth = canClose && stack.length > 0 ? state.totalOpen : 0;
 
   if (canClose) {
     while (remaining > 0 && stack.length > state.floors[slot]) {
@@ -821,7 +836,7 @@ function applyInlineDelimiterRun(
     state.totalOpen += remaining;
   }
 
-  return state.totalOpen;
+  return depth;
 }
 
 function isMarkdownInlineDelimiter(code: number): boolean {
