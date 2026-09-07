@@ -254,6 +254,13 @@ quit was tested during real pending operations. Other platforms and OS versions
 remain unverified. No additional output or recovery defect was observed in these
 flows; the save-sheet keyboard limitation above remains documented.
 
+PR CI subsequently caught a Linux-only dead-code lint: the macOS print outcome
+variants were compiled but never constructed on Linux. The enum is now scoped
+to macOS, with a unit result type for the error-only command on other platforms.
+This changes no macOS runtime code or printing behavior. The recorded GUI-build
+source hash predates this conditional-compilation correction; CI verifies the
+updated source on Linux and macOS.
+
 ## Platforms
 
 | Platform | Webview | Status |

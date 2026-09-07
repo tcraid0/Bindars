@@ -1,12 +1,17 @@
 //! Printing is restricted to the invoking main webview. No document or output
 //! paths cross this boundary; the native sheet owns destination selection.
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PrintOutcome {
     Completed,
     CancelledOrFailed,
 }
+
+// The command only returns an error on platforms that use browser printing.
+#[cfg(not(target_os = "macos"))]
+pub type PrintOutcome = ();
 
 fn validate_caller(label: &str, local: bool) -> Result<(), String> {
     if label != "main" || !local {
