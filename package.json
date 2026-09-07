@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "postinstall": "patch-package",
     "verify:smartypants-node": "node scripts/verify-smartypants-node.mjs",
     "validate:macos-app": "node scripts/validate-macos-app.mjs",
     "licenses:generate": "node scripts/third-party-notices.mjs generate",
@@ -63,6 +64,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.3",
     "happy-dom": "^20.9.0",
+    "patch-package": "^8.0.1",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",

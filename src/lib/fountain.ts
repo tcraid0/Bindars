@@ -1,4 +1,4 @@
-import { Fountain, rules } from "fountain-js";
+import { Fountain, Lexer, rules } from "fountain-js";
 import type { Token } from "fountain-js/dist.esm/token";
 import type {
   CharacterInfo,
@@ -61,11 +61,21 @@ function normalizeTitleKey(type: string): string {
   return type.replace(/_/g, " ").trim();
 }
 
+/**
+ * fountain-js pairs dual dialogue through a static flag on its Lexer that is
+ * only written when a dialogue block is lexed. Because it tokenizes in reverse,
+ * the flag left behind is the caret state of the first dialogue block, and the
+ * next parse of any text inherits it. The field is private in the library's
+ * type declarations; tests/fountain-parser-robustness.test.cjs guards the name.
+ */
+const fountainLexerState = Lexer as unknown as { lastLineWasDualDialogue: boolean };
+
 export function parseFountain(
   text: string,
   complexityOptions: DocumentComplexityOptions = {},
 ): ParsedFountain {
   assertDocumentComplexity(text, "fountain", complexityOptions);
+  fountainLexerState.lastLineWasDualDialogue = false;
   const fountain = new Fountain();
   const output = fountain.parse(text, true);
 
@@ -122,6 +132,9 @@ function fountainSourceBlocks(content: string): FountainSourceBlock[] {
   const normalized = content
     .replace(rules.boneyard, (match) => match.replace(/[^\r\n]/g, " "))
     .replace(/\r\n|\r/g, "\n");
+  // The blank-line rule matches zero characters at the start of an empty
+  // string, which would leave exec() stuck at index 0 below.
+  if (normalized.length === 0) return [];
   const blankLineFlags = rules.blank_lines.flags.includes("g")
     ? rules.blank_lines.flags
     : `${rules.blank_lines.flags}g`;

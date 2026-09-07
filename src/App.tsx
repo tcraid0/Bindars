@@ -9,7 +9,8 @@ import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
-import { DocumentComplexityNotice } from "./components/DocumentComplexityNotice";
+import { DocumentNotice } from "./components/DocumentNotice";
+import { DOCUMENT_COMPLEXITY_REASON } from "./lib/document-complexity";
 import { MarkdownRenderer } from "./components/MarkdownRenderer";
 import { ReaderControls } from "./components/ReaderControls";
 import { DropZone } from "./components/DropZone";
@@ -3008,8 +3009,15 @@ function App() {
               onDismissSaveError={editor.dismissSaveError}
             />
           ) : preparedDocument?.status === "too-complex" ? (
-            <DocumentComplexityNotice
+            <DocumentNotice
               contentRef={contentRef}
+              title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
+              message={preparedDocument.message}
+            />
+          ) : preparedDocument?.status === "parse-failed" ? (
+            <DocumentNotice
+              contentRef={contentRef}
+              title="Screenplay could not be displayed"
               message={preparedDocument.message}
             />
           ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (

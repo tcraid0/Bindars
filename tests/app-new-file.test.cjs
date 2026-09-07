@@ -2175,6 +2175,42 @@ test("overly complex Fountain documents get the same rejection notice while edit
   }
 });
 
+test("Fountain parser exceptions show a notice while editing stays available", async () => {
+  await installDom();
+  const fountain = require("../.tmp/workspace-tests/src/lib/fountain.js");
+  const { FOUNTAIN_PARSE_FAILED_MESSAGE } = require(
+    "../.tmp/workspace-tests/src/lib/document-processing.js"
+  );
+
+  const initialContent = "INT. ROOM - DAY\n\nBOB\nHi.";
+  const originalParse = fountain.parseFountain;
+  fountain.parseFountain = (text, ...rest) => {
+    if (text === initialContent) throw new TypeError("synthetic parser failure");
+    return originalParse(text, ...rest);
+  };
+
+  let rendered = null;
+  try {
+    rendered = await renderContinuityApp({
+      requestedPath: "/tmp/continuity.fountain",
+      initialContent,
+      readySelector: '[role="alert"]',
+    });
+    const notice = rendered.host.querySelector('main [role="alert"]');
+    assert.ok(notice);
+    assert.match(notice.textContent, /Screenplay could not be displayed/);
+    assert.ok(notice.textContent.includes(`${FOUNTAIN_PARSE_FAILED_MESSAGE} (synthetic parser failure)`));
+    assert.ok(!rendered.host.querySelector(".fountain-scene-heading"));
+
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initialContent);
+  } finally {
+    fountain.parseFountain = originalParse;
+    if (rendered) await rendered.cleanup();
+  }
+});
+
 test("Save As keeps the draft stream when the adopted-file checkpoint fails", async () => {
   const rendered = await renderContinuityApp();
 
