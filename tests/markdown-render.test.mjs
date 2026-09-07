@@ -311,6 +311,19 @@ test("the bundled welcome document renders its inline math example", () => {
   assert.equal((html.match(/class="katex"/g) || []).length, 2, "one inline and one display formula");
 });
 
+test("blocked images say what was blocked", () => {
+  const cases = [
+    ["![Remote](https://example.com/a.png)", /image not shown: remote and URL images are not loaded: Remote/],
+    ["![Parent](../a.png)", /image not shown: only images inside the document(?:'|&#x27;)s folder are shown: Parent/],
+    ["![Root](/etc/a.png)", /image not shown: absolute paths are not supported: Root/],
+    ["![Inline](data:image/png;base64,AAAA)", /image not shown: the source is missing or uses an unsupported URL: Inline/],
+  ];
+
+  for (const [markdown, expected] of cases) {
+    assert.match(renderMarkdownRenderer(markdown), expected, markdown);
+  }
+});
+
 test("MarkdownRenderer does not serialize react-markdown node props", () => {
   const html = renderMarkdownRenderer(
     [

@@ -149,6 +149,46 @@ test("MarkdownRenderer reports a missing generic link target without calling it 
   }
 });
 
+test("MarkdownRenderer explains why an absolute Markdown link cannot open", async () => {
+  await installNavigationDom();
+  const rendered = await render(
+    React.createElement(
+      ToastProvider,
+      null,
+      React.createElement(MarkdownRenderer, {
+        // A drive-letter path such as `C:/docs/other.md` never reaches the click
+        // handler: the sanitizer drops the unknown `c:` scheme with its href.
+        content: "[Absolute](/docs/other.md) and [Text](./notes.txt)",
+        filePath: "/tmp/document.md",
+        settings: readerSettings,
+        contentRef: React.createRef(),
+        onOpenFragment: () => false,
+        onNavigateToFile() {
+          throw new Error("absolute links must not navigate");
+        },
+      }),
+    ),
+  );
+
+  try {
+    const expectations = [
+      ['a[href="/docs/other.md"]', /absolute paths and URLs to local files are not supported/],
+      ['a[href="./notes.txt"]', /Cannot open \.txt files/],
+    ];
+    for (const [selector, expected] of expectations) {
+      const link = rendered.host.querySelector(selector);
+      assert.ok(link, selector);
+      await click(link);
+      const alerts = [...rendered.host.querySelectorAll('[role="alert"]')];
+      assert.match(alerts.at(-1).textContent, expected, selector);
+      assert.doesNotMatch(alerts.at(-1).textContent, /only \.md, \.markdown, or \.fountain links are supported.*other\.md/);
+    }
+  } finally {
+    await rendered.cleanup();
+    clearMocks();
+  }
+});
+
 test("PresentationView resolves fragments only inside the active slide", async () => {
   await installNavigationDom();
   const outsideTarget = document.createElement("h1");

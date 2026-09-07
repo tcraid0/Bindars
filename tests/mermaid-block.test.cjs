@@ -197,6 +197,10 @@ test("invalid Mermaid diagrams render the app error state without leaving body o
       assert.ok(host.querySelector(".mermaid-error"));
     });
     assert.ok(!document.body.querySelector('[id^="dmermaid-"]'));
+    const message = host.querySelector(".mermaid-error-message");
+    assert.ok(message, "the error state must say what went wrong");
+    assert.ok(message.textContent.trim().length > 0);
+    assert.match(host.querySelector(".mermaid-error pre").textContent, /graph TD; A-->/);
 
     await act(async () => {
       document.documentElement.setAttribute("data-theme", "dark");
