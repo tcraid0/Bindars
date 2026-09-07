@@ -20,6 +20,6 @@
     "store:allow-load",
     "store:allow-get",
     "store:allow-set",
-    "store:allow-keys"
+    "store:allow-save"
   ]
 }

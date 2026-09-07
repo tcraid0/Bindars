@@ -46,6 +46,7 @@ export interface SessionData {
 export type HighlightColor = "yellow" | "green" | "blue" | "pink";
 
 export interface Highlight {
+  position?: import("../lib/text-anchoring").AnchorPosition;
   id: string;
   prefix: string;
   exact: string;

@@ -1,9 +1,12 @@
 import { memo, useState, useEffect, useCallback, useRef } from "react";
 import type { HighlightColor } from "../types";
 import type { TextAnchor } from "../lib/text-anchoring";
-import { createAnchor } from "../lib/text-anchoring";
+import { createPositionedAnchor } from "../lib/text-anchoring";
+
+import { useToast } from "./ToastProvider";
 
 interface HighlightToolbarProps {
+  source: string;
   contentRef: React.RefObject<HTMLElement | null>;
   isEditing: boolean;
   getActiveHeadingId: () => string | null;
@@ -23,11 +26,15 @@ interface ToolbarPosition {
   above: boolean;
 }
 
-function HighlightToolbarComponent({ contentRef, isEditing, getActiveHeadingId, onHighlight }: HighlightToolbarProps) {
+function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHeadingId, onHighlight }: HighlightToolbarProps) {
   const [position, setPosition] = useState<ToolbarPosition | null>(null);
   const [selection, setSelection] = useState<Range | null>(null);
   const [selectionHeadingId, setSelectionHeadingId] = useState<string | null>(null);
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const { toast } = useToast();
+  const alive = useRef(true);
+  const pending = useRef(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const handleSelectionChange = useCallback(() => {
     if (isEditing) {
       setPosition(null);
@@ -77,27 +84,36 @@ function HighlightToolbarComponent({ contentRef, isEditing, getActiveHeadingId, 
   }, [handleSelectionChange]);
 
   const handleColorClick = useCallback(
-    (color: HighlightColor) => {
-      if (!selection || !contentRef.current) return;
+    async (color: HighlightColor) => {
+      if (!selection || !contentRef.current || pending.current) return;
+      pending.current = true;
+      setSaving(true);
 
-      const anchor = createAnchor(selection, contentRef.current);
-      if (anchor) {
-        onHighlight(anchor, color, selectionHeadingId);
+      try {
+        const anchor = await createPositionedAnchor(selection, contentRef.current, source);
+        if (!alive.current) return;
+        if (anchor) onHighlight(anchor, color, selectionHeadingId);
+        else toast("This selection includes text that cannot be highlighted. Select prose, code, or a visible HTML label.", "error");
+      } catch {
+        if (alive.current) toast("Couldn't create this highlight. Please select the text again.", "error");
+      } finally {
+        pending.current = false;
+        if (alive.current) setSaving(false);
       }
+      if (!alive.current) return;
 
       // Clear selection
       window.getSelection()?.removeAllRanges();
       setPosition(null);
       setSelection(null);
     },
-    [selection, contentRef, onHighlight, selectionHeadingId],
+    [selection, contentRef, onHighlight, selectionHeadingId, source, toast],
   );
 
   if (!position) return null;
 
   return (
     <div
-      ref={toolbarRef}
       className="print-hide fixed z-50 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-bg-secondary border border-border shadow-lg"
       style={{
         left: position.x,
@@ -111,6 +127,7 @@ function HighlightToolbarComponent({ contentRef, isEditing, getActiveHeadingId, 
         <button
           key={color}
           type="button"
+          disabled={saving}
           aria-label={`Highlight ${label}`}
           title={label}
           className="w-6 h-6 rounded-full border-2 border-transparent hover:border-text-muted transition-colors duration-100 cursor-pointer"

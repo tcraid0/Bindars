@@ -93,22 +93,22 @@ async function flushExport() {
 test("buildAnnotationMarkdown includes bookmarks, heading groups, and notes", () => {
   const markdown = buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings);
 
-  assert.match(markdown, /^# Annotations: notes\.md\n/);
+  assert.match(markdown, /^# Annotations: notes\\\.md\n/);
   assert.match(markdown, /\*Exported from Bindars on .+\*/);
   assert.match(markdown, /## Bookmarks\n\n- \*\*Introduction\*\*\n- \*\*Line break heading\*\*/);
   assert.match(markdown, /## Highlights\n\n### Introduction\n\n> "First quote"\n>\n> — \*yellow highlight\*\n\n\*\*Note:\*\* Keep this/);
   assert.doesNotMatch(markdown, /### Later/);
   assert.doesNotMatch(markdown, /### missing/);
   assert.match(markdown, /> "Orphan quote"\n>\n> — \*blue highlight\*/);
-  assert.match(markdown, /> "Multi line exact"/);
-  assert.match(markdown, /\*\*Note:\*\* first line second line/);
+  assert.match(markdown, /> "Multi\n> line\n> exact"/);
+  assert.match(markdown, /\*\*Note:\*\* first line  \n  \nsecond line/);
   assert.doesNotMatch(markdown, /first line\n/);
 });
 
 test("buildAnnotationMarkdown emits bookmarks-only output", () => {
   const markdown = buildAnnotationMarkdown("script.fountain", [], bookmarks, headings);
 
-  assert.match(markdown, /^# Annotations: script\.fountain\n/);
+  assert.match(markdown, /^# Annotations: script\\\.fountain\n/);
   assert.match(markdown, /## Bookmarks/);
   assert.doesNotMatch(markdown, /## Highlights/);
   assert.doesNotMatch(markdown, /> "/);
@@ -220,4 +220,23 @@ test("a failed annotation write can be retried with feedback and usable controls
     view.cleanup();
     clearMocks();
   }
+});
+
+
+test("export renders punctuation and multiline notes as literal text", async () => {
+  await installDom();
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { default: Markdown } = await import("react-markdown");
+  const { default: gfm } = await import("remark-gfm");
+  const note = "<tag> & **literal** [link](https://example.org)\n- list-looking\n1. number-looking\nhttps://example.org";
+  const exact = "first\n+ second `code` $math$";
+  const markdown = buildAnnotationMarkdown("notes.md", [{ ...highlights[0], exact, note }], [], headings);
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(React.createElement(Markdown, { remarkPlugins: [gfm] }, markdown));
+  assert.equal(host.querySelectorAll("code, ul, ol, tag").length, 0);
+  assert.ok(host.textContent.includes("<tag> & **literal** [link](https://example.org)"));
+  assert.ok(host.textContent.includes("- list-looking"));
+  assert.ok(host.textContent.includes("1. number-looking"));
+  assert.ok(host.textContent.includes("+ second `code` $math$"));
+  assert.equal(host.querySelectorAll("br").length, 3);
 });

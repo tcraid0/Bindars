@@ -1,3 +1,5 @@
+import { collectText, rangeForOffsets, type TextSpan } from "../lib/dom-text";
+import { wrapRange } from "../lib/text-anchoring";
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   clearMarks,
@@ -28,69 +30,36 @@ export function clearSearchHighlights(container: HTMLElement) {
   clearMarks(container, isSearchMark);
 }
 
-/**
- * Text the reader can actually show a highlight in. KaTeX keeps a visually
- * hidden MathML copy of every formula, so a match there counts but never
- * appears; and SVG `<text>` renders only SVG children, so a `<mark>` inserted
- * into a diagram label makes the label vanish. Mermaid's HTML labels live in
- * `<foreignObject>` and highlight normally.
- */
-function isSearchableTextNode(node: Node): boolean {
-  const element = node.parentElement;
-  if (!element) return false;
-  if (element.closest(".katex-mathml")) return false;
-  if (element.closest("svg") && !element.closest("foreignObject")) return false;
-  return true;
-}
-
 export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[] {
   if (!query.trim()) return [];
-
+  const { spans } = collectText(container);
+  // Search across inline formatting and marks, but not across block boundaries
+  // or hidden/unsupported renderer text.
+  const runs: { text: string; spans: TextSpan[] }[] = [];
+  let previous: TextSpan | undefined;
+  let previousBlock: Element | null = null;
+  for (const span of spans) {
+    const block = span.node.parentElement?.closest("p, h1, h2, h3, h4, h5, h6, pre, li, td, th, .mermaid-diagram") ?? container;
+    if (!previous || previous.end !== span.start || block !== previousBlock) runs.push({ text: "", spans: [] });
+    const run = runs[runs.length - 1];
+    run.spans.push({ node: span.node, start: run.text.length, end: run.text.length + span.node.length });
+    run.text += span.node.data;
+    previous = span;
+    previousBlock = block;
+  }
   const matches: HTMLElement[] = [];
-  const lowerQuery = query.toLowerCase();
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (isSearchableTextNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
-  });
-
-  const textNodes: Text[] = [];
-  let node: Text | null;
-  while ((node = walker.nextNode() as Text | null)) {
-    if (node.textContent && node.textContent.toLowerCase().includes(lowerQuery)) {
-      textNodes.push(node);
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Regex indices remain UTF-16 DOM offsets even when case folding expands a
+  // character; indexing a lowercased copy did not provide that guarantee.
+  for (const run of runs.reverse()) {
+    const found = [...run.text.matchAll(new RegExp(escaped, "giu"))];
+    for (const match of found.reverse()) {
+      const range = rangeForOffsets(run.spans, match.index!, match.index! + match[0].length);
+      if (!range) continue;
+      const marks = wrapRange(range, SEARCH_HIGHLIGHT_CLASS);
+      if (marks[0]) matches.unshift(marks[0]);
     }
   }
-
-  for (const textNode of textNodes) {
-    const text = textNode.textContent || "";
-    const lowerText = text.toLowerCase();
-    const fragment = document.createDocumentFragment();
-    let lastIndex = 0;
-    let searchIndex = lowerText.indexOf(lowerQuery, lastIndex);
-
-    while (searchIndex !== -1) {
-      if (searchIndex > lastIndex) {
-        fragment.appendChild(document.createTextNode(text.slice(lastIndex, searchIndex)));
-      }
-
-      const mark = document.createElement("mark");
-      mark.className = SEARCH_HIGHLIGHT_CLASS;
-      mark.textContent = text.slice(searchIndex, searchIndex + query.length);
-      fragment.appendChild(mark);
-      matches.push(mark);
-
-      lastIndex = searchIndex + query.length;
-      searchIndex = lowerText.indexOf(lowerQuery, lastIndex);
-    }
-
-    if (lastIndex < text.length) {
-      fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-    }
-
-    if (textNode.parentNode) {
-      textNode.parentNode.replaceChild(fragment, textNode);
-    }
-  }
-
   return matches;
 }
 

@@ -54,8 +54,13 @@ interface MermaidSvgProps {
 }
 
 export function MermaidSvg({ svg, sourcePosition }: MermaidSvgProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    containerRef.current?.dispatchEvent(new Event("bindars:diagram-rendered", { bubbles: true }));
+  }, [svg]);
   return (
     <div
+      ref={containerRef}
       className="mermaid-diagram"
       {...sourcePosition}
       onClickCapture={handleMermaidLinkClick}

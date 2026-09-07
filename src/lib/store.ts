@@ -1,4 +1,5 @@
 import { load } from "@tauri-apps/plugin-store";
+import { initializeAnnotationStorage } from "./annotation-storage";
 
 let storePromise: ReturnType<typeof load> | null = null;
 
@@ -8,9 +9,9 @@ export type StoreGetResult<T> =
 
 function getStore() {
   if (!storePromise) {
-    const pendingStore = load("settings.json", {
-      defaults: {},
-      autoSave: true,
+    const pendingStore = initializeAnnotationStorage().then((status) => {
+      if (!status.settingsReady) throw new Error("Settings storage is unavailable. Existing data was preserved.");
+      return load("settings.json", { defaults: {}, autoSave: true });
     });
     storePromise = pendingStore;
     pendingStore.catch(() => {
@@ -42,20 +43,11 @@ export async function storeTryGet<T>(key: string): Promise<StoreGetResult<T>> {
   }
 }
 
-export async function storeKeys(): Promise<string[]> {
-  try {
-    const store = await getStore();
-    return await store.keys();
-  } catch (e) {
-    console.warn("[store] Failed to list keys:", e);
-    return [];
-  }
-}
-
 export async function storeSet<T>(key: string, value: T): Promise<boolean> {
   try {
     const store = await getStore();
     await store.set(key, value);
+    await store.save();
     return true;
   } catch (e) {
     console.warn(`[store] Failed to set "${key}":`, e);

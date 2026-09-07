@@ -1,6 +1,8 @@
 import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useToast } from "./ToastProvider";
@@ -11,6 +13,14 @@ import { isImeCompositionKey } from "../lib/keyboard";
 
 interface AnnotationsPanelProps {
   visible: boolean;
+  filePath?: string | null;
+  onRestoreRecord?: (record: unknown) => void;
+  saving?: boolean;
+  mutationsDisabled?: boolean;
+  dataWarning?: string | null;
+  locations?: Record<string, string>;
+  onRemoveBookmark?: (id: string) => void;
+  flushNoteRef?: React.RefObject<(() => void) | null>;
   annotationStatus: AnnotationLoadStatus;
   annotationsReady: boolean;
   loadError: string | null;
@@ -38,6 +48,7 @@ const COLOR_DOTS: Record<string, string> = {
 
 export const AnnotationsPanel = memo(function AnnotationsPanel({
   visible,
+  saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, filePath, onRestoreRecord,
   annotationStatus,
   annotationsReady,
   loadError,
@@ -55,12 +66,17 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   fileName,
   headings,
 }: AnnotationsPanelProps) {
+  const [recoveryRecord, setRecoveryRecord] = useState<unknown>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportBusy = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const reducedMotion = useReducedMotion();
   const { toast } = useToast();
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteBuffer, setNoteBuffer] = useState("");
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
-  const cancelledRef = useRef(false);
+  const draft = useRef<{ id: string; text: string; commit: AnnotationsPanelProps["onUpdateHighlight"] } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const restoreNoteFocusRef = useRef<string | null>(null);
@@ -82,27 +98,36 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   }, [editingNoteId]);
 
   const startEditNote = useCallback((hl: Highlight) => {
-    cancelledRef.current = false;
+    draft.current = { id: hl.id, text: hl.note || "", commit: onUpdateHighlight };
     setEditingNoteId(hl.id);
     setNoteBuffer(hl.note || "");
-  }, []);
+  }, [onUpdateHighlight]);
 
   const saveNote = useCallback(() => {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      return;
-    }
-    if (!editingNoteId) return;
-    const trimmed = noteBuffer.trim();
-    onUpdateHighlight(editingNoteId, { note: trimmed || undefined });
+    const current = draft.current;
+    draft.current = null;
+    if (!current) return;
+    current.commit(current.id, { note: current.text.trim() || undefined });
     setEditingNoteId(null);
     setNoteBuffer("");
-  }, [editingNoteId, noteBuffer, onUpdateHighlight]);
+  }, []);
 
   const cancelEditNote = useCallback(() => {
-    cancelledRef.current = true;
+    draft.current = null;
     setEditingNoteId(null);
     setNoteBuffer("");
+  }, []);
+
+  useLayoutEffect(() => {
+    if (flushNoteRef) flushNoteRef.current = saveNote;
+    return () => { if (flushNoteRef?.current === saveNote) flushNoteRef.current = null; };
+  }, [flushNoteRef, saveNote]);
+  useEffect(() => { if (!visible) saveNote(); }, [visible, saveNote]);
+  useEffect(() => () => {
+    // The captured callback belongs to the document where editing began.
+    const current = draft.current;
+    draft.current = null;
+    if (current) current.commit(current.id, { note: current.text.trim() || undefined });
   }, []);
 
   const handleNoteKeyDown = useCallback(
@@ -123,9 +148,30 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     [saveNote, cancelEditNote, editingNoteId],
   );
 
+  const restoreRecovery = async () => {
+    if (!filePath || !onRestoreRecord) return;
+    try {
+      const path = await open({ multiple: false, filters: [{ name: "Annotation recovery", extensions: ["json"] }] });
+      if (!path || typeof path !== "string") return;
+      const recovery = await invoke<{ documents: Record<string, unknown> }>("read_annotation_recovery", { path });
+      if (!alive.current) return;
+      const record = recovery.documents[filePath];
+      if (!record) { toast("This recovery copy has no annotations for this document path.", "error"); return; }
+      readAnnotationRecord(record);
+      saveNote();
+      setRecoveryRecord(record);
+    } catch { if (alive.current) toast("Couldn't read annotation recovery data. Existing annotations were not changed.", "error"); }
+  };
+
   const handleExport = useCallback(async () => {
-    if (!fileName) return;
-    const markdown = buildAnnotationMarkdown(fileName, highlights, bookmarks, headings);
+    if (!fileName || exportBusy.current) return;
+    exportBusy.current = true;
+    setExporting(true);
+    const currentDraft = draft.current;
+    const exportHighlights = currentDraft ? highlights.map((hl) => hl.id === currentDraft.id
+      ? { ...hl, note: currentDraft.text.trim() || undefined } : hl) : highlights;
+    saveNote();
+    const markdown = buildAnnotationMarkdown(fileName, exportHighlights, bookmarks, headings);
     const baseName = fileName.replace(/\.[^.]+$/, "");
     try {
       const savePath = await save({
@@ -137,8 +183,11 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       toast("Annotations exported");
     } catch {
       toast("Export failed", "error");
+    } finally {
+      exportBusy.current = false;
+      if (alive.current) setExporting(false);
     }
-  }, [fileName, highlights, bookmarks, headings, toast]);
+  }, [fileName, highlights, bookmarks, headings, toast, saveNote]);
 
   if (!visible) return null;
 
@@ -158,7 +207,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
           <button
             type="button"
             onClick={handleExport}
-            disabled={!hasContent}
+            disabled={!hasContent || exporting}
             aria-label="Export annotations as Markdown"
             className="p-1 rounded hover:bg-bg-tertiary text-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -183,6 +232,15 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
         </div>
       </div>
 
+      {filePath && onRestoreRecord && <button type="button" disabled={!annotationsReady || mutationsDisabled}
+        className="mx-4 mb-3 text-xs text-accent underline" onClick={() => void restoreRecovery()}>Restore recovery copy</button>}
+      <ConfirmDialog visible={recoveryRecord !== null} title="Restore annotations?"
+        message="Replace this document's current annotations with the recovery copy? The copy itself will be kept."
+        confirmLabel="Restore annotations" cancelLabel="Cancel" initialFocus="cancel"
+        onConfirm={() => { if (recoveryRecord) onRestoreRecord?.(recoveryRecord); setRecoveryRecord(null); }}
+        onCancel={() => setRecoveryRecord(null)} onDismiss={() => setRecoveryRecord(null)} />
+      {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving annotations...</p>}
+      {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
       {loadError && (
         <div className="mx-4 mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
           <p>{loadError}</p>
@@ -235,7 +293,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
           </h3>
           <ul className="space-y-1">
             {bookmarks.map((bm) => (
-              <li key={bm.id}>
+              <li key={bm.id} className="group relative pr-6">
                 <button
                   type="button"
                   onClick={() => onClickBookmark(bm.headingId)}
@@ -246,6 +304,13 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   </svg>
                   <span className="truncate">{bm.headingText}</span>
                 </button>
+                {!headings.some((heading) => heading.id === bm.headingId) && <p className="px-2 text-xs text-text-muted">Location unavailable</p>}
+                {onRemoveBookmark && <button type="button" aria-label="Remove bookmark" disabled={mutationsDisabled}
+                  className="absolute right-0 top-2 text-text-muted hover:text-text-primary"
+                  onClick={(event) => {
+                    focusAfterRemoval(event.currentTarget.parentElement, closeRef.current);
+                    onRemoveBookmark(bm.id);
+                  }}>×</button>}
               </li>
             ))}
           </ul>
@@ -273,6 +338,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 </button>
                 <button
                   type="button"
+                  disabled={mutationsDisabled}
                   aria-label="Remove highlight"
                   className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary shrink-0 p-0.5 rounded transition-opacity duration-100"
                   onClick={(event) => {
@@ -286,13 +352,20 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   </svg>
                 </button>
 
+                {locations && locations[hl.id] !== "located" && <p className="px-2 text-xs text-text-muted">
+                  {locations[hl.id] === "missing" ? "Location unavailable" : locations[hl.id] === "uncertain" ? "Location uncertain" : "Locating highlight..."}
+                </p>}
                 {/* Note display / edit */}
                 {editingNoteId === hl.id ? (
                   <div className="px-2 pb-1.5">
                     <textarea
                       ref={noteRef}
+                      disabled={mutationsDisabled}
                       value={noteBuffer}
-                      onChange={(e) => setNoteBuffer(e.target.value)}
+                      onChange={(e) => {
+                        if (draft.current) draft.current.text = e.target.value;
+                        setNoteBuffer(e.target.value);
+                      }}
                       onBlur={saveNote}
                       onKeyDown={handleNoteKeyDown}
                       aria-label="Highlight note"
@@ -306,6 +379,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                     <p className="text-xs text-text-muted italic line-clamp-3 flex-1 pl-4.5">{hl.note}</p>
                     <button
                       type="button"
+                      disabled={mutationsDisabled}
                       aria-label="Edit note"
                       data-note-action={hl.id}
                       onClick={() => startEditNote(hl)}
@@ -321,6 +395,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   <div className="px-2 pb-1 pl-6.5">
                     <button
                       type="button"
+                      disabled={mutationsDisabled}
                       onClick={() => startEditNote(hl)}
                       data-note-action={hl.id}
                       className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-xs text-accent hover:underline transition-opacity duration-100"

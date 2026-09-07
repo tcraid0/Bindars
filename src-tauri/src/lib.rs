@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
 
+mod annotations;
 mod atomic_write;
 mod document_io;
 mod exports;
@@ -69,6 +70,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::clone(&pending_open_path))
         .invoke_handler(tauri::generate_handler![
+            annotations::initialize_annotation_storage,
+            annotations::load_annotations,
+            annotations::save_annotations,
+            annotations::export_annotation_recovery,
+            annotations::read_annotation_recovery,
             printing::print_current_webview,
             read_markdown_file,
             open_markdown_file,

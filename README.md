@@ -27,6 +27,9 @@ native testing and code signing.
 - Print and Save as PDF
 - Keyboard-driven workflow - press `?` for the full shortcut list
 
+See [annotation behavior and recovery](docs/annotations.md) for location, saving,
+and document-path limitations.
+
 ### Rendering rules
 
 - Raw HTML in Markdown is removed, not rendered: `<br>`, `<details>`, `<img>`,

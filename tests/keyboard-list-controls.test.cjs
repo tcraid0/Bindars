@@ -168,3 +168,46 @@ test("note blur saves without pulling focus back; empty note returns to Add note
     assert.deepEqual(updates, [["first", { note: undefined }], ["second", { note: "Existing note" }]]);
   } finally { view.cleanup(); }
 });
+
+test("unresolved highlights remain editable and missing bookmarks can be removed independently", async () => {
+  await installDom();
+  const removed = [];
+  const view = renderComponent(Annotations, {
+    locations: { first: "uncertain", second: "missing", third: "located" },
+    bookmarks: [{ id: "orphan", headingId: "gone", headingText: "Deleted heading", createdAt: 1 }],
+    onRemoveBookmark: (id) => removed.push(id),
+  });
+  try {
+    assert.match(view.host.textContent, /Location uncertain/);
+    assert.match(view.host.textContent, /Location unavailable/);
+    assert.equal(view.host.querySelectorAll('[aria-label="Remove highlight"]').length, 3);
+    click(view.host.querySelector('[aria-label="Edit note"]'));
+    assert.equal(document.activeElement.tagName, "TEXTAREA");
+    pressKey("Escape");
+    click(view.host.querySelector('[aria-label="Remove bookmark"]'));
+    assert.deepEqual(removed, ["orphan"]);
+  } finally { view.cleanup(); }
+});
+
+test("an unfinished note commits to its originating document when the panel is replaced", async () => {
+  await installDom();
+  const updates = [];
+  function DocumentPanel({ path }) {
+    return React.createElement(Annotations, { key: path,
+      onUpdate: (id, value) => updates.push({ path, id, value }) });
+  }
+  const view = renderComponent(DocumentPanel, { path: "/a.md" });
+  try {
+    click(view.host.querySelector('[aria-label="Edit note"]'));
+    const input = document.activeElement;
+    const { flushSync } = require("react-dom");
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, "Unfinished A note");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.equal(input.value, "Unfinished A note");
+    view.render({ path: "/b.md" });
+    assert.deepEqual(updates, [{ path: "/a.md", id: "second", value: { note: "Unfinished A note" } }]);
+    assert.ok(!view.host.querySelector("textarea"));
+  } finally { view.cleanup(); }
+});
