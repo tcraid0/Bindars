@@ -1360,6 +1360,7 @@ async function renderContinuityApp({
   initialOpenOperation = null,
   initialSessionOperation = null,
   workspaceFiles = [],
+  workspaceContent = null,
   storedReaderSettings = null,
   themeRead = null,
   settingsRead = null,
@@ -1443,7 +1444,7 @@ async function renderContinuityApp({
       case "list_workspace_markdown_files":
         return { files: workspaceFiles, skippedCount: 0, limitHit: false };
       case "read_markdown_file":
-        return `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
+        return workspaceContent ?? `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
       case "plugin:store|set":
       case "plugin:window|set_title":
         return null;
@@ -5085,4 +5086,98 @@ test("unmount does not release native ownership before operation and media end",
   view.media.matches = false;
   await act(async () => view.media.dispatchEvent(new window.Event("change")));
   assert.equal(document.body.hasAttribute("data-printing"), false);
+});
+
+function setPaletteQuery(input, value) {
+  const propsKey = Object.keys(input).find(key => key.startsWith('__reactProps$'));
+  flushSync(() => input[propsKey].onChange({ target: { value } }));
+}
+
+async function waitForPaletteSearch() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+}
+
+test('typing a new palette query and immediately pressing Enter never opens the previous result', async () => {
+  const view = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 2));
+    const input = view.host.querySelector('.command-palette-shell input');
+    setPaletteQuery(input, 'Alpha');
+    await waitForPaletteSearch();
+    const before = view.openedPaths().length;
+    setPaletteQuery(input, 'Beta');
+    dispatchElementKey(input, 'Enter');
+    assert.equal(view.openedPaths().length, before);
+    assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 0);
+    await waitForPaletteSearch();
+    dispatchElementKey(input, 'Enter');
+    await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Beta.md'));
+  } finally { await view.cleanup(); }
+});
+
+for (const [indexedHeading, currentHeading, missing] of [
+  ['Old', 'New', true], ['Current', 'Current', false],
+]) {
+  test(`same-file palette heading ${missing ? 'reports a missing target' : 'scrolls without reading again'}`, async () => {
+    const view = await renderContinuityApp({
+      requestedPath: '/tmp/Alpha.md', initialContent: `# ${currentHeading}`,
+      readySelector: `#${currentHeading.toLowerCase()}`, workspaceFiles: [paletteWorkspaceFiles[0]],
+      workspaceContent: `# ${indexedHeading}`,
+    });
+    try {
+      dispatchShortcut('k');
+      await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
+      setPaletteQuery(view.host.querySelector('.command-palette-shell input'), indexedHeading);
+      await waitForPaletteSearch();
+      const row = [...view.host.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+      assert.ok(row);
+      const before = view.openedPaths().length;
+      view.scrolledIds.length = 0;
+      flushSync(() => row.click());
+      if (missing) await waitFor(() => assert.match(view.host.textContent, /not found in this document/));
+      else await waitFor(() => assert.ok(view.scrolledIds.includes(currentHeading.toLowerCase())));
+      assert.equal(view.openedPaths().length, before);
+      assert.ok(!view.host.querySelector('.command-palette-shell'));
+    } finally { await view.cleanup(); }
+  });
+}
+
+test('cross-file workspace heading opens the requested document and scrolls its rendered heading', async () => {
+  const content = '# snake_case\n\n## Second heading\n\nBody text';
+  const view = await renderContinuityApp({
+    initialContent: content, readySelector: '#snake_case',
+    workspaceFiles: [paletteWorkspaceFiles[0]], workspaceContent: content,
+  });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
+    setPaletteQuery(view.host.querySelector('.command-palette-shell input'), 'Second heading');
+    await waitForPaletteSearch();
+    const row = [...view.host.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+    assert.ok(row);
+    view.scrolledIds.length = 0;
+    flushSync(() => row.click());
+    await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Alpha.md'));
+    await waitFor(() => assert.ok(view.scrolledIds.includes('second-heading')));
+    assert.doesNotMatch(view.host.textContent, /not found/);
+  } finally { await view.cleanup(); }
+});
+
+test('a deleted workspace result preserves the current document and reports the open failure', async () => {
+  const view = await renderContinuityApp({ workspaceFiles: [paletteWorkspaceFiles[0]] });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
+    const pending = deferred();
+    view.deferNextOpen(pending);
+    flushSync(() => view.host.querySelector('.command-palette-shell li button').click());
+    await waitFor(() => assert.ok(pending.args));
+    await act(async () => pending.reject({
+      category: 'notFound', operation: 'resolveDocument',
+      message: 'The selected document no longer exists.', detail: 'deleted fixture',
+    }));
+    await waitFor(() => assert.match(view.host.textContent, /no longer exists/));
+    assert.ok(view.host.querySelector('#second'));
+  } finally { await view.cleanup(); }
 });

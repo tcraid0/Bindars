@@ -62,3 +62,23 @@ test("heading hits include heading ids for direct navigation", () => {
   assert.ok(headingHit);
   assert.equal(headingHit.headingId, "weekly-plan");
 });
+
+for (const title of ['Annual plan', 'Budget-2026.md', null]) {
+  test(`filename stays searchable alongside title ${JSON.stringify(title)}`, () => {
+    const docs = [makeDoc('/workspace/finance/budget-2026.MD', title, 'Approved spending.')];
+    const results = searchWorkspaceDocs(docs, 'budget-2026', new Map());
+    assert.equal(results.filter(hit => hit.kind === 'title').length, 1);
+    assert.equal(results[0].path, docs[0].path);
+    assert.equal(searchWorkspaceDocs(docs, 'finance', new Map()).length, 0,
+      'directory matching is not part of filename search');
+  });
+}
+
+test('matching title and filename yield one file result; equal basenames retain distinct paths', () => {
+  const docs = [
+    makeDoc('/workspace/a/notes.md', 'Notes', ''),
+    makeDoc('/workspace/b/notes.md', 'Notes', ''),
+  ];
+  const results = searchWorkspaceDocs(docs, 'notes', new Map());
+  assert.deepEqual(results.map(hit => hit.path), docs.map(doc => doc.path));
+});

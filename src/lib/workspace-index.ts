@@ -3,7 +3,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import rehypeSlug from "rehype-slug";
 import { toString as hastToString } from "hast-util-to-string";
-import { visit } from "unist-util-visit";
+import { SKIP, visit } from "unist-util-visit";
 import type { Element as HastElement, Root as HastRoot } from "hast";
 import type {
   SceneItem,
@@ -19,8 +19,8 @@ import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } f
 import { remarkPlugins } from "./markdown-plugins";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 import { replaceOpenableDocumentExtension } from "./openable-files";
+import { MAX_WORKSPACE_BODY_CHARS } from "./workspace-limits";
 
-const MAX_BODY_TEXT_CHARS = 30_000;
 /**
  * The index parses with the reader's own remark plugin list and the same
  * remark-rehype + rehype-slug steps MarkdownRenderer runs, so heading ids and
@@ -34,16 +34,16 @@ const MAX_BODY_TEXT_CHARS = 30_000;
  * 1.5 s against 55 ms for the markdown-it parser this replaced, most of it in
  * SmartyPants). Indexing reads files in batches of eight and yields between
  * batches, so a batch of typical 5-20 KiB documents costs 40-150 ms of
- * main-thread time; the result is cached per workspace.
+ * main-thread time. Small indexes can be cached; stale or oversized indexes
+ * are rebuilt in full when the workspace loads or the user chooses Reindex.
  */
 const indexPipeline = unified()
   .use(remarkParse)
   .use(remarkPlugins)
   .use(remarkRehype)
   .use(rehypeSlug);
-// v7: heading ids follow the rendered slug pipeline; v6 entries hold ids the
-// reader no longer produces for some headings.
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v7";
+// v8: searchable text comes from the parsed tree; persist only used metadata.
+export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v8";
 export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v1",
   "workspace:index:v2",
@@ -51,8 +51,9 @@ export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
   "workspace:index:v4",
   "workspace:index:v5",
   "workspace:index:v6",
+  "workspace:index:v7",
 ] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 7 as const;
+export const WORKSPACE_INDEX_CACHE_VERSION = 8 as const;
 export const WORKSPACE_INDEX_CACHE_KEYS = [
   ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
   WORKSPACE_INDEX_CACHE_KEY,
@@ -66,9 +67,8 @@ export interface WorkspaceIndexCache {
   version: typeof WORKSPACE_INDEX_CACHE_VERSION;
   rootPath: string;
   indexedAt: number;
-  files: WorkspaceFileMeta[];
+  fileCount: number;
   docs: WorkspaceDocIndex[];
-  processedCount: number;
   readFailedCount: number;
   complexitySkippedCount: number;
   listSkippedCount: number;
@@ -79,44 +79,58 @@ export type WorkspaceDocumentBuildResult =
   | { status: "indexed"; doc: WorkspaceDocIndex }
   | { status: "too-complex" };
 
-export function normalizeWorkspaceIndexCache(
-  cache: Partial<WorkspaceIndexCache>,
-): WorkspaceIndexCache {
-  const files = Array.isArray(cache.files) ? cache.files : [];
-  const docs = Array.isArray(cache.docs) ? cache.docs : [];
+// Derived data has no recovery value: reject malformed snapshots and rebuild.
+export function isWorkspaceIndexCache(cache: unknown, rootPath: string): cache is WorkspaceIndexCache {
+  return isRecord(cache)
+    && cache.version === WORKSPACE_INDEX_CACHE_VERSION
+    && cache.rootPath === rootPath
+    && typeof cache.indexedAt === "number" && Number.isFinite(cache.indexedAt) && cache.indexedAt >= 0
+    && isCount(cache.fileCount)
+    && isCount(cache.readFailedCount)
+    && isCount(cache.complexitySkippedCount)
+    && isCount(cache.listSkippedCount)
+    && typeof cache.limitHit === "boolean"
+    && Array.isArray(cache.docs) && cache.docs.every(isWorkspaceDoc)
+    && cache.docs.length + cache.readFailedCount + cache.complexitySkippedCount === cache.fileCount;
+}
 
-  return {
-    version: WORKSPACE_INDEX_CACHE_VERSION,
-    rootPath: typeof cache.rootPath === "string" ? cache.rootPath : "",
-    indexedAt: finiteNumberOrDefault(cache.indexedAt, 0),
-    files,
-    docs,
-    processedCount: clampCount(cache.processedCount, 0, files.length),
-    readFailedCount: clampCount(cache.readFailedCount, 0, Number.MAX_SAFE_INTEGER),
-    complexitySkippedCount: clampCount(cache.complexitySkippedCount, 0, Number.MAX_SAFE_INTEGER),
-    listSkippedCount: clampCount(cache.listSkippedCount, 0, Number.MAX_SAFE_INTEGER),
-    limitHit: cache.limitHit === true,
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isWorkspaceDoc(doc: unknown): doc is WorkspaceDocIndex {
+  return isRecord(doc)
+    && typeof doc.path === "string" && doc.path.length > 0
+    && typeof doc.relPath === "string" && typeof doc.name === "string"
+    && (doc.title === null || typeof doc.title === "string")
+    && typeof doc.bodyText === "string"
+    && Array.isArray(doc.headings) && doc.headings.every((heading) => isRecord(heading)
+      && typeof heading.id === "string" && typeof heading.text === "string")
+    && Array.isArray(doc.links) && doc.links.every((link) => typeof link === "string")
+    && Array.isArray(doc.scenes) && doc.scenes.every((scene) => isRecord(scene)
+      && typeof scene.id === "string" && typeof scene.label === "string"
+      && isCount(scene.line) && (scene.headingId === null || typeof scene.headingId === "string"));
 }
 
 export function buildWorkspaceStateFromCache(
   cache: WorkspaceIndexCache,
-  rootPath: string,
 ): WorkspaceState {
-  const normalized = normalizeWorkspaceIndexCache(cache);
-
   return {
-    rootPath,
+    rootPath: cache.rootPath,
     status: "ready",
-    fileCount: normalized.files.length,
-    processedCount: normalized.processedCount,
-    indexedCount: normalized.docs.length,
-    indexedAt: normalized.indexedAt,
+    fileCount: cache.fileCount,
+    processedCount: cache.fileCount,
+    indexedCount: cache.docs.length,
+    indexedAt: cache.indexedAt,
     error: null,
-    listSkippedCount: normalized.listSkippedCount,
-    readFailedCount: normalized.readFailedCount,
-    complexitySkippedCount: normalized.complexitySkippedCount,
-    limitHit: normalized.limitHit,
+    listSkippedCount: cache.listSkippedCount,
+    readFailedCount: cache.readFailedCount,
+    complexitySkippedCount: cache.complexitySkippedCount,
+    limitHit: cache.limitHit,
   };
 }
 
@@ -170,7 +184,7 @@ export function buildWorkspaceDoc(
 
   const links = extractLinks(tree, meta.path);
   const scenes = extractScenes(headingRows);
-  const bodyText = toSearchableText(body);
+  const bodyText = toSearchableText(tree);
 
   return {
     path: meta.path,
@@ -316,32 +330,26 @@ function extractLinks(tree: HastRoot, currentFilePath: string): string[] {
   return Array.from(targets);
 }
 
-function toSearchableText(markdown: string): string {
-  let text = markdown;
+const BODY_BLOCK_TAGS = new Set([
+  "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "th", "hr", "blockquote",
+]);
 
-  text = text.replace(/```[\s\S]*?```/g, " ");
-  text = text.replace(/~~~[\s\S]*?~~~/g, " ");
-  text = text.replace(/`[^`]*`/g, " ");
-  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, " $1 ");
-  text = text.replace(/^\s{0,3}[-*+]\s+/gm, " ");
-  text = text.replace(/^\s{0,3}\d+\.\s+/gm, " ");
-  text = text.replace(/^>\s?/gm, " ");
-  text = text.replace(/[\r\n]+/g, " ");
-  text = text.replace(/\s+/g, " ").trim();
-
-  if (text.length > MAX_BODY_TEXT_CHARS) {
-    return text.slice(0, MAX_BODY_TEXT_CHARS);
-  }
-
-  return text;
-}
-
-function finiteNumberOrDefault(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function clampCount(value: unknown, min: number, max: number): number {
-  const numberValue = finiteNumberOrDefault(value, min);
-  return Math.min(Math.max(Math.trunc(numberValue), min), max);
+function toSearchableText(tree: HastRoot): string {
+  const parts: string[] = [];
+  visit(tree, (node) => {
+    if (node.type === "text") parts.push(node.value.replace(/\s+/g, " "));
+    if (node.type !== "element") return;
+    // Code includes math and diagram source. Neither that source nor image alt
+    // text is part of the body excerpt. Keep a boundary across omitted content.
+    if (node.tagName === "code" || node.tagName === "pre" || node.tagName === "img"
+      || elementClassNames(node).includes("sr-only") || node.properties.dataFootnoteBackref) {
+      parts.push("\n");
+      return SKIP;
+    }
+    if (BODY_BLOCK_TAGS.has(node.tagName)) parts.push("\n");
+    if (node.tagName === "br") parts.push(" ");
+  });
+  // Spaces join inline formatting; newlines prevent matching across blocks.
+  return parts.join("").replace(/ +/g, " ").replace(/ *\n */g, "\n")
+    .replace(/\n+/g, "\n").trim().slice(0, MAX_WORKSPACE_BODY_CHARS);
 }

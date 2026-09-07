@@ -6,6 +6,7 @@ import { formatShortcutLabel } from "../lib/shortcut-labels";
 interface CommandPaletteProps {
   visible: boolean;
   query: string;
+  pending: boolean;
   results: WorkspaceSearchHit[];
   selectedIndex: number;
   status: WorkspaceStatus;
@@ -18,6 +19,7 @@ interface CommandPaletteProps {
 function CommandPaletteComponent({
   visible,
   query,
+  pending,
   results,
   selectedIndex,
   status,
@@ -52,7 +54,9 @@ function CommandPaletteComponent({
           <div className="flex items-center gap-2 mb-2">
             {title}
             <span className="ui-subsection-label text-[11px]">
-              {status === "indexing"
+              {pending
+                ? "Updating results…"
+                : status === "indexing"
                 ? "Indexing in progress"
                 : `${results.length} result${results.length === 1 ? "" : "s"}`}
             </span>
@@ -71,8 +75,10 @@ function CommandPaletteComponent({
           <div className="mt-2 text-[11px] text-text-muted flex items-center justify-between gap-3">
             <span>
               {status === "indexing"
-                ? "Results improve as indexing progresses."
-                : "Arrow keys to navigate."}
+                ? "The updated index will be available when indexing finishes."
+                : status === "error"
+                  ? "Indexing failed. Reindex from the Workspace panel to retry."
+                  : "Reindex from the Workspace panel after files change."}
             </span>
             <span className="hidden sm:inline">
               {formatShortcutLabel("enter")} opens. {formatShortcutLabel("escape")} closes.
@@ -84,7 +90,13 @@ function CommandPaletteComponent({
       <ul className="max-h-[50vh] overflow-y-auto">
         {results.length === 0 ? (
           <li className="px-4 py-6 text-sm text-text-muted">
-            {query.trim() ? "No matches for this query." : "Type to search your workspace."}
+            {status === "idle"
+              ? "Choose a folder in the Workspace panel to search."
+              : pending
+                ? "Updating results…"
+                : status === "indexing"
+                  ? "Waiting for indexing to finish."
+                  : query.trim() ? "No matches for this query." : "No indexed files to show."}
           </li>
         ) : (
           results.map((hit, idx) => {

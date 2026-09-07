@@ -35,10 +35,13 @@ export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWo
     [recentFiles],
   );
 
-  const results = useMemo(
+  const settledResults = useMemo(
     () => searchWorkspaceDocs(docs, debouncedQuery, recentBoostByPath, maxResults),
     [docs, debouncedQuery, recentBoostByPath, maxResults],
   );
+  // Never let Enter or a result button act on a different query than the input.
+  const pending = query !== debouncedQuery;
+  const results = pending ? [] : settledResults;
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -70,6 +73,7 @@ export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWo
 
   return {
     query,
+    pending,
     setQuery,
     results,
     selectedIndex,

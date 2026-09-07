@@ -210,7 +210,7 @@ test("Quick switcher: contains focus with no results and after results change", 
   try {
     view.open();
     const input = view.host.querySelector("input");
-    assert.match(view.host.textContent, /Type to search your workspace/);
+    assert.match(view.host.textContent, /No indexed files to show/);
     for (const shiftKey of [false, true]) {
       assert.equal(pressKey("Tab", { shiftKey }).defaultPrevented, true);
       assert.ok(document.activeElement === input);

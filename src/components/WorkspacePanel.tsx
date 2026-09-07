@@ -47,7 +47,7 @@ export function WorkspacePanel({
         {hasWorkspace && rootPath ? (
           <p className="workspace-path truncate" title={rootPath}>{rootPath}</p>
         ) : (
-          <p>Choose a folder to index markdown files for quick navigation and links.</p>
+          <p>Choose a folder to index Markdown and Fountain files for quick navigation and links.</p>
         )}
       </div>
 
@@ -81,9 +81,15 @@ export function WorkspacePanel({
       </div>
 
       {hasWorkspace && (
-        <p className="mt-2 workspace-status text-[11px] text-text-muted">
-          {formatStatus(state)}
-        </p>
+        <>
+          <p className="mt-2 workspace-status text-[11px] text-text-muted">
+            {formatStatus(state)}
+          </p>
+          <p className="mt-1 text-[11px] text-text-muted">
+            Reindex after files change.
+            {state.indexedAt !== null && ` Last indexed: ${new Date(state.indexedAt).toLocaleString()}.`}
+          </p>
+        </>
       )}
 
       {hasWorkspace && hasDiagnostics(state) && (
@@ -159,14 +165,12 @@ function formatStatus(state: WorkspaceState): string {
       return "Idle";
     case "indexing":
       return `Indexing ${state.processedCount}/${state.fileCount} files...`;
-    case "ready":
-      if (state.limitHit) {
-        return `${state.fileCount} files indexed (limit reached)`;
-      }
-      if (state.indexedCount !== state.fileCount) {
-        return `${state.indexedCount}/${state.fileCount} files indexed`;
-      }
-      return `${state.fileCount} files indexed`;
+    case "ready": {
+      const count = state.indexedCount === state.fileCount
+        ? `${state.indexedCount}`
+        : `${state.indexedCount}/${state.fileCount}`;
+      return `${count} files indexed${state.limitHit ? " (limit reached)" : ""}`;
+    }
     case "error":
       if (state.indexedAt !== null) {
         return "Indexing failed; last successful index is still shown";

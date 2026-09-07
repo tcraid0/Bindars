@@ -171,8 +171,6 @@ export interface WorkspaceFileMeta {
   path: string;
   relPath: string;
   name: string;
-  mtimeMs: number;
-  size: number;
 }
 
 export interface WorkspaceHeading {

@@ -2541,12 +2541,6 @@ function App() {
         await handleNavigateToFile(action.path, action.anchor, action);
         return;
       case "open-workspace-hit":
-        if (action.path === filePath) {
-          if (action.headingId) {
-            scrollToHeading(action.headingId);
-          }
-          return;
-        }
         await handleNavigateToFile(action.path, action.headingId, action);
         return;
       case "restore-session":
@@ -3242,6 +3236,7 @@ function App() {
       <CommandPalette
         visible={commandPaletteVisible}
         query={workspaceSearch.query}
+        pending={workspaceSearch.pending}
         results={workspaceSearch.results}
         selectedIndex={workspaceSearch.selectedIndex}
         status={workspaceIndex.state.status}

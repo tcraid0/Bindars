@@ -1,4 +1,5 @@
 import { Fountain, Lexer, rules } from "fountain-js";
+import { MAX_WORKSPACE_BODY_CHARS } from "./workspace-limits";
 import type { Token } from "fountain-js/dist.esm/token";
 import type {
   ParsedSceneHeading,
@@ -616,27 +617,27 @@ export function fountainToSearchableText(parsed: ParsedFountain): string {
   let pendingSpace = false;
 
   const append = (text: string) => {
-    for (let index = 0; index < text.length && result.length < 30_000; index += 1) {
+    for (let index = 0; index < text.length && result.length < MAX_WORKSPACE_BODY_CHARS; index += 1) {
       if (isWhitespaceCodeUnit(text.charCodeAt(index))) {
         pendingSpace = result.length > 0;
         continue;
       }
-      if (pendingSpace && result.length < 30_000) result.push(" ");
+      if (pendingSpace && result.length < MAX_WORKSPACE_BODY_CHARS) result.push(" ");
       pendingSpace = false;
-      if (result.length < 30_000) result.push(text[index]);
+      if (result.length < MAX_WORKSPACE_BODY_CHARS) result.push(text[index]);
     }
     pendingSpace = result.length > 0;
   };
 
   for (const entry of parsed.titlePage) {
     append(fountainPlainText(entry.value));
-    if (result.length >= 30_000) return result.join("");
+    if (result.length >= MAX_WORKSPACE_BODY_CHARS) return result.join("");
   }
 
   for (const token of parsed.tokens) {
     if (token.text && token.type !== "spaces" && token.type !== "page_break") {
       append(fountainPlainText(token.text));
-      if (result.length >= 30_000) break;
+      if (result.length >= MAX_WORKSPACE_BODY_CHARS) break;
     }
   }
 

@@ -8,7 +8,7 @@ import {
   buildWorkspaceRefreshErrorState,
   buildWorkspaceStateFromCache,
   LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
-  normalizeWorkspaceIndexCache,
+  isWorkspaceIndexCache,
   tryBuildWorkspaceDoc,
   type WorkspaceIndexCache,
   WORKSPACE_INDEX_CACHE_KEY,
@@ -17,7 +17,7 @@ import {
 
 const MAX_WORKSPACE_FILES = 5_000;
 const READ_BATCH_SIZE = 8;
-const MAX_CACHE_TEXT_BYTES = 5_000_000;
+const MAX_CACHE_TEXT_CHARS = 5_000_000;
 const CACHE_FRESH_MS = 90_000;
 const PROGRESS_UPDATE_INTERVAL_MS = 120;
 
@@ -37,7 +37,6 @@ const EMPTY_STATE: WorkspaceState = {
 
 interface UseWorkspaceIndexResult {
   state: WorkspaceState;
-  files: WorkspaceFileMeta[];
   docs: WorkspaceDocIndex[];
   reindex: () => void;
 }
@@ -50,10 +49,8 @@ interface WorkspaceListResult {
 
 export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexResult {
   const [state, setState] = useState<WorkspaceState>(EMPTY_STATE);
-  const [files, setFiles] = useState<WorkspaceFileMeta[]>([]);
   const [docs, setDocs] = useState<WorkspaceDocIndex[]>([]);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const runIdRef = useRef(0);
   const manualRefreshRef = useRef(false);
   const lastGoodStateRef = useRef<WorkspaceState | null>(null);
 
@@ -66,14 +63,12 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
   useEffect(() => {
     if (!rootPath) {
       setState(EMPTY_STATE);
-      setFiles([]);
       setDocs([]);
       lastGoodStateRef.current = null;
       return;
     }
 
     let active = true;
-    const runId = ++runIdRef.current;
     const forceRefresh = manualRefreshRef.current;
     manualRefreshRef.current = false;
     const sameRootAsCurrent = state.rootPath === rootPath;
@@ -81,7 +76,6 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
     if (!sameRootAsCurrent) {
       // Clear previous workspace data to avoid showing stale backlinks/mentions
       // while a different root is loading.
-      setFiles([]);
       setDocs([]);
     }
     setState((prev) => ({
@@ -99,39 +93,30 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
     }));
 
     const hydrateFromCache = async (): Promise<number | null> => {
-      const cached = await storeGet<WorkspaceIndexCache>(WORKSPACE_INDEX_CACHE_KEY);
-      if (!active || runId !== runIdRef.current || !cached) return null;
-      if (cached.version !== WORKSPACE_INDEX_CACHE_VERSION || cached.rootPath !== rootPath) return null;
-      const normalized = normalizeWorkspaceIndexCache(cached);
-      const cachedState = buildWorkspaceStateFromCache(normalized, rootPath);
+      const cached = await storeGet<unknown>(WORKSPACE_INDEX_CACHE_KEY);
+      if (!active || !cached) return null;
+      if (!isWorkspaceIndexCache(cached, rootPath)) return null;
+      const cachedState = buildWorkspaceStateFromCache(cached);
 
-      setFiles(normalized.files);
-      setDocs(normalized.docs);
+      setDocs(cached.docs);
       setState(cachedState);
       lastGoodStateRef.current = cachedState;
-      return normalized.indexedAt;
+      return cached.indexedAt;
     };
 
     const purgeLegacyCache = async (): Promise<void> => {
       for (const cacheKey of LEGACY_WORKSPACE_INDEX_CACHE_KEYS) {
         const legacyCache = await storeGet<unknown>(cacheKey);
-        if (!active || runId !== runIdRef.current) return;
+        if (!active) return;
         if (legacyCache !== null) {
           await storeSet(cacheKey, null);
         }
       }
     };
 
-    const clearLegacyCache = () => {
-      for (const cacheKey of LEGACY_WORKSPACE_INDEX_CACHE_KEYS) {
-        void storeSet(cacheKey, null);
-      }
-    };
-
     const reportRunError = (error: unknown) => {
-      if (!active || runId !== runIdRef.current) return;
+      if (!active) return;
 
-      clearLegacyCache();
       setState((prev) => {
         return buildWorkspaceRefreshErrorState(
           prev,
@@ -144,10 +129,10 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
 
     const run = async () => {
       await purgeLegacyCache();
-      if (!active || runId !== runIdRef.current) return;
+      if (!active) return;
 
       const cachedIndexedAt = forceRefresh ? null : await hydrateFromCache();
-      if (!active || runId !== runIdRef.current) return;
+      if (!active) return;
 
       if (!forceRefresh && cachedIndexedAt && Date.now() - cachedIndexedAt < CACHE_FRESH_MS) {
         return;
@@ -172,9 +157,8 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
           root: rootPath,
           maxFiles: MAX_WORKSPACE_FILES,
         });
-        if (!active || runId !== runIdRef.current) return;
+        if (!active) return;
 
-        setFiles(listed.files);
         setState((prev) => ({
           rootPath,
           status: "indexing",
@@ -196,6 +180,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
         let lastProgressUpdateAt = Date.now();
 
         for (let i = 0; i < listed.files.length; i += READ_BATCH_SIZE) {
+          if (!active) return;
           const batch = listed.files.slice(i, i + READ_BATCH_SIZE);
           const parsed = await Promise.all(
             batch.map(async (meta) => {
@@ -206,6 +191,8 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
                 console.warn(`[workspace-index] Failed to read ${meta.path}:`, err);
                 return { doc: null, failure: "read" as const };
               }
+
+              if (!active) return { doc: null, failure: null };
 
               try {
                 const result = tryBuildWorkspaceDoc(meta, content);
@@ -223,7 +210,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
             }),
           );
 
-          if (!active || runId !== runIdRef.current) return;
+          if (!active) return;
 
           for (const result of parsed) {
             if (result.doc) nextDocs.push(result.doc);
@@ -254,7 +241,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        if (!active || runId !== runIdRef.current) return;
+        if (!active) return;
 
         setDocs(nextDocs);
         const indexedAt = Date.now();
@@ -274,25 +261,22 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
         setState(readyState);
         lastGoodStateRef.current = readyState;
 
-        if (estimateCacheTextSize(nextDocs) <= MAX_CACHE_TEXT_BYTES) {
+        if (estimateCacheTextSize(nextDocs) <= MAX_CACHE_TEXT_CHARS) {
           const cache: WorkspaceIndexCache = {
             version: WORKSPACE_INDEX_CACHE_VERSION,
             rootPath,
             indexedAt,
-            files: listed.files,
+            fileCount: listed.files.length,
             docs: nextDocs,
-            processedCount: listed.files.length,
             readFailedCount,
             complexitySkippedCount,
             listSkippedCount: listed.skippedCount,
             limitHit: listed.limitHit,
           };
           void storeSet(WORKSPACE_INDEX_CACHE_KEY, cache);
-          clearLegacyCache();
         } else {
           // Avoid inflating settings.json for very large workspaces.
           void storeSet(WORKSPACE_INDEX_CACHE_KEY, null);
-          clearLegacyCache();
         }
       } catch (error) {
         reportRunError(error);
@@ -306,7 +290,7 @@ export function useWorkspaceIndex(rootPath: string | null): UseWorkspaceIndexRes
     };
   }, [rootPath, refreshNonce]);
 
-  return { state, files, docs, reindex };
+  return { state, docs, reindex };
 }
 
 function getErrorMessage(error: unknown): string {
