@@ -406,6 +406,12 @@ function App() {
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
+  const readerFocusRequestRef = useRef<{
+    documentKey: string | null;
+    editorSessionKey: number;
+    openGeneration: number;
+    actionId: number;
+  } | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
   const activeHeadingIdRef = useRef<string | null>(null);
@@ -480,10 +486,21 @@ function App() {
   // In-document search
   const search = useSearch(contentRef);
 
+  const requestReaderFocus = useCallback(() => {
+    const path = getPublishedDocument().filePath;
+    readerFocusRequestRef.current = {
+      documentKey: path ? toPathIdentityKey(path) : null,
+      editorSessionKey: editorSessionKeyRef.current,
+      openGeneration: getOpenOwnership().generation,
+      actionId: nextActionAdmissionIdRef.current,
+    };
+  }, [getOpenOwnership, getPublishedDocument]);
+
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
     search.clear();
-  }, [search.clear]);
+    if (!editingRef.current) requestReaderFocus();
+  }, [requestReaderFocus, search.clear]);
 
   // --- Editing helpers ---
 
@@ -1022,6 +1039,7 @@ function App() {
     resetEditSession();
 
     publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
+    if (positionOutcome !== "none") requestReaderFocus();
 
     // Reconciliation starts only after the watcher attempt settles. That closes
     // the read-before-watch gap while still reconciling when watching fails.
@@ -1032,7 +1050,7 @@ function App() {
         editorSessionKey: sessionKey,
       };
     }
-  }, [publishSourceReaderTarget, resetEditSession]);
+  }, [publishSourceReaderTarget, requestReaderFocus, resetEditSession]);
 
   // Frozen for the app's lifetime: the running platform cannot change, and
   // the close guard's window policy must stay stable across re-renders.
@@ -2016,6 +2034,30 @@ function App() {
     }
     setPendingReaderTarget(null);
   }, [content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
+
+  // Deliberate returns already cause a render. Complete once, after the layout
+  // restoration and child dialog cleanup; a blocked request must never linger.
+  useEffect(() => {
+    const request = readerFocusRequestRef.current;
+    if (!request) return;
+    readerFocusRequestRef.current = null;
+    const published = getPublishedDocument();
+    const documentKey = published.filePath ? toPathIdentityKey(published.filePath) : null;
+    const ownership = getOpenOwnership();
+    if (
+      request.documentKey !== documentKey
+      || request.editorSessionKey !== editorSessionKeyRef.current
+      || request.openGeneration !== ownership.generation
+      || request.actionId !== nextActionAdmissionIdRef.current
+      || ownership.userOpenInFlight || actionAdmissionOwnerRef.current !== null
+      || editingRef.current || searchVisible || !readerDocumentReady
+      || presentationMode || printSessionRef.current
+      || showConfirmDialogRef.current || showConflictDialogRef.current
+      || restoreDialogOpenRef.current || showClearRecoveryDialog
+      || shortcutsVisible || commandPaletteVisible || readerControlsVisible
+    ) return;
+    mainScrollRef.current?.focus({ preventScroll: true });
+  });
 
   const handleActiveHeadingChange = useCallback((headingId: string | null) => {
     activeHeadingIdRef.current = headingId;

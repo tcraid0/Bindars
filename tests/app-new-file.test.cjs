@@ -5433,3 +5433,232 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
     } finally { await rendered.cleanup(); }
   });
 }
+
+function trackReaderReturn(rendered) {
+  const main = rendered.host.querySelector('main');
+  const focus = main.focus.bind(main);
+  const calls = [];
+  main.focus = (options) => { calls.push({ options, scrollTop: main.scrollTop }); focus(options); };
+  return { main, calls };
+}
+
+for (const route of ['keyboard', 'toolbar', 'no-anchor', 'focus-mode']) {
+  test(`reader focus return: clean ${route} exit restores focus without changing restored position`, async t => {
+    if (route === 'no-anchor') {
+      const positions = require('../.tmp/workspace-tests/src/lib/editor-position.js');
+      t.mock.method(positions, 'captureReaderAnchor', () => null);
+    }
+    if (route === 'focus-mode') {
+      const original = globalThis.matchMedia;
+      globalThis.matchMedia = window.matchMedia.bind(window);
+      t.after(() => { globalThis.matchMedia = original; });
+    }
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      if (route === 'focus-mode') {
+        dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+        assert.ok(!rendered.host.querySelector('header'), 'focus mode must engage before testing its editor return');
+      }
+      main.scrollTop = route === 'no-anchor' ? 0 : 350;
+      dispatchShortcut('e');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      if (route === 'toolbar') {
+        const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+        toggle.focus(); flushSync(() => toggle.click());
+      } else dispatchEditorKey(rendered.host, 'Escape');
+      await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+      assert.ok(document.activeElement === main);
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].options, { preventScroll: true });
+      assert.equal(main.scrollTop, calls[0].scrollTop);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'conflict-overwrite', 'failed-exit', 'cancel']) {
+  test(`reader focus return: toolbar ${route} honors dialog cleanup and editor ownership`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      const original = rendered.diskContent();
+      dispatchShortcut('e');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      updateEditor(rendered.host, `${original}\n\nR4 edits.`);
+      await waitForEditorPublication();
+      if (route.startsWith('conflict-')) rendered.conflictNextWrite();
+      else if (route !== 'saved') rendered.failNextFileWrite(new Error('R4 injected save failure'));
+      const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+      toggle.focus(); flushSync(() => toggle.click());
+      if (route !== 'saved') {
+        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save decision'));
+        assert.equal(calls.length, 0);
+        if (route === 'cancel') dispatchElementKey(dialog, 'Escape');
+        else {
+          if (route === 'failed-exit') rendered.failNextFileWrite(new Error('R4 repeated failure'));
+          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Reload', 'conflict-overwrite': 'Overwrite', discard: 'Discard' }[route];
+          clickButton(rendered.host, choice, dialog);
+        }
+      }
+      if (route === 'cancel' || route === 'failed-exit') {
+        await act(async () => { await Promise.resolve(); });
+        assert.ok(rendered.host.querySelector('.cm-editor'));
+        assert.match(findEditorView(rendered.host).state.sliceDoc(), /R4 edits/);
+        assert.equal(calls.length, 0);
+        assert.equal(rendered.diskContent(), original);
+      } else {
+        await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+        assert.ok(document.activeElement === main, 'reader wins after the real DialogFrame opener cleanup');
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].options, { preventScroll: true });
+        if (['saved', 'confirmed-save', 'conflict-overwrite'].includes(route)) assert.match(rendered.diskContent(), /R4 edits/);
+        else assert.equal(rendered.diskContent(), original);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const route of ['Escape', 'button', 'editor']) {
+  test(`reader focus return: search ${route} returns only to its intended surface`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      main.scrollTop = 200;
+      dispatchShortcut('f');
+      const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      if (route === 'editor') dispatchShortcut('e');
+      else if (route === 'button') {
+        const close = rendered.host.querySelector('[aria-label="Close search"]'); close.focus(); flushSync(() => close.click());
+      } else dispatchElementKey(input, 'Escape');
+      assert.ok(!rendered.host.querySelector('.search-bar'));
+      if (route === 'editor') {
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        assert.ok(findEditorView(rendered.host).hasFocus);
+        assert.equal(calls.length, 0);
+      } else {
+        assert.ok(document.activeElement === main);
+        assert.deepEqual(calls, [{ options: { preventScroll: true }, scrollTop: 200 }]);
+        assert.equal(main.scrollTop, 200);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('reader focus return: background reconciliation never requests focus', async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const { calls } = trackReaderReturn(rendered);
+    const button = rendered.host.querySelector('[aria-label="Switch to edit mode"]'); button.focus();
+    rendered.setDiskContent(`${rendered.diskContent()}\n\nR4 external refresh.`);
+    await act(async () => {
+      await emit('file-changed', { path: '/tmp/continuity.md' });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /R4 external refresh/));
+    assert.equal(calls.length, 0);
+    assert.ok(document.activeElement === button);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const newer of ['editor', 'new-document', 'dialog', 'presentation', 'pending-open']) {
+  test(`reader focus return: ${newer} supersedes search dismissal without a delayed return`, async t => {
+    const originalMatchMedia = globalThis.matchMedia;
+    globalThis.matchMedia = window.matchMedia.bind(window);
+    t.after(() => { globalThis.matchMedia = originalMatchMedia; });
+    const rendered = await renderContinuityApp();
+    try {
+      const { calls } = trackReaderReturn(rendered);
+      dispatchShortcut('f');
+      const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      const pendingOpen = deferred();
+      if (newer === 'pending-open') {
+        rendered.setOpenDialogPath('/tmp/r4-newer.md');
+        rendered.deferNextOpen(pendingOpen);
+      }
+      // Both real event handlers run before React commits the return. A new
+      // surface or admitted open must own the eventual focus, even if it waits.
+      flushSync(() => {
+        input.dispatchEvent(keyboardEvent('Escape'));
+        const key = { editor: 'e', 'new-document': 'n', dialog: 'k', presentation: 'F5', 'pending-open': 'o' }[newer];
+        window.dispatchEvent(keyboardEvent(key, { ctrlKey: key !== 'F5' }));
+      });
+      await act(async () => { await Promise.resolve(); });
+      assert.equal(calls.length, 0);
+      if (newer === 'editor' || newer === 'new-document') {
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        assert.ok(findEditorView(rendered.host).hasFocus);
+      } else if (newer === 'dialog') {
+        const dialog = rendered.host.querySelector('[role="dialog"]');
+        assert.ok(dialog && dialog.contains(document.activeElement));
+        dispatchElementKey(document.activeElement, 'Escape');
+      } else if (newer === 'presentation') {
+        assert.ok(rendered.host.querySelector('.presentation-overlay'));
+        dispatchWindowKey('Escape');
+      } else {
+        await act(async () => {
+          pendingOpen.resolve({ ...rendered.openResult('# R4 newer document'), canonicalPath: '/tmp/r4-newer.md', name: 'r4-newer.md' });
+          await pendingOpen.promise;
+        });
+        await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /R4 newer document/));
+      }
+      await act(async () => { await waitForReconciliationWindow(); });
+      assert.equal(calls.length, 0, 'dropped request cannot revive on a later render');
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('reader focus return: print supersedes search dismissal and cannot revive its request', async t => {
+  const rendered = await renderNativePrintApp(t);
+  const { calls } = trackReaderReturn(rendered);
+  const original = rendered.diskContent();
+  dispatchShortcut('f');
+  const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+  flushSync(() => {
+    input.dispatchEvent(keyboardEvent('Escape'));
+    window.dispatchEvent(keyboardEvent('p', { ctrlKey: true }));
+  });
+  assert.equal(rendered.pending.length, 1);
+  assert.match(rendered.host.querySelector('.print-status').textContent, /Preparing print/);
+  assert.equal(calls.length, 0, 'print preparation owns input before native invocation');
+  await act(async () => rendered.pending[0].resolve());
+  assert.equal(rendered.invoke.mock.callCount(), 1);
+  assert.equal(calls.length, 0);
+  await act(async () => rendered.operation.resolve());
+  assert.ok(rendered.host.querySelector('header'));
+  assert.equal(calls.length, 0, 'finishing print cannot revive the old search return');
+  assert.equal(rendered.diskContent(), original);
+});
+
+for (const route of ['clean', 'save-as', 'cancel-save-as']) {
+  test(`reader focus return: virtual ${route} handles null identity and adoption`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      dispatchShortcut('n');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      const { main, calls } = trackReaderReturn(rendered);
+      if (route !== 'clean') {
+        updateEditor(rendered.host, '# R4 virtual\n\nSaved words.');
+        await waitForEditorPublication();
+      }
+      if (route === 'cancel-save-as') rendered.setSaveDialogPath(null);
+      dispatchEditorKey(rendered.host, 'Escape');
+      if (route !== 'clean') {
+        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save choice'));
+        clickButton(rendered.host, 'Save', dialog);
+      }
+      await act(async () => { await Promise.resolve(); });
+      if (route === 'cancel-save-as') {
+        assert.ok(rendered.host.querySelector('.cm-editor'));
+        assert.match(findEditorView(rendered.host).state.sliceDoc(), /Saved words/);
+        assert.equal(rendered.fileWrites().length, 0);
+        assert.equal(calls.length, 0);
+      } else {
+        await waitFor(() => assert.ok(!rendered.host.querySelector('.cm-editor')));
+        assert.ok(document.activeElement === main);
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].options, { preventScroll: true });
+        if (route === 'save-as') assert.match(rendered.fileWrites()[0].content, /Saved words/);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
