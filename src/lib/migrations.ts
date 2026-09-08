@@ -1,54 +1,40 @@
 import { storeTryGet, storeSet } from "./store";
-import type { RecentFile } from "../types";
+import { decodeRecentFiles } from "./recent-files";
 
 const STORE_KEY = "config-version";
 const CURRENT_VERSION = 3;
+let preparation: Promise<void> | null = null;
 
-type Migration = () => Promise<void>;
-
-function stripClobberPrefix(id: string): string {
-  return id.startsWith("user-content-") ? id.slice("user-content-".length) : id;
-}
-
-// Add migration functions here as the store schema evolves.
-// Each entry migrates FROM that version TO the next.
-const migrations: Record<number, Migration> = {
-  // Migration 2→3: Strip user-content- prefix from stored heading IDs.
-  // Clobber prefix was disabled in sanitize-schema.ts, so heading IDs
-  // no longer have the prefix. Stored IDs must match.
-  2: async () => {
-    // Migrate recentFiles
-    const result = await storeTryGet<RecentFile[]>("recent-files");
-    if (!result.ok) throw new Error("Could not read settings for migration");
-    const recentFiles = result.value;
-    if (recentFiles && Array.isArray(recentFiles)) {
-      let changed = false;
-      for (const rf of recentFiles) {
-        if (typeof rf.lastHeadingId === "string" && rf.lastHeadingId.startsWith("user-content-")) {
-          rf.lastHeadingId = stripClobberPrefix(rf.lastHeadingId);
-          changed = true;
-        }
-      }
-      if (changed) {
-        if (!await storeSet("recent-files", recentFiles)) throw new Error("Could not save migrated settings");
-      }
-    }
-  },
-};
-
-export async function runMigrations(): Promise<void> {
-  const result = await storeTryGet<number>(STORE_KEY);
+async function migrate(): Promise<void> {
+  const result = await storeTryGet<unknown>(STORE_KEY);
   if (!result.ok) throw new Error("Could not read settings version");
   const version = result.value ?? 0;
-
-  if (version >= CURRENT_VERSION) return;
-
-  for (let v = version; v < CURRENT_VERSION; v++) {
-    const migrate = migrations[v];
-    if (migrate) {
-      await migrate();
-    }
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 0 || version > CURRENT_VERSION) {
+    throw new Error("Unsupported settings version");
   }
+  if (version === CURRENT_VERSION) return;
 
+  // Every supported legacy version historically passed through 2→3.
+  const history = await storeTryGet<unknown>("recent-files");
+  if (!history.ok) throw new Error("Could not read settings for migration");
+  const files = decodeRecentFiles(history.value);
+  if (files === null) throw new Error("Unsupported recent history format");
+  let changed = false;
+  const migrated = files.map((file) => {
+    if (!file.lastHeadingId?.startsWith("user-content-")) return file;
+    changed = true;
+    return { ...file, lastHeadingId: file.lastHeadingId.slice("user-content-".length) };
+  });
+  if (changed && !await storeSet("recent-files", migrated)) {
+    throw new Error("Could not save migrated settings");
+  }
+  // The array and version remain separate writes. A failed acknowledgement
+  // can still cause a repeated migration after restart.
   if (!await storeSet(STORE_KEY, CURRENT_VERSION)) throw new Error("Could not save settings version");
+}
+
+export function runMigrations(): Promise<void> {
+  // Cache rejection too: a failed save may have already changed plugin cache.
+  // Retrying transformation in this process could strip a second prefix.
+  return preparation ??= migrate();
 }

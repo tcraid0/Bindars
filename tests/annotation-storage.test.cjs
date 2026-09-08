@@ -49,7 +49,7 @@ test('preference migration leaves legacy annotation records alone and does not a
   let fail = true;
   t.mock.method(store, 'storeTryGet', async (key) => {
     reads.push(key);
-    return { ok: true, value: key === 'config-version' ? 2 : [{ path: '/a.md', lastHeadingId: 'user-content-intro' }] };
+    return { ok: true, value: key === 'config-version' ? 2 : [{ path: '/a.md', name: 'a.md', openedAt: 1, lastHeadingId: 'user-content-intro' }] };
   });
   t.mock.method(store, 'storeSet', async (key, value) => {
     writes.push({ key, value: structuredClone(value) });
@@ -58,7 +58,10 @@ test('preference migration leaves legacy annotation records alone and does not a
   await assert.rejects(runMigrations(), /save migrated settings/);
   assert.deepEqual(writes.map((item) => item.key), ['recent-files']);
   fail = false;
-  await runMigrations();
+  await assert.rejects(runMigrations(), /save migrated settings/);
+  assert.equal(writes.length, 1, 'failed migration must not retry in this process');
+  delete require.cache[migrationPath];
+  await require(migrationPath).runMigrations();
   assert.deepEqual(writes.slice(1).map((item) => item.key), ['recent-files', 'config-version']);
   assert.equal(writes[1].value[0].lastHeadingId, 'intro');
   assert.equal(writes[2].value, 3);

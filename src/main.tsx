@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ToastProvider } from "./components/ToastProvider";
-import { runMigrations } from "./lib/migrations";
 import { appReadyPromise } from "./lib/app-ready";
 import "./app.css";
 
@@ -50,11 +49,6 @@ function dismissLoadingScreen(): void {
 }
 
 async function bootstrap() {
-  // Fire-and-forget migrations — hooks handle missing/stale store values gracefully
-  runMigrations().catch((err) => {
-    console.warn("[migrations] Failed to run startup migrations:", err);
-  });
-
   renderApp();
 
   // Wait for fonts + app state, with a safety timeout

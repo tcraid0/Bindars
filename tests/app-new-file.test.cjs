@@ -886,11 +886,14 @@ test("formatting preference read and write failures keep a usable session fallba
     });
     const view = findEditorView(rendered.host);
     await waitFor(() => assert.equal(view.state.field(markdownFormattingEnabled), true));
+    assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), null);
+    assert.deepEqual(rendered.storeWrites.filter(write => write.key === "markdown-formatting-enabled"), []);
 
     dispatchEditorKey(rendered.host, "m", { ctrlKey: true, altKey: true });
     assert.equal(view.state.field(markdownFormattingEnabled), false);
     assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), "false");
-    await waitFor(() => assert.ok(warnings.length >= 2));
+    await waitFor(() => assert.ok(warnings.some(args => String(args[0]).includes('Failed to set "markdown-formatting-enabled"'))));
+    assert.deepEqual(rendered.storeWrites.filter(write => write.key === "markdown-formatting-enabled").map(write => write.value), [false]);
   } finally {
     console.warn = originalWarn;
     if (rendered) await rendered.cleanup();
@@ -1364,6 +1367,7 @@ async function renderContinuityApp({
   storedReaderSettings = null,
   themeRead = null,
   settingsRead = null,
+  recentStorage = null,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1420,12 +1424,19 @@ async function renderContinuityApp({
       case "load_annotations":
         return args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null;
       case "save_annotations":
+        return null;
       case "plugin:store|save":
+        if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
         return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
+        if (args.key === "recent-files") {
+          if (!recentStorage) return [[], true];
+          recentStorage.reads = (recentStorage.reads ?? 0) + 1;
+          return recentStorage.read ? recentStorage.read() : [structuredClone(recentStorage.value), true];
+        }
         if (args.key === "theme" && themeRead) return themeRead;
         if (args.key === "reader-settings" && settingsRead) return settingsRead;
         if (args.key === "reader-settings" && storedReaderSettings) return [storedReaderSettings, true];
@@ -1446,6 +1457,11 @@ async function renderContinuityApp({
       case "read_markdown_file":
         return workspaceContent ?? `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
       case "plugin:store|set":
+        if (recentStorage) {
+          recentStorage.writes.push(structuredClone(args));
+          if (args.key === "recent-files") recentStorage.value = structuredClone(args.value);
+        }
+        return null;
       case "plugin:window|set_title":
         return null;
       case "plugin:window|close":
@@ -1587,6 +1603,11 @@ async function renderContinuityApp({
     }
   }), { shouldMockEvents: true });
 
+  if (recentStorage) {
+    for (const name of ['App', 'hooks/useRecentFiles', 'lib/migrations']) {
+      delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
+    }
+  }
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
   const host = document.createElement("div");
@@ -5203,4 +5224,72 @@ test("save-and-exit with an unmoved caret preserves the original reader offset",
   } finally {
     await rendered.cleanup();
   }
+});
+
+for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
+  test(`recent startup preservation: ${startup} waits for history and records the current document`, async () => {
+    const held = deferred();
+    const old = { path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: startup === 'legacy migration' ? 'user-content-intro' : 'intro' };
+    let released = false;
+    const history = { version: startup === 'legacy migration' ? 2 : 3, value: [old], writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
+    const rendered = await renderContinuityApp({
+      requestedPath: '/tmp/new.md',
+      ...(startup === 'session' ? { restoreHeadingId: 'second' } : {}),
+      recentStorage: history, readySelector: null,
+    });
+    try {
+      await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/new.md')));
+      // Let document publication finish while the history read remains held.
+      await act(async () => { await new Promise(setImmediate); });
+      if (startup === 'A then B') {
+        rendered.setPendingNativeOpenPath('/tmp/newer.md');
+        await act(async () => { await emit('bindars://native-open-available'); });
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/newer.md')));
+        await act(async () => { await new Promise(setImmediate); });
+      }
+      assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+      assert.deepEqual(history.value, [old]);
+      released = true;
+      await act(async () => { held.resolve([[old], true]); });
+      const current = startup === 'A then B' ? '/tmp/newer.md' : '/tmp/new.md';
+      await waitFor(() => assert.deepEqual(history.durable.map(f => f.path), [current, '/tmp/old.md']));
+      assert.equal(history.durable[1].lastHeadingId, 'intro');
+      assert.ok(rendered.host.querySelector('article'));
+      assert.ok(history.writes.filter(w => w.key === 'recent-files').every(w => !w.value.some(f => f.path === '/tmp/new.md') || startup !== 'A then B'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+for (const failure of ['history read', 'migration', 'unknown format']) {
+  test(`recent startup preservation: ${failure} leaves an available app without first-run inference`, async () => {
+    const original = failure === 'unknown format' ? { future: [] } : [{ path: '/tmp/old.md', name: 'old.md', openedAt: 1 }];
+    const history = { version: failure === 'migration' ? 2 : 3, value: original, writes: [], read: () => {
+      if (failure !== 'unknown format') throw Error('history unavailable');
+      return [original, true];
+    } };
+    const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
+    try {
+      await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
+      assert.match(rendered.host.textContent, /Recent history is unavailable/);
+      assert.doesNotMatch(rendered.host.textContent, /Welcome fixture|No recent files/);
+      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)), []);
+      rendered.setPendingNativeOpenPath('/tmp/readable.md');
+      await act(async () => { await emit('bindars://native-open-available'); });
+      await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+      dispatchShortcut('b');
+      await waitFor(() => assert.ok(rendered.host.querySelector('aside')));
+      assert.match(rendered.host.querySelector('aside').textContent, /Recent history is unavailable/);
+      assert.deepEqual(history.value, original);
+      assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('recent startup preservation: verified absent history still permits the first-run welcome', async () => {
+  const history = { version: 3, value: null, writes: [] };
+  const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
+  try {
+    await waitFor(() => assert.match(rendered.host.textContent, /Welcome fixture/));
+    assert.ok(history.writes.some(w => w.key === 'hasSeenWelcome' && w.value === true));
+    assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+  } finally { await rendered.cleanup(); }
 });

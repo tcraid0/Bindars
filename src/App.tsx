@@ -245,7 +245,7 @@ function App() {
     supersedePendingOpen,
     dismissError,
   } = useMarkdownFile();
-  const { recentFiles, loaded: recentFilesLoaded, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
+  const { recentFiles, status: recentFilesStatus, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
   const { canGoBack, canGoForward, pushEntry, peekBack, commitBack, peekForward, commitForward } =
     useNavigationHistory();
   const workspaceRoot = useWorkspaceRoot();
@@ -1969,7 +1969,7 @@ function App() {
   // First-run: show welcome sample file on first launch
   useEffect(() => {
     // Wait for both startup signals
-    if (!sessionRestored || !recentFilesLoaded) return;
+    if (!sessionRestored || recentFilesStatus !== "ready") return;
     // Skip if something already loaded
     if (isDocumentOpen(content) || filePath || loading) return;
     if (recentFiles.length > 0) return;
@@ -1982,7 +1982,7 @@ function App() {
       storeSet("hasSeenWelcome", true);
     });
     return () => { cancelled = true; };
-  }, [sessionRestored, recentFilesLoaded, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
+  }, [sessionRestored, recentFilesStatus, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
 
   useLayoutEffect(() => {
     if (editing || !pendingReaderTarget) return;
@@ -2247,10 +2247,10 @@ function App() {
 
   // Auto-add to recent when a file is loaded
   useEffect(() => {
-    if (filePath && fileName) {
+    if (recentFilesStatus === "ready" && filePath && fileName) {
       addRecent(filePath, fileName);
     }
-  }, [filePath, fileName, addRecent]);
+  }, [filePath, fileName, recentFilesStatus, addRecent]);
 
   const handleOpenRecent = useCallback(
     async (
@@ -2852,8 +2852,8 @@ function App() {
     };
   }, [armPrintCleanup, clearPrintSession]);
 
-  // Signal app readiness once session restore and recent files are loaded
-  const appReady = sessionRestored && recentFilesLoaded;
+  // Unavailable history settles startup too; only ready history permits writes.
+  const appReady = sessionRestored && recentFilesStatus !== "loading";
   useEffect(() => {
     if (appReady) signalAppReady();
   }, [appReady]);
@@ -2941,6 +2941,7 @@ function App() {
         <Sidebar
           visible={sidebarVisible && !focusMode && !presentationMode}
           recentFiles={recentFiles}
+          recentHistoryUnavailable={recentFilesStatus === "unavailable"}
           currentFilePath={filePath}
           openingPath={openingPath}
           workspaceRootPath={workspaceRoot.rootPath}
@@ -3061,6 +3062,7 @@ function App() {
               onNewFile={guardedNewFile}
               onOpenFile={guardedOpenFile}
               recentFiles={recentFiles}
+              recentHistoryUnavailable={recentFilesStatus === "unavailable"}
               onOpenRecent={guardedOpenRecent}
               onRestoreDrafts={openDraftSnapshotRestore}
               canRestoreDrafts={!actionAdmissionInFlight}
