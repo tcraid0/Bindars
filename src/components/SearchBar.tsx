@@ -1,4 +1,5 @@
 import { memo, useRef, useEffect } from "react";
+import { isImeCompositionKey } from "../lib/keyboard";
 
 interface SearchBarProps {
   visible: boolean;
@@ -33,6 +34,7 @@ function SearchBarComponent({
   if (!visible) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeCompositionKey(e.nativeEvent)) return;
     if (e.key === "Enter" && e.shiftKey) {
       e.preventDefault();
       onPrevious();

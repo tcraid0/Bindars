@@ -2574,9 +2574,12 @@ function App() {
     const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
     const inEditorPanel = editing && typeof target?.closest === "function" && Boolean(target.closest(".cm-panel"));
 
-    // Presentation mode: intercept all keys
+    // Presentation keys yield to controls; Escape still exits the mode.
     if (presentationMode) {
       if (key === "escape") { e.preventDefault(); exitPresentation(); return; }
+      if (inInput || target?.closest?.("select")) return;
+      if (key === "enter" && target?.closest?.("button, a[href]")) return;
+      if (key === " " && target?.closest?.("button")) return;
       if (key === "arrowright" || key === "arrowdown" || key === " " || key === "enter") {
         e.preventDefault();
         nextSlide();

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
+import { isImeCompositionKey } from "../lib/keyboard";
 
 interface OpenDialog {
   element: HTMLDivElement;
@@ -103,6 +104,7 @@ export function DialogFrame({
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !isTopDialog(dialogRef.current)) return;
+      if (isImeCompositionKey(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

@@ -391,3 +391,29 @@ test("unmounting a covered dialog preserves the foreground dialog's opener chain
     assert.ok(document.activeElement === opener);
   } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
 });
+
+for (const spec of dialogs) {
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    test(`${spec.title}: IME ${Object.keys(composition)[0]} keeps Escape and Tab with composition`, async () => {
+      await installDom();
+      const view = renderDialog(spec);
+      try {
+        view.open();
+        const controls = view.host.querySelectorAll('button, input');
+        const last = controls[controls.length - 1];
+        last.focus();
+        for (const key of ['Escape', 'Tab']) {
+          const event = pressKey(key, composition);
+          assert.equal(event.defaultPrevented, false);
+          assert.equal(view.dismissCount, 0);
+          assert.ok(view.host.querySelector('[role="dialog"]'));
+          assert.ok(document.activeElement === last);
+        }
+        assert.equal(pressKey('Tab').defaultPrevented, true);
+        assert.ok(document.activeElement === controls[0]);
+        assert.equal(pressKey('Escape').defaultPrevented, true);
+        assert.equal(view.dismissCount, 1);
+      } finally { view.cleanup(); }
+    });
+  }
+}

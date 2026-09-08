@@ -5293,3 +5293,143 @@ test('recent startup preservation: verified absent history still permits the fir
     assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
   } finally { await rendered.cleanup(); }
 });
+
+const keyboardSlides = '# First\n\n[**Jump**](#first)\n\n```text\ncopy me\n```\n\n---\n\n# Second\n\nMore words.\n\n---\n\n# Third\n\nLast words.';
+
+async function renderKeyboardPresentation(t) {
+  const originalMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = window.matchMedia.bind(window);
+  t.after(() => { globalThis.matchMedia = originalMatchMedia; });
+  return renderContinuityApp({ initialContent: keyboardSlides, readySelector: '#first' });
+}
+
+for (const key of ['Enter', ' ']) {
+  test(`presentation key ownership: Exit retains ${JSON.stringify(key)} activation, including nested targets`, async (t) => {
+    const rendered = await renderKeyboardPresentation(t);
+    try {
+      dispatchWindowKey('F5');
+      const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+      const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+      const child = document.createElement('span'); child.textContent = 'nested'; exit.append(child);
+      exit.focus();
+      for (const target of [exit, child]) {
+        assert.equal(dispatchElementKey(target, key).defaultPrevented, false);
+        assert.ok(overlay.querySelector('#first'));
+      }
+      // happy-dom does not synthesize key-to-click; verify the retained native
+      // default separately from the real Exit callback. Native activation is R9.
+      flushSync(() => exit.click());
+      assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('presentation key ownership: links and copy buttons retain activation without advancing slides', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    const link = overlay.querySelector('a[href="#first"]');
+    link.focus();
+    for (const target of [link, link.querySelector('strong')]) {
+      assert.equal(dispatchElementKey(target, 'Enter').defaultPrevented, false);
+      assert.ok(overlay.querySelector('#first'));
+    }
+    rendered.scrolledIds.length = 0;
+    flushSync(() => link.click());
+    assert.deepEqual(rendered.scrolledIds, ['first']);
+    assert.ok(overlay.querySelector('#first'));
+    const copy = overlay.querySelector('button');
+    assert.ok(copy);
+    for (const key of ['Enter', ' ']) {
+      copy.focus();
+      assert.equal(dispatchElementKey(copy, key).defaultPrevented, false);
+      assert.ok(overlay.querySelector('#first'));
+    }
+  } finally { await rendered.cleanup(); }
+});
+
+test('presentation key ownership: editable controls retain navigation keys and Escape still exits', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    // Renderer policy does not normally emit editable slide controls. Exercise
+    // the actual App event boundary with synthetic descendants for that contract.
+    for (const tag of ['input', 'textarea', 'select', 'div']) {
+      const control = document.createElement(tag);
+      let target = control;
+      if (tag === 'div') {
+        control.contentEditable = 'true';
+        target = document.createElement('span'); control.append(target);
+      }
+      overlay.append(control); control.focus();
+      for (const key of ['Enter', ' ', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End', 'Backspace']) {
+        assert.equal(dispatchElementKey(target, key).defaultPrevented, false, `${tag} owns ${key}`);
+        assert.ok(overlay.querySelector('#first'));
+      }
+      control.remove();
+    }
+    assert.equal(dispatchElementKey(overlay, 'Escape').defaultPrevented, true);
+    assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+  } finally { await rendered.cleanup(); }
+});
+
+test('presentation key ownership: background navigation, bounds and IME protection remain intact', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      for (const key of ['Escape', 'Enter', ' ', 'ArrowRight', 'End']) {
+        assert.equal(dispatchElementKey(overlay, key, composition).defaultPrevented, false);
+        assert.ok(overlay.querySelector('#first'));
+      }
+    }
+    // Code/pre are pointer-selection exemptions, not keyboard controls.
+    const code = overlay.querySelector('code');
+    assert.equal(dispatchElementKey(code, 'Enter').defaultPrevented, true);
+    assert.ok(overlay.querySelector('#second'));
+    for (const [key, heading] of [
+      ['Home', 'first'], ['ArrowLeft', 'first'], ['Backspace', 'first'],
+      ['ArrowDown', 'second'], ['ArrowRight', 'third'], ['Enter', 'third'],
+      ['ArrowUp', 'second'], [' ', 'third'], ['Home', 'first'], ['End', 'third'],
+    ]) {
+      assert.equal(dispatchElementKey(overlay, key).defaultPrevented, true);
+      assert.ok(overlay.querySelector(`#${heading}`), `${key} selects ${heading}`);
+    }
+    dispatchElementKey(overlay, 'Escape');
+    assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+  test(`App IME ownership: ${Object.keys(composition)[0]} preserves Quick switcher and document search`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      dispatchShortcut('k');
+      const palette = await waitFor(() => rendered.host.querySelector('[role="dialog"] input') || assert.fail('missing switcher'));
+      assert.equal(dispatchElementKey(palette, 'Escape', composition).defaultPrevented, false);
+      assert.ok(palette.isConnected);
+      dispatchElementKey(palette, 'Escape');
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      dispatchShortcut('f');
+      const search = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      flushSync(() => { setValue.call(search, 'words'); search.dispatchEvent(new Event('input', { bubbles: true })); });
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+      await waitFor(() => assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/));
+      for (const [key, shiftKey] of [['Enter', false], ['Enter', true], ['Escape', false]]) {
+        assert.equal(dispatchElementKey(search, key, { ...composition, shiftKey }).defaultPrevented, false);
+        assert.ok(search.isConnected);
+        assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/);
+      }
+      dispatchElementKey(search, 'Enter');
+      assert.match(rendered.host.querySelector('.search-bar').textContent, /2 of 2/);
+      dispatchElementKey(search, 'Enter', { shiftKey: true });
+      assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/);
+      dispatchElementKey(search, 'Escape');
+      assert.ok(!rendered.host.querySelector('.search-bar'));
+    } finally { await rendered.cleanup(); }
+  });
+}
