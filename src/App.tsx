@@ -411,6 +411,7 @@ function App() {
     editorSessionKey: number;
     openGeneration: number;
     actionId: number;
+    searchVisible: boolean;
   } | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
@@ -486,13 +487,14 @@ function App() {
   // In-document search
   const search = useSearch(contentRef);
 
-  const requestReaderFocus = useCallback(() => {
+  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
     const path = getPublishedDocument().filePath;
     readerFocusRequestRef.current = {
       documentKey: path ? toPathIdentityKey(path) : null,
       editorSessionKey: editorSessionKeyRef.current,
       openGeneration: getOpenOwnership().generation,
       actionId: nextActionAdmissionIdRef.current,
+      searchVisible: retainedSearchVisible,
     };
   }, [getOpenOwnership, getPublishedDocument]);
 
@@ -2050,7 +2052,7 @@ function App() {
       || request.openGeneration !== ownership.generation
       || request.actionId !== nextActionAdmissionIdRef.current
       || ownership.userOpenInFlight || actionAdmissionOwnerRef.current !== null
-      || editingRef.current || searchVisible || !readerDocumentReady
+      || editingRef.current || searchVisible !== request.searchVisible || !readerDocumentReady
       || presentationMode || printSessionRef.current
       || showConfirmDialogRef.current || showConflictDialogRef.current
       || restoreDialogOpenRef.current || showClearRecoveryDialog
@@ -2401,8 +2403,13 @@ function App() {
   }, [workspaceSearch.reset]);
 
   const exitFocusMode = useCallback(() => {
+    const removedControlHadFocus = Boolean(document.activeElement?.closest(".focus-bar"));
     setFocusMode(false);
-  }, []);
+    if (removedControlHadFocus) {
+      if (editingRef.current) editorSurfaceRef.current?.focus();
+      else requestReaderFocus(searchVisible);
+    }
+  }, [requestReaderFocus, searchVisible]);
 
   const enterPresentation = useCallback(() => {
     if (isPrintInvoked()) return;
@@ -2430,7 +2437,8 @@ function App() {
     setPresentationMode(false);
     setCurrentSlide(0);
     slidesRef.current = [];
-  }, []);
+    requestReaderFocus(searchVisible);
+  }, [requestReaderFocus, searchVisible]);
 
   const nextSlide = useCallback(() => {
     setCurrentSlide((i) => Math.min(i + 1, slidesRef.current.length - 1));
@@ -2802,7 +2810,10 @@ function App() {
       if (!editing) toggleToc();
     } else if (ctrl && e.shiftKey && key === "f") {
       e.preventDefault();
-      if (!editing) setFocusMode((v) => !v);
+      if (!editing) {
+        if (focusMode) exitFocusMode();
+        else setFocusMode(true);
+      }
     } else if (key === "escape" && !ctrl && !e.altKey && !e.shiftKey) {
       if (focusMode) {
         e.preventDefault();
@@ -3007,6 +3018,7 @@ function App() {
           ref={mainScrollRef}
           tabIndex={-1}
           aria-label="Document"
+          inert={presentationMode}
           className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           {!editing && (

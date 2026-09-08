@@ -5594,6 +5594,7 @@ for (const newer of ['editor', 'new-document', 'dialog', 'presentation', 'pendin
       } else if (newer === 'presentation') {
         assert.ok(rendered.host.querySelector('.presentation-overlay'));
         dispatchWindowKey('Escape');
+        assert.equal(calls.length, 1, 'explicit presentation exit now requests its own return');
       } else {
         await act(async () => {
           pendingOpen.resolve({ ...rendered.openResult('# R4 newer document'), canonicalPath: '/tmp/r4-newer.md', name: 'r4-newer.md' });
@@ -5602,7 +5603,7 @@ for (const newer of ['editor', 'new-document', 'dialog', 'presentation', 'pendin
         await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /R4 newer document/));
       }
       await act(async () => { await waitForReconciliationWindow(); });
-      assert.equal(calls.length, 0, 'dropped request cannot revive on a later render');
+      assert.equal(calls.length, newer === 'presentation' ? 1 : 0, 'dropped search request cannot revive on a later render');
     } finally { await rendered.cleanup(); }
   });
 }
@@ -5658,6 +5659,138 @@ for (const route of ['clean', 'save-as', 'cancel-save-as']) {
         assert.equal(calls.length, 1);
         assert.deepEqual(calls[0].options, { preventScroll: true });
         if (route === 'save-as') assert.match(rendered.fileWrites()[0].content, /Saved words/);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const retainedSearch of [false, true]) {
+  for (const exitBy of ['Escape', 'button']) {
+    test(`mode ownership: presentation ${exitBy} returns with retained search ${retainedSearch}`, async t => {
+      const rendered = await renderKeyboardPresentation(t);
+      try {
+        const { main, calls } = trackReaderReturn(rendered);
+        const article = main.querySelector('article');
+        let searchInput;
+        if (retainedSearch) {
+          dispatchShortcut('f');
+          searchInput = await waitFor(() => main.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+          const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          flushSync(() => { setValue.call(searchInput, 'words'); searchInput.dispatchEvent(new Event('input', { bubbles: true })); });
+          await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+        }
+        main.scrollTop = 240;
+        dispatchWindowKey('F5');
+        const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+        const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+        assert.ok(main.hasAttribute('inert'), 'covered reader and search must be excluded from interaction');
+        assert.ok(!main.contains(overlay) && !main.contains(exit));
+        assert.ok(!overlay.closest('[inert]') && !exit.closest('[inert]'));
+        assert.ok(document.activeElement === overlay);
+        assert.ok(main.querySelector('article') === article, 'reader stays mounted');
+        if (retainedSearch) assert.ok(searchInput.isConnected && searchInput.value === 'words');
+        assert.equal(main.scrollTop, 240);
+        if (exitBy === 'button') { exit.focus(); flushSync(() => exit.click()); }
+        else dispatchElementKey(overlay, 'Escape');
+        assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+        assert.ok(!main.hasAttribute('inert'));
+        assert.ok(document.activeElement === main);
+        assert.equal(main.scrollTop, 240);
+        assert.deepEqual(calls, [{ options: { preventScroll: true }, scrollTop: 240 }]);
+        if (retainedSearch) assert.ok(searchInput.isConnected && searchInput.value === 'words');
+      } finally { await rendered.cleanup(); }
+    });
+  }
+}
+
+test('mode ownership: changing slides preserves Exit focus and fragment links retain focus', async t => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+    const link = overlay.querySelector('a'); link.focus();
+    flushSync(() => link.click());
+    assert.ok(document.activeElement === link);
+    exit.focus();
+    dispatchWindowKey('ArrowRight');
+    assert.ok(overlay.querySelector('#second'));
+    assert.ok(document.activeElement === exit, 'slide updates must not repeat entry focus');
+    dispatchWindowKey('Home');
+    assert.ok(overlay.querySelector('#first'));
+    assert.ok(document.activeElement === exit);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const editing of [false, true]) {
+  test(`mode ownership: focus-mode Exit returns to the surviving ${editing ? 'editor' : 'reader'}`, async t => {
+    const rendered = await renderKeyboardPresentation(t);
+    try {
+      dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+      assert.ok(!rendered.host.querySelector('header'));
+      if (editing) {
+        dispatchShortcut('e');
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        updateEditor(rendered.host, `${keyboardSlides}\n\nR5 unsaved words.`);
+      }
+      const editor = editing ? findEditorView(rendered.host) : null;
+      const { main, calls } = trackReaderReturn(rendered);
+      main.scrollTop = 240;
+      const exit = rendered.host.querySelector('button[title^="Exit focus mode"]');
+      exit.focus(); flushSync(() => exit.click());
+      assert.ok(rendered.host.querySelector('header'));
+      assert.equal(main.scrollTop, 240);
+      if (editing) {
+        assert.ok(findEditorView(rendered.host) === editor && editor.hasFocus);
+        assert.match(editor.state.sliceDoc(), /R5 unsaved words/);
+        assert.equal(calls.length, 0);
+        assert.equal(rendered.fileWrites().length, 0);
+      } else {
+        assert.ok(document.activeElement === main);
+        assert.equal(calls.length, 1);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('mode ownership: focus-mode Escape preserves an already focused surviving reader link', async t => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+    assert.ok(!rendered.host.querySelector('header'));
+    const link = rendered.host.querySelector('article a'); link.focus();
+    const { calls } = trackReaderReturn(rendered);
+    dispatchElementKey(link, 'Escape');
+    assert.ok(rendered.host.querySelector('header'));
+    assert.ok(document.activeElement === link);
+    assert.equal(calls.length, 0);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`mode ownership: cross-file presentation ${outcome} releases inertness without requesting old-reader focus`, async t => {
+    const original = globalThis.matchMedia;
+    globalThis.matchMedia = window.matchMedia.bind(window);
+    t.after(() => { globalThis.matchMedia = original; });
+    const rendered = await renderContinuityApp({ initialContent: '# First\n\n[Other](other.md)\n\n---\n\n# Second' });
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      dispatchWindowKey('F5');
+      const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+      const pending = deferred(); rendered.deferNextOpen(pending);
+      const link = overlay.querySelector('a'); link.focus(); flushSync(() => link.click());
+      await act(async () => {
+        if (outcome === 'failure') pending.reject(new Error('R5 injected open failure'));
+        else pending.resolve({ ...rendered.openResult('# Other\n\nNew file.'), canonicalPath: '/tmp/other.md', name: 'other.md' });
+      });
+      await waitFor(() => assert.ok(!rendered.host.querySelector('.presentation-overlay')));
+      assert.ok(!main.hasAttribute('inert'));
+      assert.equal(calls.length, 0);
+      assert.match(main.querySelector('article').textContent, outcome === 'failure' ? /First/ : /New file/);
+      if (outcome === 'failure') {
+        const readerLink = main.querySelector('article a');
+        flushSync(() => readerLink.click());
+        await waitFor(() => assert.match(rendered.host.textContent, /other\.md/));
       }
     } finally { await rendered.cleanup(); }
   });

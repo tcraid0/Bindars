@@ -71,10 +71,9 @@ function FocusBarComponent({
       />
       <div
         data-tauri-drag-region
-        className="print-hide fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
+        className="focus-bar mode-bar print-hide fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
+        data-visible={nearTop}
         style={{
-          opacity: nearTop ? 1 : 0,
-          pointerEvents: nearTop ? "auto" : "none",
           transition: reducedEffects ? "none" : "opacity 200ms ease",
         }}
       >

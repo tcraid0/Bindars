@@ -1279,6 +1279,18 @@ mark.annotation-highlight-pink {
 
 /* ── Presentation mode ── */
 
+/* Pointer proximity may hide a bar only while none of its controls has focus. */
+.mode-bar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mode-bar[data-visible="true"],
+.mode-bar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .presentation-overlay {
   position: fixed;
   inset: 0;

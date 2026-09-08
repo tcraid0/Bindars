@@ -31,6 +31,10 @@ function PresentationViewComponent({
   const slide = slides[currentSlide];
 
   useEffect(() => {
+    overlayRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
     overlayRef.current?.scrollTo(0, 0);
   }, [currentSlide]);
 
@@ -68,6 +72,8 @@ function PresentationViewComponent({
       <div
         ref={overlayRef}
         className="presentation-overlay"
+        tabIndex={-1}
+        aria-label="Presentation"
         onClick={handleClick}
       >
         <div className="presentation-slide">
