@@ -12,14 +12,14 @@ const record = (note = 'original') => ({ highlights: [{ id: 'h', prefix: '', exa
 function deferred() { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return { promise, resolve, reject }; }
 async function settle() { await act(async () => { await new Promise(setImmediate); }); }
 async function mount(t, path = '/a.md', strict = false) {
-  let api;
+  let api, renders = 0;
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
-  function Probe({ path }) { api = useAnnotations(path); return null; }
+  function Probe({ path }) { api = useAnnotations(path); renders++; return null; }
   async function render(path) { await act(async () => root.render(strict ? React.createElement(React.StrictMode, null, React.createElement(Probe, { path })) : React.createElement(Probe, { path }))); }
   await render(path);
   t.after(async () => { await act(async () => root.unmount()); host.remove(); });
-  return { api: () => api, render, change: async (f) => { await act(async () => f(api)); } };
+  return { api: () => api, renders: () => renders, render, change: async (f) => { await act(async () => f(api)); } };
 }
 function backingStore(t, initial = new Map([['/a.md', record()]])) {
   const disk = initial; const writes = [];
@@ -195,3 +195,209 @@ test('a rejected completion callback does not poison the next save', async (t) =
   assert.equal(view.api().saving, false);
   assert.deepEqual(view.api().pendingRecords(), {});
 });
+
+for (const [label, updates] of [
+  ['empty update', {}],
+  ['same note', { note: 'original' }],
+  ['same color with omitted note', { color: 'yellow' }],
+  ['both fields unchanged', { note: 'original', color: 'yellow' }],
+]) {
+  test(`R8 ${label} preserves identity without writes or notifications`, async (t) => {
+    const { disk, writes } = backingStore(t);
+    const view = await mount(t, '/a.md', true);
+    const highlights = view.api().highlights;
+    const renders = view.renders();
+    await view.change(api => api.updateHighlight('h', updates));
+    assert.equal(view.api().highlights, highlights);
+    assert.equal(view.renders(), renders);
+    assert.equal(view.api().getMutationVersion(), 0);
+    assert.equal(writes.length, 0);
+    assert.deepEqual(disk.get('/a.md'), record());
+    assert.deepEqual(view.api().pendingRecords(), {});
+    assert.equal(view.api().saveError, null);
+  });
+}
+
+test('R8 real color/note edits persist; omission preserves a note and explicit undefined removes it once', async (t) => {
+  const { disk, writes } = backingStore(t);
+  const view = await mount(t);
+  await view.change(api => api.updateHighlight('h', { color: 'blue' }));
+  assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+  assert.equal(disk.get('/a.md').highlights[0].color, 'blue');
+  await view.change(api => api.updateHighlight('h', { note: 'edited', color: 'blue' }));
+  assert.equal(disk.get('/a.md').highlights[0].note, 'edited');
+  await view.change(api => api.updateHighlight('h', { note: undefined }));
+  assert.equal(JSON.parse(JSON.stringify(disk.get('/a.md'))).highlights[0].note, undefined);
+  assert.equal(writes.length, 3);
+  assert.equal(view.api().getMutationVersion(), 3);
+  const highlights = view.api().highlights;
+  await view.change(api => api.updateHighlight('h', { note: undefined }));
+  assert.equal(view.api().highlights, highlights);
+  assert.equal(writes.length, 3);
+  assert.equal(view.api().getMutationVersion(), 3);
+});
+
+test('R8 missing IDs, absent note removal and retained unreadable entries are no-ops', async (t) => {
+  const data = record();
+  delete data.highlights[0].note;
+  data.highlights.push({ id: 'unreadable', note: 'retain me' });
+  const { disk, writes } = backingStore(t, new Map([['/a.md', data]]));
+  const view = await mount(t);
+  const highlights = view.api().highlights;
+  for (const id of ['h', 'missing', 'unreadable']) {
+    await view.change(api => api.updateHighlight(id, { note: undefined }));
+  }
+  assert.equal(view.api().highlights, highlights);
+  assert.equal(view.api().getMutationVersion(), 0);
+  assert.equal(writes.length, 0);
+  assert.deepEqual(disk.get('/a.md'), data);
+});
+
+test('R8 an unchanged update during a real write does not queue another revision', async (t) => {
+  const { disk, writes } = backingStore(t);
+  const gate = deferred();
+  t.after(() => gate.resolve());
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => {
+    writes.push({ path, data: copy(data) });
+    await gate.promise;
+    disk.set(path, copy(data));
+  });
+  const view = await mount(t);
+  await view.change(api => api.updateHighlight('h', { note: 'pending' }));
+  await view.change(api => api.updateHighlight('h', { note: 'pending' }));
+  assert.equal(view.api().getMutationVersion(), 1);
+  assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note, 'pending');
+  assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+  await act(async () => gate.resolve());
+  await settle();
+  assert.equal(writes.length, 1, 'no extra per-document revision to persist');
+  assert.equal(disk.get('/a.md').highlights[0].note, 'pending');
+  assert.deepEqual(view.api().pendingRecords(), {});
+});
+
+test('R8 highlight updates cannot bypass loading, failed-load or quit locks', async (t) => {
+  const { writes } = backingStore(t);
+  const read = deferred();
+  t.mock.method(storage, 'loadAnnotations', () => read.promise);
+  const view = await mount(t);
+  await view.change(api => api.updateHighlight('h', { note: 'while loading' }));
+  await act(async () => read.reject(new Error('unavailable')));
+  await view.change(api => api.updateHighlight('h', { note: 'after failed load' }));
+  t.mock.method(storage, 'loadAnnotations', async () => record());
+  await view.change(api => api.retryLoad());
+  view.api().setLocked(true);
+  await view.change(api => api.updateHighlight('h', { note: 'while locked' }));
+  assert.equal(view.api().highlights[0].note, 'original');
+  assert.equal(writes.length, 0);
+  assert.equal(view.api().getMutationVersion(), 0);
+});
+
+async function mountNotePanel(t) {
+  const { AnnotationsPanel } = require('../.tmp/workspace-tests/src/components/AnnotationsPanel.js');
+  const { ToastProvider } = require('../.tmp/workspace-tests/src/components/ToastProvider.js');
+  const previousMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = window.matchMedia.bind(window);
+  t.after(() => {
+    if (previousMatchMedia) globalThis.matchMedia = previousMatchMedia;
+    else delete globalThis.matchMedia;
+  });
+  let api, setVisible;
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  function Probe() {
+    api = useAnnotations('/a.md');
+    const [visible, show] = React.useState(true); setVisible = show;
+    return React.createElement(ToastProvider, null, React.createElement(AnnotationsPanel, {
+      visible, filePath: '/a.md', fileName: 'a.md', annotationStatus: api.status,
+      annotationsReady: api.ready, loadError: api.loadError, saveError: api.saveError,
+      canRetrySave: api.canRetrySave, highlights: api.highlights, bookmarks: api.bookmarks,
+      headings: [], onRetryLoad: api.retryLoad, onRetrySave: api.retrySave,
+      onRemoveHighlight: api.removeHighlight, onUpdateHighlight: api.updateHighlight,
+      onClickHighlight() {}, onClickBookmark() {}, onClose: () => show(false),
+    }));
+  }
+  await act(async () => root.render(React.createElement(Probe)));
+  t.after(async () => { await act(async () => root.unmount()); host.remove(); });
+  return {
+    host, api: () => api,
+    async click(label) {
+      const button = [...host.querySelectorAll('button')].find(button =>
+        button.getAttribute('aria-label') === label || button.textContent.trim() === label);
+      assert.ok(button, label);
+      await act(async () => button.click());
+    },
+    async reopen() { await act(async () => setVisible(true)); },
+  };
+}
+
+for (const unavailable of [false, true]) {
+  test(`R8 unchanged note close creates no write or pending warning with storage ${unavailable ? 'unavailable' : 'healthy'}`, async (t) => {
+    const data = { ...record(), version: 3 };
+    const { disk, writes } = backingStore(t, new Map([['/a.md', data]]));
+    if (unavailable) t.mock.method(storage, 'saveAnnotations', async () => {
+      writes.push('unexpected attempt'); throw new Error('unavailable');
+    });
+    const view = await mountNotePanel(t);
+    const highlights = view.api().highlights;
+    await view.click('Edit note');
+    await view.click('Close annotations');
+    assert.equal(writes.length, 0);
+    assert.equal(view.api().highlights, highlights);
+    assert.equal(view.api().getMutationVersion(), 0);
+    assert.equal(view.api().saveErrorVersion, 0);
+    assert.equal(view.api().saveError, null);
+    assert.equal(view.api().canRetrySave, false);
+    assert.deepEqual(view.api().pendingRecords(), {});
+    assert.deepEqual(disk.get('/a.md'), data);
+  });
+}
+
+test('R8 unchanged close retains a real failed edit until the explicit Retry button saves it', async (t) => {
+  const { disk, writes } = backingStore(t);
+  let unavailable = true;
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => {
+    writes.push({ path, data: copy(data) });
+    if (unavailable) throw new Error('unavailable');
+    disk.set(path, copy(data));
+  });
+  const view = await mountNotePanel(t);
+  await act(async () => view.api().updateHighlight('h', { note: 'real pending edit' }));
+  const error = view.api().saveError;
+  assert.ok(error);
+  unavailable = false;
+  await view.click('Edit note');
+  await view.click('Close annotations');
+  assert.equal(writes.length, 1, 'unchanged close must not implicitly retry, even after storage recovers');
+  assert.equal(view.api().getMutationVersion(), 1);
+  assert.equal(view.api().saveError, error);
+  assert.equal(view.api().canRetrySave, true);
+  assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note, 'real pending edit');
+  assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+  await view.reopen();
+  await view.click('Retry');
+  assert.equal(writes.length, 2);
+  assert.equal(view.api().getMutationVersion(), 1);
+  assert.equal(disk.get('/a.md').highlights[0].note, 'real pending edit');
+  assert.deepEqual(view.api().pendingRecords(), {});
+  assert.equal(view.api().saveError, null);
+});
+
+for (const cancel of [true, false]) {
+  test(`R8 panel note edit ${cancel ? 'can be canceled without mutation' : 'persists with existing trimming'}`, async (t) => {
+    const { disk, writes } = backingStore(t);
+    const view = await mountNotePanel(t);
+    await view.click('Edit note');
+    await act(async () => {
+      const textarea = view.host.querySelector('textarea');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, '  edited note  ');
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    if (cancel) await act(async () => view.host.querySelector('textarea').dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    await view.click('Close annotations');
+    assert.equal(writes.length, cancel ? 0 : 1);
+    assert.equal(view.api().getMutationVersion(), cancel ? 0 : 1);
+    assert.equal(view.api().highlights[0].note, cancel ? 'original' : 'edited note');
+    assert.equal(disk.get('/a.md').highlights[0].note, cancel ? 'original' : 'edited note');
+  });
+}
