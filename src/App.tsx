@@ -178,6 +178,7 @@ type RestoreDialogState =
       loading: boolean;
       error: string | null;
       drafts: SnapshotDraft[];
+      skippedCount: number;
     };
 
 function sameSnapshotDocument(left: SnapshotDocument | null, right: SnapshotDocument): boolean {
@@ -1420,7 +1421,7 @@ function App() {
     if (actionAdmissionOwnerRef.current !== null) return;
     const request = restoreRequestRef.current + 1;
     restoreRequestRef.current = request;
-    setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [] });
+    setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [], skippedCount: 0 });
     try {
       // A just-discarded draft may still be a queued capture; wait for it so
       // the orphan list reflects it.
@@ -1433,10 +1434,8 @@ function App() {
         loading: false,
         error: null,
         drafts: result.drafts,
+        skippedCount: result.skippedCount,
       });
-      if (result.skippedCount > 0) {
-        console.warn(`[snapshots] Skipped ${result.skippedCount} unreadable draft stream(s).`);
-      }
     } catch (error) {
       if (restoreRequestRef.current !== request) return;
       setRestoreDialog({
@@ -1444,6 +1443,7 @@ function App() {
         loading: false,
         error: snapshotErrorMessage(error),
         drafts: [],
+        skippedCount: 0,
       });
     }
   }, [waitForSnapshotQueue]);
@@ -1506,8 +1506,11 @@ function App() {
       if (restoreRequestRef.current !== request) return;
       assertRestoreContextCurrent();
 
+      const matchesCurrentDraft = document.kind === "draft"
+        && restoredContent === editor.flushAndReadBuffer();
+      // Unsaved drafts have no saved text baseline, just like a new draft.
       const baseline = readerPublication?.content
-        ?? (document.kind === "file" ? loadedContentRef.current : editor.flushAndReadBuffer());
+        ?? (document.kind === "file" ? loadedContentRef.current : "");
       if (baseline === null) {
         throw new Error("The active document closed before the snapshot could be restored.");
       }
@@ -1519,7 +1522,13 @@ function App() {
       beginEditSession(baseline, revision, path, name, null, document);
       const dirty = editor.updateBuffer(restoredContent);
       closeRestoreDialog();
-      toast(dirty ? "Snapshot restored. Save when you're ready." : "That snapshot already matches the current text.", "info");
+      toast(document.kind === "draft"
+        ? (matchesCurrentDraft
+          ? "That snapshot already matches the current draft. Save it to choose a file location."
+          : "Snapshot restored. Save the draft to choose a file location.")
+        : (dirty
+          ? "Snapshot restored. Changes will autosave."
+          : "Snapshot restored. It matches the saved file."), "info");
     } catch (error) {
       if (restoreRequestRef.current !== request) return;
       setRestoringSnapshotId(null);
@@ -3307,8 +3316,12 @@ function App() {
         title={restoreDialog?.kind === "drafts" ? "Restore an unsaved draft" : "Restore snapshot"}
         loading={restoreDialog?.loading ?? false}
         error={restoreDialog?.error ?? null}
+        documentKind={restoreDialog?.kind === "document" ? restoreDialog.document.kind : null}
+        skippedCount={restoreDialog?.kind === "drafts" ? restoreDialog.skippedCount : 0}
         emptyMessage={restoreDialog?.kind === "drafts"
-          ? "No unsaved draft snapshots were found."
+          ? (restoreDialog.skippedCount > 0
+            ? "No readable unsaved drafts could be listed."
+            : "No unsaved draft snapshots were found.")
           : "No snapshots have been captured for this document yet."}
         choices={restoreChoices}
         restoringId={restoringSnapshotId}

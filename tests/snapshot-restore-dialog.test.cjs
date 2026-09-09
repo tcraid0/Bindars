@@ -14,7 +14,7 @@ function renderDialog(props) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  flushSync(() => root.render(React.createElement(SnapshotRestoreDialog, props)));
+  flushSync(() => root.render(React.createElement(SnapshotRestoreDialog, { documentKind: "file", ...props })));
   return {
     host,
     cleanup() {
@@ -47,6 +47,8 @@ function dispatchKeyOn(target, type, key) {
 function renderRestoreList(restoringId = null) {
   const restored = [];
   const rendered = renderDialog({
+    documentKind: null,
+    skippedCount: 1,
     visible: true,
     title: "Restore snapshot",
     loading: false,

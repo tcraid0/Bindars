@@ -187,6 +187,7 @@ async function renderEditorApp({
   preserveMarkdownFormattingLocal = false,
   startNew = true,
   snapshotDrafts = [],
+  snapshotDraftList,
   snapshotEntriesByDraft = {},
   snapshotContents = {},
   themeGet,
@@ -226,6 +227,8 @@ async function renderEditorApp({
   mockWindows("main");
   const storeWrites = [];
   const snapshotWrites = [];
+  const fileWrites = [];
+  const retiredDrafts = [];
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
@@ -263,7 +266,16 @@ async function renderEditorApp({
         snapshotWrites.push(args);
         return successfulSnapshotWrite(args);
       case "list_snapshot_drafts":
-        return { drafts: snapshotDrafts, skippedCount: 0 };
+        return snapshotDraftList ? snapshotDraftList() : { drafts: snapshotDrafts, skippedCount: 0 };
+      case "plugin:dialog|save":
+        return "/tmp/recovered-r7.md";
+      case "write_markdown_file_if_unmodified":
+        fileWrites.push(args);
+        return { conflict: false, canonicalPath: "/tmp/recovered-r7.md", name: "recovered-r7.md",
+          currentRevision: { mtimeMs: 2, size: args.content.length, contentHash: "recovered-r7" } };
+      case "retire_snapshot_draft":
+        retiredDrafts.push(args.document);
+        return null;
       case "list_document_snapshots":
         return snapshotEntriesByDraft[args.document.id] ?? [];
       case "read_document_snapshot":
@@ -299,6 +311,8 @@ async function renderEditorApp({
     host,
     storeWrites,
     snapshotWrites,
+    fileWrites,
+    retiredDrafts,
     async cleanup() {
       await act(async () => {
         root.unmount();
@@ -5792,6 +5806,269 @@ for (const outcome of ['success', 'failure']) {
         flushSync(() => readerLink.click());
         await waitFor(() => assert.match(rendered.host.textContent, /other\.md/));
       }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+const r7Draft = { id: "r7-healthy", name: "Synthetic recovered draft.md", latestSnapshotAtMs: 5000, snapshotCount: 1 };
+const r7SnapshotId = "00000000000000005000-7777777777777777.md";
+const r7Recovered = "# Recovered\n\nSynthetic R7 snapshot words.";
+
+for (const [name, drafts, skippedCount, fail] of [
+  ["complete empty", [], 0, false],
+  ["partial empty", [], 2, false],
+  ["partial healthy", [r7Draft], 1, false],
+  ["complete healthy", [r7Draft], 0, false],
+  ["total error", [], 0, true],
+]) {
+  test(`R7 recovery list: ${name}`, async () => {
+    const result = { drafts, skippedCount };
+    const before = structuredClone(result);
+    const rendered = await renderEditorApp({ startNew: false,
+      snapshotDraftList() { if (fail) throw new Error("Synthetic listing unavailable"); return result; },
+      snapshotEntriesByDraft: { [r7Draft.id]: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }] },
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      const dialog = await waitFor(() => {
+        const value = rendered.host.querySelector('[role="dialog"]');
+        assert.ok(value); assert.doesNotMatch(value.textContent, /Loading snapshots/); return value;
+      });
+      if (fail) assert.match(dialog.querySelector('[role="alert"]').textContent, /Synthetic listing unavailable/);
+      else if (skippedCount) {
+        assert.match(dialog.textContent, /recovery data could not be inspected/i);
+        assert.match(dialog.textContent, new RegExp(`${skippedCount} skipped entr`));
+        assert.doesNotMatch(dialog.textContent, /No unsaved draft snapshots were found/);
+        if (!drafts.length) assert.match(dialog.textContent, /No readable unsaved drafts could be listed/);
+      } else {
+        assert.doesNotMatch(dialog.textContent, /could not be inspected|skipped entr/);
+        if (!drafts.length) assert.match(dialog.textContent, /No unsaved draft snapshots were found/);
+      }
+      assert.equal(dialog.querySelectorAll('li button').length, drafts.length);
+      assert.deepEqual(result, before, "listing must not mutate recovery records");
+      assert.deepEqual(rendered.snapshotWrites, []);
+      assert.deepEqual(rendered.fileWrites, []);
+      if (drafts.length) {
+        assert.match(dialog.textContent, /choose a file location/i);
+        assert.doesNotMatch(dialog.textContent, /autosave/i);
+        const choice = dialog.querySelector('li button');
+        assert.equal(choice.disabled, false);
+        flushSync(() => choice.click());
+        await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered));
+        assert.match(rendered.host.textContent, /Recovered draft restored.*choose a file location/);
+        assert.deepEqual(rendered.fileWrites, []);
+        assert.deepEqual(rendered.retiredDrafts, []);
+        dispatchShortcut('s');
+        await waitFor(() => assert.equal(rendered.retiredDrafts.length, 1));
+        assert.equal(rendered.fileWrites.length, 1);
+        assert.equal(rendered.fileWrites[0].path, '/tmp/recovered-r7.md');
+        assert.equal(rendered.fileWrites[0].content, r7Recovered);
+        assert.deepEqual(rendered.retiredDrafts, [{ kind: 'draft', id: r7Draft.id, name: r7Draft.name }]);
+        assert.ok(rendered.snapshotWrites.some(write => write.document.kind === 'file'
+          && write.document.path === '/tmp/recovered-r7.md' && write.content === r7Recovered));
+        assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("R7 recovery list: reopening clears the prior warning during loading and after a healthy result", async () => {
+  const held = deferred(); let calls = 0;
+  const rendered = await renderEditorApp({ startNew: false,
+    snapshotDraftList: () => ++calls === 1 ? { drafts: [], skippedCount: 1 } : held.promise,
+  });
+  try {
+    clickButton(rendered.host, "Restore an unsaved draft…");
+    await waitFor(() => assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/));
+    clickButton(rendered.host, "Close", rendered.host.querySelector('[role="dialog"]'));
+    clickButton(rendered.host, "Restore an unsaved draft…");
+    await waitFor(() => assert.equal(calls, 2));
+    assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading snapshots/);
+    assert.doesNotMatch(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/);
+    await act(async () => held.resolve({ drafts: [r7Draft], skippedCount: 0 }));
+    await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"] li button')));
+    assert.doesNotMatch(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/);
+    assert.deepEqual(rendered.snapshotWrites, []);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const rejects of [false, true]) {
+  test(`R7 recovery list: dismissed stale ${rejects ? "error" : "partial result"} cannot replace newer list`, async () => {
+    const held = deferred(); let calls = 0;
+    const rendered = await renderEditorApp({ startNew: false,
+      snapshotDraftList: () => ++calls === 1 ? held.promise : { drafts: [r7Draft], skippedCount: 0 },
+    });
+    try {
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      await waitFor(() => assert.equal(calls, 1));
+      clickButton(rendered.host, "Close", rendered.host.querySelector('[role="dialog"]'));
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"] li button')));
+      await act(async () => rejects ? held.reject(new Error("Stale listing error")) : held.resolve({ drafts: [], skippedCount: 7 }));
+      const dialog = rendered.host.querySelector('[role="dialog"]');
+      assert.match(dialog.textContent, /Synthetic recovered draft/);
+      assert.doesNotMatch(dialog.textContent, /could not be inspected|Stale listing error/);
+      assert.deepEqual(rendered.snapshotWrites, []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const matching of [false, true]) {
+  test(`R7 saved restore: ${matching ? "matching text keeps checkpoints without file write" : "different text follows normal autosave without extra Save"}`, async () => {
+    const initialContent = matching ? r7Recovered : "# Current\n\nSynthetic current words.";
+    const rendered = await renderContinuityApp({ initialContent, readySelector: 'article',
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      const dialog = rendered.host.querySelector('[role="dialog"]');
+      assert.match(dialog.textContent, /snapshots the current state first/i);
+      assert.match(dialog.textContent, /cannot be undone/i);
+      assert.match(dialog.textContent, /normal autosave/i);
+      flushSync(() => choice.click());
+      await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered));
+      assert.deepEqual(rendered.snapshotWrites().slice(0, 2).map(({content, preservePrevious}) => ({content, preservePrevious})), [
+        { content: initialContent, preservePrevious: true }, { content: r7Recovered, preservePrevious: true },
+      ]);
+      assert.equal(rendered.diskContent(), initialContent);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.match(rendered.host.textContent, matching ? /Snapshot restored.*matches the saved file/ : /Snapshot restored.*will autosave/);
+      assert.doesNotMatch(rendered.host.textContent, /Save when you're ready|Snapshot saved/);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+      assert.equal(rendered.fileWrites().length, matching ? 0 : 1);
+      assert.equal(rendered.diskContent(), r7Recovered);
+      assert.ok(rendered.host.querySelector('.cm-editor'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const matching of [false, true]) {
+  test(`R7 active unsaved draft restore: ${matching ? "matching" : "different"} text still needs a file location`, async () => {
+  const rendered = await renderContinuityApp({
+    snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+    snapshotContents: { [r7SnapshotId]: r7Recovered },
+  });
+  try {
+    dispatchShortcut('n');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    updateEditor(rendered.host, matching ? r7Recovered : 'Synthetic current draft words');
+    await waitForEditorPublication();
+    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+    const dialog = rendered.host.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /choose a file location/i);
+    assert.doesNotMatch(dialog.textContent, /autosave/i);
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    });
+    assert.match(rendered.host.textContent, matching ? /already matches the current draft.*choose a file location/ : /Snapshot restored.*choose a file location/);
+    assert.doesNotMatch(rendered.host.textContent, /will autosave|Save when you're ready/);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+    assert.deepEqual(rendered.fileWrites(), []);
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    await act(async () => { await emit('tauri://close-requested'); });
+    const closeDialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate); assert.match(candidate.textContent, /Unsaved changes/); return candidate;
+    });
+    assert.equal(rendered.windowCloseCount(), 0);
+    assert.deepEqual(rendered.retiredDrafts(), []);
+    dispatchWindowKey('Escape');
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 1));
+    assert.equal(rendered.fileWrites()[0].content, r7Recovered);
+  } finally { await rendered.cleanup(); }
+});
+
+}
+
+for (const failCheckpoint of [false, true]) {
+  test(`R7 restore failure: ${failCheckpoint ? "restored checkpoint" : "current backup"} does not claim success or change text`, async () => {
+    const rendered = await renderContinuityApp({
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      const original = rendered.diskContent();
+      const backup = deferred();
+      if (failCheckpoint) rendered.deferNextSnapshotWrite(backup);
+      else rendered.failNextSnapshotWrite(new Error('Synthetic safety write failure'));
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      flushSync(() => choice.click());
+      if (failCheckpoint) {
+        await waitFor(() => assert.ok(backup.args));
+        rendered.failNextSnapshotWrite(new Error('Synthetic safety write failure'));
+        await act(async () => backup.resolve(successfulSnapshotWrite(backup.args)));
+      }
+      await waitFor(() => assert.match(rendered.host.textContent, /current text was not changed/));
+      assert.equal(rendered.diskContent(), original);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.ok(!rendered.host.querySelector('.cm-editor'));
+      assert.doesNotMatch(rendered.host.textContent, /Snapshot restored|Snapshot saved/);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+test("R7 follow-up: restoring saved-file text replaces differing edits without claiming they already matched", async () => {
+  const currentEdits = "# Current unsaved edits\n\nKeep this text in the backup.";
+  const rendered = await renderContinuityApp({ initialContent: r7Recovered, readySelector: 'article',
+    snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+    snapshotContents: { [r7SnapshotId]: r7Recovered },
+  });
+  try {
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    updateEditor(rendered.host, currentEdits);
+    await waitForEditorPublication();
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    });
+    assert.match(rendered.host.textContent, /Snapshot restored.*matches the saved file/);
+    assert.doesNotMatch(rendered.host.textContent, /already matches the current text/);
+    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.deepEqual(rendered.snapshotWrites().filter(write => write.preservePrevious).map(write => write.content), [currentEdits, r7Recovered]);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+    assert.deepEqual(rendered.fileWrites(), []);
+    assert.equal(rendered.diskContent(), r7Recovered);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const matching of [false, true]) {
+  test(`R7 follow-up: restoring empty draft ${matching ? 'matching' : 'replacement'} text keeps ordinary empty-draft behavior`, async () => {
+    const beforeText = matching ? '' : 'Synthetic draft words before empty restore';
+    const rendered = await renderContinuityApp({
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: 0 }],
+      snapshotContents: { [r7SnapshotId]: '' },
+    });
+    try {
+      dispatchShortcut('n');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      if (beforeText) { updateEditor(rendered.host, beforeText); await waitForEditorPublication(); }
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      flushSync(() => choice.click());
+      await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), '');
+      assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+      assert.match(rendered.host.textContent, matching ? /already matches the current draft/ : /Snapshot restored/);
+      assert.deepEqual(rendered.snapshotWrites().filter(write => write.preservePrevious).map(write => write.content), [beforeText, '']);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.deepEqual(rendered.retiredDrafts(), []);
     } finally { await rendered.cleanup(); }
   });
 }

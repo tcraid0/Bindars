@@ -13,6 +13,8 @@ interface SnapshotRestoreDialogProps {
   title: string;
   loading: boolean;
   error: string | null;
+  documentKind: "file" | "draft" | null;
+  skippedCount?: number;
   emptyMessage: string;
   choices: SnapshotRestoreChoice[];
   restoringId: string | null;
@@ -25,6 +27,8 @@ function SnapshotRestoreDialogComponent({
   title,
   loading,
   error,
+  documentKind,
+  skippedCount = 0,
   emptyMessage,
   choices,
   restoringId,
@@ -62,8 +66,18 @@ function SnapshotRestoreDialogComponent({
       maxWidthClassName="max-w-[480px]"
     >
       <p className="text-sm text-text-secondary mb-4">
-        Restoring replaces the editor buffer and cannot be undone there. Bindars snapshots the current state first.
+        {documentKind !== null
+          ? <>Restoring replaces the editor buffer and cannot be undone there. Bindars snapshots the current state first. {documentKind === "file"
+            ? "Restored text follows normal autosave."
+            : "Save the restored draft to choose a file location."}</>
+          : "The recovered draft opens in the editor. Save it to choose a file location."}
       </p>
+
+      {!loading && !error && skippedCount > 0 && (
+        <p role="status" className="text-sm text-text-secondary mb-4">
+          Some recovery data could not be inspected ({skippedCount} skipped {skippedCount === 1 ? "entry" : "entries"}).
+        </p>
+      )}
 
       {loading ? (
         <p role="status" className="text-sm text-text-muted py-4">Loading snapshots…</p>
