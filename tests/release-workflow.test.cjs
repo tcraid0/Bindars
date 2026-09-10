@@ -32,6 +32,11 @@ test("release candidates are verified before tag-only publication", () => {
     namedStep(workflow.jobs.package, "Inspect Debian package").run,
     "scripts/verify-deb-package.sh src-tauri/target/release/bundle/deb release-artifacts",
   );
+  const cspStep = namedStep(workflow.jobs.package, "Verify packaged WebKit styles");
+  assert.match(cspStep.run, /scripts\/verify-webkit-csp-styles\.py/);
+  assert.match(cspStep.run, /xvfb-run/);
+  assert.ok(workflow.jobs.package.steps.indexOf(cspStep)
+    > workflow.jobs.package.steps.indexOf(namedStep(workflow.jobs.package, "Build Debian package")));
   const installStep = namedStep(
     workflow.jobs.package,
     "Install and smoke-test Debian package",
