@@ -78,6 +78,29 @@ punctual expiry, and a background deleter that misfires (for example after a
 forward clock jump) could silently delete useful history. Use the control below
 when you want the data gone.
 
+## Recent-file history upgrades and older builds
+
+Recent-file history stores its format version and entries together in the
+`recent-files` setting: `{ "version": 1, "files": [...] }`. Format 1 uses current
+heading IDs. Bindars can convert the older array format; it reads the old
+`config-version` first to determine whether heading IDs need conversion.
+The old global version and annotation records are left unchanged.
+
+Keeping the history and its version in one value prevents a failed upgrade
+save from leaving converted headings paired with an old version marker.
+It does not guarantee settings-file durability through a crash or power loss.
+Failed reads leave recent history unavailable and prevent writes from an
+empty startup state. A failed legacy conversion is not retried during that
+session. Unsupported formats are preserved.
+
+Older builds may not understand this history format. Builds with the guarded
+history loader show it as unavailable; earlier builds may replace it with a
+new list when opening a file. There is no second legacy copy or automatic
+downgrade conversion. Back up settings before switching back to an older build
+if you need to retain recent files and their saved sections. This history
+format change does not alter document contents, annotations, or session
+precedence.
+
 ## Clearing recovery history
 
 **Reader settings → Recovery** shows the logical size and stream count of

@@ -1,10 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { storeTryGet, storeSet } from "../lib/store";
-import { runMigrations } from "../lib/migrations";
-import { decodeRecentFiles } from "../lib/recent-files";
+import { loadRecentFiles, saveRecentFiles } from "../lib/recent-files";
 import type { RecentFile } from "../types";
 
-const STORE_KEY = "recent-files";
 const MAX_RECENT = 10;
 
 export function useRecentFiles() {
@@ -18,13 +15,8 @@ export function useRecentFiles() {
     let active = true;
     void (async () => {
       try {
-        await runMigrations();
+        const files = await loadRecentFiles();
         if (!active) return;
-        const result = await storeTryGet<unknown>(STORE_KEY);
-        if (!active) return;
-        if (!result.ok) throw new Error("Could not read recent history");
-        const files = decodeRecentFiles(result.value);
-        if (files === null) throw new Error("Unsupported recent history format");
         filesRef.current = files;
         setRecentFiles(files);
         setStatus("ready");
@@ -41,7 +33,7 @@ export function useRecentFiles() {
     if (status !== "ready") return;
     filesRef.current = files;
     setRecentFiles(files);
-    void storeSet(STORE_KEY, files);
+    void saveRecentFiles(files);
   }, [status]);
 
   const addRecent = useCallback(

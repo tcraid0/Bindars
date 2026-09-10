@@ -245,7 +245,7 @@ async function renderEditorApp({
         if (args.key === "theme" && themeGet !== undefined) {
           return themeGet;
         }
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
           return markdownFormattingRead;
@@ -987,7 +987,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return welcomeRead.promise;
         return [null, false];
       case "plugin:store|set":
@@ -1127,7 +1127,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
@@ -1245,7 +1245,7 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
@@ -1447,7 +1447,7 @@ async function renderContinuityApp({
       case "plugin:store|get":
         if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
         if (args.key === "recent-files") {
-          if (!recentStorage) return [[], true];
+          if (!recentStorage) return [{ version: 1, files: [] }, true];
           recentStorage.reads = (recentStorage.reads ?? 0) + 1;
           return recentStorage.read ? recentStorage.read() : [structuredClone(recentStorage.value), true];
         }
@@ -1473,7 +1473,10 @@ async function renderContinuityApp({
       case "plugin:store|set":
         if (recentStorage) {
           recentStorage.writes.push(structuredClone(args));
-          if (args.key === "recent-files") recentStorage.value = structuredClone(args.value);
+          if (args.key === "recent-files") {
+            if (recentStorage.writeError) throw recentStorage.writeError;
+            recentStorage.value = structuredClone(args.value);
+          }
         }
         return null;
       case "plugin:window|set_title":
@@ -1618,7 +1621,7 @@ async function renderContinuityApp({
   }), { shouldMockEvents: true });
 
   if (recentStorage) {
-    for (const name of ['App', 'hooks/useRecentFiles', 'lib/migrations']) {
+    for (const name of ['App', 'hooks/useRecentFiles', 'lib/recent-files']) {
       delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
     }
   }
@@ -5240,12 +5243,15 @@ test("save-and-exit with an unmoved caret preserves the original reader offset",
   }
 });
 
+for (const format of ['legacy array', 'versioned']) {
 for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
-  test(`recent startup preservation: ${startup} waits for history and records the current document`, async () => {
+  if (format === 'versioned' && startup === 'legacy migration') continue;
+  test(`recent startup preservation: ${startup} (${format}) waits for history and records the current document`, async () => {
     const held = deferred();
     const old = { path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: startup === 'legacy migration' ? 'user-content-intro' : 'intro' };
+    const stored = format === 'versioned' ? { version: 1, files: [old] } : [old];
     let released = false;
-    const history = { version: startup === 'legacy migration' ? 2 : 3, value: [old], writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
+    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
     const rendered = await renderContinuityApp({
       requestedPath: '/tmp/new.md',
       ...(startup === 'session' ? { restoreHeadingId: 'second' } : {}),
@@ -5262,30 +5268,36 @@ for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
         await act(async () => { await new Promise(setImmediate); });
       }
       assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
-      assert.deepEqual(history.value, [old]);
+      assert.deepEqual(history.value, stored);
       released = true;
-      await act(async () => { held.resolve([[old], true]); });
+      await act(async () => { held.resolve([stored, true]); });
       const current = startup === 'A then B' ? '/tmp/newer.md' : '/tmp/new.md';
-      await waitFor(() => assert.deepEqual(history.durable.map(f => f.path), [current, '/tmp/old.md']));
-      assert.equal(history.durable[1].lastHeadingId, 'intro');
+      await waitFor(() => assert.deepEqual(history.durable.files.map(f => f.path), [current, '/tmp/old.md']));
+      assert.equal(history.durable.files[1].lastHeadingId, 'intro');
       assert.ok(rendered.host.querySelector('article'));
-      assert.ok(history.writes.filter(w => w.key === 'recent-files').every(w => !w.value.some(f => f.path === '/tmp/new.md') || startup !== 'A then B'));
+      assert.ok(history.writes.filter(w => w.key === 'recent-files').every(w => !w.value.files.some(f => f.path === '/tmp/new.md') || startup !== 'A then B'));
     } finally { await rendered.cleanup(); }
   });
 }
-for (const failure of ['history read', 'migration', 'unknown format']) {
+}
+for (const failure of ['history read', 'conversion write', 'unknown format']) {
   test(`recent startup preservation: ${failure} leaves an available app without first-run inference`, async () => {
-    const original = failure === 'unknown format' ? { future: [] } : [{ path: '/tmp/old.md', name: 'old.md', openedAt: 1 }];
-    const history = { version: failure === 'migration' ? 2 : 3, value: original, writes: [], read: () => {
-      if (failure !== 'unknown format') throw Error('history unavailable');
+    const original = failure === 'unknown format' ? { future: [] } : [{ path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: 'user-content-intro' }];
+    const history = { version: failure === 'conversion write' ? 2 : 3, value: original, durable: structuredClone(original), writes: [],
+      writeError: failure === 'conversion write' ? Error('conversion write rejected') : null, read: () => {
+      if (failure === 'history read') throw Error('history unavailable');
       return [original, true];
     } };
+    const expectedWrites = failure === 'conversion write'
+      ? [{ key: 'recent-files', value: { version: 1, files: [{ ...original[0], lastHeadingId: 'intro' }] } }]
+      : [];
     const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
     try {
       await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
       assert.match(rendered.host.textContent, /Recent history is unavailable/);
       assert.doesNotMatch(rendered.host.textContent, /Welcome fixture|No recent files/);
-      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)), []);
+      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)).map(({ key, value }) => ({ key, value })), expectedWrites);
+      assert.deepEqual(history.durable, original);
       rendered.setPendingNativeOpenPath('/tmp/readable.md');
       await act(async () => { await emit('bindars://native-open-available'); });
       await waitFor(() => assert.ok(rendered.host.querySelector('article')));
@@ -5293,7 +5305,8 @@ for (const failure of ['history read', 'migration', 'unknown format']) {
       await waitFor(() => assert.ok(rendered.host.querySelector('aside')));
       assert.match(rendered.host.querySelector('aside').textContent, /Recent history is unavailable/);
       assert.deepEqual(history.value, original);
-      assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)).map(({ key, value }) => ({ key, value })), expectedWrites);
+      assert.deepEqual(history.durable, original);
     } finally { await rendered.cleanup(); }
   });
 }

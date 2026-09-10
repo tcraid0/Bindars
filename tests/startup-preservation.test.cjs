@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function fresh() {
-  for (const name of ['lib/store', 'lib/annotation-storage', 'lib/migrations', 'hooks/useMarkdownFormatting', 'hooks/useRecentFiles']) {
+  for (const name of ['lib/store', 'lib/annotation-storage', 'lib/recent-files', 'hooks/useMarkdownFormatting', 'hooks/useRecentFiles']) {
     delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
   }
   return {
@@ -21,7 +21,7 @@ function fresh() {
     recents: require('../.tmp/workspace-tests/src/hooks/useRecentFiles.js').useRecentFiles,
   };
 }
-function storage(t, values, { bootstrap, get, save } = {}) {
+function storage(t, values, { bootstrap, get, set, save } = {}) {
   const cache = structuredClone(values);
   let durable = structuredClone(values);
   const writes = [], reads = [];
@@ -33,12 +33,15 @@ function storage(t, values, { bootstrap, get, save } = {}) {
       if (get) { const result = get(args.key); if (result !== undefined) return result; }
       return [structuredClone(cache[args.key] ?? null), args.key in cache];
     }
-    if (cmd === 'plugin:store|set') { writes.push(structuredClone(args)); cache[args.key] = structuredClone(args.value); return; }
+    if (cmd === 'plugin:store|set') { writes.push(structuredClone(args)); if (set) await set(args); cache[args.key] = structuredClone(args.value); return; }
     if (cmd === 'plugin:store|save') { if (save) await save(); durable = structuredClone(cache); return; }
     throw Error(`Unexpected IPC ${cmd}`);
   });
   t.after(() => { clearMocks(); window.localStorage.clear(); });
-  return { cache, durable: () => durable, writes, reads };
+  return { cache, durable: () => durable, writes, reads,
+    flush: () => { durable = structuredClone(cache); },
+    restart: () => { for (const key of Object.keys(cache)) delete cache[key]; Object.assign(cache, structuredClone(durable)); },
+  };
 }
 async function settle() { await act(async () => { await new Promise(setImmediate); }); }
 async function mount(t, hook, strict = false) {
@@ -103,15 +106,15 @@ test('formatting held read cannot replace explicit rapid toggles or publish afte
   assert.equal(window.localStorage.getItem(localKey), null); assert.deepEqual(other.writes, []);
 });
 test('recents held hydration blocks every mutation then preserves loaded history', async t => {
-  const held = deferred(), old = recent();
-  const disk = storage(t, { 'config-version': 3, 'recent-files': [old] }, { get: key => key === 'recent-files' ? held.promise : undefined });
+  const held = deferred(), old = recent(); let historyReads = 0;
+  const disk = storage(t, { 'config-version': 3, 'recent-files': [old] }, { get: key => key === 'recent-files' && ++historyReads === 1 ? held.promise : undefined });
   const view = await mount(t, fresh().recents);
   await act(async () => { view.current.addRecent('/new.md', 'new.md'); view.current.removeRecent('/old.md'); view.current.updateScrollPosition('/old.md', 'changed'); });
   assert.deepEqual(disk.writes, []);
   held.resolve([[old], true]); await settle();
   await act(async () => view.current.addRecent('/new.md', 'new.md')); await settle();
-  assert.deepEqual(disk.durable()['recent-files'].map(f => f.path), ['/new.md', '/old.md']);
-  assert.equal(disk.durable()['recent-files'][1].lastHeadingId, 'intro');
+  assert.deepEqual(disk.durable()['recent-files'].files.map(f => f.path), ['/new.md', '/old.md']);
+  assert.equal(disk.durable()['recent-files'].files[1].lastHeadingId, 'intro');
 });
 for (const value of [{ unknown: [] }, 'unknown']) {
   test(`recents unusable whole ${typeof value} is preserved and unavailable`, async t => {
@@ -153,8 +156,9 @@ for (const version of [0, 1, 2, 3, null]) {
     assert.deepEqual(view.current.recentFiles.map(f => f.lastHeadingId), [modern ? 'user-content-user-content-intro' : 'user-content-intro', modern ? 'user-content-intro' : 'intro', null, null]);
     assert.deepEqual(view.current.recentFiles[0].extension, { keep: true });
     assert.equal(disk.reads.filter(k => k === 'config-version').length, 1);
-    assert.equal(disk.writes.filter(w => w.key === 'recent-files').length, modern ? 0 : 1);
-    assert.equal(disk.cache['config-version'], 3);
+    assert.equal(disk.writes.filter(w => w.key === 'recent-files').length, 1);
+    assert.equal(disk.cache['config-version'], version);
+    assert.deepEqual(disk.durable()['recent-files'], { version: 1, files: view.current.recentFiles });
     // Exercise the actual renderer with the boundary's decoded records.
     const { renderComponent } = require('./_helpers/component-view.cjs');
     const { RecentFiles } = require('../.tmp/workspace-tests/src/components/RecentFiles.js');
@@ -177,11 +181,11 @@ test('recents successful absence is ready and initializes only after explicit mu
   const view = await mount(t, fresh().recents); await settle();
   assert.equal(view.current.status, 'ready'); assert.deepEqual(view.current.recentFiles, []); assert.deepEqual(disk.writes, []);
   await act(async () => view.current.addRecent('/new.md', 'new.md')); await settle();
-  assert.equal(disk.durable()['recent-files'][0].path, '/new.md');
+  assert.equal(disk.durable()['recent-files'].files[0].path, '/new.md');
 });
 test('recents ready mutations preserve order, limit, extra fields and headings without StrictMode duplicate writes', async t => {
   const original = Array.from({ length: 10 }, (_, i) => ({ ...recent(`/${i}.md`), extra: i }));
-  const disk = storage(t, { 'config-version': 3, 'recent-files': original });
+  const disk = storage(t, { 'config-version': 3, 'recent-files': { version: 1, files: original } });
   const hooks = fresh();
   const view = await mount(t, hooks.recents, true); await settle();
   await act(async () => {
@@ -193,20 +197,21 @@ test('recents ready mutations preserve order, limit, extra fields and headings w
     view.current.updateScrollPosition('/5.md', 'updated');
   }); await settle();
   assert.equal(disk.writes.length, 4);
-  const saved = disk.durable()['recent-files'];
+  const saved = disk.durable()['recent-files'].files;
   assert.deepEqual(saved.map(f => f.path), ['/new.md', '/5.md', '/0.md', '/1.md', '/3.md', '/4.md', '/6.md', '/7.md', '/8.md']);
   assert.equal(saved[1].lastHeadingId, 'updated'); assert.equal(saved[1].extra, 5);
   await view.unmount();
   const later = await mount(t, hooks.recents); await settle();
   assert.deepEqual(later.current.recentFiles, saved);
-  assert.equal(disk.reads.filter(k => k === 'config-version').length, 1);
+  assert.equal(disk.reads.filter(k => k === 'config-version').length, 0);
 });
 test('recents abandoned held read cannot replace a newer mount; StrictMode shares held migration', async t => {
   const version = deferred(), oldRead = deferred(); let historyReads = 0;
   const disk = storage(t, { 'config-version': 2, 'recent-files': [recent()] }, { get: key => {
     if (key === 'config-version') return version.promise;
-    // Migration has one read, followed by the first mount's held hydration.
-    if (key === 'recent-files' && ++historyReads === 2) return oldRead.promise;
+    // StrictMode starts two reads; both share one legacy upgrade. Hold the
+    // post-upgrade reads of the abandoned mount, then let the next mount load.
+    if (key === 'recent-files' && [3, 4].includes(++historyReads)) return oldRead.promise;
   } });
   const hooks = fresh(), first = await mount(t, hooks.recents, true);
   assert.equal(disk.reads.filter(k => k === 'config-version').length, 1);
@@ -214,31 +219,11 @@ test('recents abandoned held read cannot replace a newer mount; StrictMode share
   assert.equal(first.current.status, 'loading'); await first.unmount();
   const next = await mount(t, hooks.recents, true); await settle();
   await act(async () => next.current.addRecent('/new.md', 'new.md')); await settle();
-  oldRead.resolve([[recent('/stale.md')], true]); await settle();
+  oldRead.resolve([{ version: 1, files: [recent('/stale.md')] }, true]); await settle();
   assert.deepEqual(next.current.recentFiles.map(f => f.path), ['/new.md', '/old.md']);
-  assert.deepEqual(disk.durable()['recent-files'], next.current.recentFiles);
-  assert.equal(disk.writes.filter(w => w.key === 'config-version').length, 1);
+  assert.deepEqual(disk.durable()['recent-files'], { version: 1, files: next.current.recentFiles });
+  assert.equal(disk.writes.filter(w => w.key === 'config-version').length, 0);
 });
-for (const failAt of ['data', 'version']) {
-  test(`recents failed migration ${failAt} save caches rejection despite changed plugin cache`, async t => {
-    let saves = 0, fail = true;
-    const original = { 'config-version': 2, 'recent-files': [recent('/old.md', 'user-content-user-content-intro')] };
-    const disk = storage(t, original, { save: () => { if (++saves === (failAt === 'data' ? 1 : 2) && fail) throw Error('save failed after cache mutation'); } });
-    const hooks = fresh(), first = await mount(t, hooks.recents, true); await settle();
-    assert.equal(first.current.status, 'unavailable');
-    assert.equal(disk.cache['recent-files'][0].lastHeadingId, 'user-content-intro');
-    const afterFailure = structuredClone(disk.cache), writeCount = disk.writes.length;
-    await act(async () => { first.current.addRecent('/new.md', 'new.md'); first.current.removeRecent('/old.md'); first.current.updateScrollPosition('/old.md', 'x'); });
-    await first.unmount(); fail = false;
-    const next = await mount(t, hooks.recents); await settle();
-    assert.equal(next.current.status, 'unavailable');
-    assert.equal(disk.writes.length, writeCount); assert.deepEqual(disk.cache, afterFailure);
-    assert.equal(disk.reads.filter(k => k === 'config-version').length, 1);
-    if (failAt === 'data') assert.deepEqual(disk.durable(), original);
-    else assert.equal(disk.durable()['config-version'], 2); // D1 remains across restart.
-  });
-}
-
 test('formatting StrictMode abandoned hydration cannot overwrite the active local mirror', async t => {
   window.localStorage.clear();
   const abandoned = deferred(); let reads = 0;
@@ -260,4 +245,123 @@ test('formatting a held rejected read settles loading without writing a fallback
   assert.equal(view.current.loaded, true); assert.equal(view.current.enabled, true);
   assert.equal(window.localStorage.getItem(localKey), null); assert.deepEqual(disk.writes, []);
   assert.equal(disk.durable()[formattingKey], false);
+});
+
+test('D1 legacy upgrade stores headings and their version together without changing unrelated settings', async t => {
+  const legacy = recent('/old.md', 'user-content-user-content-intro');
+  const unrelated = { 'config-version': 2, theme: 'dark', 'annotations:/old.md': { preserve: true } };
+  const disk = storage(t, { ...unrelated, 'recent-files': [legacy] });
+  const first = await mount(t, fresh().recents, true); await settle();
+  assert.equal(first.current.status, 'ready');
+  const files = [{ ...legacy, lastHeadingId: 'user-content-intro' }];
+  assert.deepEqual(disk.writes.map(w => [w.key, w.value]), [['recent-files', { version: 1, files }]]);
+  assert.deepEqual(disk.durable(), { ...unrelated, 'recent-files': { version: 1, files } });
+  await first.unmount(); disk.restart();
+  const next = await mount(t, fresh().recents); await settle();
+  assert.deepEqual(next.current.recentFiles, files);
+  assert.equal(disk.writes.length, 1, 'restart must neither re-strip headings nor rewrite modern history');
+});
+
+for (const failure of ['set rejected', 'save rejected before flush', 'save rejected after flush', 'later unrelated flush']) {
+  test(`D1 restart after ${failure} never strips the legitimate second prefix`, async t => {
+    const original = { 'config-version': 2, 'recent-files': [recent('/old.md', 'user-content-user-content-intro')] };
+    let failing = true;
+    const disk = storage(t, original, {
+      set: () => { if (failing && failure === 'set rejected') throw Error('set rejected'); },
+      save: () => {
+        if (!failing) return;
+        if (failure === 'save rejected after flush') disk.flush();
+        throw Error('save rejected');
+      },
+    });
+    const hooks = fresh(), first = await mount(t, hooks.recents, true); await settle();
+    assert.equal(first.current.status, 'unavailable');
+    if (failure === 'set rejected') assert.deepEqual(disk.cache, original);
+    else assert.deepEqual(disk.cache['recent-files'], { version: 1, files: [recent('/old.md', 'user-content-intro')] });
+    if (failure === 'save rejected after flush') assert.equal(disk.durable()['recent-files'].version, 1);
+    else assert.deepEqual(disk.durable(), original);
+    const attempts = disk.writes.length;
+    await act(async () => first.current.addRecent('/new.md', 'new.md'));
+    await first.unmount(); failing = false;
+    const remount = await mount(t, hooks.recents); await settle();
+    assert.equal(remount.current.status, 'unavailable', 'failed preparation stays failed for this process');
+    assert.equal(disk.writes.length, attempts);
+    if (failure === 'later unrelated flush') {
+      // An ordinary settings save flushes the entire plugin cache.
+      await require('../.tmp/workspace-tests/src/lib/store.js').storeSet('theme', 'light');
+    }
+    await remount.unmount(); disk.restart();
+    const next = await mount(t, fresh().recents); await settle();
+    assert.equal(next.current.status, 'ready');
+    assert.deepEqual(next.current.recentFiles, [recent('/old.md', 'user-content-intro')]);
+    assert.deepEqual(disk.durable()['recent-files'], { version: 1, files: next.current.recentFiles });
+    assert.equal(disk.durable()['config-version'], 2, 'legacy global marker is no longer an acknowledgement writer');
+  });
+}
+
+test('D1 current history ignores obsolete or unreadable global version metadata and preserves heading prefixes', async t => {
+  const files = [recent('/old.md', 'user-content-intro')];
+  const disk = storage(t, { 'config-version': 2, 'recent-files': { version: 1, files } }, {
+    get: key => { if (key === 'config-version') throw Error('global version must not be read'); },
+  });
+  const first = await mount(t, fresh().recents, true); await settle();
+  assert.equal(first.current.status, 'ready');
+  assert.deepEqual(first.current.recentFiles, files);
+  assert.deepEqual(disk.reads.filter(k => k === 'config-version'), []);
+  assert.deepEqual(disk.writes, []);
+});
+
+for (const value of [{ version: 2, files: [recent()] }, { version: 1, files: {} }, { version: '1', files: [] }, { files: [] }]) {
+  test(`D1 unsupported envelope ${JSON.stringify(value)} stays unavailable and byte-preserved`, async t => {
+    const disk = storage(t, { 'config-version': 2, 'recent-files': value });
+    const first = await mount(t, fresh().recents); await settle();
+    assert.equal(first.current.status, 'unavailable');
+    await act(async () => first.current.addRecent('/new.md', 'new.md'));
+    assert.deepEqual(disk.durable()['recent-files'], value);
+    assert.deepEqual(disk.writes, []);
+    assert.deepEqual(disk.reads.filter(k => k === 'config-version'), []);
+  });
+}
+
+test('D1 legacy version-read failure preserves the original array without guessing headings', async t => {
+  const original = { 'recent-files': [recent('/old.md', 'user-content-intro')] };
+  const disk = storage(t, original, { get: key => { if (key === 'config-version') throw Error('read failed'); } });
+  const view = await mount(t, fresh().recents); await settle();
+  assert.equal(view.current.status, 'unavailable');
+  assert.deepEqual(disk.durable(), original); assert.deepEqual(disk.writes, []);
+});
+
+test('D1 modern malformed entries normalize in memory and every mutation retains the versioned format', async t => {
+  const kept = { ...recent('/old.md', 'user-content-intro'), extension: { keep: true } };
+  const stored = { version: 1, files: [null, {}, kept, { ...recent('/bad.md'), openedAt: Infinity }] };
+  const disk = storage(t, { 'recent-files': stored });
+  const view = await mount(t, fresh().recents, true); await settle();
+  assert.deepEqual(view.current.recentFiles, [kept]);
+  assert.deepEqual(disk.writes, []);
+  assert.deepEqual(disk.durable()['recent-files'], stored);
+  await act(async () => {
+    view.current.addRecent('/new.md', 'new.md');
+    view.current.updateScrollPosition('/old.md', 'user-content-next');
+    view.current.removeRecent('/new.md');
+  }); await settle();
+  assert.equal(disk.writes.length, 3);
+  assert.ok(disk.writes.every(w => w.key === 'recent-files' && w.value.version === 1 && Array.isArray(w.value.files)));
+  assert.deepEqual(disk.durable()['recent-files'], { version: 1, files: [{ ...kept, lastHeadingId: 'user-content-next' }] });
+});
+
+test('D1 a failed read after durable conversion cannot publish an empty list or repeat conversion on remount', async t => {
+  let fail = true, historyReads = 0;
+  const disk = storage(t, { 'config-version': 2, 'recent-files': [recent('/old.md', 'user-content-user-content-intro')] }, {
+    get: key => { if (key === 'recent-files' && ++historyReads > 1 && fail) throw Error('post-upgrade read failed'); },
+  });
+  const hooks = fresh(), first = await mount(t, hooks.recents); await settle();
+  assert.equal(first.current.status, 'unavailable');
+  const saved = structuredClone(disk.durable());
+  await act(async () => first.current.removeRecent('/old.md'));
+  assert.deepEqual(disk.durable(), saved);
+  await first.unmount(); fail = false;
+  const next = await mount(t, hooks.recents); await settle();
+  assert.equal(next.current.status, 'ready');
+  assert.equal(next.current.recentFiles[0].lastHeadingId, 'user-content-intro');
+  assert.equal(disk.writes.length, 1);
 });
