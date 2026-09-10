@@ -115,7 +115,7 @@ async function renderApp({
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":

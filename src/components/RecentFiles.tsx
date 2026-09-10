@@ -4,6 +4,7 @@ import { focusAfterRemoval } from "../lib/focus-after-removal";
 
 interface RecentFilesProps {
   files: RecentFile[];
+  unavailable?: boolean;
   currentFilePath: string | null;
   openingPath: string | null;
   onOpen: (path: string) => void;
@@ -32,6 +33,7 @@ function dirName(path: string): string {
 
 export function RecentFiles({
   files,
+  unavailable = false,
   currentFilePath,
   openingPath,
   onOpen,
@@ -42,7 +44,7 @@ export function RecentFiles({
   return (
     <div ref={containerRef} tabIndex={-1} role="group" aria-label="Recent files" className="flex-1 focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2">
       {files.length === 0 && (
-        <div className="px-4 py-8 text-center text-text-muted text-sm">No recent files</div>
+        <div className="px-4 py-8 text-center text-text-muted text-sm">{unavailable ? "Recent history is unavailable." : "No recent files"}</div>
       )}
       {files.map((file) => {
         const isActive = file.path === currentFilePath;

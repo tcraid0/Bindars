@@ -7,6 +7,7 @@ interface EmptyStateProps {
   onNewFile: () => void;
   onOpenFile: () => void;
   recentFiles: RecentFile[];
+  recentHistoryUnavailable?: boolean;
   onOpenRecent: (path: string) => void;
   onRestoreDrafts: () => void;
   canRestoreDrafts?: boolean;
@@ -16,6 +17,7 @@ function EmptyStateComponent({
   onNewFile,
   onOpenFile,
   recentFiles,
+  recentHistoryUnavailable = false,
   onOpenRecent,
   onRestoreDrafts,
   canRestoreDrafts = true,
@@ -40,6 +42,9 @@ function EmptyStateComponent({
       </p>
 
       <div className="empty-state-content">
+        {recentHistoryUnavailable && (
+          <p className="text-sm text-text-muted mb-4">Recent history is unavailable.</p>
+        )}
         {hasRecent && (
           <>
             <button

@@ -62,10 +62,9 @@ function PresentationBarComponent({ currentSlide, totalSlides, onExit }: Present
 
   return (
     <div
-      className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
+      className="mode-bar fixed bottom-3 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
+      data-visible={visible}
       style={{
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? "auto" : "none",
         transition: "opacity 200ms ease",
       }}
     >

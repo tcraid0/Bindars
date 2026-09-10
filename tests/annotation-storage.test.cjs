@@ -39,28 +39,33 @@ test('failed bootstrap can retry; a failed disk save is not acknowledged',async(
   }finally{clearMocks();}
 });
 
-test('preference migration leaves legacy annotation records alone and does not advance after failure', async (t) => {
+test('recent history upgrade leaves legacy annotation records and global version alone', async (t) => {
   const { store } = fresh();
-  const migrationPath = require.resolve('../.tmp/workspace-tests/src/lib/migrations.js');
-  delete require.cache[migrationPath];
-  const { runMigrations } = require(migrationPath);
-  const writes = [];
-  const reads = [];
+  const recentPath = require.resolve('../.tmp/workspace-tests/src/lib/recent-files.js');
+  delete require.cache[recentPath];
+  const { loadRecentFiles } = require(recentPath);
+  const writes = [], reads = [];
+  let value = [{ path: '/a.md', name: 'a.md', openedAt: 1, lastHeadingId: 'user-content-intro' }];
   let fail = true;
   t.mock.method(store, 'storeTryGet', async (key) => {
     reads.push(key);
-    return { ok: true, value: key === 'config-version' ? 2 : [{ path: '/a.md', lastHeadingId: 'user-content-intro' }] };
+    return { ok: true, value: key === 'config-version' ? 2 : structuredClone(value) };
   });
-  t.mock.method(store, 'storeSet', async (key, value) => {
-    writes.push({ key, value: structuredClone(value) });
-    return !fail;
+  t.mock.method(store, 'storeSet', async (key, record) => {
+    writes.push({ key, value: structuredClone(record) });
+    if (fail) return false;
+    value = structuredClone(record);
+    return true;
   });
-  await assert.rejects(runMigrations(), /save migrated settings/);
-  assert.deepEqual(writes.map((item) => item.key), ['recent-files']);
+  await assert.rejects(loadRecentFiles(), /save upgraded recent history/);
+  assert.deepEqual(writes.map(item => item.key), ['recent-files']);
   fail = false;
-  await runMigrations();
-  assert.deepEqual(writes.slice(1).map((item) => item.key), ['recent-files', 'config-version']);
-  assert.equal(writes[1].value[0].lastHeadingId, 'intro');
-  assert.equal(writes[2].value, 3);
-  assert.ok(reads.every((key) => ['config-version', 'recent-files'].includes(key)));
+  await assert.rejects(loadRecentFiles(), /save upgraded recent history/);
+  assert.equal(writes.length, 1, 'failed migration must not retry in this process');
+  delete require.cache[recentPath];
+  const files = await require(recentPath).loadRecentFiles();
+  assert.deepEqual(writes.slice(1).map(item => item.key), ['recent-files']);
+  assert.equal(files[0].lastHeadingId, 'intro');
+  assert.deepEqual(value, { version: 1, files });
+  assert.ok(reads.every(key => ['config-version', 'recent-files'].includes(key)));
 });

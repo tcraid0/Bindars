@@ -40,7 +40,6 @@
     "src/lib/active-heading.ts",
     "src/lib/app-flow.ts",
     "src/lib/annotation-state.ts",
-    "src/lib/migrations.ts",
     "src/lib/safe-local-storage.ts",
     "src/lib/annotation-export.ts",
     "src/lib/dom-marks.ts",

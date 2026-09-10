@@ -6,6 +6,7 @@ import { WorkspacePanel } from "./WorkspacePanel";
 interface SidebarProps {
   visible: boolean;
   recentFiles: RecentFile[];
+  recentHistoryUnavailable?: boolean;
   currentFilePath: string | null;
   openingPath: string | null;
   workspaceRootPath: string | null;
@@ -24,6 +25,7 @@ interface SidebarProps {
 function SidebarComponent({
   visible,
   recentFiles,
+  recentHistoryUnavailable = false,
   currentFilePath,
   openingPath,
   workspaceRootPath,
@@ -61,6 +63,7 @@ function SidebarComponent({
       </div>
       <RecentFiles
         files={recentFiles}
+        unavailable={recentHistoryUnavailable}
         currentFilePath={currentFilePath}
         openingPath={openingPath}
         onOpen={onOpenRecent}

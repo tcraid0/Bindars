@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { storeGet, storeSet } from "../lib/store";
+import { storeTryGet, storeSet } from "../lib/store";
 
 const STORE_KEY = "markdown-formatting-enabled";
 const LOCAL_STORAGE_KEY = "bindars-markdown-formatting-enabled";
@@ -52,8 +52,13 @@ export function useMarkdownFormatting(): MarkdownFormattingPreference {
     }
 
     let active = true;
-    void storeGet<unknown>(STORE_KEY).then((stored) => {
+    void storeTryGet<unknown>(STORE_KEY).then((result) => {
       if (!active || userUpdatedRef.current) return;
+      if (!result.ok) {
+        setLoaded(true);
+        return;
+      }
+      const stored = result.value;
       const storedPreference = typeof stored === "boolean" ? stored : null;
       const resolved = storedPreference ?? true;
       enabledRef.current = resolved;

@@ -20,7 +20,7 @@ import { SearchBar } from "./components/SearchBar";
 import { FountainRenderer } from "./components/FountainRenderer";
 import { computeScriptStats, isMarkdownSceneHeadingText } from "./lib/fountain";
 import { MarkdownEditor } from "./components/MarkdownEditor";
-import type { EditorSurfacePosition, MarkdownEditorHandle } from "./components/MarkdownEditor";
+import type { MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
 import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -178,6 +178,7 @@ type RestoreDialogState =
       loading: boolean;
       error: string | null;
       drafts: SnapshotDraft[];
+      skippedCount: number;
     };
 
 function sameSnapshotDocument(left: SnapshotDocument | null, right: SnapshotDocument): boolean {
@@ -206,15 +207,6 @@ function formatSnapshotTime(timestampMs: number): string {
 
 function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
-}
-
-function survivingEditorSource(
-  transition: EditTransition | null,
-  position: EditorSurfacePosition | null,
-): SourcePoint | null {
-  if (!transition || !position) return null;
-  if (position.viewportMoved && position.viewport) return position.viewport;
-  return position.cursor;
 }
 
 function App() {
@@ -254,7 +246,7 @@ function App() {
     supersedePendingOpen,
     dismissError,
   } = useMarkdownFile();
-  const { recentFiles, loaded: recentFilesLoaded, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
+  const { recentFiles, status: recentFilesStatus, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
   const { canGoBack, canGoForward, pushEntry, peekBack, commitBack, peekForward, commitForward } =
     useNavigationHistory();
   const workspaceRoot = useWorkspaceRoot();
@@ -263,21 +255,14 @@ function App() {
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
 
   const editorSurfaceRef = useRef<MarkdownEditorHandle | null>(null);
-  const dirtyRef = useRef(false);
   const flushPendingBuffer = useCallback(() => {
-    const dirty = editorSurfaceRef.current?.flushPendingChanges() ?? null;
-    if (dirty !== null) dirtyRef.current = dirty;
-    return dirty;
+    return editorSurfaceRef.current?.flushPendingChanges() ?? null;
   }, []);
   const editor = useEditor(flushPendingBuffer);
-  const publishEditorBuffer = useCallback((nextBuffer: string) => {
-    const dirty = editor.updateBuffer(nextBuffer);
-    dirtyRef.current = dirty;
-    return dirty;
-  }, [editor.updateBuffer]);
+  const publishEditorBuffer = editor.updateBuffer;
   const flushAndReadDirty = useCallback(() => {
-    return flushPendingBuffer() ?? dirtyRef.current;
-  }, [flushPendingBuffer]);
+    return editor.captureSnapshotBuffer()?.dirty ?? false;
+  }, [editor.captureSnapshotBuffer]);
   const { toast } = useToast();
 
   const preparedDocument = useMemo(
@@ -422,6 +407,13 @@ function App() {
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
+  const readerFocusRequestRef = useRef<{
+    documentKey: string | null;
+    editorSessionKey: number;
+    openGeneration: number;
+    actionId: number;
+    searchVisible: boolean;
+  } | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
   const activeHeadingIdRef = useRef<string | null>(null);
@@ -496,10 +488,22 @@ function App() {
   // In-document search
   const search = useSearch(contentRef);
 
+  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
+    const path = getPublishedDocument().filePath;
+    readerFocusRequestRef.current = {
+      documentKey: path ? toPathIdentityKey(path) : null,
+      editorSessionKey: editorSessionKeyRef.current,
+      openGeneration: getOpenOwnership().generation,
+      actionId: nextActionAdmissionIdRef.current,
+      searchVisible: retainedSearchVisible,
+    };
+  }, [getOpenOwnership, getPublishedDocument]);
+
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
     search.clear();
-  }, [search.clear]);
+    if (!editingRef.current) requestReaderFocus();
+  }, [requestReaderFocus, search.clear]);
 
   // --- Editing helpers ---
 
@@ -618,8 +622,6 @@ function App() {
     }
 
     const status: EditorSaveResult = result.status;
-    if (status === "saved") dirtyRef.current = false;
-    if (status === "saved-with-newer-edits") dirtyRef.current = true;
     return { status, draftAdoption };
   }, [adoptSavedFile, editor.save, editor.saveAs, fileName, filePath]);
 
@@ -961,7 +963,6 @@ function App() {
     setEditing(true);
     setEditorSessionKey(nextSessionKey);
     editingRef.current = true;
-    dirtyRef.current = false;
     showConflictDialogRef.current = false;
     setShowConflictDialog(false);
     saveContinuationRef.current = null;
@@ -998,7 +999,6 @@ function App() {
     setEditing(false);
     setSavedFlash(false);
     editingRef.current = false;
-    dirtyRef.current = false;
     saveContinuationRef.current = null;
   }, [editor.exitEditMode, supersedeReconciliation]);
 
@@ -1023,31 +1023,16 @@ function App() {
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
     let readerTarget: ReaderAnchor | null = null;
-    const survivingSource = survivingEditorSource(transition, surfacePosition);
-
-    if (transition && positionOutcome === "discarded") {
+    if (transition && positionOutcome !== "none") {
       readerTarget = transition.originalReaderAnchor;
-    } else if (transition && positionOutcome === "saved") {
-      readerTarget = transition.originalReaderAnchor;
-      if (survivingSource) {
+      if (surfacePosition && (surfacePosition.viewportMoved
+        || !sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget))) {
         readerTarget = {
-          source: survivingSource,
-          // Moved editor positions restore by semantic block, not identical
-          // pixel offset, because reader and editor wrapping differ.
+          source: surfacePosition.viewportMoved && surfacePosition.viewport
+            ? surfacePosition.viewport : surfacePosition.cursor,
+          // Moved positions restore by block because editor and reader wrapping differ.
           viewportOffsetPx: 0,
         };
-      }
-    } else if (transition && positionOutcome === "clean") {
-      if (!surfacePosition) {
-        readerTarget = transition.originalReaderAnchor;
-      } else {
-        readerTarget = !surfacePosition.viewportMoved
-          && sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget)
-          ? transition.originalReaderAnchor
-          : {
-              source: survivingSource ?? surfacePosition.cursor,
-              viewportOffsetPx: 0,
-            };
       }
     }
 
@@ -1057,6 +1042,7 @@ function App() {
     resetEditSession();
 
     publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
+    if (positionOutcome !== "none") requestReaderFocus();
 
     // Reconciliation starts only after the watcher attempt settles. That closes
     // the read-before-watch gap while still reconciling when watching fails.
@@ -1067,7 +1053,7 @@ function App() {
         editorSessionKey: sessionKey,
       };
     }
-  }, [publishSourceReaderTarget, resetEditSession]);
+  }, [publishSourceReaderTarget, requestReaderFocus, resetEditSession]);
 
   // Frozen for the app's lifetime: the running platform cannot change, and
   // the close guard's window policy must stay stable across re-renders.
@@ -1139,7 +1125,6 @@ function App() {
       exitEditMode(pendingActionRef.current ? "none" : "saved");
     }
     editingRef.current = false;
-    dirtyRef.current = false;
     resolvePendingAction();
   }, [exitEditMode, resolvePendingAction]);
 
@@ -1148,7 +1133,6 @@ function App() {
     // Exiting edit mode re-reads the current file from disk.
     exitEditMode(pendingActionRef.current ? "none" : "discarded");
     editingRef.current = false;
-    dirtyRef.current = false;
     resolvePendingAction();
   }, [exitEditMode, resolvePendingAction]);
 
@@ -1363,10 +1347,9 @@ function App() {
 
   useEffect(() => {
     editingRef.current = editing;
-    dirtyRef.current = editor.dirty;
     showConfirmDialogRef.current = showConfirmDialog;
     showConflictDialogRef.current = showConflictDialog;
-  }, [editing, editor.dirty, showConfirmDialog, showConflictDialog]);
+  }, [editing, showConfirmDialog, showConflictDialog]);
 
   useEffect(() => {
     if (!editing) return;
@@ -1438,7 +1421,7 @@ function App() {
     if (actionAdmissionOwnerRef.current !== null) return;
     const request = restoreRequestRef.current + 1;
     restoreRequestRef.current = request;
-    setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [] });
+    setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [], skippedCount: 0 });
     try {
       // A just-discarded draft may still be a queued capture; wait for it so
       // the orphan list reflects it.
@@ -1451,10 +1434,8 @@ function App() {
         loading: false,
         error: null,
         drafts: result.drafts,
+        skippedCount: result.skippedCount,
       });
-      if (result.skippedCount > 0) {
-        console.warn(`[snapshots] Skipped ${result.skippedCount} unreadable draft stream(s).`);
-      }
     } catch (error) {
       if (restoreRequestRef.current !== request) return;
       setRestoreDialog({
@@ -1462,6 +1443,7 @@ function App() {
         loading: false,
         error: snapshotErrorMessage(error),
         drafts: [],
+        skippedCount: 0,
       });
     }
   }, [waitForSnapshotQueue]);
@@ -1524,8 +1506,11 @@ function App() {
       if (restoreRequestRef.current !== request) return;
       assertRestoreContextCurrent();
 
+      const matchesCurrentDraft = document.kind === "draft"
+        && restoredContent === editor.flushAndReadBuffer();
+      // Unsaved drafts have no saved text baseline, just like a new draft.
       const baseline = readerPublication?.content
-        ?? (document.kind === "file" ? loadedContentRef.current : editor.flushAndReadBuffer());
+        ?? (document.kind === "file" ? loadedContentRef.current : "");
       if (baseline === null) {
         throw new Error("The active document closed before the snapshot could be restored.");
       }
@@ -1536,9 +1521,14 @@ function App() {
       const name = readerPublication?.fileName ?? document.name;
       beginEditSession(baseline, revision, path, name, null, document);
       const dirty = editor.updateBuffer(restoredContent);
-      dirtyRef.current = dirty;
       closeRestoreDialog();
-      toast(dirty ? "Snapshot restored. Save when you're ready." : "That snapshot already matches the current text.", "info");
+      toast(document.kind === "draft"
+        ? (matchesCurrentDraft
+          ? "That snapshot already matches the current draft. Save it to choose a file location."
+          : "Snapshot restored. Save the draft to choose a file location.")
+        : (dirty
+          ? "Snapshot restored. Changes will autosave."
+          : "Snapshot restored. It matches the saved file."), "info");
     } catch (error) {
       if (restoreRequestRef.current !== request) return;
       setRestoringSnapshotId(null);
@@ -1567,8 +1557,7 @@ function App() {
 
       setVirtualContent("", draft.name);
       beginEditSession("", null, null, draft.name, null, document);
-      const dirty = editor.updateBuffer(restoredContent);
-      dirtyRef.current = dirty;
+      editor.updateBuffer(restoredContent);
       closeRestoreDialog();
       toast("Recovered draft restored. Save it to choose a file location.", "info");
     } catch (error) {
@@ -2009,7 +1998,7 @@ function App() {
   // First-run: show welcome sample file on first launch
   useEffect(() => {
     // Wait for both startup signals
-    if (!sessionRestored || !recentFilesLoaded) return;
+    if (!sessionRestored || recentFilesStatus !== "ready") return;
     // Skip if something already loaded
     if (isDocumentOpen(content) || filePath || loading) return;
     if (recentFiles.length > 0) return;
@@ -2022,7 +2011,7 @@ function App() {
       storeSet("hasSeenWelcome", true);
     });
     return () => { cancelled = true; };
-  }, [sessionRestored, recentFilesLoaded, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
+  }, [sessionRestored, recentFilesStatus, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
 
   useLayoutEffect(() => {
     if (editing || !pendingReaderTarget) return;
@@ -2056,6 +2045,30 @@ function App() {
     }
     setPendingReaderTarget(null);
   }, [content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
+
+  // Deliberate returns already cause a render. Complete once, after the layout
+  // restoration and child dialog cleanup; a blocked request must never linger.
+  useEffect(() => {
+    const request = readerFocusRequestRef.current;
+    if (!request) return;
+    readerFocusRequestRef.current = null;
+    const published = getPublishedDocument();
+    const documentKey = published.filePath ? toPathIdentityKey(published.filePath) : null;
+    const ownership = getOpenOwnership();
+    if (
+      request.documentKey !== documentKey
+      || request.editorSessionKey !== editorSessionKeyRef.current
+      || request.openGeneration !== ownership.generation
+      || request.actionId !== nextActionAdmissionIdRef.current
+      || ownership.userOpenInFlight || actionAdmissionOwnerRef.current !== null
+      || editingRef.current || searchVisible !== request.searchVisible || !readerDocumentReady
+      || presentationMode || printSessionRef.current
+      || showConfirmDialogRef.current || showConflictDialogRef.current
+      || restoreDialogOpenRef.current || showClearRecoveryDialog
+      || shortcutsVisible || commandPaletteVisible || readerControlsVisible
+    ) return;
+    mainScrollRef.current?.focus({ preventScroll: true });
+  });
 
   const handleActiveHeadingChange = useCallback((headingId: string | null) => {
     activeHeadingIdRef.current = headingId;
@@ -2287,10 +2300,10 @@ function App() {
 
   // Auto-add to recent when a file is loaded
   useEffect(() => {
-    if (filePath && fileName) {
+    if (recentFilesStatus === "ready" && filePath && fileName) {
       addRecent(filePath, fileName);
     }
-  }, [filePath, fileName, addRecent]);
+  }, [filePath, fileName, recentFilesStatus, addRecent]);
 
   const handleOpenRecent = useCallback(
     async (
@@ -2399,8 +2412,13 @@ function App() {
   }, [workspaceSearch.reset]);
 
   const exitFocusMode = useCallback(() => {
+    const removedControlHadFocus = Boolean(document.activeElement?.closest(".focus-bar"));
     setFocusMode(false);
-  }, []);
+    if (removedControlHadFocus) {
+      if (editingRef.current) editorSurfaceRef.current?.focus();
+      else requestReaderFocus(searchVisible);
+    }
+  }, [requestReaderFocus, searchVisible]);
 
   const enterPresentation = useCallback(() => {
     if (isPrintInvoked()) return;
@@ -2428,7 +2446,8 @@ function App() {
     setPresentationMode(false);
     setCurrentSlide(0);
     slidesRef.current = [];
-  }, []);
+    requestReaderFocus(searchVisible);
+  }, [requestReaderFocus, searchVisible]);
 
   const nextSlide = useCallback(() => {
     setCurrentSlide((i) => Math.min(i + 1, slidesRef.current.length - 1));
@@ -2614,9 +2633,12 @@ function App() {
     const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
     const inEditorPanel = editing && typeof target?.closest === "function" && Boolean(target.closest(".cm-panel"));
 
-    // Presentation mode: intercept all keys
+    // Presentation keys yield to controls; Escape still exits the mode.
     if (presentationMode) {
       if (key === "escape") { e.preventDefault(); exitPresentation(); return; }
+      if (inInput || target?.closest?.("select")) return;
+      if (key === "enter" && target?.closest?.("button, a[href]")) return;
+      if (key === " " && target?.closest?.("button")) return;
       if (key === "arrowright" || key === "arrowdown" || key === " " || key === "enter") {
         e.preventDefault();
         nextSlide();
@@ -2797,7 +2819,10 @@ function App() {
       if (!editing) toggleToc();
     } else if (ctrl && e.shiftKey && key === "f") {
       e.preventDefault();
-      if (!editing) setFocusMode((v) => !v);
+      if (!editing) {
+        if (focusMode) exitFocusMode();
+        else setFocusMode(true);
+      }
     } else if (key === "escape" && !ctrl && !e.altKey && !e.shiftKey) {
       if (focusMode) {
         e.preventDefault();
@@ -2892,8 +2917,8 @@ function App() {
     };
   }, [armPrintCleanup, clearPrintSession]);
 
-  // Signal app readiness once session restore and recent files are loaded
-  const appReady = sessionRestored && recentFilesLoaded;
+  // Unavailable history settles startup too; only ready history permits writes.
+  const appReady = sessionRestored && recentFilesStatus !== "loading";
   useEffect(() => {
     if (appReady) signalAppReady();
   }, [appReady]);
@@ -2981,6 +3006,7 @@ function App() {
         <Sidebar
           visible={sidebarVisible && !focusMode && !presentationMode}
           recentFiles={recentFiles}
+          recentHistoryUnavailable={recentFilesStatus === "unavailable"}
           currentFilePath={filePath}
           openingPath={openingPath}
           workspaceRootPath={workspaceRoot.rootPath}
@@ -3001,6 +3027,7 @@ function App() {
           ref={mainScrollRef}
           tabIndex={-1}
           aria-label="Document"
+          inert={presentationMode}
           className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           {!editing && (
@@ -3101,6 +3128,7 @@ function App() {
               onNewFile={guardedNewFile}
               onOpenFile={guardedOpenFile}
               recentFiles={recentFiles}
+              recentHistoryUnavailable={recentFilesStatus === "unavailable"}
               onOpenRecent={guardedOpenRecent}
               onRestoreDrafts={openDraftSnapshotRestore}
               canRestoreDrafts={!actionAdmissionInFlight}
@@ -3288,8 +3316,12 @@ function App() {
         title={restoreDialog?.kind === "drafts" ? "Restore an unsaved draft" : "Restore snapshot"}
         loading={restoreDialog?.loading ?? false}
         error={restoreDialog?.error ?? null}
+        documentKind={restoreDialog?.kind === "document" ? restoreDialog.document.kind : null}
+        skippedCount={restoreDialog?.kind === "drafts" ? restoreDialog.skippedCount : 0}
         emptyMessage={restoreDialog?.kind === "drafts"
-          ? "No unsaved draft snapshots were found."
+          ? (restoreDialog.skippedCount > 0
+            ? "No readable unsaved drafts could be listed."
+            : "No unsaved draft snapshots were found.")
           : "No snapshots have been captured for this document yet."}
         choices={restoreChoices}
         restoringId={restoringSnapshotId}

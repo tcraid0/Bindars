@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { storeGet, storeSet } from "../lib/store";
-import { isFontFamily, isParagraphSpacing } from "../lib/reader-settings";
+import {
+  DEFAULT_READER_SETTINGS as DEFAULTS,
+  READER_SETTINGS_LIMITS as LIMITS,
+  normalizeReaderSettings,
+} from "../lib/reader-settings";
 import type { ReaderSettings } from "../types";
 import { useDeferredState } from "./useDeferredState";
 import type { StatePause } from "./useDeferredState";
@@ -10,76 +14,52 @@ const STORE_DEBOUNCE_MS = 300;
 const PRIMARY_LOCAL_STORAGE_KEY = "bindars-settings";
 const LEGACY_LOCAL_STORAGE_KEY = "markdown-reader-settings";
 
-const DEFAULTS: ReaderSettings = {
-  fontSize: 17,
-  contentWidth: 65,
-  lineHeight: 1.7,
-  fontFamily: "newsreader",
-  paragraphSpacing: "comfortable",
-  sceneLensEnabled: false,
-  reducedEffects: false,
-};
-
-const LIMITS = {
-  fontSize: { min: 14, max: 24 },
-  contentWidth: { min: 50, max: 80 },
-  lineHeight: { min: 1.4, max: 2.0 },
-} as const;
-
-function getInitialSettings(): ReaderSettings {
-  try {
-    const stored = localStorage.getItem(PRIMARY_LOCAL_STORAGE_KEY) || localStorage.getItem(LEGACY_LOCAL_STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const merged = { ...DEFAULTS, ...parsed };
-      // Validate enum fields against known values
-      if (!isFontFamily(merged.fontFamily)) merged.fontFamily = DEFAULTS.fontFamily;
-      if (!isParagraphSpacing(merged.paragraphSpacing)) merged.paragraphSpacing = DEFAULTS.paragraphSpacing;
-      return merged;
+function getLocalSettings(): ReaderSettings | null {
+  for (const key of [PRIMARY_LOCAL_STORAGE_KEY, LEGACY_LOCAL_STORAGE_KEY]) {
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored !== null) {
+        const settings = normalizeReaderSettings(JSON.parse(stored));
+        if (settings) return settings;
+      }
+    } catch {
+      // An unreadable or malformed local record must not mask a valid backup.
     }
-  } catch {
-    // ignore
   }
-  return DEFAULTS;
-}
-
-function hasLocalSettings(): boolean {
-  try {
-    return Boolean(localStorage.getItem(PRIMARY_LOCAL_STORAGE_KEY) || localStorage.getItem(LEGACY_LOCAL_STORAGE_KEY));
-  } catch {
-    return false;
-  }
+  return null;
 }
 
 export function useReaderSettings(pause?: StatePause) {
-  const [settings, setSettingsState] = useDeferredState<ReaderSettings>(getInitialSettings, pause);
+  // One initial decode decides both the displayed value and local precedence.
+  const [localSettings] = useState(getLocalSettings);
+  const [settings, setSettingsState] = useDeferredState<ReaderSettings>(() => localSettings ?? DEFAULTS, pause);
   const storeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingStoreRef = useRef<ReaderSettings | null>(null);
   const userUpdatedRef = useRef(false);
 
   // Load from Tauri store on mount
   useEffect(() => {
-    if (hasLocalSettings()) {
+    if (localSettings) {
       return;
     }
 
     let active = true;
-    storeGet<ReaderSettings>(STORE_KEY).then((stored) => {
-      if (!active || userUpdatedRef.current || !stored) {
+    storeGet<unknown>(STORE_KEY).then((stored) => {
+      if (!active || userUpdatedRef.current) {
         return;
       }
+      const normalized = normalizeReaderSettings(stored);
+      if (!normalized) return;
       setSettingsState((prev) => {
-        const merged = { ...prev, ...stored };
-        if (!isFontFamily(merged.fontFamily)) merged.fontFamily = DEFAULTS.fontFamily;
-        if (!isParagraphSpacing(merged.paragraphSpacing)) merged.paragraphSpacing = DEFAULTS.paragraphSpacing;
-        return merged;
+        // Printing may hold this update until after a newer user choice.
+        return active && !userUpdatedRef.current ? normalized : prev;
       });
     });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [localSettings, setSettingsState]);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -119,16 +99,8 @@ export function useReaderSettings(pause?: StatePause) {
     (updates: Partial<ReaderSettings>) => {
       userUpdatedRef.current = true;
       setSettingsState((prev) => {
-        const next = { ...prev, ...updates };
-        next.fontSize = clamp(next.fontSize, LIMITS.fontSize.min, LIMITS.fontSize.max);
-        next.contentWidth = clamp(next.contentWidth, LIMITS.contentWidth.min, LIMITS.contentWidth.max);
-        next.lineHeight = clamp(
-          Math.round(next.lineHeight * 10) / 10,
-          LIMITS.lineHeight.min,
-          LIMITS.lineHeight.max,
-        );
-        if (!isFontFamily(next.fontFamily)) next.fontFamily = DEFAULTS.fontFamily;
-        if (!isParagraphSpacing(next.paragraphSpacing)) next.paragraphSpacing = DEFAULTS.paragraphSpacing;
+        const next = normalizeReaderSettings(updates, prev);
+        if (!next) return prev;
         persistSettings(next);
         return next;
       });
@@ -143,8 +115,4 @@ export function useReaderSettings(pause?: StatePause) {
   }, [persistSettings]);
 
   return { settings, updateSettings, resetSettings, LIMITS };
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }

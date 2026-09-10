@@ -106,8 +106,13 @@ export function useAnnotations(filePath: string | null) {
       ? { ...prev, highlights: prev.highlights.filter((h) => h.id !== id) } : prev);
   }, [mutate]);
   const updateHighlight = useCallback((id: string, updates: Partial<Pick<Highlight, "color" | "note">>) => {
-    mutate((prev) => prev.highlights.some((h) => h.id === id)
-      ? { ...prev, highlights: prev.highlights.map((h) => h.id === id ? { ...h, ...updates } : h) } : prev);
+    mutate((prev) => {
+      const highlight = prev.highlights.find((h) => h.id === id);
+      if (!highlight) return prev;
+      if ((!Object.prototype.hasOwnProperty.call(updates, "note") || updates.note === highlight.note)
+        && (!Object.prototype.hasOwnProperty.call(updates, "color") || updates.color === highlight.color)) return prev;
+      return { ...prev, highlights: prev.highlights.map((h) => h.id === id ? { ...h, ...updates } : h) };
+    });
   }, [mutate]);
   const toggleBookmark = useCallback((headingId: string, headingText: string) => {
     const bookmark = { id: crypto.randomUUID(), headingId, headingText, createdAt: Date.now() };

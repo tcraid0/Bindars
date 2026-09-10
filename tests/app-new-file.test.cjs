@@ -187,6 +187,7 @@ async function renderEditorApp({
   preserveMarkdownFormattingLocal = false,
   startNew = true,
   snapshotDrafts = [],
+  snapshotDraftList,
   snapshotEntriesByDraft = {},
   snapshotContents = {},
   themeGet,
@@ -226,6 +227,8 @@ async function renderEditorApp({
   mockWindows("main");
   const storeWrites = [];
   const snapshotWrites = [];
+  const fileWrites = [];
+  const retiredDrafts = [];
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
@@ -242,7 +245,7 @@ async function renderEditorApp({
         if (args.key === "theme" && themeGet !== undefined) {
           return themeGet;
         }
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
           return markdownFormattingRead;
@@ -263,7 +266,16 @@ async function renderEditorApp({
         snapshotWrites.push(args);
         return successfulSnapshotWrite(args);
       case "list_snapshot_drafts":
-        return { drafts: snapshotDrafts, skippedCount: 0 };
+        return snapshotDraftList ? snapshotDraftList() : { drafts: snapshotDrafts, skippedCount: 0 };
+      case "plugin:dialog|save":
+        return "/tmp/recovered-r7.md";
+      case "write_markdown_file_if_unmodified":
+        fileWrites.push(args);
+        return { conflict: false, canonicalPath: "/tmp/recovered-r7.md", name: "recovered-r7.md",
+          currentRevision: { mtimeMs: 2, size: args.content.length, contentHash: "recovered-r7" } };
+      case "retire_snapshot_draft":
+        retiredDrafts.push(args.document);
+        return null;
       case "list_document_snapshots":
         return snapshotEntriesByDraft[args.document.id] ?? [];
       case "read_document_snapshot":
@@ -299,6 +311,8 @@ async function renderEditorApp({
     host,
     storeWrites,
     snapshotWrites,
+    fileWrites,
+    retiredDrafts,
     async cleanup() {
       await act(async () => {
         root.unmount();
@@ -886,11 +900,14 @@ test("formatting preference read and write failures keep a usable session fallba
     });
     const view = findEditorView(rendered.host);
     await waitFor(() => assert.equal(view.state.field(markdownFormattingEnabled), true));
+    assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), null);
+    assert.deepEqual(rendered.storeWrites.filter(write => write.key === "markdown-formatting-enabled"), []);
 
     dispatchEditorKey(rendered.host, "m", { ctrlKey: true, altKey: true });
     assert.equal(view.state.field(markdownFormattingEnabled), false);
     assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), "false");
-    await waitFor(() => assert.ok(warnings.length >= 2));
+    await waitFor(() => assert.ok(warnings.some(args => String(args[0]).includes('Failed to set "markdown-formatting-enabled"'))));
+    assert.deepEqual(rendered.storeWrites.filter(write => write.key === "markdown-formatting-enabled").map(write => write.value), [false]);
   } finally {
     console.warn = originalWarn;
     if (rendered) await rendered.cleanup();
@@ -970,7 +987,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return welcomeRead.promise;
         return [null, false];
       case "plugin:store|set":
@@ -1110,7 +1127,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
@@ -1228,7 +1245,7 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
         if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
@@ -1364,6 +1381,7 @@ async function renderContinuityApp({
   storedReaderSettings = null,
   themeRead = null,
   settingsRead = null,
+  recentStorage = null,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1420,12 +1438,19 @@ async function renderContinuityApp({
       case "load_annotations":
         return args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null;
       case "save_annotations":
+        return null;
       case "plugin:store|save":
+        if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
         return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
-        if (args.key === "recent-files") return [[], true];
+        if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
+        if (args.key === "recent-files") {
+          if (!recentStorage) return [{ version: 1, files: [] }, true];
+          recentStorage.reads = (recentStorage.reads ?? 0) + 1;
+          return recentStorage.read ? recentStorage.read() : [structuredClone(recentStorage.value), true];
+        }
         if (args.key === "theme" && themeRead) return themeRead;
         if (args.key === "reader-settings" && settingsRead) return settingsRead;
         if (args.key === "reader-settings" && storedReaderSettings) return [storedReaderSettings, true];
@@ -1446,6 +1471,14 @@ async function renderContinuityApp({
       case "read_markdown_file":
         return workspaceContent ?? `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
       case "plugin:store|set":
+        if (recentStorage) {
+          recentStorage.writes.push(structuredClone(args));
+          if (args.key === "recent-files") {
+            if (recentStorage.writeError) throw recentStorage.writeError;
+            recentStorage.value = structuredClone(args.value);
+          }
+        }
+        return null;
       case "plugin:window|set_title":
         return null;
       case "plugin:window|close":
@@ -1587,6 +1620,11 @@ async function renderContinuityApp({
     }
   }), { shouldMockEvents: true });
 
+  if (recentStorage) {
+    for (const name of ['App', 'hooks/useRecentFiles', 'lib/recent-files']) {
+      delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
+    }
+  }
   const App = loadApp();
   const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
   const host = document.createElement("div");
@@ -5181,3 +5219,869 @@ test('a deleted workspace result preserves the current document and reports the 
     assert.ok(view.host.querySelector('#second'));
   } finally { await view.cleanup(); }
 });
+
+test("save-and-exit with an unmoved caret preserves the original reader offset", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    rendered.positionReaderAtFirst();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const view = findEditorView(rendered.host);
+    assert.equal(view.state.selection.main.head, 2);
+    flushSync(() => view.dispatch({ changes: { from: 2, to: 7, insert: "Intro" } }));
+    assert.equal(view.state.selection.main.head, 2, "caret stays at the initial target");
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    dispatchEditorKey(rendered.host, "Escape");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.match(rendered.host.querySelector("h1").textContent, /Intro/);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    assert.equal(rendered.readerScrollTop(), 0);
+    reconciliation.resolve(rendered.openResult(rendered.diskContent(), rendered.revision()));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+for (const format of ['legacy array', 'versioned']) {
+for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
+  if (format === 'versioned' && startup === 'legacy migration') continue;
+  test(`recent startup preservation: ${startup} (${format}) waits for history and records the current document`, async () => {
+    const held = deferred();
+    const old = { path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: startup === 'legacy migration' ? 'user-content-intro' : 'intro' };
+    const stored = format === 'versioned' ? { version: 1, files: [old] } : [old];
+    let released = false;
+    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
+    const rendered = await renderContinuityApp({
+      requestedPath: '/tmp/new.md',
+      ...(startup === 'session' ? { restoreHeadingId: 'second' } : {}),
+      recentStorage: history, readySelector: null,
+    });
+    try {
+      await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/new.md')));
+      // Let document publication finish while the history read remains held.
+      await act(async () => { await new Promise(setImmediate); });
+      if (startup === 'A then B') {
+        rendered.setPendingNativeOpenPath('/tmp/newer.md');
+        await act(async () => { await emit('bindars://native-open-available'); });
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/newer.md')));
+        await act(async () => { await new Promise(setImmediate); });
+      }
+      assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+      assert.deepEqual(history.value, stored);
+      released = true;
+      await act(async () => { held.resolve([stored, true]); });
+      const current = startup === 'A then B' ? '/tmp/newer.md' : '/tmp/new.md';
+      await waitFor(() => assert.deepEqual(history.durable.files.map(f => f.path), [current, '/tmp/old.md']));
+      assert.equal(history.durable.files[1].lastHeadingId, 'intro');
+      assert.ok(rendered.host.querySelector('article'));
+      assert.ok(history.writes.filter(w => w.key === 'recent-files').every(w => !w.value.files.some(f => f.path === '/tmp/new.md') || startup !== 'A then B'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+}
+for (const failure of ['history read', 'conversion write', 'unknown format']) {
+  test(`recent startup preservation: ${failure} leaves an available app without first-run inference`, async () => {
+    const original = failure === 'unknown format' ? { future: [] } : [{ path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: 'user-content-intro' }];
+    const history = { version: failure === 'conversion write' ? 2 : 3, value: original, durable: structuredClone(original), writes: [],
+      writeError: failure === 'conversion write' ? Error('conversion write rejected') : null, read: () => {
+      if (failure === 'history read') throw Error('history unavailable');
+      return [original, true];
+    } };
+    const expectedWrites = failure === 'conversion write'
+      ? [{ key: 'recent-files', value: { version: 1, files: [{ ...original[0], lastHeadingId: 'intro' }] } }]
+      : [];
+    const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
+    try {
+      await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
+      assert.match(rendered.host.textContent, /Recent history is unavailable/);
+      assert.doesNotMatch(rendered.host.textContent, /Welcome fixture|No recent files/);
+      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)).map(({ key, value }) => ({ key, value })), expectedWrites);
+      assert.deepEqual(history.durable, original);
+      rendered.setPendingNativeOpenPath('/tmp/readable.md');
+      await act(async () => { await emit('bindars://native-open-available'); });
+      await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+      dispatchShortcut('b');
+      await waitFor(() => assert.ok(rendered.host.querySelector('aside')));
+      assert.match(rendered.host.querySelector('aside').textContent, /Recent history is unavailable/);
+      assert.deepEqual(history.value, original);
+      assert.deepEqual(history.writes.filter(w => ['recent-files', 'hasSeenWelcome'].includes(w.key)).map(({ key, value }) => ({ key, value })), expectedWrites);
+      assert.deepEqual(history.durable, original);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('recent startup preservation: verified absent history still permits the first-run welcome', async () => {
+  const history = { version: 3, value: null, writes: [] };
+  const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
+  try {
+    await waitFor(() => assert.match(rendered.host.textContent, /Welcome fixture/));
+    assert.ok(history.writes.some(w => w.key === 'hasSeenWelcome' && w.value === true));
+    assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
+  } finally { await rendered.cleanup(); }
+});
+
+const keyboardSlides = '# First\n\n[**Jump**](#first)\n\n```text\ncopy me\n```\n\n---\n\n# Second\n\nMore words.\n\n---\n\n# Third\n\nLast words.';
+
+async function renderKeyboardPresentation(t) {
+  const originalMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = window.matchMedia.bind(window);
+  t.after(() => { globalThis.matchMedia = originalMatchMedia; });
+  return renderContinuityApp({ initialContent: keyboardSlides, readySelector: '#first' });
+}
+
+for (const key of ['Enter', ' ']) {
+  test(`presentation key ownership: Exit retains ${JSON.stringify(key)} activation, including nested targets`, async (t) => {
+    const rendered = await renderKeyboardPresentation(t);
+    try {
+      dispatchWindowKey('F5');
+      const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+      const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+      const child = document.createElement('span'); child.textContent = 'nested'; exit.append(child);
+      exit.focus();
+      for (const target of [exit, child]) {
+        assert.equal(dispatchElementKey(target, key).defaultPrevented, false);
+        assert.ok(overlay.querySelector('#first'));
+      }
+      // happy-dom does not synthesize key-to-click; verify the retained native
+      // default separately from the real Exit callback. Native activation is R9.
+      flushSync(() => exit.click());
+      assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('presentation key ownership: links and copy buttons retain activation without advancing slides', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    const link = overlay.querySelector('a[href="#first"]');
+    link.focus();
+    for (const target of [link, link.querySelector('strong')]) {
+      assert.equal(dispatchElementKey(target, 'Enter').defaultPrevented, false);
+      assert.ok(overlay.querySelector('#first'));
+    }
+    rendered.scrolledIds.length = 0;
+    flushSync(() => link.click());
+    assert.deepEqual(rendered.scrolledIds, ['first']);
+    assert.ok(overlay.querySelector('#first'));
+    const copy = overlay.querySelector('button');
+    assert.ok(copy);
+    for (const key of ['Enter', ' ']) {
+      copy.focus();
+      assert.equal(dispatchElementKey(copy, key).defaultPrevented, false);
+      assert.ok(overlay.querySelector('#first'));
+    }
+  } finally { await rendered.cleanup(); }
+});
+
+test('presentation key ownership: editable controls retain navigation keys and Escape still exits', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    // Renderer policy does not normally emit editable slide controls. Exercise
+    // the actual App event boundary with synthetic descendants for that contract.
+    for (const tag of ['input', 'textarea', 'select', 'div']) {
+      const control = document.createElement(tag);
+      let target = control;
+      if (tag === 'div') {
+        control.contentEditable = 'true';
+        target = document.createElement('span'); control.append(target);
+      }
+      overlay.append(control); control.focus();
+      for (const key of ['Enter', ' ', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End', 'Backspace']) {
+        assert.equal(dispatchElementKey(target, key).defaultPrevented, false, `${tag} owns ${key}`);
+        assert.ok(overlay.querySelector('#first'));
+      }
+      control.remove();
+    }
+    assert.equal(dispatchElementKey(overlay, 'Escape').defaultPrevented, true);
+    assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+  } finally { await rendered.cleanup(); }
+});
+
+test('presentation key ownership: background navigation, bounds and IME protection remain intact', async (t) => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      for (const key of ['Escape', 'Enter', ' ', 'ArrowRight', 'End']) {
+        assert.equal(dispatchElementKey(overlay, key, composition).defaultPrevented, false);
+        assert.ok(overlay.querySelector('#first'));
+      }
+    }
+    // Code/pre are pointer-selection exemptions, not keyboard controls.
+    const code = overlay.querySelector('code');
+    assert.equal(dispatchElementKey(code, 'Enter').defaultPrevented, true);
+    assert.ok(overlay.querySelector('#second'));
+    for (const [key, heading] of [
+      ['Home', 'first'], ['ArrowLeft', 'first'], ['Backspace', 'first'],
+      ['ArrowDown', 'second'], ['ArrowRight', 'third'], ['Enter', 'third'],
+      ['ArrowUp', 'second'], [' ', 'third'], ['Home', 'first'], ['End', 'third'],
+    ]) {
+      assert.equal(dispatchElementKey(overlay, key).defaultPrevented, true);
+      assert.ok(overlay.querySelector(`#${heading}`), `${key} selects ${heading}`);
+    }
+    dispatchElementKey(overlay, 'Escape');
+    assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+  test(`App IME ownership: ${Object.keys(composition)[0]} preserves Quick switcher and document search`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      dispatchShortcut('k');
+      const palette = await waitFor(() => rendered.host.querySelector('[role="dialog"] input') || assert.fail('missing switcher'));
+      assert.equal(dispatchElementKey(palette, 'Escape', composition).defaultPrevented, false);
+      assert.ok(palette.isConnected);
+      dispatchElementKey(palette, 'Escape');
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      dispatchShortcut('f');
+      const search = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      flushSync(() => { setValue.call(search, 'words'); search.dispatchEvent(new Event('input', { bubbles: true })); });
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+      await waitFor(() => assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/));
+      for (const [key, shiftKey] of [['Enter', false], ['Enter', true], ['Escape', false]]) {
+        assert.equal(dispatchElementKey(search, key, { ...composition, shiftKey }).defaultPrevented, false);
+        assert.ok(search.isConnected);
+        assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/);
+      }
+      dispatchElementKey(search, 'Enter');
+      assert.match(rendered.host.querySelector('.search-bar').textContent, /2 of 2/);
+      dispatchElementKey(search, 'Enter', { shiftKey: true });
+      assert.match(rendered.host.querySelector('.search-bar').textContent, /1 of 2/);
+      dispatchElementKey(search, 'Escape');
+      assert.ok(!rendered.host.querySelector('.search-bar'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+function trackReaderReturn(rendered) {
+  const main = rendered.host.querySelector('main');
+  const focus = main.focus.bind(main);
+  const calls = [];
+  main.focus = (options) => { calls.push({ options, scrollTop: main.scrollTop }); focus(options); };
+  return { main, calls };
+}
+
+for (const route of ['keyboard', 'toolbar', 'no-anchor', 'focus-mode']) {
+  test(`reader focus return: clean ${route} exit restores focus without changing restored position`, async t => {
+    if (route === 'no-anchor') {
+      const positions = require('../.tmp/workspace-tests/src/lib/editor-position.js');
+      t.mock.method(positions, 'captureReaderAnchor', () => null);
+    }
+    if (route === 'focus-mode') {
+      const original = globalThis.matchMedia;
+      globalThis.matchMedia = window.matchMedia.bind(window);
+      t.after(() => { globalThis.matchMedia = original; });
+    }
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      if (route === 'focus-mode') {
+        dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+        assert.ok(!rendered.host.querySelector('header'), 'focus mode must engage before testing its editor return');
+      }
+      main.scrollTop = route === 'no-anchor' ? 0 : 350;
+      dispatchShortcut('e');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      if (route === 'toolbar') {
+        const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+        toggle.focus(); flushSync(() => toggle.click());
+      } else dispatchEditorKey(rendered.host, 'Escape');
+      await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+      assert.ok(document.activeElement === main);
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].options, { preventScroll: true });
+      assert.equal(main.scrollTop, calls[0].scrollTop);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'conflict-overwrite', 'failed-exit', 'cancel']) {
+  test(`reader focus return: toolbar ${route} honors dialog cleanup and editor ownership`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      const original = rendered.diskContent();
+      dispatchShortcut('e');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      updateEditor(rendered.host, `${original}\n\nR4 edits.`);
+      await waitForEditorPublication();
+      if (route.startsWith('conflict-')) rendered.conflictNextWrite();
+      else if (route !== 'saved') rendered.failNextFileWrite(new Error('R4 injected save failure'));
+      const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+      toggle.focus(); flushSync(() => toggle.click());
+      if (route !== 'saved') {
+        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save decision'));
+        assert.equal(calls.length, 0);
+        if (route === 'cancel') dispatchElementKey(dialog, 'Escape');
+        else {
+          if (route === 'failed-exit') rendered.failNextFileWrite(new Error('R4 repeated failure'));
+          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Reload', 'conflict-overwrite': 'Overwrite', discard: 'Discard' }[route];
+          clickButton(rendered.host, choice, dialog);
+        }
+      }
+      if (route === 'cancel' || route === 'failed-exit') {
+        await act(async () => { await Promise.resolve(); });
+        assert.ok(rendered.host.querySelector('.cm-editor'));
+        assert.match(findEditorView(rendered.host).state.sliceDoc(), /R4 edits/);
+        assert.equal(calls.length, 0);
+        assert.equal(rendered.diskContent(), original);
+      } else {
+        await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+        assert.ok(document.activeElement === main, 'reader wins after the real DialogFrame opener cleanup');
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].options, { preventScroll: true });
+        if (['saved', 'confirmed-save', 'conflict-overwrite'].includes(route)) assert.match(rendered.diskContent(), /R4 edits/);
+        else assert.equal(rendered.diskContent(), original);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const route of ['Escape', 'button', 'editor']) {
+  test(`reader focus return: search ${route} returns only to its intended surface`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      main.scrollTop = 200;
+      dispatchShortcut('f');
+      const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      if (route === 'editor') dispatchShortcut('e');
+      else if (route === 'button') {
+        const close = rendered.host.querySelector('[aria-label="Close search"]'); close.focus(); flushSync(() => close.click());
+      } else dispatchElementKey(input, 'Escape');
+      assert.ok(!rendered.host.querySelector('.search-bar'));
+      if (route === 'editor') {
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        assert.ok(findEditorView(rendered.host).hasFocus);
+        assert.equal(calls.length, 0);
+      } else {
+        assert.ok(document.activeElement === main);
+        assert.deepEqual(calls, [{ options: { preventScroll: true }, scrollTop: 200 }]);
+        assert.equal(main.scrollTop, 200);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('reader focus return: background reconciliation never requests focus', async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const { calls } = trackReaderReturn(rendered);
+    const button = rendered.host.querySelector('[aria-label="Switch to edit mode"]'); button.focus();
+    rendered.setDiskContent(`${rendered.diskContent()}\n\nR4 external refresh.`);
+    await act(async () => {
+      await emit('file-changed', { path: '/tmp/continuity.md' });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /R4 external refresh/));
+    assert.equal(calls.length, 0);
+    assert.ok(document.activeElement === button);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const newer of ['editor', 'new-document', 'dialog', 'presentation', 'pending-open']) {
+  test(`reader focus return: ${newer} supersedes search dismissal without a delayed return`, async t => {
+    const originalMatchMedia = globalThis.matchMedia;
+    globalThis.matchMedia = window.matchMedia.bind(window);
+    t.after(() => { globalThis.matchMedia = originalMatchMedia; });
+    const rendered = await renderContinuityApp();
+    try {
+      const { calls } = trackReaderReturn(rendered);
+      dispatchShortcut('f');
+      const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+      const pendingOpen = deferred();
+      if (newer === 'pending-open') {
+        rendered.setOpenDialogPath('/tmp/r4-newer.md');
+        rendered.deferNextOpen(pendingOpen);
+      }
+      // Both real event handlers run before React commits the return. A new
+      // surface or admitted open must own the eventual focus, even if it waits.
+      flushSync(() => {
+        input.dispatchEvent(keyboardEvent('Escape'));
+        const key = { editor: 'e', 'new-document': 'n', dialog: 'k', presentation: 'F5', 'pending-open': 'o' }[newer];
+        window.dispatchEvent(keyboardEvent(key, { ctrlKey: key !== 'F5' }));
+      });
+      await act(async () => { await Promise.resolve(); });
+      assert.equal(calls.length, 0);
+      if (newer === 'editor' || newer === 'new-document') {
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        assert.ok(findEditorView(rendered.host).hasFocus);
+      } else if (newer === 'dialog') {
+        const dialog = rendered.host.querySelector('[role="dialog"]');
+        assert.ok(dialog && dialog.contains(document.activeElement));
+        dispatchElementKey(document.activeElement, 'Escape');
+      } else if (newer === 'presentation') {
+        assert.ok(rendered.host.querySelector('.presentation-overlay'));
+        dispatchWindowKey('Escape');
+        assert.equal(calls.length, 1, 'explicit presentation exit now requests its own return');
+      } else {
+        await act(async () => {
+          pendingOpen.resolve({ ...rendered.openResult('# R4 newer document'), canonicalPath: '/tmp/r4-newer.md', name: 'r4-newer.md' });
+          await pendingOpen.promise;
+        });
+        await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /R4 newer document/));
+      }
+      await act(async () => { await waitForReconciliationWindow(); });
+      assert.equal(calls.length, newer === 'presentation' ? 1 : 0, 'dropped search request cannot revive on a later render');
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('reader focus return: print supersedes search dismissal and cannot revive its request', async t => {
+  const rendered = await renderNativePrintApp(t);
+  const { calls } = trackReaderReturn(rendered);
+  const original = rendered.diskContent();
+  dispatchShortcut('f');
+  const input = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+  flushSync(() => {
+    input.dispatchEvent(keyboardEvent('Escape'));
+    window.dispatchEvent(keyboardEvent('p', { ctrlKey: true }));
+  });
+  assert.equal(rendered.pending.length, 1);
+  assert.match(rendered.host.querySelector('.print-status').textContent, /Preparing print/);
+  assert.equal(calls.length, 0, 'print preparation owns input before native invocation');
+  await act(async () => rendered.pending[0].resolve());
+  assert.equal(rendered.invoke.mock.callCount(), 1);
+  assert.equal(calls.length, 0);
+  await act(async () => rendered.operation.resolve());
+  assert.ok(rendered.host.querySelector('header'));
+  assert.equal(calls.length, 0, 'finishing print cannot revive the old search return');
+  assert.equal(rendered.diskContent(), original);
+});
+
+for (const route of ['clean', 'save-as', 'cancel-save-as']) {
+  test(`reader focus return: virtual ${route} handles null identity and adoption`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      dispatchShortcut('n');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      const { main, calls } = trackReaderReturn(rendered);
+      if (route !== 'clean') {
+        updateEditor(rendered.host, '# R4 virtual\n\nSaved words.');
+        await waitForEditorPublication();
+      }
+      if (route === 'cancel-save-as') rendered.setSaveDialogPath(null);
+      dispatchEditorKey(rendered.host, 'Escape');
+      if (route !== 'clean') {
+        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save choice'));
+        clickButton(rendered.host, 'Save', dialog);
+      }
+      await act(async () => { await Promise.resolve(); });
+      if (route === 'cancel-save-as') {
+        assert.ok(rendered.host.querySelector('.cm-editor'));
+        assert.match(findEditorView(rendered.host).state.sliceDoc(), /Saved words/);
+        assert.equal(rendered.fileWrites().length, 0);
+        assert.equal(calls.length, 0);
+      } else {
+        await waitFor(() => assert.ok(!rendered.host.querySelector('.cm-editor')));
+        assert.ok(document.activeElement === main);
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].options, { preventScroll: true });
+        if (route === 'save-as') assert.match(rendered.fileWrites()[0].content, /Saved words/);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const retainedSearch of [false, true]) {
+  for (const exitBy of ['Escape', 'button']) {
+    test(`mode ownership: presentation ${exitBy} returns with retained search ${retainedSearch}`, async t => {
+      const rendered = await renderKeyboardPresentation(t);
+      try {
+        const { main, calls } = trackReaderReturn(rendered);
+        const article = main.querySelector('article');
+        let searchInput;
+        if (retainedSearch) {
+          dispatchShortcut('f');
+          searchInput = await waitFor(() => main.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+          const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          flushSync(() => { setValue.call(searchInput, 'words'); searchInput.dispatchEvent(new Event('input', { bubbles: true })); });
+          await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+        }
+        main.scrollTop = 240;
+        dispatchWindowKey('F5');
+        const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+        const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+        assert.ok(main.hasAttribute('inert'), 'covered reader and search must be excluded from interaction');
+        assert.ok(!main.contains(overlay) && !main.contains(exit));
+        assert.ok(!overlay.closest('[inert]') && !exit.closest('[inert]'));
+        assert.ok(document.activeElement === overlay);
+        assert.ok(main.querySelector('article') === article, 'reader stays mounted');
+        if (retainedSearch) assert.ok(searchInput.isConnected && searchInput.value === 'words');
+        assert.equal(main.scrollTop, 240);
+        if (exitBy === 'button') { exit.focus(); flushSync(() => exit.click()); }
+        else dispatchElementKey(overlay, 'Escape');
+        assert.ok(!rendered.host.querySelector('.presentation-overlay'));
+        assert.ok(!main.hasAttribute('inert'));
+        assert.ok(document.activeElement === main);
+        assert.equal(main.scrollTop, 240);
+        assert.deepEqual(calls, [{ options: { preventScroll: true }, scrollTop: 240 }]);
+        if (retainedSearch) assert.ok(searchInput.isConnected && searchInput.value === 'words');
+      } finally { await rendered.cleanup(); }
+    });
+  }
+}
+
+test('mode ownership: changing slides preserves Exit focus and fragment links retain focus', async t => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('F5');
+    const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+    const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
+    const link = overlay.querySelector('a'); link.focus();
+    flushSync(() => link.click());
+    assert.ok(document.activeElement === link);
+    exit.focus();
+    dispatchWindowKey('ArrowRight');
+    assert.ok(overlay.querySelector('#second'));
+    assert.ok(document.activeElement === exit, 'slide updates must not repeat entry focus');
+    dispatchWindowKey('Home');
+    assert.ok(overlay.querySelector('#first'));
+    assert.ok(document.activeElement === exit);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const editing of [false, true]) {
+  test(`mode ownership: focus-mode Exit returns to the surviving ${editing ? 'editor' : 'reader'}`, async t => {
+    const rendered = await renderKeyboardPresentation(t);
+    try {
+      dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+      assert.ok(!rendered.host.querySelector('header'));
+      if (editing) {
+        dispatchShortcut('e');
+        await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+        updateEditor(rendered.host, `${keyboardSlides}\n\nR5 unsaved words.`);
+      }
+      const editor = editing ? findEditorView(rendered.host) : null;
+      const { main, calls } = trackReaderReturn(rendered);
+      main.scrollTop = 240;
+      const exit = rendered.host.querySelector('button[title^="Exit focus mode"]');
+      exit.focus(); flushSync(() => exit.click());
+      assert.ok(rendered.host.querySelector('header'));
+      assert.equal(main.scrollTop, 240);
+      if (editing) {
+        assert.ok(findEditorView(rendered.host) === editor && editor.hasFocus);
+        assert.match(editor.state.sliceDoc(), /R5 unsaved words/);
+        assert.equal(calls.length, 0);
+        assert.equal(rendered.fileWrites().length, 0);
+      } else {
+        assert.ok(document.activeElement === main);
+        assert.equal(calls.length, 1);
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('mode ownership: focus-mode Escape preserves an already focused surviving reader link', async t => {
+  const rendered = await renderKeyboardPresentation(t);
+  try {
+    dispatchWindowKey('f', { ctrlKey: true, shiftKey: true });
+    assert.ok(!rendered.host.querySelector('header'));
+    const link = rendered.host.querySelector('article a'); link.focus();
+    const { calls } = trackReaderReturn(rendered);
+    dispatchElementKey(link, 'Escape');
+    assert.ok(rendered.host.querySelector('header'));
+    assert.ok(document.activeElement === link);
+    assert.equal(calls.length, 0);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`mode ownership: cross-file presentation ${outcome} releases inertness without requesting old-reader focus`, async t => {
+    const original = globalThis.matchMedia;
+    globalThis.matchMedia = window.matchMedia.bind(window);
+    t.after(() => { globalThis.matchMedia = original; });
+    const rendered = await renderContinuityApp({ initialContent: '# First\n\n[Other](other.md)\n\n---\n\n# Second' });
+    try {
+      const { main, calls } = trackReaderReturn(rendered);
+      dispatchWindowKey('F5');
+      const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
+      const pending = deferred(); rendered.deferNextOpen(pending);
+      const link = overlay.querySelector('a'); link.focus(); flushSync(() => link.click());
+      await act(async () => {
+        if (outcome === 'failure') pending.reject(new Error('R5 injected open failure'));
+        else pending.resolve({ ...rendered.openResult('# Other\n\nNew file.'), canonicalPath: '/tmp/other.md', name: 'other.md' });
+      });
+      await waitFor(() => assert.ok(!rendered.host.querySelector('.presentation-overlay')));
+      assert.ok(!main.hasAttribute('inert'));
+      assert.equal(calls.length, 0);
+      assert.match(main.querySelector('article').textContent, outcome === 'failure' ? /First/ : /New file/);
+      if (outcome === 'failure') {
+        const readerLink = main.querySelector('article a');
+        flushSync(() => readerLink.click());
+        await waitFor(() => assert.match(rendered.host.textContent, /other\.md/));
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+const r7Draft = { id: "r7-healthy", name: "Synthetic recovered draft.md", latestSnapshotAtMs: 5000, snapshotCount: 1 };
+const r7SnapshotId = "00000000000000005000-7777777777777777.md";
+const r7Recovered = "# Recovered\n\nSynthetic R7 snapshot words.";
+
+for (const [name, drafts, skippedCount, fail] of [
+  ["complete empty", [], 0, false],
+  ["partial empty", [], 2, false],
+  ["partial healthy", [r7Draft], 1, false],
+  ["complete healthy", [r7Draft], 0, false],
+  ["total error", [], 0, true],
+]) {
+  test(`R7 recovery list: ${name}`, async () => {
+    const result = { drafts, skippedCount };
+    const before = structuredClone(result);
+    const rendered = await renderEditorApp({ startNew: false,
+      snapshotDraftList() { if (fail) throw new Error("Synthetic listing unavailable"); return result; },
+      snapshotEntriesByDraft: { [r7Draft.id]: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }] },
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      const dialog = await waitFor(() => {
+        const value = rendered.host.querySelector('[role="dialog"]');
+        assert.ok(value); assert.doesNotMatch(value.textContent, /Loading snapshots/); return value;
+      });
+      if (fail) assert.match(dialog.querySelector('[role="alert"]').textContent, /Synthetic listing unavailable/);
+      else if (skippedCount) {
+        assert.match(dialog.textContent, /recovery data could not be inspected/i);
+        assert.match(dialog.textContent, new RegExp(`${skippedCount} skipped entr`));
+        assert.doesNotMatch(dialog.textContent, /No unsaved draft snapshots were found/);
+        if (!drafts.length) assert.match(dialog.textContent, /No readable unsaved drafts could be listed/);
+      } else {
+        assert.doesNotMatch(dialog.textContent, /could not be inspected|skipped entr/);
+        if (!drafts.length) assert.match(dialog.textContent, /No unsaved draft snapshots were found/);
+      }
+      assert.equal(dialog.querySelectorAll('li button').length, drafts.length);
+      assert.deepEqual(result, before, "listing must not mutate recovery records");
+      assert.deepEqual(rendered.snapshotWrites, []);
+      assert.deepEqual(rendered.fileWrites, []);
+      if (drafts.length) {
+        assert.match(dialog.textContent, /choose a file location/i);
+        assert.doesNotMatch(dialog.textContent, /autosave/i);
+        const choice = dialog.querySelector('li button');
+        assert.equal(choice.disabled, false);
+        flushSync(() => choice.click());
+        await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered));
+        assert.match(rendered.host.textContent, /Recovered draft restored.*choose a file location/);
+        assert.deepEqual(rendered.fileWrites, []);
+        assert.deepEqual(rendered.retiredDrafts, []);
+        dispatchShortcut('s');
+        await waitFor(() => assert.equal(rendered.retiredDrafts.length, 1));
+        assert.equal(rendered.fileWrites.length, 1);
+        assert.equal(rendered.fileWrites[0].path, '/tmp/recovered-r7.md');
+        assert.equal(rendered.fileWrites[0].content, r7Recovered);
+        assert.deepEqual(rendered.retiredDrafts, [{ kind: 'draft', id: r7Draft.id, name: r7Draft.name }]);
+        assert.ok(rendered.snapshotWrites.some(write => write.document.kind === 'file'
+          && write.document.path === '/tmp/recovered-r7.md' && write.content === r7Recovered));
+        assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+      }
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("R7 recovery list: reopening clears the prior warning during loading and after a healthy result", async () => {
+  const held = deferred(); let calls = 0;
+  const rendered = await renderEditorApp({ startNew: false,
+    snapshotDraftList: () => ++calls === 1 ? { drafts: [], skippedCount: 1 } : held.promise,
+  });
+  try {
+    clickButton(rendered.host, "Restore an unsaved draft…");
+    await waitFor(() => assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/));
+    clickButton(rendered.host, "Close", rendered.host.querySelector('[role="dialog"]'));
+    clickButton(rendered.host, "Restore an unsaved draft…");
+    await waitFor(() => assert.equal(calls, 2));
+    assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading snapshots/);
+    assert.doesNotMatch(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/);
+    await act(async () => held.resolve({ drafts: [r7Draft], skippedCount: 0 }));
+    await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"] li button')));
+    assert.doesNotMatch(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/);
+    assert.deepEqual(rendered.snapshotWrites, []);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const rejects of [false, true]) {
+  test(`R7 recovery list: dismissed stale ${rejects ? "error" : "partial result"} cannot replace newer list`, async () => {
+    const held = deferred(); let calls = 0;
+    const rendered = await renderEditorApp({ startNew: false,
+      snapshotDraftList: () => ++calls === 1 ? held.promise : { drafts: [r7Draft], skippedCount: 0 },
+    });
+    try {
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      await waitFor(() => assert.equal(calls, 1));
+      clickButton(rendered.host, "Close", rendered.host.querySelector('[role="dialog"]'));
+      clickButton(rendered.host, "Restore an unsaved draft…");
+      await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"] li button')));
+      await act(async () => rejects ? held.reject(new Error("Stale listing error")) : held.resolve({ drafts: [], skippedCount: 7 }));
+      const dialog = rendered.host.querySelector('[role="dialog"]');
+      assert.match(dialog.textContent, /Synthetic recovered draft/);
+      assert.doesNotMatch(dialog.textContent, /could not be inspected|Stale listing error/);
+      assert.deepEqual(rendered.snapshotWrites, []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const matching of [false, true]) {
+  test(`R7 saved restore: ${matching ? "matching text keeps checkpoints without file write" : "different text follows normal autosave without extra Save"}`, async () => {
+    const initialContent = matching ? r7Recovered : "# Current\n\nSynthetic current words.";
+    const rendered = await renderContinuityApp({ initialContent, readySelector: 'article',
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      const dialog = rendered.host.querySelector('[role="dialog"]');
+      assert.match(dialog.textContent, /snapshots the current state first/i);
+      assert.match(dialog.textContent, /cannot be undone/i);
+      assert.match(dialog.textContent, /normal autosave/i);
+      flushSync(() => choice.click());
+      await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered));
+      assert.deepEqual(rendered.snapshotWrites().slice(0, 2).map(({content, preservePrevious}) => ({content, preservePrevious})), [
+        { content: initialContent, preservePrevious: true }, { content: r7Recovered, preservePrevious: true },
+      ]);
+      assert.equal(rendered.diskContent(), initialContent);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.match(rendered.host.textContent, matching ? /Snapshot restored.*matches the saved file/ : /Snapshot restored.*will autosave/);
+      assert.doesNotMatch(rendered.host.textContent, /Save when you're ready|Snapshot saved/);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+      assert.equal(rendered.fileWrites().length, matching ? 0 : 1);
+      assert.equal(rendered.diskContent(), r7Recovered);
+      assert.ok(rendered.host.querySelector('.cm-editor'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const matching of [false, true]) {
+  test(`R7 active unsaved draft restore: ${matching ? "matching" : "different"} text still needs a file location`, async () => {
+  const rendered = await renderContinuityApp({
+    snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+    snapshotContents: { [r7SnapshotId]: r7Recovered },
+  });
+  try {
+    dispatchShortcut('n');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    updateEditor(rendered.host, matching ? r7Recovered : 'Synthetic current draft words');
+    await waitForEditorPublication();
+    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+    const dialog = rendered.host.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /choose a file location/i);
+    assert.doesNotMatch(dialog.textContent, /autosave/i);
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    });
+    assert.match(rendered.host.textContent, matching ? /already matches the current draft.*choose a file location/ : /Snapshot restored.*choose a file location/);
+    assert.doesNotMatch(rendered.host.textContent, /will autosave|Save when you're ready/);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+    assert.deepEqual(rendered.fileWrites(), []);
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    await act(async () => { await emit('tauri://close-requested'); });
+    const closeDialog = await waitFor(() => {
+      const candidate = rendered.host.querySelector('[role="dialog"]');
+      assert.ok(candidate); assert.match(candidate.textContent, /Unsaved changes/); return candidate;
+    });
+    assert.equal(rendered.windowCloseCount(), 0);
+    assert.deepEqual(rendered.retiredDrafts(), []);
+    dispatchWindowKey('Escape');
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 1));
+    assert.equal(rendered.fileWrites()[0].content, r7Recovered);
+  } finally { await rendered.cleanup(); }
+});
+
+}
+
+for (const failCheckpoint of [false, true]) {
+  test(`R7 restore failure: ${failCheckpoint ? "restored checkpoint" : "current backup"} does not claim success or change text`, async () => {
+    const rendered = await renderContinuityApp({
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+      snapshotContents: { [r7SnapshotId]: r7Recovered },
+    });
+    try {
+      const original = rendered.diskContent();
+      const backup = deferred();
+      if (failCheckpoint) rendered.deferNextSnapshotWrite(backup);
+      else rendered.failNextSnapshotWrite(new Error('Synthetic safety write failure'));
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      flushSync(() => choice.click());
+      if (failCheckpoint) {
+        await waitFor(() => assert.ok(backup.args));
+        rendered.failNextSnapshotWrite(new Error('Synthetic safety write failure'));
+        await act(async () => backup.resolve(successfulSnapshotWrite(backup.args)));
+      }
+      await waitFor(() => assert.match(rendered.host.textContent, /current text was not changed/));
+      assert.equal(rendered.diskContent(), original);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.ok(!rendered.host.querySelector('.cm-editor'));
+      assert.doesNotMatch(rendered.host.textContent, /Snapshot restored|Snapshot saved/);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+test("R7 follow-up: restoring saved-file text replaces differing edits without claiming they already matched", async () => {
+  const currentEdits = "# Current unsaved edits\n\nKeep this text in the backup.";
+  const rendered = await renderContinuityApp({ initialContent: r7Recovered, readySelector: 'article',
+    snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: r7Recovered.length }],
+    snapshotContents: { [r7SnapshotId]: r7Recovered },
+  });
+  try {
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    updateEditor(rendered.host, currentEdits);
+    await waitForEditorPublication();
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), r7Recovered);
+    });
+    assert.match(rendered.host.textContent, /Snapshot restored.*matches the saved file/);
+    assert.doesNotMatch(rendered.host.textContent, /already matches the current text/);
+    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.deepEqual(rendered.snapshotWrites().filter(write => write.preservePrevious).map(write => write.content), [currentEdits, r7Recovered]);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
+    assert.deepEqual(rendered.fileWrites(), []);
+    assert.equal(rendered.diskContent(), r7Recovered);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const matching of [false, true]) {
+  test(`R7 follow-up: restoring empty draft ${matching ? 'matching' : 'replacement'} text keeps ordinary empty-draft behavior`, async () => {
+    const beforeText = matching ? '' : 'Synthetic draft words before empty restore';
+    const rendered = await renderContinuityApp({
+      snapshotEntries: [{ id: r7SnapshotId, createdAtMs: 5000, size: 0 }],
+      snapshotContents: { [r7SnapshotId]: '' },
+    });
+    try {
+      dispatchShortcut('n');
+      await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+      if (beforeText) { updateEditor(rendered.host, beforeText); await waitForEditorPublication(); }
+      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
+      flushSync(() => choice.click());
+      await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), '');
+      assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+      assert.match(rendered.host.textContent, matching ? /already matches the current draft/ : /Snapshot restored/);
+      assert.deepEqual(rendered.snapshotWrites().filter(write => write.preservePrevious).map(write => write.content), [beforeText, '']);
+      assert.deepEqual(rendered.fileWrites(), []);
+      assert.deepEqual(rendered.retiredDrafts(), []);
+    } finally { await rendered.cleanup(); }
+  });
+}

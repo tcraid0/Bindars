@@ -1,69 +1,73 @@
-import { useState, useCallback, useEffect } from "react";
-import { storeGet, storeSet } from "../lib/store";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { loadRecentFiles, saveRecentFiles } from "../lib/recent-files";
 import type { RecentFile } from "../types";
 
-const STORE_KEY = "recent-files";
 const MAX_RECENT = 10;
 
 export function useRecentFiles() {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+  // Mutations use the latest list even within one React batch, without doing
+  // persistence inside a state updater that StrictMode can replay.
+  const filesRef = useRef(recentFiles);
 
-  // Load from Tauri store on mount
   useEffect(() => {
-    storeGet<RecentFile[]>(STORE_KEY).then((stored) => {
-      if (stored && Array.isArray(stored)) {
-        setRecentFiles(stored);
+    let active = true;
+    void (async () => {
+      try {
+        const files = await loadRecentFiles();
+        if (!active) return;
+        filesRef.current = files;
+        setRecentFiles(files);
+        setStatus("ready");
+      } catch (error) {
+        if (!active) return;
+        console.warn("[recents] History is unavailable:", error);
+        setStatus("unavailable");
       }
-      setLoaded(true);
-    });
+    })();
+    return () => { active = false; };
   }, []);
 
   const persist = useCallback((files: RecentFile[]) => {
-    storeSet(STORE_KEY, files);
-  }, []);
+    if (status !== "ready") return;
+    filesRef.current = files;
+    setRecentFiles(files);
+    void saveRecentFiles(files);
+  }, [status]);
 
   const addRecent = useCallback(
     (path: string, name: string) => {
-      setRecentFiles((prev) => {
-        const existing = prev.find((f) => f.path === path);
-        const filtered = prev.filter((f) => f.path !== path);
-        const entry: RecentFile = {
-          path,
-          name,
-          openedAt: Date.now(),
-          lastHeadingId: existing?.lastHeadingId ?? null,
-        };
-        const next = [entry, ...filtered].slice(0, MAX_RECENT);
-        persist(next);
-        return next;
-      });
+      const prev = filesRef.current;
+      const existing = prev.find((f) => f.path === path);
+      const filtered = prev.filter((f) => f.path !== path);
+      const entry: RecentFile = {
+        ...existing,
+        path,
+        name,
+        openedAt: Date.now(),
+        lastHeadingId: existing?.lastHeadingId ?? null,
+      };
+      persist([entry, ...filtered].slice(0, MAX_RECENT));
     },
     [persist],
   );
 
   const removeRecent = useCallback(
     (path: string) => {
-      setRecentFiles((prev) => {
-        const next = prev.filter((f) => f.path !== path);
-        persist(next);
-        return next;
-      });
+      persist(filesRef.current.filter((f) => f.path !== path));
     },
     [persist],
   );
 
   const updateScrollPosition = useCallback(
     (path: string, headingId: string | null) => {
-      setRecentFiles((prev) => {
-        const idx = prev.findIndex((f) => f.path === path);
-        if (idx === -1) return prev;
-        if (prev[idx].lastHeadingId === headingId) return prev;
-        const next = [...prev];
-        next[idx] = { ...next[idx], lastHeadingId: headingId };
-        persist(next);
-        return next;
-      });
+      const prev = filesRef.current;
+      const idx = prev.findIndex((f) => f.path === path);
+      if (idx === -1 || prev[idx].lastHeadingId === headingId) return;
+      const next = [...prev];
+      next[idx] = { ...next[idx], lastHeadingId: headingId };
+      persist(next);
     },
     [persist],
   );
@@ -76,5 +80,5 @@ export function useRecentFiles() {
     [recentFiles],
   );
 
-  return { recentFiles, loaded, addRecent, removeRecent, updateScrollPosition, getScrollPosition };
+  return { recentFiles, status, addRecent, removeRecent, updateScrollPosition, getScrollPosition };
 }
