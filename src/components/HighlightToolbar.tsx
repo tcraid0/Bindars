@@ -11,6 +11,7 @@ interface HighlightToolbarProps {
   isEditing: boolean;
   getActiveHeadingId: () => string | null;
   onHighlight: (anchor: TextAnchor, color: HighlightColor, headingId: string | null) => void;
+  onNote: (anchor: TextAnchor, headingId: string | null) => void;
 }
 
 const COLORS: { color: HighlightColor; bg: string; label: string }[] = [
@@ -26,7 +27,7 @@ interface ToolbarPosition {
   above: boolean;
 }
 
-function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHeadingId, onHighlight }: HighlightToolbarProps) {
+function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHeadingId, onHighlight, onNote }: HighlightToolbarProps) {
   const [position, setPosition] = useState<ToolbarPosition | null>(null);
   const [selection, setSelection] = useState<Range | null>(null);
   const [selectionHeadingId, setSelectionHeadingId] = useState<string | null>(null);
@@ -83,8 +84,8 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     };
   }, [handleSelectionChange]);
 
-  const handleColorClick = useCallback(
-    async (color: HighlightColor) => {
+  const handleSelectionAction = useCallback(
+    async (action: HighlightColor | "note") => {
       if (!selection || !contentRef.current || pending.current) return;
       pending.current = true;
       setSaving(true);
@@ -92,7 +93,10 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       try {
         const anchor = await createPositionedAnchor(selection, contentRef.current, source);
         if (!alive.current) return;
-        if (anchor) onHighlight(anchor, color, selectionHeadingId);
+        if (anchor) {
+          if (action === "note") onNote(anchor, selectionHeadingId);
+          else onHighlight(anchor, action, selectionHeadingId);
+        }
         else toast("This selection includes text that cannot be highlighted. Select prose, code, or a visible HTML label.", "error");
       } catch {
         if (alive.current) toast("Couldn't create this highlight. Please select the text again.", "error");
@@ -107,7 +111,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       setPosition(null);
       setSelection(null);
     },
-    [selection, contentRef, onHighlight, selectionHeadingId, source, toast],
+    [selection, contentRef, onHighlight, onNote, selectionHeadingId, source, toast],
   );
 
   if (!position) return null;
@@ -133,9 +137,18 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
           className="w-6 h-6 rounded-full border-2 border-transparent hover:border-text-muted transition-colors duration-100 cursor-pointer"
           style={{ backgroundColor: bg }}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => handleColorClick(color)}
+          onClick={() => handleSelectionAction(color)}
         />
       ))}
+      <button
+        type="button"
+        disabled={saving}
+        className="ml-1 border-l border-border px-2 py-0.5 text-xs font-medium text-text-primary hover:text-accent disabled:opacity-50"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => handleSelectionAction("note")}
+      >
+        Note
+      </button>
     </div>
   );
 }

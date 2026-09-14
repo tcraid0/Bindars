@@ -189,7 +189,6 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === "session" && initialSessionOperation) {
           initialSessionOperation.args = args;
           return initialSessionOperation.promise;

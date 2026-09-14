@@ -6,6 +6,7 @@ export type PendingAction =
   | { kind: "quit-app" }
   | { kind: "new-file" }
   | { kind: "open-file-dialog" }
+  | { kind: "try-sample" }
   | { kind: "open-file-path"; path: string }
   | { kind: "open-recent"; path: string }
   | { kind: "go-back" }

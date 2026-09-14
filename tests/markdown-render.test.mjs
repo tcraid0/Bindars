@@ -318,10 +318,8 @@ test("workspace heading IDs match rendered IDs across inline markup, entities, a
   }
 });
 
-test("the bundled welcome document renders its inline math example", () => {
-  const source = fs.readFileSync(new URL("../src/assets/welcome.md", import.meta.url), "utf8");
-  const { body } = extractFrontmatter(source);
-  const html = renderMarkdown(body);
+test("inline and display math examples render together", () => {
+  const html = renderMarkdown("Inline math like $$E = mc^2$$ works.\n\n$$\n\\int_0^1 x^2 dx = \\frac{1}{3}\n$$");
 
   assert.match(html, /Inline math like <span class="katex">/);
   assert.doesNotMatch(html, /\$E = mc\^2\$/);

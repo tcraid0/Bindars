@@ -218,13 +218,13 @@ test("the real Welcome template renders only explicit shortcut tokens", () => {
   const macosContent = renderShortcutTemplate(template, "macos");
   const windowsLinuxContent = renderShortcutTemplate(template, "windows-linux");
 
-  assert.match(template, /\{\{shortcut:openFile\}\}/);
-  assert.match(macosContent, /\*\*⌘O\*\*/);
-  assert.match(macosContent, /\*\*⌥⌘M\*\*/);
+  assert.match(template, /\{\{shortcut:saveFile\}\}/);
+  assert.match(macosContent, /\*\*⌘S\*\*/);
+  assert.match(macosContent, /\*\*⌘M\*\*/);
   assert.doesNotMatch(macosContent, /\{\{shortcut:/);
   assert.doesNotMatch(macosContent, /Ctrl\+|Alt\+/);
-  assert.match(windowsLinuxContent, /\*\*Ctrl\+O\*\*/);
-  assert.match(windowsLinuxContent, /\*\*Ctrl\+Alt\+M\*\*/);
+  assert.match(windowsLinuxContent, /\*\*Ctrl\+S\*\*/);
+  assert.match(windowsLinuxContent, /\*\*Ctrl\+M\*\*/);
   assert.doesNotMatch(windowsLinuxContent, /\{\{shortcut:/);
 
   assert.equal(

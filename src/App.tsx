@@ -3,6 +3,8 @@ import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { documentDir, homeDir } from "@tauri-apps/api/path";
+import { save } from "@tauri-apps/plugin-dialog";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
@@ -306,7 +308,7 @@ function App() {
     void initializeAnnotationStorage().then((status) => {
       if (active && !status.settingsReady) toast("Settings storage is unavailable. Existing data was preserved; preference changes cannot be saved.", "error");
     }).catch(() => {
-      if (active) toast("Annotation storage could not be initialized. Existing data was preserved. Retry from the Annotations panel.", "error");
+      if (active) toast("Annotation storage could not be initialized. Existing data was preserved. Retry from Highlights & notes.", "error");
     });
     return () => { active = false; };
   }, [toast]);
@@ -320,6 +322,8 @@ function App() {
   });
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
   const flushAnnotationNoteRef = useRef<(() => void) | null>(null);
+  const startNoteRef = useRef<((id: string) => void) | null>(null);
+  const pendingNoteScrollRef = useRef<{ id: string; path: string | null; content: string | null } | null>(null);
   const [annotationLocations, setAnnotationLocations] = useState<Record<string, string>>({});
   const [tocVisible, setTocVisible] = useState(true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
@@ -444,7 +448,6 @@ function App() {
   const restoreDialogOpenRef = useRef(restoreDialog !== null);
   const boundaryFlushInFlightRef = useRef(false);
   const flushBeforeContinuationRef = useRef<() => void>(() => {});
-  const welcomePublicationRef = useRef(0);
   const programmaticCloseRef = useRef<{ annotationVersion: number } | null>(null);
   // A close continuation is draining snapshots or crossing the native close
   // handoff. Further close requests must not bypass its safety checks.
@@ -939,6 +942,7 @@ function App() {
     readerAnchor: ReaderAnchor | null = null,
     restoredDraftDocument: SnapshotDocument | null = null,
   ) => {
+    pendingNoteScrollRef.current = null;
     supersedeReconciliation();
     pendingExitReconciliationRef.current = null;
     supersedePendingOpen();
@@ -1061,6 +1065,7 @@ function App() {
 
   const beginActionAdmission = useCallback((action: PendingAction): ActionAdmissionId | null => {
     if (actionAdmissionOwnerRef.current !== null) return null;
+    pendingNoteScrollRef.current = null;
     const admissionId = nextActionAdmissionIdRef.current + 1;
     nextActionAdmissionIdRef.current = admissionId;
     actionAdmissionOwnerRef.current = admissionId;
@@ -1359,7 +1364,6 @@ function App() {
 
   // Guarded versions that don't depend on later declarations
   const createNewDocument = useCallback(() => {
-    welcomePublicationRef.current += 1;
     setVirtualContent("", "Untitled.md");
     beginEditSession("", null, null, "Untitled.md");
   }, [beginEditSession, setVirtualContent]);
@@ -1995,24 +1999,6 @@ function App() {
     waitForInitialNativeOpen,
   });
 
-  // First-run: show welcome sample file on first launch
-  useEffect(() => {
-    // Wait for both startup signals
-    if (!sessionRestored || recentFilesStatus !== "ready") return;
-    // Skip if something already loaded
-    if (isDocumentOpen(content) || filePath || loading) return;
-    if (recentFiles.length > 0) return;
-
-    let cancelled = false;
-    const publicationId = ++welcomePublicationRef.current;
-    storeGet<boolean>("hasSeenWelcome").then((seen) => {
-      if (cancelled || seen || welcomePublicationRef.current !== publicationId) return;
-      setVirtualContent(welcomeContent, "Welcome to Bindars.md");
-      storeSet("hasSeenWelcome", true);
-    });
-    return () => { cancelled = true; };
-  }, [sessionRestored, recentFilesStatus, content, filePath, loading, recentFiles.length, setVirtualContent, welcomeContent]);
-
   useLayoutEffect(() => {
     if (editing || !pendingReaderTarget) return;
     const root = contentRef.current;
@@ -2174,8 +2160,19 @@ function App() {
     addHighlight(anchor, color, headingId);
   }, [addHighlight]);
 
+  const handleNote = useCallback((anchor: TextAnchor, headingId: string | null) => {
+    const id = addHighlight(anchor, "yellow", headingId);
+    if (!id) return;
+    pendingNoteScrollRef.current = { id, path: filePath, content };
+    startNoteRef.current?.(id);
+    setAnnotationsPanelVisible(true);
+    setFocusMode(false);
+  }, [addHighlight, filePath, content]);
+
   // Repaint for document identity changes, even when another file has identical text.
   useEffect(() => {
+    const pending = pendingNoteScrollRef.current;
+    if (pending && (pending.path !== filePath || pending.content !== content)) pendingNoteScrollRef.current = null;
     if (editing || !readerDocumentReady) return;
     const container = contentRef.current;
     if (!container || !isDocumentOpen(content)) return;
@@ -2202,8 +2199,25 @@ function App() {
             if (result.range) wrapRange(result.range, `annotation-highlight-${hl.color}`, hl.id);
           }
           setAnnotationLocations(locations);
+          const pending = pendingNoteScrollRef.current;
+          if (pending?.path === filePath && pending.content === content && highlights.some((hl) => hl.id === pending.id)) {
+            pendingNoteScrollRef.current = null;
+            const mark = Array.from(container.querySelectorAll<HTMLElement>("mark[data-highlight-id]"))
+              .find((element) => element.dataset.highlightId === pending.id);
+            const viewport = mainScrollRef.current?.getBoundingClientRect();
+            const bounds = mark?.getBoundingClientRect();
+            // Deliberate Note reflow can move its passage below the viewport.
+            // Consume once after painting; later diagram repaints must not scroll.
+            if (mark && viewport && bounds && (bounds.top < viewport.top || bounds.bottom > viewport.bottom)) {
+              mark.scrollIntoView({ block: "center", behavior: "auto" });
+            }
+          }
         }).catch(() => {
           if (!cancelled && version === paintVersion) {
+            const pending = pendingNoteScrollRef.current;
+            if (pending?.path === filePath && pending.content === content && highlights.some((hl) => hl.id === pending.id)) {
+              pendingNoteScrollRef.current = null;
+            }
             clearAnnotationHighlights(container);
             setAnnotationLocations(Object.fromEntries(highlights.map((h) => [h.id, "uncertain"])));
           }
@@ -2391,10 +2405,12 @@ function App() {
   }, [clearRecoveryHistory, loadRecoveryStorageStats, toast]);
 
   const toggleAnnotationsPanel = useCallback(() => {
+    pendingNoteScrollRef.current = null;
     setAnnotationsPanelVisible((v) => !v);
   }, []);
 
   const closeAnnotationsPanel = useCallback(() => {
+    pendingNoteScrollRef.current = null;
     setAnnotationsPanelVisible(false);
   }, []);
 
@@ -2544,6 +2560,44 @@ function App() {
       case "open-file-dialog":
         await openFile();
         return;
+      case "try-sample": {
+        // The admitted action owns the dialog, write and ordinary open together.
+        // Cancel an earlier startup read before waiting for the destination.
+        supersedePendingOpen();
+        const generation = getOpenOwnership().generation;
+        const isCurrent = () => getOpenOwnership().generation === generation;
+        let defaultPath = "Welcome to Bindars.md";
+        for (const directory of [documentDir, homeDir]) {
+          try {
+            const path = await directory();
+            if (path && !path.includes("\0") && /^(?:[/\\]|[A-Za-z]:[/\\])/.test(path)) {
+              defaultPath = `${path.replace(/[/\\]$/, "")}/Welcome to Bindars.md`;
+              break;
+            }
+          } catch {
+            // Directory resolution is a suggestion; the user can choose any location.
+          }
+        }
+        if (!isCurrent()) return;
+        try {
+          const path = await save({
+            defaultPath,
+            filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+          });
+          if (!path || !isCurrent()) return;
+          await invoke("export_markdown_file", { path, content: welcomeContent });
+          if (!isCurrent()) return;
+          const result = await openPathAndScroll(path, null, { kind: "open-file-path", path });
+          if (result.status === "failed") {
+            toast(`The example was saved to ${path}, but couldn't be opened. Open that file to try again.`, "error");
+          }
+        } catch (error) {
+          if (isCurrent()) {
+            toast(normalizeFileError(error, "Couldn't save the example. Choose another location and try again.").message, "error");
+          }
+        }
+        return;
+      }
       case "open-file-path":
         await openFilePath(action.path, action);
         return;
@@ -2928,10 +2982,10 @@ function App() {
 
   return (
     <div
-      className={`h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${settings.reducedEffects ? "reduced-effects" : ""}`}
+      className={`app-shell h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${fileName ? "has-document" : ""} ${settings.reducedEffects ? "reduced-effects" : ""}`}
       style={
         {
-          "--header-height": `${HEADER_HEIGHT_PX}px`,
+          "--header-row-height": `${HEADER_HEIGHT_PX}px`,
           "--heading-scroll-margin": `${HEADING_SCROLL_MARGIN_PX}px`,
         } as CSSProperties
       }
@@ -2968,6 +3022,7 @@ function App() {
           onGoForward={guardedGoForward}
           isEditing={editing}
           isDirty={editor.dirty}
+          isDraft={documentOpen && snapshotDocument?.kind === "draft"}
           isSavedFlash={savedFlash}
           saveWarning={saveWarning}
           canSave={!actionAdmissionInFlight && editing && (editor.dirty || !filePath)}
@@ -3127,6 +3182,8 @@ function App() {
             <EmptyState
               onNewFile={guardedNewFile}
               onOpenFile={guardedOpenFile}
+              onTrySample={() => { guardAction({ kind: "try-sample" }); }}
+              canTrySample={!actionAdmissionInFlight}
               recentFiles={recentFiles}
               recentHistoryUnavailable={recentFilesStatus === "unavailable"}
               onOpenRecent={guardedOpenRecent}
@@ -3158,6 +3215,7 @@ function App() {
         <AnnotationsPanel
           key={filePath}
           flushNoteRef={flushAnnotationNoteRef}
+          startNoteRef={startNoteRef}
           visible={annotationsPanelVisible && !focusMode && !editing && !presentationMode}
           annotationStatus={annotationStatus}
           annotationsReady={annotationsReady}
@@ -3211,12 +3269,14 @@ function App() {
           isEditing={editing}
           getActiveHeadingId={getActiveHeadingId}
           onHighlight={handleHighlight}
+          onNote={handleNote}
         />
       )}
       {focusMode && (
         <FocusBar
           fileName={fileName}
           isDirty={editor.dirty}
+          isDraft={documentOpen && snapshotDocument?.kind === "draft"}
           isSavedFlash={savedFlash}
           saveWarning={saveWarning}
           onExit={exitFocusMode}
@@ -3313,7 +3373,7 @@ function App() {
       />
       <SnapshotRestoreDialog
         visible={restoreDialog !== null}
-        title={restoreDialog?.kind === "drafts" ? "Restore an unsaved draft" : "Restore snapshot"}
+        title={restoreDialog?.kind === "drafts" ? "Restore an unsaved draft" : "Earlier versions"}
         loading={restoreDialog?.loading ?? false}
         error={restoreDialog?.error ?? null}
         documentKind={restoreDialog?.kind === "document" ? restoreDialog.document.kind : null}

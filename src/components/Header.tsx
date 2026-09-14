@@ -25,6 +25,7 @@ interface HeaderProps {
   onGoBack: () => void;
   onGoForward: () => void;
   isEditing: boolean;
+  isDraft?: boolean;
   isDirty: boolean;
   isSavedFlash: boolean;
   saveWarning: string | null;
@@ -71,6 +72,7 @@ function HeaderComponent({
   onGoBack,
   onGoForward,
   isEditing,
+  isDraft = false,
   isDirty,
   isSavedFlash,
   saveWarning,
@@ -129,12 +131,12 @@ function HeaderComponent({
 
   return (
     <header
-      className="print-hide flex items-center px-4 border-b border-border bg-bg-secondary shrink-0 select-none"
+      className="document-header print-hide flex items-center px-4 border-b border-border bg-bg-secondary shrink-0 select-none"
       style={{ height: "var(--header-height, 52px)" }}
       data-tauri-drag-region
     >
       {/* Left: sidebar toggle, back/forward, wordmark */}
-      <div className="flex items-center gap-1 min-w-0">
+      <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
           onClick={onToggleSidebar}
@@ -178,45 +180,46 @@ function HeaderComponent({
         </span>
       </div>
 
-      {/* Center: file name + edit toggle */}
-      <div className="flex-1 flex items-center justify-center gap-1.5 px-4 min-w-0" data-tauri-drag-region>
+      {/* Center: file name + reading and editing modes */}
+      <div className="document-header-context flex-1 flex items-center justify-center gap-1.5 px-4 min-w-0" data-tauri-drag-region>
         {fileName && (
           <>
             <SaveWhisper
+              isDraft={isDraft}
               dirty={isDirty}
               saved={isSavedFlash}
               warning={saveWarning}
             />
-            <span className="text-sm text-text-muted truncate max-w-[400px]">
+            <span className="text-sm text-text-muted truncate min-w-0 max-w-[400px]" title={fileName}>
               {fileName}
             </span>
             {statsSummary && !isEditing && (
-              <span className="text-[11px] text-text-muted shrink-0 hidden sm:inline">
+              <span className="text-[11px] text-text-muted shrink-0 hidden lg:inline">
                 <span ref={progressTextRef} className="inline-block min-w-[2.5ch] text-right">0%</span>
                 {" · "}
                 {statsSummary}
               </span>
             )}
-            <button
-              type="button"
-              onClick={onToggleEdit}
-              disabled={!canToggleEdit}
-              aria-label={isEditing ? "Switch to read mode" : "Switch to edit mode"}
-              className="p-1 rounded-md hover:bg-bg-tertiary text-text-muted transition-colors duration-120 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-              title={`${isEditing ? "Read" : "Edit"} mode (${formatShortcutLabel("toggleEditMode")})`}
-            >
-              {isEditing ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              )}
-            </button>
+            <div role="group" aria-label="Document mode" className="flex items-center shrink-0 rounded-md border border-border p-0.5">
+              <button
+                type="button"
+                onClick={() => { if (isEditing) onToggleEdit(); }}
+                disabled={!canToggleEdit}
+                aria-label="Read mode"
+                aria-pressed={!isEditing}
+                className={`px-2 py-1 rounded text-xs transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none ${!isEditing ? "bg-bg-tertiary text-text-primary" : "text-text-muted hover:bg-bg-tertiary hover:text-text-primary"}`}
+                title={`Read mode (${formatShortcutLabel("toggleEditMode")})`}
+              >Read</button>
+              <button
+                type="button"
+                onClick={() => { if (!isEditing) onToggleEdit(); }}
+                disabled={!canToggleEdit}
+                aria-label="Edit mode"
+                aria-pressed={isEditing}
+                className={`px-2 py-1 rounded text-xs transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none ${isEditing ? "bg-bg-tertiary text-text-primary" : "text-text-muted hover:bg-bg-tertiary hover:text-text-primary"}`}
+                title={`Edit mode (${formatShortcutLabel("toggleEditMode")})`}
+              >Edit</button>
+            </div>
             {isEditing && fileType === "markdown" && (
               <MarkdownFormattingToggle
                 enabled={markdownFormattingEnabled}
@@ -244,14 +247,14 @@ function HeaderComponent({
       </div>
 
       {/* Right: controls */}
-      <div className="flex items-center gap-1">
+      <div className="document-header-actions flex items-center gap-1 shrink-0">
         {canRestoreSnapshot && (
           <button
             type="button"
             onClick={onRestoreSnapshot}
-            aria-label="Restore snapshot"
+            aria-label="Earlier versions"
             className="p-1.5 rounded-md text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-            title="Restore snapshot…"
+            title="Earlier versions…"
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 12a9 9 0 1 0 3-6.7" />
@@ -265,7 +268,7 @@ function HeaderComponent({
             type="button"
             onClick={onSave}
             className="px-2.5 py-1.5 rounded-md text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-            title={`Save (${formatShortcutLabel("saveFile")})`}
+            title={`${isDraft ? "Save to choose a filename and location" : "Save"} (${formatShortcutLabel("saveFile")})`}
           >
             Save
           </button>
@@ -381,11 +384,11 @@ function HeaderComponent({
             <button
               type="button"
               onClick={onToggleAnnotations}
-              aria-label="Toggle annotations panel"
+              aria-label="Toggle Highlights & notes"
               className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                 hasAnnotations ? "text-accent" : "text-text-secondary hover:text-text-primary"
               }`}
-              title={`Annotations (${formatShortcutLabel("toggleAnnotations")})`}
+              title={`Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />

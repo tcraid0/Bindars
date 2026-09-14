@@ -18,7 +18,7 @@ export function buildAnnotationMarkdown(
     day: "numeric",
   });
 
-  lines.push(`# Annotations: ${literal(fileName.replace(/\r?\n/g, " "))}`);
+  lines.push(`# Highlights & notes: ${literal(fileName.replace(/\r?\n/g, " "))}`);
   lines.push("");
   lines.push(`*Exported from Bindars on ${date}*`);
   lines.push("");

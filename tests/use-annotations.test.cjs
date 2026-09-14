@@ -45,6 +45,62 @@ test('CRUD uses stable IDs and persists notes, bookmarks and removals across reo
   assert.deepEqual(view.api().highlights, []); assert.deepEqual(view.api().bookmarks, []);
 });
 
+test('highlight creation returns the accepted record ID before persistence succeeds', async (t) => {
+  const { disk } = backingStore(t, new Map());
+  const gate = deferred();
+  t.mock.method(storage, 'saveAnnotations', async () => gate.promise);
+  const view = await mount(t, '/a.md', true);
+  let id;
+  await view.change(api => { id = api.addHighlight({ exact: 'new quote', prefix: '', suffix: '' }, 'yellow', 'intro'); });
+  assert.equal(typeof id, 'string');
+  assert.equal(view.api().highlights[0].id, id);
+  assert.equal(view.api().highlights[0].nearestHeadingId, 'intro');
+  assert.equal(view.api().getMutationVersion(), 1);
+  assert.equal(disk.has('/a.md'), false);
+  await act(async () => gate.reject(new Error('disk full')));
+  assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].id, id);
+  assert.ok(view.api().saveError);
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => disk.set(path, copy(data)));
+  await view.change(api => api.retrySave());
+  assert.equal(disk.get('/a.md').highlights[0].id, id);
+  assert.deepEqual(view.api().pendingRecords(), {});
+});
+
+test('refused highlight creation returns no ID for missing paths, loading, failed loads and quit locks', async (t) => {
+  const { writes } = backingStore(t, new Map());
+  const read = deferred();
+  t.mock.method(storage, 'loadAnnotations', () => read.promise);
+  const view = await mount(t, null);
+  const attempt = async () => {
+    let id = 'not called';
+    await view.change(api => { id = api.addHighlight({ exact: 'quote', prefix: '', suffix: '' }, 'yellow', null); });
+    assert.equal(id, undefined);
+    assert.equal(view.api().getMutationVersion(), 0);
+  };
+  await attempt();
+  await view.render('/a.md');
+  await attempt();
+  await act(async () => read.reject(new Error('unavailable')));
+  await attempt();
+  t.mock.method(storage, 'loadAnnotations', async () => null);
+  await view.change(api => api.retryLoad());
+  view.api().setLocked(true);
+  await attempt();
+  assert.deepEqual(view.api().highlights, []);
+  assert.equal(writes.length, 0);
+});
+
+test('blank highlight creation returns no ID and creates no pending work', async (t) => {
+  const { writes } = backingStore(t, new Map());
+  const view = await mount(t);
+  let id;
+  await view.change(api => { id = api.addHighlight({ exact: ' \n ', prefix: '', suffix: '' }, 'yellow', null); });
+  assert.equal(id, undefined);
+  assert.equal(writes.length, 0);
+  assert.equal(view.api().getMutationVersion(), 0);
+  assert.deepEqual(view.api().pendingRecords(), {});
+});
+
 test('A→B→A ignores both results and failures from the first A request', async (t) => {
   for (const fail of [false, true]) {
     const reads = [];
@@ -340,7 +396,7 @@ for (const unavailable of [false, true]) {
     const view = await mountNotePanel(t);
     const highlights = view.api().highlights;
     await view.click('Edit note');
-    await view.click('Close annotations');
+    await view.click('Close highlights & notes');
     assert.equal(writes.length, 0);
     assert.equal(view.api().highlights, highlights);
     assert.equal(view.api().getMutationVersion(), 0);
@@ -366,7 +422,7 @@ test('R8 unchanged close retains a real failed edit until the explicit Retry but
   assert.ok(error);
   unavailable = false;
   await view.click('Edit note');
-  await view.click('Close annotations');
+  await view.click('Close highlights & notes');
   assert.equal(writes.length, 1, 'unchanged close must not implicitly retry, even after storage recovers');
   assert.equal(view.api().getMutationVersion(), 1);
   assert.equal(view.api().saveError, error);
@@ -394,7 +450,7 @@ for (const cancel of [true, false]) {
     });
     if (cancel) await act(async () => view.host.querySelector('textarea').dispatchEvent(
       new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
-    await view.click('Close annotations');
+    await view.click('Close highlights & notes');
     assert.equal(writes.length, cancel ? 0 : 1);
     assert.equal(view.api().getMutationVersion(), cancel ? 0 : 1);
     assert.equal(view.api().highlights[0].note, cancel ? 'original' : 'edited note');

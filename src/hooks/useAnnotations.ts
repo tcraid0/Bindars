@@ -94,12 +94,13 @@ export function useAnnotations(filePath: string | null) {
     mutationVersion.current++;
     notify();
     persist(filePath, entry);
+    return true;
   }, [filePath, notify, persist]);
 
   const addHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, nearestHeadingId: string | null) => {
     if (!anchor.exact.trim()) return;
     const highlight: Highlight = { ...anchor, id: crypto.randomUUID(), color, nearestHeadingId, createdAt: Date.now() };
-    mutate((prev) => ({ ...prev, highlights: [...prev.highlights, highlight] }));
+    return mutate((prev) => ({ ...prev, highlights: [...prev.highlights, highlight] })) ? highlight.id : undefined;
   }, [mutate]);
   const removeHighlight = useCallback((id: string) => {
     mutate((prev) => prev.highlights.some((h) => h.id === id)

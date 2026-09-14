@@ -75,7 +75,7 @@ function ExportPanel(overrides = {}) {
 }
 
 function exportButton(host) {
-  return host.querySelector('[aria-label="Export annotations as Markdown"]');
+  return host.querySelector('[aria-label="Export highlights & notes as Markdown"]');
 }
 
 function toastMessages(host) {
@@ -93,7 +93,7 @@ async function flushExport() {
 test("buildAnnotationMarkdown includes bookmarks, heading groups, and notes", () => {
   const markdown = buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings);
 
-  assert.match(markdown, /^# Annotations: notes\\\.md\n/);
+  assert.match(markdown, /^# Highlights & notes: notes\\\.md\n/);
   assert.match(markdown, /\*Exported from Bindars on .+\*/);
   assert.match(markdown, /## Bookmarks\n\n- \*\*Introduction\*\*\n- \*\*Line break heading\*\*/);
   assert.match(markdown, /## Highlights\n\n### Introduction\n\n> "First quote"\n>\n> — \*yellow highlight\*\n\n\*\*Note:\*\* Keep this/);
@@ -108,7 +108,7 @@ test("buildAnnotationMarkdown includes bookmarks, heading groups, and notes", ()
 test("buildAnnotationMarkdown emits bookmarks-only output", () => {
   const markdown = buildAnnotationMarkdown("script.fountain", [], bookmarks, headings);
 
-  assert.match(markdown, /^# Annotations: script\\\.fountain\n/);
+  assert.match(markdown, /^# Highlights & notes: script\\\.fountain\n/);
   assert.match(markdown, /## Bookmarks/);
   assert.doesNotMatch(markdown, /## Highlights/);
   assert.doesNotMatch(markdown, /> "/);
@@ -153,7 +153,7 @@ test("annotation export sends the chosen destination and formatted Markdown", as
       writes[0].args.content,
       buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings),
     );
-    assert.deepEqual(toastMessages(view.host), ["Annotations exported"]);
+    assert.deepEqual(toastMessages(view.host), ["Highlights and notes exported"]);
     assert.equal(exportButton(view.host).disabled, false);
   } finally {
     view.cleanup();
@@ -212,7 +212,7 @@ test("a failed annotation write can be retried with feedback and usable controls
       writes[1].args.content,
       buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings),
     );
-    assert.ok(toastMessages(view.host).includes("Annotations exported"));
+    assert.ok(toastMessages(view.host).includes("Highlights and notes exported"));
     assert.equal(exportButton(view.host).disabled, false);
     focus(exportButton(view.host));
     assert.ok(document.activeElement === exportButton(view.host));

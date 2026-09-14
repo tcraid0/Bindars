@@ -67,7 +67,7 @@ function SnapshotRestoreDialogComponent({
     >
       <p className="text-sm text-text-secondary mb-4">
         {documentKind !== null
-          ? <>Restoring replaces the editor buffer and cannot be undone there. Bindars snapshots the current state first. {documentKind === "file"
+          ? <>Restoring replaces your current draft and cannot be undone in the editor. Bindars keeps a recovery copy of the current state first. {documentKind === "file"
             ? "Restored text follows normal autosave."
             : "Save the restored draft to choose a file location."}</>
           : "The recovered draft opens in the editor. Save it to choose a file location."}
@@ -80,7 +80,7 @@ function SnapshotRestoreDialogComponent({
       )}
 
       {loading ? (
-        <p role="status" className="text-sm text-text-muted py-4">Loading snapshots…</p>
+        <p role="status" className="text-sm text-text-muted py-4">Loading earlier versions…</p>
       ) : error ? (
         <p role="alert" className="text-sm text-red-400 py-4">{error}</p>
       ) : choices.length === 0 ? (

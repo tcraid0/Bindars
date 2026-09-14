@@ -90,7 +90,7 @@ test("snapshot restore dialog lists choices and reports the selected id", async 
     assert.equal(buttons.length, 2);
     flushSync(() => buttons[1].click());
     assert.deepEqual(selected, ["old"]);
-    assert.match(rendered.host.textContent, /snapshots the current state first/i);
+    assert.match(rendered.host.textContent, /keeps a recovery copy of the current state first/i);
   } finally {
     rendered.cleanup();
   }
@@ -99,7 +99,7 @@ test("snapshot restore dialog lists choices and reports the selected id", async 
 test("snapshot restore dialog renders loading, empty, and error states explicitly", async () => {
   await installDom();
   const states = [
-    { loading: true, error: null, expected: /Loading snapshots/ },
+    { loading: true, error: null, expected: /Loading earlier versions/ },
     { loading: false, error: null, expected: /Nothing recoverable/ },
     { loading: false, error: "app-data unavailable", expected: /app-data unavailable/ },
   ];

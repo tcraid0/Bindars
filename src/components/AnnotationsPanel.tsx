@@ -21,6 +21,7 @@ interface AnnotationsPanelProps {
   locations?: Record<string, string>;
   onRemoveBookmark?: (id: string) => void;
   flushNoteRef?: React.RefObject<(() => void) | null>;
+  startNoteRef?: React.RefObject<((id: string) => void) | null>;
   annotationStatus: AnnotationLoadStatus;
   annotationsReady: boolean;
   loadError: string | null;
@@ -48,7 +49,7 @@ const COLOR_DOTS: Record<string, string> = {
 
 export const AnnotationsPanel = memo(function AnnotationsPanel({
   visible,
-  saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, filePath, onRestoreRecord,
+  saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, startNoteRef, filePath, onRestoreRecord,
   annotationStatus,
   annotationsReady,
   loadError,
@@ -97,10 +98,13 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     }
   }, [editingNoteId]);
 
-  const startEditNote = useCallback((hl: Highlight) => {
-    draft.current = { id: hl.id, text: hl.note || "", commit: onUpdateHighlight };
-    setEditingNoteId(hl.id);
-    setNoteBuffer(hl.note || "");
+  const startNote = useCallback((id: string, text: string) => {
+    const current = draft.current;
+    if (current?.id === id) return;
+    if (current) current.commit(current.id, { note: current.text.trim() || undefined });
+    draft.current = { id, text, commit: onUpdateHighlight };
+    setEditingNoteId(id);
+    setNoteBuffer(text);
   }, [onUpdateHighlight]);
 
   const saveNote = useCallback(() => {
@@ -122,6 +126,11 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     if (flushNoteRef) flushNoteRef.current = saveNote;
     return () => { if (flushNoteRef?.current === saveNote) flushNoteRef.current = null; };
   }, [flushNoteRef, saveNote]);
+  useLayoutEffect(() => {
+    const startNewNote = (id: string) => startNote(id, "");
+    if (startNoteRef) startNoteRef.current = startNewNote;
+    return () => { if (startNoteRef?.current === startNewNote) startNoteRef.current = null; };
+  }, [startNoteRef, startNote]);
   useEffect(() => { if (!visible) saveNote(); }, [visible, saveNote]);
   useEffect(() => () => {
     // The captured callback belongs to the document where editing began.
@@ -180,7 +189,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       });
       if (!savePath) return;
       await invoke("export_markdown_file", { path: savePath, content: markdown });
-      toast("Annotations exported");
+      toast("Highlights and notes exported");
     } catch {
       toast("Export failed", "error");
     } finally {
@@ -201,14 +210,15 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     >
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <h2 className="ui-section-label">
-          Annotations
+          Highlights &amp; notes
         </h2>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={handleExport}
             disabled={!hasContent || exporting}
-            aria-label="Export annotations as Markdown"
+            aria-label="Export highlights & notes as Markdown"
+            title="Export highlights & notes as Markdown"
             className="p-1 rounded hover:bg-bg-tertiary text-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -221,7 +231,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
             type="button"
             onClick={onClose}
             ref={closeRef}
-            aria-label="Close annotations"
+            aria-label="Close highlights & notes"
             className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -234,12 +244,12 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
       {filePath && onRestoreRecord && <button type="button" disabled={!annotationsReady || mutationsDisabled}
         className="mx-4 mb-3 text-xs text-accent underline" onClick={() => void restoreRecovery()}>Restore recovery copy</button>}
-      <ConfirmDialog visible={recoveryRecord !== null} title="Restore annotations?"
-        message="Replace this document's current annotations with the recovery copy? The copy itself will be kept."
-        confirmLabel="Restore annotations" cancelLabel="Cancel" initialFocus="cancel"
+      <ConfirmDialog visible={recoveryRecord !== null} title="Restore highlights & notes?"
+        message="Replace this document's current highlights, notes, and bookmarks with the recovery copy? The copy itself will be kept."
+        confirmLabel="Restore highlights & notes" cancelLabel="Cancel" initialFocus="cancel"
         onConfirm={() => { if (recoveryRecord) onRestoreRecord?.(recoveryRecord); setRecoveryRecord(null); }}
         onCancel={() => setRecoveryRecord(null)} onDismiss={() => setRecoveryRecord(null)} />
-      {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving annotations...</p>}
+      {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving highlights and notes...</p>}
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
       {loadError && (
         <div className="mx-4 mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
@@ -270,19 +280,19 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
       {annotationStatus === "idle" && (
         <p className="px-4 text-sm text-text-muted">
-          Open a file to use annotations.
+          Open a file to highlight passages and add notes.
         </p>
       )}
 
       {annotationStatus === "loading" && !loadError && (
         <p className="px-4 text-sm text-text-muted">
-          Loading annotations...
+          Loading highlights and notes...
         </p>
       )}
 
       {annotationsReady && !hasContent && (
         <p className="px-4 text-sm text-text-muted">
-          No annotations yet. Select text to highlight or click the bookmark icon in the table of contents.
+          No highlights or notes yet. Select text and choose a color or Note. You can also bookmark a heading in the table of contents.
         </p>
       )}
 
@@ -382,7 +392,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       disabled={mutationsDisabled}
                       aria-label="Edit note"
                       data-note-action={hl.id}
-                      onClick={() => startEditNote(hl)}
+                      onClick={() => startNote(hl.id, hl.note || "")}
                       className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary p-0.5 rounded transition-opacity duration-100 shrink-0"
                     >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -396,9 +406,9 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                     <button
                       type="button"
                       disabled={mutationsDisabled}
-                      onClick={() => startEditNote(hl)}
+                      onClick={() => startNote(hl.id, hl.note || "")}
                       data-note-action={hl.id}
-                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-xs text-accent hover:underline transition-opacity duration-100"
+                      className="text-xs text-accent hover:underline"
                     >
                       Add note
                     </button>

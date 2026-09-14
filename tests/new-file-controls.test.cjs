@@ -41,10 +41,12 @@ test("EmptyState exposes a working New File action alongside Open File", async (
   await installDom();
   let newCount = 0;
   let openCount = 0;
+  let sampleCount = 0;
   let restoreCount = 0;
   const rendered = render(React.createElement(EmptyState, {
     onNewFile() { newCount += 1; },
     onOpenFile() { openCount += 1; },
+    onTrySample() { sampleCount += 1; },
     recentFiles: [],
     onOpenRecent() {},
     onRestoreDrafts() { restoreCount += 1; },
@@ -56,6 +58,8 @@ test("EmptyState exposes a working New File action alongside Open File", async (
     click(buttonWithText(rendered.host, "Restore an unsaved draft…"));
     assert.equal(newCount, 1);
     assert.equal(openCount, 1);
+    click(buttonWithText(rendered.host, "Try an example"));
+    assert.equal(sampleCount, 1);
     assert.equal(restoreCount, 1);
   } finally {
     rendered.cleanup();

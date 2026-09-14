@@ -57,8 +57,8 @@ export type AdoptExternalDocument = (
 
 function externalChangeMessage(change: EditorExternalChange): string {
   return change === "deleted"
-    ? "This file was deleted outside Bindars. Your editor buffer is preserved and autosave is paused."
-    : "The file changed outside Bindars. Your editor buffer is preserved and autosave is paused.";
+    ? "This file was deleted outside Bindars. Your current draft is preserved and autosave is paused."
+    : "The file changed outside Bindars. Your current draft is preserved and autosave is paused.";
 }
 
 export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {

@@ -68,6 +68,53 @@ async function setup(props = {}) {
   };
 }
 
+for (const fileType of ["markdown", "fountain"]) {
+  test(`Read/Edit buttons expose the current ${fileType} mode and only request a different mode`, async () => {
+    let toggles = 0;
+    const view = await setup({ fileType, isEditing: false, canToggleEdit: true, onToggleEdit() { toggles += 1; } });
+    try {
+      const read = view.host.querySelector('button[aria-label="Read mode"]');
+      const edit = view.host.querySelector('button[aria-label="Edit mode"]');
+      assert.equal(read.textContent, "Read");
+      assert.equal(edit.textContent, "Edit");
+      assert.equal(read.getAttribute("aria-pressed"), "true");
+      assert.equal(edit.getAttribute("aria-pressed"), "false");
+      assert.equal(read.tabIndex, 0);
+      assert.equal(edit.tabIndex, 0);
+      focus(read);
+      assert.equal(pressKey("Tab").defaultPrevented, false, "mode buttons retain native keyboard navigation");
+      click(read);
+      click(read);
+      assert.equal(toggles, 0, "selecting the current mode must not toggle or trigger guards");
+      click(edit);
+      assert.equal(toggles, 1);
+      view.render({ isEditing: true });
+      assert.equal(read.getAttribute("aria-pressed"), "false");
+      assert.equal(edit.getAttribute("aria-pressed"), "true");
+      click(edit);
+      assert.equal(toggles, 1, "selecting Edit again must preserve current work");
+      click(read);
+      assert.equal(toggles, 2);
+    } finally { view.cleanup(); }
+  });
+}
+
+test("Read/Edit buttons both respect the existing transition-disabled state", async () => {
+  let toggles = 0;
+  const view = await setup({ isEditing: false, canToggleEdit: false, onToggleEdit() { toggles += 1; } });
+  try {
+    for (const isEditing of [false, true]) {
+      view.render({ isEditing });
+      for (const name of ["Read mode", "Edit mode"]) {
+        const button = view.host.querySelector(`button[aria-label="${name}"]`);
+        assert.equal(button.disabled, true);
+        click(button);
+      }
+    }
+    assert.equal(toggles, 0);
+  } finally { view.cleanup(); }
+});
+
 for (const kind of ["reader", "export"]) {
   test(`${kind}: names and trigger relationship, repeated Escape, no leaked event`, async () => {
     const view = await setup();

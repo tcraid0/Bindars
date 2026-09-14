@@ -6,6 +6,8 @@ import { formatShortcutLabel } from "../lib/shortcut-labels";
 interface EmptyStateProps {
   onNewFile: () => void;
   onOpenFile: () => void;
+  onTrySample: () => void;
+  canTrySample?: boolean;
   recentFiles: RecentFile[];
   recentHistoryUnavailable?: boolean;
   onOpenRecent: (path: string) => void;
@@ -16,6 +18,8 @@ interface EmptyStateProps {
 function EmptyStateComponent({
   onNewFile,
   onOpenFile,
+  onTrySample,
+  canTrySample = true,
   recentFiles,
   recentHistoryUnavailable = false,
   onOpenRecent,
@@ -38,7 +42,7 @@ function EmptyStateComponent({
       <p
         className="font-reading italic text-text-muted text-lg mb-8 empty-state-subtitle"
       >
-        Read markdown beautifully
+        Read, highlight, and add your thoughts
       </p>
 
       <div className="empty-state-content">
@@ -74,11 +78,19 @@ function EmptyStateComponent({
           </>
         )}
 
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={onTrySample}
+            disabled={!canTrySample}
+            className="px-5 py-3 rounded-lg bg-accent text-white font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+          >
+            Try an example
+          </button>
           <button
             type="button"
             onClick={onNewFile}
-            className="px-5 py-3 rounded-lg bg-accent text-white font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm"
+            className="px-5 py-3 rounded-lg border border-border text-text-secondary font-medium text-sm hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
           >
             New File
           </button>
@@ -90,6 +102,9 @@ function EmptyStateComponent({
             Open File
           </button>
         </div>
+        <p className="text-xs text-text-muted mt-3 max-w-sm mx-auto">
+          Save your own copy, then try highlighting and adding notes. Reopen your saved copy from Recent files or Open File.
+        </p>
         <p className="text-xs text-text-muted mt-2">
           {formatShortcutLabel("newFile")} · {formatShortcutLabel("openFile")}
         </p>
