@@ -80,6 +80,8 @@ mod tests {
             "https://example.com/",
             "http://127.0.0.1:4174/r0-target.html",
             "asset://localhost/tmp/image.png",
+            "document-image://localhost/encoded-paths",
+            "http://document-image.localhost/encoded-paths",
             "file:///tmp/document.md",
             "data:text/html,remote",
         ] {

@@ -10,6 +10,7 @@ mod document_io;
 mod exports;
 mod file_errors;
 mod file_watcher;
+mod images;
 mod native_lifecycle;
 mod navigation;
 mod printing;
@@ -64,6 +65,14 @@ pub fn run() {
     }
 
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "document-image",
+            |_context, request, responder| {
+                tauri::async_runtime::spawn_blocking(move || {
+                    responder.respond(images::protocol_response(request));
+                });
+            },
+        )
         .plugin(navigation::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())

@@ -58,7 +58,8 @@ This is a quick navigation tool, not an exhaustive full-document search.
   and similar tags disappear and only the Markdown around them is shown.
 - Images must be relative paths inside the document's folder (or a subfolder).
   Remote images, `data:` URLs, absolute paths, and `../` paths are not loaded.
-  The app can only read images under your home and temporary folders.
+  Image shortcuts (symbolic links) must also resolve inside that folder.
+  Images larger than 20 MiB are not loaded.
 - Links to other `.md`, `.markdown`, and `.fountain` files open in the reader,
   including `../` paths. `http(s)` and `mailto` links open in your system
   browser or mail client; other URL schemes are removed.

@@ -61,7 +61,7 @@ function renderMarkdownRenderer(content) {
   const previousDocument = globalThis.document;
   globalThis.window = {
     __TAURI_INTERNALS__: {
-      convertFileSrc: (filePath, protocol = "asset") => `${protocol}://${filePath}`,
+      convertFileSrc: (filePath, protocol = "asset") => `${protocol}://localhost/${encodeURIComponent(filePath)}`,
     },
     matchMedia: () => ({
       matches: false,
@@ -352,17 +352,21 @@ test("MarkdownRenderer does not serialize react-markdown node props", () => {
     ].join("\n"),
   );
 
-  assert.match(html, /<img[^>]+src="asset:\/\/\/workspace\/image\.png"[^>]+alt="Alt text"/);
+  assert.match(html, /<img[^>]+src="document-image:\/\/localhost\/[^" ]+"[^>]+alt="Alt text"/);
   assert.match(html, /<a href="\.\/target\.md">Target<\/a>/);
   assert.match(html, /<table(?:\s|>)/);
   assert.doesNotMatch(html, /\snode="/);
   assert.doesNotMatch(html, /\[object Object\]/);
 });
 
-test("MarkdownRenderer resolves encoded local image filenames before creating asset urls", () => {
+test("MarkdownRenderer passes decoded image paths to the confined native protocol", () => {
   const html = renderMarkdownRenderer("![Cover](<café cover.png>)");
 
-  assert.match(html, /src="asset:\/\/\/workspace\/café cover\.png"/);
+  const source = /<img[^>]+src="([^"]+)"/.exec(html)?.[1];
+  assert.ok(source);
+  const url = new URL(source);
+  assert.equal(url.protocol, "document-image:");
+  assert.deepEqual(JSON.parse(decodeURIComponent(url.pathname.slice(1))), ["/workspace/current.md", "/workspace/café cover.png"]);
 });
 
 test("MarkdownRenderer carries authoritative source points through the plugin chain", () => {

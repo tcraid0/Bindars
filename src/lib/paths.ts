@@ -1,26 +1,23 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isOpenableDocumentPath } from "./openable-files";
 
-export interface AssetScopeRoots {
-  homePath: string | null;
-  tempPath: string | null;
-}
-
 /**
- * Resolve a relative image path against the directory of the currently open file.
- * Returns an asset:// URL that Tauri can serve locally.
+ * The custom protocol reads image bytes through a native directory capability.
+ * Passing both paths lets that reader enforce the document folder before every
+ * read. convertFileSrc performs the single transport-encoding step and handles
+ * the Windows localhost alias; never serve the result via the broad asset API.
  */
 export function resolveImageSrc(src: string, filePath: string): string {
   const resolved = resolveImagePath(src, filePath);
-  if (!resolved) {
-    return "";
-  }
-  return convertFileSrc(resolved);
+  if (!resolved) return "";
+  return convertFileSrc(JSON.stringify([filePath, resolved]), "document-image");
 }
 
 /**
  * Resolve a relative image path against the directory of the currently open file.
  * Returns a normalized absolute path, or an empty string if blocked/invalid.
+ * This is a lexical filter only: the native image reader must enforce real
+ * filesystem containment before returning bytes.
  */
 export function resolveImagePath(src: string, filePath: string): string {
   const trimmedSrc = src.trim();
@@ -62,29 +59,10 @@ export function resolveImagePath(src: string, filePath: string): string {
 }
 
 /**
- * Check whether a normalized absolute path is inside the Tauri asset protocol
- * scope configured by default in this app ($HOME and $TEMP).
- */
-export function isPathAllowedByAssetScope(path: string, scope: AssetScopeRoots): boolean {
-  const normalizedPath = normalizePath(toPosixPath(path));
-  const home = normalizeScopeRoot(scope.homePath);
-  if (home && isPathInsideBase(normalizedPath, home)) {
-    return true;
-  }
-
-  const temp = normalizeScopeRoot(scope.tempPath);
-  if (temp && isPathInsideBase(normalizedPath, temp)) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * Resolve a relative markdown link (e.g. `./other.md#section`) against the current file.
  * Returns `{ path, anchor }` if valid, or `null` if the link is not navigable.
  *
- * Unlike resolveImageSrc, this does NOT restrict traversal with `..` — navigating to
+ * Unlike resolveImagePath, this does NOT restrict traversal with `..` — navigating to
  * `../README.md` is legitimate. The Rust backend validates the resolved path on open.
  */
 export function resolveMarkdownLink(
@@ -270,17 +248,6 @@ function isPathInsideBase(path: string, basePath: string): boolean {
 
   const baseWithSlash = basePath.endsWith("/") ? basePath : `${basePath}/`;
   return path === basePath || path.startsWith(baseWithSlash);
-}
-
-function normalizeScopeRoot(path: string | null): string | null {
-  if (!path) {
-    return null;
-  }
-  const trimmed = path.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return normalizePath(toPosixPath(trimmed));
 }
 
 function looksWindowsPath(path: string): boolean {

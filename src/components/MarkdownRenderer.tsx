@@ -1,14 +1,11 @@
-import React, { memo, useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
+import React, { memo, useMemo, useState, useCallback, createContext, useContext } from "react";
 import Markdown from "react-markdown";
 import { remarkPlugins, createRehypePlugins } from "../lib/markdown-plugins";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { homeDir, tempDir } from "@tauri-apps/api/path";
 import {
   decodeUriComponentSafe,
-  isPathAllowedByAssetScope,
   resolveImagePath,
+  resolveImageSrc,
   resolveMarkdownLink,
-  type AssetScopeRoots,
 } from "../lib/paths";
 import { extractFrontmatter, formatFrontmatterDate } from "../lib/frontmatter";
 import { extractCodeText } from "../lib/code-text";
@@ -42,15 +39,11 @@ function MarkdownImage({
   src,
   alt,
   filePath,
-  assetScopeRoots,
-  assetScopeResolved,
   ...props
 }: {
   src?: string;
   alt?: string;
   filePath: string;
-  assetScopeRoots: AssetScopeRoots;
-  assetScopeResolved: boolean;
   [key: string]: unknown;
 }) {
   const [failed, setFailed] = useState(false);
@@ -72,23 +65,11 @@ function MarkdownImage({
     return <ImageNotice reason={describeBlockedImageSource(src)} label={alt || src} />;
   }
 
-  const blockedByScope =
-    assetScopeResolved &&
-    !isPathAllowedByAssetScope(resolvedPath, assetScopeRoots);
-  if (blockedByScope) {
-    return (
-      <ImageNotice
-        reason="it is outside the folders Bindars can read (your home and temporary folders)"
-        label={alt || src}
-      />
-    );
-  }
-
-  const resolved = convertFileSrc(resolvedPath);
+  const resolved = resolveImageSrc(src, filePath);
   if (failed) {
     return (
       <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
-        [image not found or unreadable: {alt || src}]
+        [image not shown: unavailable, outside the document's folder, or larger than 20 MiB: {alt || src}]
       </span>
     );
   }
@@ -134,8 +115,6 @@ interface MarkdownContentProps {
 }
 
 interface MarkdownContextValue extends Omit<MarkdownContentProps, "content"> {
-  assetScopeRoots: AssetScopeRoots;
-  assetScopeResolved: boolean;
   handleCodeCopyError: (message: string) => void;
 }
 
@@ -147,18 +126,16 @@ function useMarkdownContext(): MarkdownContextValue {
   return context;
 }
 
-// Component types stay stable when navigation callbacks or asset scope change.
+// Component types stay stable when navigation callbacks change.
 // Replacing their types would remount marked text and invalidate React's DOM references.
 const markdownComponents: Components = {
   img: function Image({ node: _node, src, alt, ...props }) {
-    const { filePath, assetScopeRoots, assetScopeResolved } = useMarkdownContext();
+    const { filePath } = useMarkdownContext();
     return (
       <MarkdownImage
         src={src}
         alt={alt}
         filePath={filePath}
-        assetScopeRoots={assetScopeRoots}
-        assetScopeResolved={assetScopeResolved}
         {...props}
       />
     );
@@ -310,34 +287,6 @@ const MarkdownContent = memo(function MarkdownContent({
   onNavigateToFile,
 }: MarkdownContentProps) {
   const { toast } = useToast();
-  const [assetScopeRoots, setAssetScopeRoots] = useState<AssetScopeRoots>({
-    homePath: null,
-    tempPath: null,
-  });
-  const [assetScopeResolved, setAssetScopeResolved] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      const [homePath, tempPath] = await Promise.all([
-        homeDir().catch(() => null),
-        tempDir().catch(() => null),
-      ]);
-
-      if (cancelled) {
-        return;
-      }
-
-      setAssetScopeRoots({ homePath, tempPath });
-      setAssetScopeResolved(true);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const handleCodeCopyError = useCallback((message: string) => {
     toast(message, "error");
   }, [toast]);
@@ -351,8 +300,8 @@ const MarkdownContent = memo(function MarkdownContent({
 
   const context = useMemo(() => ({
     filePath, onOpenFragment, onNavigateToFile,
-    assetScopeRoots, assetScopeResolved, handleCodeCopyError,
-  }), [filePath, onOpenFragment, onNavigateToFile, assetScopeRoots, assetScopeResolved, handleCodeCopyError]);
+    handleCodeCopyError,
+  }), [filePath, onOpenFragment, onNavigateToFile, handleCodeCopyError]);
 
   return (
     <MarkdownContext.Provider value={context}>
