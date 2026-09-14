@@ -9,6 +9,12 @@ While you edit, Bindars periodically writes recovery snapshots to help recover
 work after a crash or power loss. Changes since the last successful snapshot
 can still be lost; snapshots do not replace saving your document or backups.
 
+To recover an unsaved document, choose **Restore an unsaved draft…** on the
+start screen or under **Reader Settings → Recovery**. Finish any current edits
+and return to Read mode first. Restoring opens the recovered text as an unsaved
+draft; choose Save to give it a filename and location. **Earlier versions**
+instead shows snapshots for the document currently open.
+
 - Snapshots stay on this device. They are written over Tauri IPC into the
   app-data directory, and the production content-security policy contains
   `connect-src 'none'`: there is no upload, sync, or telemetry path.

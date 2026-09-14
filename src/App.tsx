@@ -1422,7 +1422,9 @@ function App() {
   }, [getCurrentSnapshotDocument, waitForSnapshotQueue]);
 
   const openDraftSnapshotRestore = useCallback(async () => {
-    if (actionAdmissionOwnerRef.current !== null) return;
+    // Restore another draft only from the reader. Leaving Edit mode first uses
+    // the existing save/discard guard rather than replacing a live buffer here.
+    if (actionAdmissionOwnerRef.current !== null || editingRef.current) return;
     const request = restoreRequestRef.current + 1;
     restoreRequestRef.current = request;
     setRestoreDialog({ kind: "drafts", loading: true, error: null, drafts: [], skippedCount: 0 });
@@ -1546,6 +1548,7 @@ function App() {
 
   const restoreDraftSnapshot = useCallback(async (draft: SnapshotDraft) => {
     const request = restoreRequestRef.current;
+    const readerPublication = getPublishedDocument();
     setRestoringSnapshotId(draft.id);
     try {
       const document = draftSnapshotDocument(draft.id, draft.name);
@@ -1555,10 +1558,21 @@ function App() {
       if (!latest) throw new Error("This draft has no readable snapshots.");
       const restoredContent = await readDocumentSnapshot(document, latest.id);
       if (restoreRequestRef.current !== request) return;
-      if (editingRef.current || isDocumentOpen(loadedContentRef.current)) {
+      if (editingRef.current || getPublishedDocument() !== readerPublication) {
         throw new Error("Another document opened before the draft could be restored.");
       }
 
+      // Preserve a reader-side note's text before its document leaves the view,
+      // matching the ordinary document-navigation boundary.
+      flushSync(() => flushAnnotationNoteRef.current?.());
+      await waitForAnnotationSaves();
+      if (restoreRequestRef.current !== request) return;
+      if (editingRef.current || getPublishedDocument() !== readerPublication) {
+        throw new Error("Another document opened before the draft could be restored.");
+      }
+      if (Object.keys(pendingAnnotationRecords()).length > 0) {
+        throw new Error("Save pending notes before restoring another draft. Close this dialog and retry from Highlights & notes.");
+      }
       setVirtualContent("", draft.name);
       beginEditSession("", null, null, draft.name, null, document);
       editor.updateBuffer(restoredContent);
@@ -1573,7 +1587,7 @@ function App() {
         : current);
       toast("Couldn't restore that draft.", "error");
     }
-  }, [beginEditSession, closeRestoreDialog, editor.updateBuffer, setVirtualContent, toast]);
+  }, [beginEditSession, closeRestoreDialog, editor.updateBuffer, getPublishedDocument, pendingAnnotationRecords, setVirtualContent, toast, waitForAnnotationSaves]);
 
   const handleRestoreChoice = useCallback((id: string) => {
     const current = restoreDialog;
@@ -3255,6 +3269,8 @@ function App() {
             recoveryStorageStats={recoveryStorageStats}
             recoveryStorageStatsLoading={recoveryStorageStatsLoading}
             recoveryStorageStatsError={recoveryStorageStatsError}
+            canRestoreDrafts={!editing && !actionAdmissionInFlight}
+            onRestoreDrafts={openDraftSnapshotRestore}
             onClearRecoveryHistory={requestClearRecoveryHistory}
             onClose={closeReaderControls}
           />

@@ -53,6 +53,8 @@ interface ReaderControlsProps {
   recoveryStorageStats: SnapshotStorageStats | null;
   recoveryStorageStatsLoading: boolean;
   recoveryStorageStatsError: string | null;
+  canRestoreDrafts: boolean;
+  onRestoreDrafts: () => void;
   onClearRecoveryHistory: () => void;
   onClose: () => void;
 }
@@ -69,6 +71,8 @@ function ReaderControlsComponent({
   recoveryStorageStats,
   recoveryStorageStatsLoading,
   recoveryStorageStatsError,
+  canRestoreDrafts,
+  onRestoreDrafts,
   onClearRecoveryHistory,
   onClose,
 }: ReaderControlsProps) {
@@ -297,6 +301,20 @@ function ReaderControlsComponent({
 
       <div className="mt-3 pt-3 border-t border-border">
         <span className="text-xs text-text-secondary block mb-1.5">Recovery</span>
+        <button
+          type="button"
+          disabled={!canRestoreDrafts}
+          onClick={() => {
+            dismiss(true);
+            onRestoreDrafts();
+          }}
+          className="w-full py-1.5 text-xs text-text-primary hover:bg-bg-tertiary rounded-md transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Restore an unsaved draft…
+        </button>
+        <p className="text-[11px] leading-relaxed text-text-muted mb-1.5">
+          Finish current edits and return to Read mode before restoring another draft.
+        </p>
         <p className="text-[11px] leading-relaxed text-text-muted mb-1.5" aria-live="polite">
           {recoveryStorageStatsLoading
             ? "Calculating recovery data…"

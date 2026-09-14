@@ -1366,7 +1366,9 @@ async function renderContinuityApp({
   readySelector = "#second",
   restoreHeadingId,
   storedHighlights = [],
+  annotationWrite = null,
   snapshotEntries = [],
+  snapshotDrafts = [],
   snapshotContents = {},
   initialOpenOperation = null,
   initialSessionOperation = null,
@@ -1436,7 +1438,7 @@ async function renderContinuityApp({
           ?? (args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null);
       case "save_annotations":
         annotationWrites.push(structuredClone(args));
-        return null;
+        return annotationWrite ? annotationWrite(args) : null;
       case "plugin:store|save":
         if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
         return null;
@@ -1612,6 +1614,10 @@ async function renderContinuityApp({
       case "retire_snapshot_draft":
         retiredDrafts.push(args.document);
         return null;
+      case "get_snapshot_storage_stats":
+        return { streamCount: snapshotDrafts.length, snapshotCount: snapshotEntries.length, totalBytes: 0, skippedCount: 0 };
+      case "list_snapshot_drafts":
+        return { drafts: snapshotDrafts, skippedCount: 0 };
       case "list_document_snapshots":
         documentSnapshotListCount += 1;
         if (snapshotListError) {
@@ -1812,6 +1818,145 @@ test("read-only Fountain document offers Save As and preserves its file type", a
   } finally {
     await rendered.cleanup();
   }
+});
+
+const settingsRecoveredText = "Recovered unsaved words from before the crash.";
+const settingsDraftSnapshotId = "00000000000000005000-3333333333333333.md";
+function settingsDraftFixture(options = {}) {
+  return {
+    snapshotDrafts: [{ id: "settings-draft", name: "Recovered draft.md", latestSnapshotAtMs: 5000, snapshotCount: 1 }],
+    snapshotEntries: [{ id: settingsDraftSnapshotId, createdAtMs: 5000, size: settingsRecoveredText.length }],
+    snapshotContents: { [settingsDraftSnapshotId]: settingsRecoveredText },
+    ...options,
+  };
+}
+
+async function openDraftRestoreFromSettings(rendered) {
+  const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+  flushSync(() => { trigger.focus(); trigger.click(); });
+  clickButton(rendered.host, "Restore an unsaved draft…");
+  return waitFor(() => {
+    const dialog = rendered.host.querySelector('[role="dialog"][aria-modal="true"]');
+    assert.ok(dialog);
+    assert.match(dialog.textContent, /Restore an unsaved draft/);
+    const choice = dialog.querySelector("li button");
+    assert.ok(choice);
+    return choice;
+  });
+}
+
+test("settings draft recovery restores from an open saved document and returns focus correctly", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    const original = rendered.diskContent();
+    await openDraftRestoreFromSettings(rendered);
+    clickButton(rendered.host, "Close");
+    await waitFor(() => assert.ok(document.activeElement === rendered.host.querySelector('[aria-label="Toggle reader settings"]')));
+    assert.equal(rendered.diskContent(), original);
+    assert.ok(rendered.host.querySelector("#second"));
+
+    const choice = await openDraftRestoreFromSettings(rendered);
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      const view = findEditorView(rendered.host);
+      assert.equal(view.state.sliceDoc(), settingsRecoveredText);
+      assert.ok(document.activeElement === view.contentDOM);
+      assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
+    });
+    assert.equal(rendered.diskContent(), original);
+    assert.deepEqual(rendered.fileWrites(), []);
+    await waitFor(() => assert.ok(rendered.snapshotWrites().some(write => write.document.kind === "draft" && write.document.id === "settings-draft")));
+  } finally { await rendered.cleanup(); }
+});
+
+test("settings draft recovery cannot replace a dirty editor and Read mode retains the save guard", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const words = "These current unsaved edits must survive.";
+    updateEditor(rendered.host, words);
+    const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+    flushSync(() => trigger.click());
+    const restore = [...rendered.host.querySelectorAll("button")].find(button => button.textContent.trim() === "Restore an unsaved draft…");
+    assert.ok(restore);
+    assert.equal(restore.disabled, true);
+    assert.match(rendered.host.textContent, /Finish current edits and return to Read mode/);
+    flushSync(() => restore.click());
+    assert.equal(rendered.documentSnapshotListCount(), 0);
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+    assert.ok(!rendered.host.querySelector('[aria-modal="true"]'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Close reader settings"]').click());
+    rendered.failNextFileWrite(new Error("Synthetic save failure"));
+    clickButton(rendered.host, "Read");
+    await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[aria-modal="true"]')));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+    assert.notEqual(rendered.diskContent(), words);
+    assert.equal(rendered.fileWrites().length, 1, "only the failed guarded save was attempted");
+  } finally { await rendered.cleanup(); }
+});
+
+for (const failSave of [false, true]) {
+  test(`settings draft recovery ${failSave ? "keeps the reader after a failed" : "waits for the current"} note save`, async () => {
+    const noteSave = deferred();
+    const noteText = "Reader note text that must be preserved.";
+    const rendered = await renderContinuityApp(settingsDraftFixture({
+      storedHighlights: [{ id: "reader-note", prefix: "", exact: "Opening words", suffix: ".", color: "yellow", createdAt: 1, nearestHeadingId: "first", note: "Original note" }],
+      annotationWrite: args => { noteSave.args = args; return noteSave.promise; },
+    }));
+    try {
+      flushSync(() => rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]').click());
+      const editNote = await waitFor(() => { const button = rendered.host.querySelector('[aria-label="Edit note"]'); assert.ok(button); return button; });
+      flushSync(() => editNote.click());
+      await typeHighlightNote(rendered, noteText);
+      const choice = await openDraftRestoreFromSettings(rendered);
+      flushSync(() => choice.click());
+      await waitFor(() => assert.equal(noteSave.args.annotations.highlights[0].note, noteText));
+      assert.equal(noteSave.args.path, "/tmp/continuity.md");
+      assert.ok(rendered.host.querySelector("#second"));
+      assert.ok(!rendered.host.querySelector(".cm-editor"));
+      await act(async () => {
+        if (failSave) noteSave.reject(new Error("Synthetic annotation save failure"));
+        else noteSave.resolve(null);
+      });
+      if (failSave) {
+        await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Save pending notes before restoring another draft/));
+        assert.ok(rendered.host.querySelector("#second"));
+        assert.ok(!rendered.host.querySelector(".cm-editor"));
+        assert.ok(rendered.host.textContent.includes(noteText));
+      } else {
+        await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), settingsRecoveredText));
+      }
+      assert.deepEqual(rendered.fileWrites(), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("settings draft recovery rejects a late snapshot after the reader publication changes", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.ok(reconciliation.args));
+    const snapshotRead = deferred();
+    rendered.deferNextSnapshotRead(snapshotRead);
+    const choice = await openDraftRestoreFromSettings(rendered);
+    flushSync(() => choice.click());
+    await waitFor(() => assert.ok(snapshotRead.args));
+    const newText = "# A newer reader publication\n\nExternal update.";
+    await act(async () => reconciliation.resolve(rendered.openResult(newText, rendered.revision() + 1)));
+    await waitFor(() => assert.match(rendered.host.querySelector("article").textContent, /A newer reader publication/));
+    await act(async () => snapshotRead.resolve(settingsRecoveredText));
+    await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Another document opened before the draft could be restored/));
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    assert.deepEqual(rendered.fileWrites(), []);
+  } finally { await rendered.cleanup(); }
 });
 
 test("read-only Markdown document offers Save As and adopts the writable copy", async () => {
