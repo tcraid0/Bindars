@@ -186,16 +186,17 @@ test('a locked creation starts no note, and canceling an empty new note keeps it
   assert.equal(document.activeElement.textContent.trim(), 'Add note');
 });
 
-async function mountToolbar(t) {
+async function mountToolbar(t, { keyed = true } = {}) {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   const calls = [];
   const contentRef = { current: null };
-  const render = async (path = '/a.md', source = anchor.exact) => {
+  const render = async (path = '/a.md', source = anchor.exact, isEditing = false) => {
     await act(async () => root.render(React.createElement(ToastProvider, null,
-      React.createElement('article', { ref: contentRef }, React.createElement('p', null, anchor.exact)),
+      React.createElement('main', { tabIndex: -1 },
+        React.createElement('article', { ref: contentRef }, React.createElement('p', null, anchor.exact))),
       React.createElement(HighlightToolbar, {
-        key: JSON.stringify([path, source]), source, contentRef, isEditing: false,
+        key: keyed ? JSON.stringify([path, source]) : undefined, source, contentRef, isEditing,
         getActiveHeadingId: () => 'intro',
         onHighlight: (...args) => calls.push(['highlight', ...args]),
         onNote: (...args) => calls.push(['note', ...args]),
@@ -207,7 +208,7 @@ async function mountToolbar(t) {
     window.getSelection().removeAllRanges();
   });
   return {
-    host, calls, render,
+    host, calls, render, contentRef,
     async select() {
       const range = document.createRange();
       range.selectNodeContents(host.querySelector('p'));
@@ -271,4 +272,216 @@ test('an unsupported selection creates no note and gives retry guidance', async 
   await act(async () => findButton(view.host, 'Note').click());
   assert.deepEqual(view.calls, []);
   assert.match(view.host.textContent, /This selection includes text that cannot be highlighted/);
+});
+
+
+async function pressKey(target, key, options = {}) {
+  const event = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options });
+  await act(async () => target.dispatchEvent(event));
+  return event;
+}
+
+for (const [label, modifiers, first] of [
+  ['Tab', {}, 'Highlight Yellow'],
+  ['Shift+Tab', { shiftKey: true }, 'Note'],
+  ['Option+Tab', { altKey: true }, 'Highlight Yellow'],
+]) {
+  test(`${label} reaches selected-text actions and keeps the selection when WebKit collapses it on focus`, async t => {
+    const requested = [];
+    t.mock.method(anchoring, 'createPositionedAnchor', async (range) => {
+      requested.push(range.toString());
+      return anchor;
+    });
+    const view = await mountToolbar(t);
+    await view.select();
+    // Native WebKit may discard its visible selection as a button takes focus.
+    const collapse = () => {
+      window.getSelection().removeAllRanges();
+      document.dispatchEvent(new window.Event('selectionchange'));
+    };
+    findButton(view.host, first).addEventListener('focus', collapse);
+    view.host.querySelector('main').focus();
+    assert.equal((await pressKey(document.activeElement, 'Tab', modifiers)).defaultPrevented, true);
+    assert.ok(document.activeElement === findButton(view.host, first));
+    assert.equal(window.getSelection().rangeCount, 0);
+    assert.ok(view.host.querySelector('[role="group"][aria-label="Selected text actions"]'));
+    // Leave Enter/Space activation to the native button. Happy DOM does not
+    // synthesize its click; dispatch the resulting click explicitly here.
+    const activation = await pressKey(document.activeElement, first === 'Note' ? ' ' : 'Enter');
+    assert.equal(activation.defaultPrevented, false);
+    await act(async () => document.activeElement.click());
+    assert.deepEqual(requested, [anchor.exact]);
+    assert.deepEqual(view.calls, first === 'Note' ? [['note', anchor, 'intro']] : [['highlight', anchor, 'yellow', 'intro']]);
+    if (first !== 'Note') assert.ok(document.activeElement === view.host.querySelector('main'));
+  });
+}
+
+test('Tab navigates every selection action, then leaves without a focus trap or a stale toolbar', async t => {
+  const view = await mountToolbar(t);
+  await view.select();
+  view.host.querySelector('main').focus();
+  await pressKey(document.activeElement, 'Tab');
+  for (const label of ['Highlight Green', 'Highlight Blue', 'Highlight Pink', 'Note']) {
+    assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, true);
+    assert.ok(document.activeElement === findButton(view.host, label));
+  }
+  assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, false);
+  const elsewhere = document.createElement('input'); view.host.append(elsewhere);
+  await act(async () => elsewhere.focus()); // browser's default Tab destination
+  assert.ok(view.host.querySelector('[role="group"]') === null);
+  assert.equal((await pressKey(elsewhere, 'Tab')).defaultPrevented, false, 'a retained native range must not hijack an unrelated input');
+});
+
+test('reverse Tab leaves the first action and Escape returns focus to the reader', async t => {
+  const view = await mountToolbar(t);
+  await view.select();
+  view.host.querySelector('main').focus();
+  await pressKey(document.activeElement, 'Tab');
+  assert.equal((await pressKey(document.activeElement, 'Tab', { shiftKey: true })).defaultPrevented, false);
+  assert.equal((await pressKey(document.activeElement, 'Escape')).defaultPrevented, true);
+  assert.ok(view.host.querySelector('[role="group"]') === null);
+  assert.ok(document.activeElement === view.host.querySelector('main'));
+  assert.equal(window.getSelection().rangeCount, 0);
+  assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, false);
+});
+
+test('Tab can enter the toolbar even before the native selectionchange event arrives', async t => {
+  const view = await mountToolbar(t);
+  view.host.querySelector('main').focus();
+  const range = document.createRange(); range.selectNodeContents(view.host.querySelector('p'));
+  window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+  assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, true);
+  assert.ok(document.activeElement === findButton(view.host, 'Highlight Yellow'));
+});
+
+test('deselecting prose outside the toolbar dismisses its actions', async t => {
+  const view = await mountToolbar(t);
+  await view.select();
+  await act(async () => {
+    window.getSelection().removeAllRanges();
+    document.dispatchEvent(new window.Event('selectionchange'));
+  });
+  assert.ok(view.host.querySelector('[role="group"]') === null);
+});
+
+for (const change of ['text mutation', 'root replacement']) {
+  test(`a held selection cannot create an annotation after ${change}`, async t => {
+    const requested = [];
+    t.mock.method(anchoring, 'createPositionedAnchor', async () => { requested.push(true); return anchor; });
+    const view = await mountToolbar(t);
+    await view.select();
+    await pressKey(document.body, 'Tab', { shiftKey: true });
+    if (change === 'text mutation') view.host.querySelector('p').textContent = 'Different passage';
+    else view.contentRef.current = document.createElement('article');
+    await act(async () => findButton(view.host, 'Note').click());
+    assert.deepEqual(requested, []);
+    assert.deepEqual(view.calls, []);
+  });
+}
+
+for (const change of ['text mutation', 'root replacement', 'source replacement', 'editing', 'Escape']) {
+  test(`an anchoring request cannot publish after ${change}`, async t => {
+    const gate = deferred();
+    t.mock.method(anchoring, 'createPositionedAnchor', () => gate.promise);
+    const view = await mountToolbar(t, { keyed: false });
+    await view.select();
+    await pressKey(document.body, 'Tab', { shiftKey: true });
+    await act(async () => findButton(view.host, 'Note').click());
+    if (change === 'text mutation') view.host.querySelector('p').textContent = 'Different passage';
+    else if (change === 'root replacement') view.contentRef.current = document.createElement('article');
+    else if (change === 'source replacement') await view.render('/a.md', 'New source');
+    else if (change === 'editing') await view.render('/a.md', anchor.exact, true);
+    else await pressKey(document.activeElement, 'Escape');
+    await act(async () => gate.resolve(anchor));
+    assert.deepEqual(view.calls, []);
+  });
+}
+
+test('an interrupted anchoring request does not erase a later selection elsewhere', async t => {
+  const gate = deferred();
+  t.mock.method(anchoring, 'createPositionedAnchor', () => gate.promise);
+  const view = await mountToolbar(t);
+  await view.select();
+  await act(async () => findButton(view.host, 'Note').click());
+  const elsewhere = document.createElement('p'); elsewhere.textContent = 'Elsewhere'; view.host.append(elsewhere);
+  await act(async () => {
+    const native = window.getSelection();
+    const range = document.createRange(); range.selectNodeContents(elsewhere);
+    native.removeAllRanges(); native.addRange(range);
+    document.dispatchEvent(new window.Event('selectionchange'));
+  });
+  await act(async () => gate.resolve(anchor));
+  assert.deepEqual(view.calls, []);
+  assert.equal(window.getSelection().toString(), 'Elsewhere');
+});
+
+
+for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+  test(`selection toolbar leaves IME ${Object.keys(composition)[0]} Tab and Escape to the input method`, async t => {
+    const view = await mountToolbar(t);
+    await view.select();
+    const reader = view.host.querySelector('main');
+    reader.focus();
+    for (const key of ['Tab', 'Escape']) {
+      assert.equal((await pressKey(reader, key, composition)).defaultPrevented, false);
+      assert.ok(document.activeElement === reader);
+      assert.equal(window.getSelection().toString(), anchor.exact);
+      assert.ok(view.host.querySelector('[role="group"]'));
+    }
+    await pressKey(reader, 'Tab');
+    const yellow = findButton(view.host, 'Highlight Yellow');
+    assert.ok(document.activeElement === yellow);
+    for (const key of ['Tab', 'Escape']) {
+      assert.equal((await pressKey(yellow, key, composition)).defaultPrevented, false);
+      assert.ok(document.activeElement === yellow);
+      assert.ok(view.host.querySelector('[role="group"]'));
+    }
+    assert.equal((await pressKey(yellow, 'Escape')).defaultPrevented, true);
+    assert.ok(view.host.querySelector('[role="group"]') === null);
+  });
+}
+
+
+for (const [label, rect, expected] of [
+  ['left edge', { left: 0, top: 100, width: 10, bottom: 120 }, { left: '8px', top: '52px' }],
+  ['right edge', { left: 990, top: 100, width: 10, bottom: 120 }, { left: '792px', top: '52px' }],
+  ['selection crossing the top edge', { left: 500, top: -100, width: 10, bottom: -80 }, { left: '405px', top: '8px' }],
+  ['selection crossing the bottom edge', { left: 500, top: 600, width: 10, bottom: 620 }, { left: '405px', top: '552px' }],
+]) {
+  test(`selection toolbar keeps all controls inside the viewport at the ${label}`, async t => {
+    t.mock.getter(window, 'innerWidth', () => 1000);
+    t.mock.getter(window, 'innerHeight', () => 600);
+    t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => rect);
+    t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+      return { width: this.getAttribute('role') === 'group' ? 200 : 0, height: 40 };
+    });
+    const view = await mountToolbar(t);
+    await view.select();
+    const toolbar = view.host.querySelector('[role="group"]');
+    assert.equal(toolbar.style.left, expected.left);
+    assert.equal(toolbar.style.top, expected.top);
+    assert.equal(window.getSelection().toString(), anchor.exact, 'positioning must not change the selection');
+  });
+}
+
+test('viewport resize reclamps the toolbar without moving focus or changing the selection', async t => {
+  let width = 1000, height = 600;
+  t.mock.getter(window, 'innerWidth', () => width);
+  t.mock.getter(window, 'innerHeight', () => height);
+  t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => ({ left: 900, top: 500, width: 10, bottom: 520 }));
+  t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+    return { width: this.getAttribute('role') === 'group' ? 200 : 0, height: 40 };
+  });
+  const view = await mountToolbar(t);
+  await view.select();
+  await pressKey(document.body, 'Tab', { shiftKey: true });
+  const note = findButton(view.host, 'Note');
+  assert.ok(document.activeElement === note);
+  width = 600; height = 400;
+  await act(async () => window.dispatchEvent(new window.Event('resize')));
+  const toolbar = view.host.querySelector('[role="group"]');
+  assert.equal(toolbar.style.left, '392px');
+  assert.equal(toolbar.style.top, '352px');
+  assert.ok(document.activeElement === note);
+  assert.equal(window.getSelection().toString(), anchor.exact);
 });

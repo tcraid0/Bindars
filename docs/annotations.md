@@ -5,6 +5,11 @@ instead to create a yellow highlight and open a note ready for typing. Note
 opens **Highlights & notes** and leaves Focus mode; choosing a color keeps the
 panel and Focus mode as they are.
 
+With reader text selected, press Tab to reach the first highlight color, or
+Shift+Tab to reach Note. Tab and Shift+Tab move through the actions; Enter or
+Space activates the focused action. Escape dismisses the actions and returns
+focus to the reader. Tab past either end leaves the group normally.
+
 The **Highlights & notes** panel lets you choose **Add note** on an existing
 highlight, edit a note, remove a highlight, and remove bookmarks even when their
 headings have disappeared. Enter keeps a note, Shift+Enter adds a line, and
