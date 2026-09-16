@@ -1,14 +1,11 @@
-import React, { memo, useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
+import React, { memo, useMemo, useState, useCallback, createContext, useContext } from "react";
 import Markdown from "react-markdown";
 import { remarkPlugins, createRehypePlugins } from "../lib/markdown-plugins";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { homeDir, tempDir } from "@tauri-apps/api/path";
 import {
   decodeUriComponentSafe,
-  isPathAllowedByAssetScope,
   resolveImagePath,
+  resolveImageSrc,
   resolveMarkdownLink,
-  type AssetScopeRoots,
 } from "../lib/paths";
 import { extractFrontmatter, formatFrontmatterDate } from "../lib/frontmatter";
 import { extractCodeText } from "../lib/code-text";
@@ -28,6 +25,12 @@ import {
 interface MarkdownRendererProps {
   content: string;
   filePath: string;
+  /**
+   * False until the native image protocol has accepted `filePath` as the
+   * session's document. Until then no document-image request is issued: an
+   * early request would be refused and the image left permanently failed.
+   */
+  imagesAuthorized: boolean;
   settings: ReaderSettings;
   contentRef: React.RefObject<HTMLElement | null>;
   onOpenFragment: (fragmentId: string) => boolean;
@@ -42,15 +45,13 @@ function MarkdownImage({
   src,
   alt,
   filePath,
-  assetScopeRoots,
-  assetScopeResolved,
+  imagesAuthorized,
   ...props
 }: {
   src?: string;
   alt?: string;
   filePath: string;
-  assetScopeRoots: AssetScopeRoots;
-  assetScopeResolved: boolean;
+  imagesAuthorized: boolean;
   [key: string]: unknown;
 }) {
   const [failed, setFailed] = useState(false);
@@ -72,23 +73,17 @@ function MarkdownImage({
     return <ImageNotice reason={describeBlockedImageSource(src)} label={alt || src} />;
   }
 
-  const blockedByScope =
-    assetScopeResolved &&
-    !isPathAllowedByAssetScope(resolvedPath, assetScopeRoots);
-  if (blockedByScope) {
-    return (
-      <ImageNotice
-        reason="it is outside the folders Bindars can read (your home and temporary folders)"
-        label={alt || src}
-      />
-    );
+  if (!imagesAuthorized) {
+    // Same element, no source yet: the request starts once authorization for
+    // this document is confirmed, without remounting or an error state.
+    return <img {...props} alt={alt || ""} loading="lazy" />;
   }
 
-  const resolved = convertFileSrc(resolvedPath);
+  const resolved = resolveImageSrc(src, filePath);
   if (failed) {
     return (
       <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
-        [image not found or unreadable: {alt || src}]
+        [image not shown: unavailable, outside the document's folder, or larger than 20 MiB: {alt || src}]
       </span>
     );
   }
@@ -129,13 +124,12 @@ function describeBlockedImageSource(src: string): string {
 interface MarkdownContentProps {
   content: string;
   filePath: string;
+  imagesAuthorized: boolean;
   onOpenFragment: (fragmentId: string) => boolean;
   onNavigateToFile?: (path: string, anchor: string | null) => void;
 }
 
 interface MarkdownContextValue extends Omit<MarkdownContentProps, "content"> {
-  assetScopeRoots: AssetScopeRoots;
-  assetScopeResolved: boolean;
   handleCodeCopyError: (message: string) => void;
 }
 
@@ -147,18 +141,17 @@ function useMarkdownContext(): MarkdownContextValue {
   return context;
 }
 
-// Component types stay stable when navigation callbacks or asset scope change.
+// Component types stay stable when navigation callbacks change.
 // Replacing their types would remount marked text and invalidate React's DOM references.
 const markdownComponents: Components = {
   img: function Image({ node: _node, src, alt, ...props }) {
-    const { filePath, assetScopeRoots, assetScopeResolved } = useMarkdownContext();
+    const { filePath, imagesAuthorized } = useMarkdownContext();
     return (
       <MarkdownImage
         src={src}
         alt={alt}
         filePath={filePath}
-        assetScopeRoots={assetScopeRoots}
-        assetScopeResolved={assetScopeResolved}
+        imagesAuthorized={imagesAuthorized}
         {...props}
       />
     );
@@ -232,7 +225,7 @@ const markdownComponents: Components = {
     );
   },
   pre: function Pre({ node: _node, children, ...props }) {
-    const { handleCodeCopyError } = useMarkdownContext();
+    const { handleCodeCopyError, imagesAuthorized } = useMarkdownContext();
     const positionedProps = props as typeof props & SourcePositionAttributes;
     const sourcePosition: SourcePositionAttributes = {
       "data-bindars-source-line": positionedProps["data-bindars-source-line"],
@@ -271,6 +264,15 @@ const markdownComponents: Components = {
 
     // Mermaid diagrams: render as diagram instead of a fenced code block.
     if (language === "mermaid") {
+      // Mermaid issues its own image requests for image nodes while rendering,
+      // so it starts under the same authorization gate as document images.
+      if (!imagesAuthorized) {
+        return (
+          <div className="mermaid-diagram mermaid-loading" {...sourcePosition}>
+            <span className="text-text-muted text-sm">Rendering diagram...</span>
+          </div>
+        );
+      }
       return <MermaidBlock chart={rawCode} sourcePosition={sourcePosition} />;
     }
 
@@ -306,38 +308,11 @@ const markdownComponents: Components = {
 const MarkdownContent = memo(function MarkdownContent({
   content,
   filePath,
+  imagesAuthorized,
   onOpenFragment,
   onNavigateToFile,
 }: MarkdownContentProps) {
   const { toast } = useToast();
-  const [assetScopeRoots, setAssetScopeRoots] = useState<AssetScopeRoots>({
-    homePath: null,
-    tempPath: null,
-  });
-  const [assetScopeResolved, setAssetScopeResolved] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      const [homePath, tempPath] = await Promise.all([
-        homeDir().catch(() => null),
-        tempDir().catch(() => null),
-      ]);
-
-      if (cancelled) {
-        return;
-      }
-
-      setAssetScopeRoots({ homePath, tempPath });
-      setAssetScopeResolved(true);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const handleCodeCopyError = useCallback((message: string) => {
     toast(message, "error");
   }, [toast]);
@@ -350,9 +325,9 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 
   const context = useMemo(() => ({
-    filePath, onOpenFragment, onNavigateToFile,
-    assetScopeRoots, assetScopeResolved, handleCodeCopyError,
-  }), [filePath, onOpenFragment, onNavigateToFile, assetScopeRoots, assetScopeResolved, handleCodeCopyError]);
+    filePath, imagesAuthorized, onOpenFragment, onNavigateToFile,
+    handleCodeCopyError,
+  }), [filePath, imagesAuthorized, onOpenFragment, onNavigateToFile, handleCodeCopyError]);
 
   return (
     <MarkdownContext.Provider value={context}>
@@ -375,6 +350,7 @@ const MarkdownContent = memo(function MarkdownContent({
 function MarkdownRendererComponent({
   content,
   filePath,
+  imagesAuthorized,
   settings,
   contentRef,
   onOpenFragment,
@@ -397,6 +373,7 @@ function MarkdownRendererComponent({
       <MarkdownContent
         content={content}
         filePath={filePath}
+        imagesAuthorized={imagesAuthorized}
         onOpenFragment={onOpenFragment}
         onNavigateToFile={onNavigateToFile}
       />

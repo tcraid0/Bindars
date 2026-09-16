@@ -6,8 +6,8 @@
   },
   "summary": {
     "npmPackages": 305,
-    "cargoPackages": 563,
-    "documents": 392,
+    "cargoPackages": 573,
+    "documents": 401,
     "reviewRequired": 0,
     "inventoryWarnings": 16,
     "standardLicenseOverrides": 10
@@ -147,6 +147,35 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:6c91ec82929f91ffa341a9928e5c98b44767c6a1bb8d7789edad88d3fa5681af"
+      ]
+    },
+    {
+      "id": "cargo:ambient-authority@0.0.2",
+      "kind": "cargo",
+      "name": "ambient-authority",
+      "version": "0.0.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/ambient-authority",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:b6ca90f6c89944eb6fb5c9577fcc92868102b850853ab495d9c2dca2b6c0fa05"
       ]
     },
     {
@@ -1336,6 +1365,96 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:cap-fs-ext@4.0.3",
+      "kind": "cargo",
+      "name": "cap-fs-ext",
+      "version": "4.0.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "56ff379b70af8e08307a8f65e7040c7301cb4a572538ade16b4984f0da77847f",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>",
+        "Jakub Konka <kubkon@jakubkonka.com>"
+      ],
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:d47c2d469d602bb2eda1524476bd78a80d6a80fe346fd5a9adc07ee58b2195ce"
+      ]
+    },
+    {
+      "id": "cargo:cap-primitives@4.0.3",
+      "kind": "cargo",
+      "name": "cap-primitives",
+      "version": "4.0.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "8b5f74729fd2f44701d1a8eb47e906cdb3ccd9ec0f02baad85a744b791940b18",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>",
+        "Jakub Konka <kubkon@jakubkonka.com>"
+      ],
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:226fc6da9df7de76959c1783a4952de02e4c2c4e5518785f44b71b2334c4eb96",
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:cap-std@4.0.3",
+      "kind": "cargo",
+      "name": "cap-std",
+      "version": "4.0.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "c1ec78e242cfa2cfe276807ac2ecc00315a6c97786977414bcd1c3963b6c91b8",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>",
+        "Jakub Konka <kubkon@jakubkonka.com>"
+      ],
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:469e13657ed61ddefe46aa5ee87fd83597c1fc0b3016996bc9ad53cf8c416c95",
         "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
       ]
     },
@@ -3444,6 +3563,35 @@
       ]
     },
     {
+      "id": "cargo:fs-set-times@0.20.3",
+      "kind": "cargo",
+      "name": "fs-set-times",
+      "version": "0.20.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "94e7099f6313ecacbe1256e8ff9d617b75d1bcb16a6fddef94866d225a01a14a",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/bytecodealliance/fs-set-times",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:8b6ab48f07c0e247fa7bf262ac1c6364f34cbaaee934c210786f8a0e68aed798",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
       "id": "cargo:fsevent-sys@4.1.0",
       "kind": "cargo",
       "name": "fsevent-sys",
@@ -4605,32 +4753,6 @@
       ]
     },
     {
-      "id": "cargo:http-range@0.1.5",
-      "kind": "cargo",
-      "name": "http-range",
-      "version": "0.1.5",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573",
-      "declaredLicense": "MIT",
-      "authors": [
-        "Luka Zakrajšek <luka@bancek.net>"
-      ],
-      "repository": "https://github.com/bancek/rust-http-range.git",
-      "attribution": null,
-      "distributionClass": "runtime-linked",
-      "selectedLicense": null,
-      "standardLicenseOverride": null,
-      "sourceAvailability": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:7eae6ec4d1b415ca5d56fd0f804416eaa5d4ee7c3229a24a2370362ee48bf98b"
-      ]
-    },
-    {
       "id": "cargo:http@1.4.0",
       "kind": "cargo",
       "name": "http",
@@ -5241,6 +5363,93 @@
       ]
     },
     {
+      "id": "cargo:io-extras@0.19.0",
+      "kind": "cargo",
+      "name": "io-extras",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "20fd6de4ccfcc187e38bc21cfa543cb5a302cb86a8b114eb7f0bf0dc9f8ac00f",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/io-extras",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:0121f38fa0e3fc83ee2cb2604c8af902a251a687d3fcd069edd93660c60baad9",
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:io-lifetimes@2.0.4",
+      "kind": "cargo",
+      "name": "io-lifetimes",
+      "version": "2.0.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "06432fb54d3be7964ecd3649233cddf80db2832f47fec34c01f65b3d9d774983",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/io-lifetimes",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:ced9d1e3612fb118a980d4cb019861ead068559be555e8ca76dbde03dfd22d56"
+      ]
+    },
+    {
+      "id": "cargo:io-lifetimes@3.0.1",
+      "kind": "cargo",
+      "name": "io-lifetimes",
+      "version": "3.0.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2f0fb0570afe1fed943c5c3d4102d5358592d8625fda6a0007fdbe65a92fba96",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/io-lifetimes",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:ced9d1e3612fb118a980d4cb019861ead068559be555e8ca76dbde03dfd22d56"
+      ]
+    },
+    {
       "id": "cargo:ipnet@2.11.0",
       "kind": "cargo",
       "name": "ipnet",
@@ -5253,7 +5462,7 @@
       ],
       "repository": "https://github.com/krisprice/ipnet",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -6198,6 +6407,36 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:818df39e5cd52e83190e9f32e2eb49f579c81d27c94160d3e1ca7e5d4a8818b1"
+      ]
+    },
+    {
+      "id": "cargo:maybe-owned@0.3.4",
+      "kind": "cargo",
+      "name": "maybe-owned",
+      "version": "0.3.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Philipp korber <philippkorber@gmail.com>",
+        "darkstalker <slayerbeast@gmail.com>",
+        "daboross <daboross@daboross.net>",
+        "Zac Burns (That3Percent) <that3percent@gmail.com>"
+      ],
+      "repository": "https://github.com/rustonaut/maybe-owned",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:16233b557b61fe0b65a5094fb5a72a64bb9c8aa372db5349f91e251c81db1085",
+        "sha256:ace289579c42b7497f3d09f25b5bfa3ebeb24de6e9e7b5304f9027690b26d7b2"
       ]
     },
     {
@@ -9233,6 +9472,35 @@
       "documentRefs": [
         "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
         "sha256:85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179"
+      ]
+    },
+    {
+      "id": "cargo:rustix-linux-procfs@0.1.1",
+      "kind": "cargo",
+      "name": "rustix-linux-procfs",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2fc84bf7e9aa16c4f2c758f27412dc9841341e16aa682d9c7ac308fe3ee12056",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "authors": [
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/rustix-linux-procfs",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
+        "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:adda0c416b03e5ea5a946daa2b9a0c64df07af7644f2efbf04b98e81fed5b3ee"
       ]
     },
     {
@@ -14477,6 +14745,33 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:d9ba37d9bbdf711b0de66cd3b200142b10b7038e573fb869d535a27ce41165ec"
+      ]
+    },
+    {
+      "id": "cargo:winx@0.36.4",
+      "kind": "cargo",
+      "name": "winx",
+      "version": "0.36.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "3f3fd376f71958b862e7afb20cfe5a22830e1963462f3a17f49d82a6c1d1f42d",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception",
+      "authors": [
+        "Jakub Konka <kubkon@jakubkonka.com>",
+        "Dan Gohman <dev@sunfishcode.online>"
+      ],
+      "repository": "https://github.com/sunfishcode/winx",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9"
       ]
     },
     {
@@ -22369,6 +22664,15 @@
       ]
     },
     {
+      "id": "sha256:0121f38fa0e3fc83ee2cb2604c8af902a251a687d3fcd069edd93660c60baad9",
+      "packages": [
+        "cargo:io-extras@0.19.0"
+      ],
+      "sources": [
+        "COPYRIGHT"
+      ]
+    },
+    {
       "id": "sha256:02f3b7dba54e1b4236395ae6d31d9abe56c264a30a9be5c82c8bf36f95cb1ccd",
       "packages": [
         "npm:es-toolkit@1.50.0"
@@ -22626,6 +22930,15 @@
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:16233b557b61fe0b65a5094fb5a72a64bb9c8aa372db5349f91e251c81db1085",
+      "packages": [
+        "cargo:maybe-owned@0.3.4"
+      ],
+      "sources": [
+        "LICENSE-APACHE"
       ]
     },
     {
@@ -22932,6 +23245,15 @@
       ]
     },
     {
+      "id": "sha256:226fc6da9df7de76959c1783a4952de02e4c2c4e5518785f44b71b2334c4eb96",
+      "packages": [
+        "cargo:cap-primitives@4.0.3"
+      ],
+      "sources": [
+        "COPYRIGHT"
+      ]
+    },
+    {
       "id": "sha256:22fc2b0e60ba1aba633480a843b0cded65e5de44f4be0cc17b19e1449a00d465",
       "packages": [
         "npm:@ungap/structured-clone@1.3.0"
@@ -23160,12 +23482,22 @@
     {
       "id": "sha256:2f213ec6b1355dc841dc489c9e7ce1dddd07611df474efcf61b8a960797398e9",
       "packages": [
+        "cargo:ambient-authority@0.0.2",
+        "cargo:cap-fs-ext@4.0.3",
+        "cargo:cap-primitives@4.0.3",
+        "cargo:cap-std@4.0.3",
+        "cargo:fs-set-times@0.20.3",
+        "cargo:io-extras@0.19.0",
+        "cargo:io-lifetimes@2.0.4",
+        "cargo:io-lifetimes@3.0.1",
         "cargo:linux-raw-sys@0.11.0",
+        "cargo:rustix-linux-procfs@0.1.1",
         "cargo:rustix@1.1.3",
         "cargo:target-lexicon@0.12.16",
         "cargo:wasi@0.11.1+wasi-snapshot-preview1",
         "cargo:wasi@0.9.0+wasi-snapshot-preview1",
         "cargo:wasip2@1.0.2+wasi-0.2.9",
+        "cargo:winx@0.36.4",
         "cargo:wit-bindgen@0.51.0"
       ],
       "sources": [
@@ -23178,6 +23510,7 @@
       "id": "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
       "packages": [
         "cargo:adler2@2.0.1",
+        "cargo:ambient-authority@0.0.2",
         "cargo:anyhow@1.0.103",
         "cargo:async-channel@2.5.0",
         "cargo:async-executor@1.13.3",
@@ -23193,6 +23526,9 @@
         "cargo:borsh-derive@1.6.0",
         "cargo:borsh@1.6.0",
         "cargo:camino@1.2.2",
+        "cargo:cap-fs-ext@4.0.3",
+        "cargo:cap-primitives@4.0.3",
+        "cargo:cap-std@4.0.3",
         "cargo:cargo-platform@0.1.9",
         "cargo:cargo_metadata@0.19.2",
         "cargo:concurrent-queue@2.5.0",
@@ -23204,8 +23540,12 @@
         "cargo:event-listener-strategy@0.5.4",
         "cargo:event-listener@5.4.2",
         "cargo:fastrand@2.3.0",
+        "cargo:fs-set-times@0.20.3",
         "cargo:futures-lite@2.6.1",
         "cargo:hermit-abi@0.5.2",
+        "cargo:io-extras@0.19.0",
+        "cargo:io-lifetimes@2.0.4",
+        "cargo:io-lifetimes@3.0.1",
         "cargo:itoa@1.0.17",
         "cargo:kuchikiki@0.8.8-speedreader",
         "cargo:linux-raw-sys@0.11.0",
@@ -23228,6 +23568,7 @@
         "cargo:ref-cast-impl@1.0.25",
         "cargo:ref-cast@1.0.25",
         "cargo:rustc-hash@2.1.3",
+        "cargo:rustix-linux-procfs@0.1.1",
         "cargo:rustix@1.1.3",
         "cargo:rustversion@1.0.22",
         "cargo:semver@1.0.27",
@@ -23542,6 +23883,15 @@
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:469e13657ed61ddefe46aa5ee87fd83597c1fc0b3016996bc9ad53cf8c416c95",
+      "packages": [
+        "cargo:cap-std@4.0.3"
+      ],
+      "sources": [
+        "COPYRIGHT"
       ]
     },
     {
@@ -24552,15 +24902,6 @@
       ]
     },
     {
-      "id": "sha256:7eae6ec4d1b415ca5d56fd0f804416eaa5d4ee7c3229a24a2370362ee48bf98b",
-      "packages": [
-        "cargo:http-range@0.1.5"
-      ],
-      "sources": [
-        "LICENSE"
-      ]
-    },
-    {
       "id": "sha256:7f194ae45c2525a57443f7edabd392e8218109ee81a4bce70d385104c87c1a71",
       "packages": [
         "cargo:smallvec@1.15.1"
@@ -24877,6 +25218,15 @@
       ]
     },
     {
+      "id": "sha256:8b6ab48f07c0e247fa7bf262ac1c6364f34cbaaee934c210786f8a0e68aed798",
+      "packages": [
+        "cargo:fs-set-times@0.20.3"
+      ],
+      "sources": [
+        "COPYRIGHT"
+      ]
+    },
+    {
       "id": "sha256:8bd4ba3271fa2f69d6897a0b14467b525adaecc4d7515698c801d07f32692c25",
       "packages": [
         "cargo:instant@0.1.13"
@@ -24986,6 +25336,7 @@
       "id": "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
       "packages": [
         "cargo:ahash@0.7.8",
+        "cargo:ambient-authority@0.0.2",
         "cargo:arrayvec@0.7.6",
         "cargo:async-channel@2.5.0",
         "cargo:async-executor@1.13.3",
@@ -25005,6 +25356,9 @@
         "cargo:bs58@0.5.1",
         "cargo:bumpalo@3.19.1",
         "cargo:camino@1.2.2",
+        "cargo:cap-fs-ext@4.0.3",
+        "cargo:cap-primitives@4.0.3",
+        "cargo:cap-std@4.0.3",
         "cargo:cc@1.2.55",
         "cargo:cfg-if@1.0.4",
         "cargo:concurrent-queue@2.5.0",
@@ -25025,6 +25379,7 @@
         "cargo:flate2@1.1.9",
         "cargo:fnv@1.0.7",
         "cargo:form_urlencoded@1.2.2",
+        "cargo:fs-set-times@0.20.3",
         "cargo:futf@0.1.5",
         "cargo:futures-lite@2.6.1",
         "cargo:glob@0.3.3",
@@ -25040,6 +25395,9 @@
         "cargo:idna_adapter@1.2.1",
         "cargo:indexmap@1.9.3",
         "cargo:indexmap@2.13.0",
+        "cargo:io-extras@0.19.0",
+        "cargo:io-lifetimes@2.0.4",
+        "cargo:io-lifetimes@3.0.1",
         "cargo:jni@0.21.1",
         "cargo:js-sys@0.3.85",
         "cargo:keyboard-types@0.7.0",
@@ -25071,6 +25429,7 @@
         "cargo:regex-syntax@0.8.9",
         "cargo:regex@1.12.3",
         "cargo:rustc_version@0.4.1",
+        "cargo:rustix-linux-procfs@0.1.1",
         "cargo:rustix@1.1.3",
         "cargo:scopeguard@1.2.0",
         "cargo:serde_with@3.22.0",
@@ -25433,12 +25792,30 @@
       ]
     },
     {
+      "id": "sha256:ace289579c42b7497f3d09f25b5bfa3ebeb24de6e9e7b5304f9027690b26d7b2",
+      "packages": [
+        "cargo:maybe-owned@0.3.4"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:ad4fcfaf8d5b12b97409c137a03d4a4e4b21024c65c54f976cc3b609c1bd5b0f",
       "packages": [
         "cargo:generic-array@0.14.7"
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:adda0c416b03e5ea5a946daa2b9a0c64df07af7644f2efbf04b98e81fed5b3ee",
+      "packages": [
+        "cargo:rustix-linux-procfs@0.1.1"
+      ],
+      "sources": [
+        "COPYRIGHT"
       ]
     },
     {
@@ -25575,6 +25952,15 @@
       ],
       "sources": [
         "LICENSE-APACHE"
+      ]
+    },
+    {
+      "id": "sha256:b6ca90f6c89944eb6fb5c9577fcc92868102b850853ab495d9c2dca2b6c0fa05",
+      "packages": [
+        "cargo:ambient-authority@0.0.2"
+      ],
+      "sources": [
+        "COPYRIGHT"
       ]
     },
     {
@@ -25993,6 +26379,16 @@
       ]
     },
     {
+      "id": "sha256:ced9d1e3612fb118a980d4cb019861ead068559be555e8ca76dbde03dfd22d56",
+      "packages": [
+        "cargo:io-lifetimes@2.0.4",
+        "cargo:io-lifetimes@3.0.1"
+      ],
+      "sources": [
+        "COPYRIGHT"
+      ]
+    },
+    {
       "id": "sha256:cf12d35c36bad4b21582e8549d43283d304574764c28fe0b93f25f475c5e832c",
       "packages": [
         "npm:yaml@2.9.0"
@@ -26065,6 +26461,15 @@
       ],
       "sources": [
         "license-update.mjs"
+      ]
+    },
+    {
+      "id": "sha256:d47c2d469d602bb2eda1524476bd78a80d6a80fe346fd5a9adc07ee58b2195ce",
+      "packages": [
+        "cargo:cap-fs-ext@4.0.3"
+      ],
+      "sources": [
+        "COPYRIGHT"
       ]
     },
     {

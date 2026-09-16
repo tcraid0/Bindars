@@ -114,7 +114,7 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
 function loadApp() {
   const originalLoad = Module._load;
   Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture";
+    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture\n\nSave with {{shortcut:saveFile}}.";
     return originalLoad.call(this, request, parent, isMain);
   };
   try {
@@ -246,7 +246,6 @@ async function renderEditorApp({
           return themeGet;
         }
         if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") return [true, true];
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
           return markdownFormattingRead;
         }
@@ -283,6 +282,8 @@ async function renderEditorApp({
           throw new Error(`Missing snapshot fixture: ${args.snapshotId}`);
         }
         return snapshotContents[args.snapshotId];
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -338,7 +339,7 @@ test("App cycles every theme from focused CodeMirror without disturbing editor s
     view.focus();
 
     assert.equal(document.documentElement.getAttribute("data-theme"), "");
-    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
     const cycles = [
       { attribute: "sepia", options: { ctrlKey: true } },
       { attribute: "dark", options: { metaKey: true } },
@@ -361,7 +362,7 @@ test("App cycles every theme from focused CodeMirror without disturbing editor s
       assert.ok(document.activeElement === view.contentDOM);
     }
 
-    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
     assert.equal(undo(view), true);
     assert.equal(view.state.sliceDoc(), "");
   } finally {
@@ -374,7 +375,7 @@ test("theme switching preserves pending edits and ignores composing shortcuts", 
 
   try {
     const view = findEditorView(rendered.host);
-    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
 
     const cleanThemeChange = dispatchEditorKey(rendered.host, "t", {
       ctrlKey: true,
@@ -383,7 +384,7 @@ test("theme switching preserves pending edits and ignores composing shortcuts", 
     assert.equal(cleanThemeChange.defaultPrevented, true);
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     await waitForEditorPublication();
-    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
 
     for (const options of [
       { ctrlKey: true, shiftKey: true, isComposing: true },
@@ -409,11 +410,11 @@ test("theme switching preserves pending edits and ignores composing shortcuts", 
     assert.equal(view.state.selection.main.anchor, 8);
     assert.equal(view.state.selection.main.head, 18);
     assert.ok(document.activeElement === view.contentDOM);
-    assert.ok(!rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
 
     await waitForEditorPublication();
     assert.equal(
-      rendered.host.querySelectorAll('[aria-label="Unsaved changes"]').length,
+      rendered.host.querySelectorAll('[aria-label="Not saved yet"]').length,
       1,
     );
     assert.ok(findEditorView(rendered.host) === view);
@@ -625,7 +626,7 @@ test("an editor transaction burst causes no React commits until one debounced pu
     await waitForEditorPublication();
     assert.equal(commitCount, baseline + 1);
     assert.equal(
-      rendered.host.querySelectorAll('[aria-label="Unsaved changes"]').length,
+      rendered.host.querySelectorAll('[aria-label="Not saved yet"]').length,
       1,
     );
   } finally {
@@ -953,7 +954,7 @@ test("the empty state restores the latest orphan draft into a dirty unsaved sess
 
     await waitFor(() => {
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), recoveredWords);
-      assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+      assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
     });
     await waitFor(() => assert.ok(rendered.snapshotWrites.length >= 1));
     assert.deepEqual(rendered.snapshotWrites[0].document, {
@@ -967,12 +968,12 @@ test("the empty state restores the latest orphan draft into a dirty unsaved sess
   }
 });
 
-test("App routes Ctrl+N through guarded New behavior and invalidates welcome publication", async () => {
+test("App routes Ctrl+N through guarded New behavior without welcome publication", async () => {
   await installDom();
   ({ flushSync } = require("react-dom"));
   ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
-  const welcomeRead = deferred();
+  const welcomeReads = [];
   const writes = [];
   const nativeOpen = createNativeOpenIpc();
   mockIPC(nativeOpen.wrap((cmd, args = {}) => {
@@ -988,7 +989,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") return welcomeRead.promise;
+        if (args.key === "hasSeenWelcome") { welcomeReads.push(args.key); return [false, true]; }
         return [null, false];
       case "plugin:store|set":
         return null;
@@ -1009,6 +1010,8 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
         return successfulSnapshotWrite(args);
       case "retire_snapshot_draft":
         return null;
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1028,10 +1031,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
 
     assert.equal(dispatchShortcut("n").defaultPrevented, true);
     await waitFor(() => assert.ok(host.querySelector(".cm-editor")));
-    await act(async () => {
-      welcomeRead.resolve([false, true]);
-      await Promise.resolve();
-    });
+    assert.deepEqual(welcomeReads, []);
 
     let view = findEditorView(host);
     assert.equal(view.state.sliceDoc(), "");
@@ -1058,7 +1058,7 @@ test("App routes Ctrl+N through guarded New behavior and invalidates welcome pub
     assert.ok(document.activeElement === view.contentDOM);
     updateEditor(host, "Keep these words");
     await waitForEditorPublication();
-    assert.ok(host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(host.querySelector('[aria-label="Not saved yet"]'));
     dispatchShortcut("n");
     const cancelDialog = await waitFor(() => {
       const dialog = host.querySelector('[role="dialog"]');
@@ -1128,7 +1128,6 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
       case "plugin:window|set_title":
@@ -1138,6 +1137,8 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
         return null;
       case "write_document_snapshot":
         return successfulSnapshotWrite(args);
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1246,7 +1247,6 @@ test("App save-as preserves typing and adopts the canonical path before the next
         return 1;
       case "plugin:store|get":
         if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") return [true, true];
         return [null, false];
       case "plugin:store|set":
       case "plugin:window|set_title":
@@ -1266,6 +1266,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
         return successfulSnapshotWrite(args);
       case "retire_snapshot_draft":
         recoveryOperations.push({ kind: "retire", document: args.document });
+        return null;
+      case "authorize_document_images":
         return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
@@ -1372,7 +1374,9 @@ async function renderContinuityApp({
   readySelector = "#second",
   restoreHeadingId,
   storedHighlights = [],
+  annotationWrite = null,
   snapshotEntries = [],
+  snapshotDrafts = [],
   snapshotContents = {},
   initialOpenOperation = null,
   initialSessionOperation = null,
@@ -1382,6 +1386,7 @@ async function renderContinuityApp({
   themeRead = null,
   settingsRead = null,
   recentStorage = null,
+  sampleFlow = null,
 } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
@@ -1415,6 +1420,7 @@ async function renderContinuityApp({
   let fileWriteError = null;
   let openDialogPath = null;
   let saveDialogPath = "/tmp/virtual-continuity.md";
+  const annotationWrites = [];
   const operationLog = [];
   const openedPaths = [];
   const snapshotOperationLog = [];
@@ -1436,15 +1442,19 @@ async function renderContinuityApp({
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
       case "load_annotations":
-        return args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null;
+        return annotationWrites.findLast(write => write.path === args.path)?.annotations
+          ?? (args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null);
       case "save_annotations":
-        return null;
+        annotationWrites.push(structuredClone(args));
+        return annotationWrite ? annotationWrite(args) : null;
       case "plugin:store|save":
         if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
         return null;
       case "plugin:store|load":
         return 1;
       case "plugin:store|get":
+        if (sampleFlow) sampleFlow.reads.push(args.key);
+        if (sampleFlow && args.key === "hasSeenWelcome") return [sampleFlow.seen, true];
         if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
         if (args.key === "recent-files") {
           if (!recentStorage) return [{ version: 1, files: [] }, true];
@@ -1565,8 +1575,24 @@ async function renderContinuityApp({
           name: args.path.split("/").at(-1),
           currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
         };
+      case "plugin:path|resolve_directory":
+        if (sampleFlow) {
+          sampleFlow.directories.push(args.directory);
+          if (sampleFlow.directory) return sampleFlow.directory(args.directory);
+        }
+        return args.directory === 6 ? '/tmp/Documents' : '/tmp/Home';
       case "plugin:dialog|save":
+        if (sampleFlow) {
+          sampleFlow.dialogs.push(args);
+          return sampleFlow.dialog ? sampleFlow.dialog(args) : saveDialogPath;
+        }
         return saveDialogPath;
+      case "export_markdown_file":
+        if (!sampleFlow) throw new Error('Unexpected sample export');
+        sampleFlow.exports.push(args);
+        if (sampleFlow.write) return sampleFlow.write(args);
+        diskContent = args.content;
+        return null;
       case "write_document_snapshot": {
         snapshotWrites.push(args);
         const operation = {
@@ -1596,6 +1622,10 @@ async function renderContinuityApp({
       case "retire_snapshot_draft":
         retiredDrafts.push(args.document);
         return null;
+      case "get_snapshot_storage_stats":
+        return { streamCount: snapshotDrafts.length, snapshotCount: snapshotEntries.length, totalBytes: 0, skippedCount: 0 };
+      case "list_snapshot_drafts":
+        return { drafts: snapshotDrafts, skippedCount: 0 };
       case "list_document_snapshots":
         documentSnapshotListCount += 1;
         if (snapshotListError) {
@@ -1615,6 +1645,8 @@ async function renderContinuityApp({
           throw new Error(`Missing snapshot fixture: ${args.snapshotId}`);
         }
         return snapshotContents[args.snapshotId];
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1686,6 +1718,7 @@ async function renderContinuityApp({
 
   return {
     host,
+    annotationWrites,
     scrolledIds,
     positionReaderAtFirst,
     showFirstEditorLine() { firstEditorLineVisible = true; },
@@ -1795,6 +1828,145 @@ test("read-only Fountain document offers Save As and preserves its file type", a
   } finally {
     await rendered.cleanup();
   }
+});
+
+const settingsRecoveredText = "Recovered unsaved words from before the crash.";
+const settingsDraftSnapshotId = "00000000000000005000-3333333333333333.md";
+function settingsDraftFixture(options = {}) {
+  return {
+    snapshotDrafts: [{ id: "settings-draft", name: "Recovered draft.md", latestSnapshotAtMs: 5000, snapshotCount: 1 }],
+    snapshotEntries: [{ id: settingsDraftSnapshotId, createdAtMs: 5000, size: settingsRecoveredText.length }],
+    snapshotContents: { [settingsDraftSnapshotId]: settingsRecoveredText },
+    ...options,
+  };
+}
+
+async function openDraftRestoreFromSettings(rendered) {
+  const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+  flushSync(() => { trigger.focus(); trigger.click(); });
+  clickButton(rendered.host, "Restore an unsaved draft…");
+  return waitFor(() => {
+    const dialog = rendered.host.querySelector('[role="dialog"][aria-modal="true"]');
+    assert.ok(dialog);
+    assert.match(dialog.textContent, /Restore an unsaved draft/);
+    const choice = dialog.querySelector("li button");
+    assert.ok(choice);
+    return choice;
+  });
+}
+
+test("settings draft recovery restores from an open saved document and returns focus correctly", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    const original = rendered.diskContent();
+    await openDraftRestoreFromSettings(rendered);
+    clickButton(rendered.host, "Close");
+    await waitFor(() => assert.ok(document.activeElement === rendered.host.querySelector('[aria-label="Toggle reader settings"]')));
+    assert.equal(rendered.diskContent(), original);
+    assert.ok(rendered.host.querySelector("#second"));
+
+    const choice = await openDraftRestoreFromSettings(rendered);
+    flushSync(() => choice.click());
+    await waitFor(() => {
+      const view = findEditorView(rendered.host);
+      assert.equal(view.state.sliceDoc(), settingsRecoveredText);
+      assert.ok(document.activeElement === view.contentDOM);
+      assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
+    });
+    assert.equal(rendered.diskContent(), original);
+    assert.deepEqual(rendered.fileWrites(), []);
+    await waitFor(() => assert.ok(rendered.snapshotWrites().some(write => write.document.kind === "draft" && write.document.id === "settings-draft")));
+  } finally { await rendered.cleanup(); }
+});
+
+test("settings draft recovery cannot replace a dirty editor and Read mode retains the save guard", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const words = "These current unsaved edits must survive.";
+    updateEditor(rendered.host, words);
+    const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+    flushSync(() => trigger.click());
+    const restore = [...rendered.host.querySelectorAll("button")].find(button => button.textContent.trim() === "Restore an unsaved draft…");
+    assert.ok(restore);
+    assert.equal(restore.disabled, true);
+    assert.match(rendered.host.textContent, /Finish current edits and return to Read mode/);
+    flushSync(() => restore.click());
+    assert.equal(rendered.documentSnapshotListCount(), 0);
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+    assert.ok(!rendered.host.querySelector('[aria-modal="true"]'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Close reader settings"]').click());
+    rendered.failNextFileWrite(new Error("Synthetic save failure"));
+    clickButton(rendered.host, "Read");
+    await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[aria-modal="true"]')));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+    assert.notEqual(rendered.diskContent(), words);
+    assert.equal(rendered.fileWrites().length, 1, "only the failed guarded save was attempted");
+  } finally { await rendered.cleanup(); }
+});
+
+for (const failSave of [false, true]) {
+  test(`settings draft recovery ${failSave ? "keeps the reader after a failed" : "waits for the current"} note save`, async () => {
+    const noteSave = deferred();
+    const noteText = "Reader note text that must be preserved.";
+    const rendered = await renderContinuityApp(settingsDraftFixture({
+      storedHighlights: [{ id: "reader-note", prefix: "", exact: "Opening words", suffix: ".", color: "yellow", createdAt: 1, nearestHeadingId: "first", note: "Original note" }],
+      annotationWrite: args => { noteSave.args = args; return noteSave.promise; },
+    }));
+    try {
+      flushSync(() => rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]').click());
+      const editNote = await waitFor(() => { const button = rendered.host.querySelector('[aria-label="Edit note"]'); assert.ok(button); return button; });
+      flushSync(() => editNote.click());
+      await typeHighlightNote(rendered, noteText);
+      const choice = await openDraftRestoreFromSettings(rendered);
+      flushSync(() => choice.click());
+      await waitFor(() => assert.equal(noteSave.args.annotations.highlights[0].note, noteText));
+      assert.equal(noteSave.args.path, "/tmp/continuity.md");
+      assert.ok(rendered.host.querySelector("#second"));
+      assert.ok(!rendered.host.querySelector(".cm-editor"));
+      await act(async () => {
+        if (failSave) noteSave.reject(new Error("Synthetic annotation save failure"));
+        else noteSave.resolve(null);
+      });
+      if (failSave) {
+        await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Save pending notes before restoring another draft/));
+        assert.ok(rendered.host.querySelector("#second"));
+        assert.ok(!rendered.host.querySelector(".cm-editor"));
+        assert.ok(rendered.host.textContent.includes(noteText));
+      } else {
+        await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), settingsRecoveredText));
+      }
+      assert.deepEqual(rendered.fileWrites(), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("settings draft recovery rejects a late snapshot after the reader publication changes", async () => {
+  const rendered = await renderContinuityApp(settingsDraftFixture());
+  try {
+    const reconciliation = deferred();
+    rendered.deferNextOpen(reconciliation);
+    await act(async () => {
+      await emit("file-changed", { path: "/tmp/continuity.md" });
+      await waitForReconciliationWindow();
+    });
+    await waitFor(() => assert.ok(reconciliation.args));
+    const snapshotRead = deferred();
+    rendered.deferNextSnapshotRead(snapshotRead);
+    const choice = await openDraftRestoreFromSettings(rendered);
+    flushSync(() => choice.click());
+    await waitFor(() => assert.ok(snapshotRead.args));
+    const newText = "# A newer reader publication\n\nExternal update.";
+    await act(async () => reconciliation.resolve(rendered.openResult(newText, rendered.revision() + 1)));
+    await waitFor(() => assert.match(rendered.host.querySelector("article").textContent, /A newer reader publication/));
+    await act(async () => snapshotRead.resolve(settingsRecoveredText));
+    await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Another document opened before the draft could be restored/));
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    assert.deepEqual(rendered.fileWrites(), []);
+  } finally { await rendered.cleanup(); }
 });
 
 test("read-only Markdown document offers Save As and adopts the writable copy", async () => {
@@ -2342,7 +2514,7 @@ test("restore snapshots the current file first, preserves the boundary, and retu
 
   try {
     const beforeRestore = rendered.diskContent();
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     const choice = await waitFor(() => {
@@ -2386,7 +2558,7 @@ test("snapshot restore errors show safe native messages without diagnostic detai
       message: "Bindars could not access recovery data.",
       detail: "/private/recovery/snapshots: No such file or directory",
     });
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
 
@@ -2412,7 +2584,7 @@ test("restore aborts without changing the editor when its safety snapshot fails"
   try {
     const beforeRestore = rendered.diskContent();
     rendered.failNextSnapshotWrite(new Error("app-data disk full"));
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     const choice = await waitFor(() => {
@@ -2448,7 +2620,7 @@ test("reader restore aborts a watcher publication before React commits it", asyn
 
   try {
     const initialWords = rendered.diskContent();
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     const choice = await waitFor(() => {
@@ -2522,7 +2694,7 @@ test("reader restore aborts if a watcher reload changes its captured baseline", 
 
   try {
     const initialWords = rendered.diskContent();
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     const choice = await waitFor(() => {
@@ -2608,13 +2780,13 @@ test("reader restore waits for a queued merge-enabled snapshot before safety wri
     clickButton(rendered.host, "Reload", reloadDialog);
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
 
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     // The dialog must not populate — and no safety write may start — while
     // the merge-enabled automatic write (and the capture behind it) is queued.
     await waitFor(() => {
-      assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading snapshots/);
+      assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading earlier versions/);
     });
     assert.equal(rendered.snapshotWrites().filter((write) => write.content === baseline).length, 0);
     assert.ok(!rendered.host.querySelector('[role="dialog"] li button'));
@@ -2664,7 +2836,7 @@ test("a dismissed late restore cannot replace typing from the resumed editor", a
 
   try {
     rendered.deferNextSnapshotRead(snapshotRead);
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     const choice = await waitFor(() => {
@@ -3136,10 +3308,10 @@ test("native file switching drains the snapshot queue before replacing the docum
       !rendered.openedPaths().includes("/tmp/native-after-snapshot.md"),
       "the replacement open must wait for the queued snapshot write",
     );
-    const editButton = rendered.host.querySelector('button[aria-label="Switch to edit mode"]');
+    const editButton = rendered.host.querySelector('button[aria-label="Edit mode"]');
     assert.ok(editButton);
     assert.equal(editButton.disabled, true);
-    assert.ok(!rendered.host.querySelector('button[aria-label="Restore snapshot"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Earlier versions"]'));
     dispatchShortcut("e");
     assert.ok(!rendered.host.querySelector(".cm-editor"));
 
@@ -3150,7 +3322,7 @@ test("native file switching drains the snapshot queue before replacing the docum
     await waitFor(() => assert.ok(rendered.openedPaths().includes("/tmp/native-after-snapshot.md")));
     await waitFor(() => assert.match(rendered.host.textContent, /native-after-snapshot\.md/));
     await waitFor(() => assert.equal(
-      rendered.host.querySelector('button[aria-label="Switch to edit mode"]')?.disabled,
+      rendered.host.querySelector('button[aria-label="Edit mode"]')?.disabled,
       false,
     ));
   } finally {
@@ -3238,7 +3410,7 @@ test("Cancel releases a slow admitted open while its native read remains abandon
     ));
     assert.match(rendered.host.querySelector("article").textContent, /Opening words/);
     await waitFor(() => assert.equal(
-      rendered.host.querySelector('button[aria-label="Switch to edit mode"]')?.disabled,
+      rendered.host.querySelector('button[aria-label="Edit mode"]')?.disabled,
       false,
     ));
 
@@ -4643,11 +4815,11 @@ test("the restore list is not populated before queued snapshot writes land", asy
     assert.equal(slowCapture.args.preservePrevious, true);
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
 
-    const restoreButton = rendered.host.querySelector('button[aria-label="Restore snapshot"]');
+    const restoreButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
     assert.ok(restoreButton);
     flushSync(() => restoreButton.click());
     await waitFor(() => {
-      assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading snapshots/);
+      assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading earlier versions/);
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -4655,7 +4827,7 @@ test("the restore list is not populated before queued snapshot writes land", asy
     });
     assert.match(
       rendered.host.querySelector('[role="dialog"]').textContent,
-      /Loading snapshots/,
+      /Loading earlier versions/,
       "the list must wait for the pending capture",
     );
     assert.equal(
@@ -5311,12 +5483,13 @@ for (const failure of ['history read', 'conversion write', 'unknown format']) {
   });
 }
 
-test('recent startup preservation: verified absent history still permits the first-run welcome', async () => {
+test('recent startup preservation: verified absent history stays on EmptyState without welcome writes', async () => {
   const history = { version: 3, value: null, writes: [] };
   const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: null });
   try {
-    await waitFor(() => assert.match(rendered.host.textContent, /Welcome fixture/));
-    assert.ok(history.writes.some(w => w.key === 'hasSeenWelcome' && w.value === true));
+    await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
+    assert.doesNotMatch(rendered.host.textContent, /Welcome fixture/);
+    assert.ok(!history.writes.some(w => w.key === 'hasSeenWelcome'));
     assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
   } finally { await rendered.cleanup(); }
 });
@@ -5491,7 +5664,7 @@ for (const route of ['keyboard', 'toolbar', 'no-anchor', 'focus-mode']) {
       dispatchShortcut('e');
       await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
       if (route === 'toolbar') {
-        const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+        const toggle = rendered.host.querySelector('[aria-label="Read mode"]');
         toggle.focus(); flushSync(() => toggle.click());
       } else dispatchEditorKey(rendered.host, 'Escape');
       await waitFor(() => assert.ok(rendered.host.querySelector('article')));
@@ -5515,7 +5688,7 @@ for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'c
       await waitForEditorPublication();
       if (route.startsWith('conflict-')) rendered.conflictNextWrite();
       else if (route !== 'saved') rendered.failNextFileWrite(new Error('R4 injected save failure'));
-      const toggle = rendered.host.querySelector('[aria-label="Switch to read mode"]');
+      const toggle = rendered.host.querySelector('[aria-label="Read mode"]');
       toggle.focus(); flushSync(() => toggle.click());
       if (route !== 'saved') {
         const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save decision'));
@@ -5575,7 +5748,7 @@ test('reader focus return: background reconciliation never requests focus', asyn
   const rendered = await renderContinuityApp();
   try {
     const { calls } = trackReaderReturn(rendered);
-    const button = rendered.host.querySelector('[aria-label="Switch to edit mode"]'); button.focus();
+    const button = rendered.host.querySelector('[aria-label="Edit mode"]'); button.focus();
     rendered.setDiskContent(`${rendered.diskContent()}\n\nR4 external refresh.`);
     await act(async () => {
       await emit('file-changed', { path: '/tmp/continuity.md' });
@@ -5847,7 +6020,7 @@ for (const [name, drafts, skippedCount, fail] of [
       clickButton(rendered.host, "Restore an unsaved draft…");
       const dialog = await waitFor(() => {
         const value = rendered.host.querySelector('[role="dialog"]');
-        assert.ok(value); assert.doesNotMatch(value.textContent, /Loading snapshots/); return value;
+        assert.ok(value); assert.doesNotMatch(value.textContent, /Loading earlier versions/); return value;
       });
       if (fail) assert.match(dialog.querySelector('[role="alert"]').textContent, /Synthetic listing unavailable/);
       else if (skippedCount) {
@@ -5898,7 +6071,7 @@ test("R7 recovery list: reopening clears the prior warning during loading and af
     clickButton(rendered.host, "Close", rendered.host.querySelector('[role="dialog"]'));
     clickButton(rendered.host, "Restore an unsaved draft…");
     await waitFor(() => assert.equal(calls, 2));
-    assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading snapshots/);
+    assert.match(rendered.host.querySelector('[role="dialog"]').textContent, /Loading earlier versions/);
     assert.doesNotMatch(rendered.host.querySelector('[role="dialog"]').textContent, /could not be inspected/);
     await act(async () => held.resolve({ drafts: [r7Draft], skippedCount: 0 }));
     await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"] li button')));
@@ -5936,10 +6109,10 @@ for (const matching of [false, true]) {
       snapshotContents: { [r7SnapshotId]: r7Recovered },
     });
     try {
-      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      flushSync(() => rendered.host.querySelector('[aria-label="Earlier versions"]').click());
       const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
       const dialog = rendered.host.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /snapshots the current state first/i);
+      assert.match(dialog.textContent, /keeps a recovery copy of the current state first/i);
       assert.match(dialog.textContent, /cannot be undone/i);
       assert.match(dialog.textContent, /normal autosave/i);
       flushSync(() => choice.click());
@@ -5970,7 +6143,7 @@ for (const matching of [false, true]) {
     await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
     updateEditor(rendered.host, matching ? r7Recovered : 'Synthetic current draft words');
     await waitForEditorPublication();
-    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    flushSync(() => rendered.host.querySelector('[aria-label="Earlier versions"]').click());
     const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
     const dialog = rendered.host.querySelector('[role="dialog"]');
     assert.match(dialog.textContent, /choose a file location/i);
@@ -5984,7 +6157,7 @@ for (const matching of [false, true]) {
     assert.doesNotMatch(rendered.host.textContent, /will autosave|Save when you're ready/);
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 2800)); });
     assert.deepEqual(rendered.fileWrites(), []);
-    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
     await act(async () => { await emit('tauri://close-requested'); });
     const closeDialog = await waitFor(() => {
       const candidate = rendered.host.querySelector('[role="dialog"]');
@@ -6014,7 +6187,7 @@ for (const failCheckpoint of [false, true]) {
       const backup = deferred();
       if (failCheckpoint) rendered.deferNextSnapshotWrite(backup);
       else rendered.failNextSnapshotWrite(new Error('Synthetic safety write failure'));
-      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      flushSync(() => rendered.host.querySelector('[aria-label="Earlier versions"]').click());
       const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
       flushSync(() => choice.click());
       if (failCheckpoint) {
@@ -6044,7 +6217,7 @@ test("R7 follow-up: restoring saved-file text replaces differing edits without c
     updateEditor(rendered.host, currentEdits);
     await waitForEditorPublication();
     assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
-    flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+    flushSync(() => rendered.host.querySelector('[aria-label="Earlier versions"]').click());
     const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
     flushSync(() => choice.click());
     await waitFor(() => {
@@ -6072,7 +6245,7 @@ for (const matching of [false, true]) {
       dispatchShortcut('n');
       await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
       if (beforeText) { updateEditor(rendered.host, beforeText); await waitForEditorPublication(); }
-      flushSync(() => rendered.host.querySelector('[aria-label="Restore snapshot"]').click());
+      flushSync(() => rendered.host.querySelector('[aria-label="Earlier versions"]').click());
       const choice = await waitFor(() => { const c = rendered.host.querySelector('[role="dialog"] li button'); assert.ok(c); return c; });
       flushSync(() => choice.click());
       await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
@@ -6083,5 +6256,341 @@ for (const matching of [false, true]) {
       assert.deepEqual(rendered.fileWrites(), []);
       assert.deepEqual(rendered.retiredDrafts(), []);
     } finally { await rendered.cleanup(); }
+  });
+}
+
+test('saving feedback follows an empty draft through Focus mode and saved-file adoption', async () => {
+  const rendered = await renderEditorApp();
+  try {
+    assert.ok(rendered.host.querySelector('[aria-label="Not saved yet"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(!rendered.host.querySelector('.cm-editor')));
+    dispatchShortcut('f', { shiftKey: true });
+    await waitFor(() => assert.ok(rendered.host.querySelector('.focus-bar')));
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    assert.ok(rendered.host.querySelector('.focus-bar [aria-label="Not saved yet"]'));
+    clickButton(rendered.host, 'Exit');
+    await waitFor(() => assert.ok(rendered.host.querySelector('header')));
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.fileWrites.length, 1));
+    await waitFor(() => assert.ok(!rendered.host.querySelector('[aria-label="Not saved yet"]')));
+    assert.equal(rendered.fileWrites[0].content, '');
+    assert.equal(rendered.fileWrites[0].path, '/tmp/recovered-r7.md');
+    assert.ok(rendered.host.querySelector('[aria-label="Saved"]'));
+  } finally { await rendered.cleanup(); }
+});
+
+function sampleFixture(overrides = {}) {
+  return { reads: [], directories: [], dialogs: [], exports: [], ...overrides };
+}
+
+for (const seen of [undefined, false, true]) {
+  test(`sample entrance ignores historical welcome preference ${seen}`, async () => {
+    const flow = sampleFixture({ seen });
+    const history = { version: 3, value: { version: 1, files: [] }, writes: [] };
+    const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
+    try {
+      assert.ok([...rendered.host.querySelectorAll('button')].some(b => b.textContent === 'Try an example'));
+      assert.equal(flow.reads.includes('hasSeenWelcome'), false);
+      assert.deepEqual(flow.dialogs, []);
+      assert.deepEqual(flow.exports, []);
+      assert.ok(!rendered.host.querySelector('article'));
+      rendered.setSaveDialogPath(null);
+      clickButton(rendered.host, 'Try an example');
+      await waitFor(() => assert.equal(flow.dialogs.length, 1));
+      await waitFor(() => assert.equal([...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example').disabled, false));
+      assert.equal(flow.dialogs[0].options.defaultPath, '/tmp/Documents/Welcome to Bindars.md');
+      assert.deepEqual(flow.exports, []);
+      assert.deepEqual(history.writes.filter(w => /sample|welcome/i.test(w.key)), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const [name, directory, expected] of [
+  ['documents failure', (n) => { if (n === 6) throw Error('unavailable'); return '/tmp/Home/'; }, '/tmp/Home/Welcome to Bindars.md'],
+  ['empty documents', (n) => n === 6 ? '' : '/tmp/Home', '/tmp/Home/Welcome to Bindars.md'],
+  ['unusable directories', () => 'relative', 'Welcome to Bindars.md'],
+  ['all directories unavailable', () => { throw Error('unavailable'); }, 'Welcome to Bindars.md'],
+]) {
+  test(`sample Save destination fallback: ${name}`, async () => {
+    const flow = sampleFixture({ directory, dialog: () => null });
+    const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
+    try {
+      clickButton(rendered.host, 'Try an example');
+      await waitFor(() => assert.equal(flow.dialogs.length, 1));
+      assert.equal(flow.dialogs[0].options.defaultPath, expected);
+      assert.deepEqual(flow.directories, [6, 21]);
+      assert.deepEqual(flow.exports, []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test('sample admission owns repeated activation and quit until cancel releases it', async () => {
+  const held = deferred();
+  const flow = sampleFixture({ dialog: () => held.promise });
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    const button = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    flushSync(() => { button.click(); button.click(); });
+    await waitFor(() => assert.equal(flow.dialogs.length, 1));
+    await act(async () => emit('bindars://quit-requested'));
+    assert.equal(rendered.guardedExitCount(), 0);
+    assert.deepEqual(flow.exports, []);
+    await act(async () => held.resolve(null));
+    await waitFor(() => assert.equal(button.disabled, false));
+    assert.ok(rendered.host.querySelector('.empty-state-content'));
+    assert.doesNotMatch(rendered.host.textContent, /Couldn't save the example|example was saved/);
+    flow.dialog = () => '/tmp/sample.md';
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+    assert.equal(flow.dialogs.length, 2);
+    assert.deepEqual(flow.exports, [{ path: '/tmp/sample.md', content: '# Welcome fixture\n\nSave with Ctrl+S.' }]);
+    assert.deepEqual(rendered.openedPaths(), ['/tmp/sample.md']);
+  } finally { await rendered.cleanup(); }
+});
+
+test('sample write failure preserves the entrance and supports a deliberate retry', async () => {
+  const flow = sampleFixture({ write: () => { throw { category: 'permissionDenied', operation: 'exportDocument', message: 'Choose a writable folder.', detail: 'fixture' }; } });
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.match(rendered.host.textContent, /Choose a writable folder/));
+    assert.deepEqual(rendered.openedPaths(), []);
+    assert.ok(rendered.host.querySelector('.empty-state-content'));
+    flow.write = null;
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+    assert.equal(flow.exports.length, 2);
+  } finally { await rendered.cleanup(); }
+});
+
+test('sample saved but open failed reports the destination and ordinary Open does not export again', async () => {
+  const open = deferred();
+  const flow = sampleFixture();
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    rendered.setSaveDialogPath('/tmp/saved-sample.md');
+    rendered.deferNextOpen(open);
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.ok(open.args));
+    await act(async () => open.reject(Error('Synthetic read failure')));
+    await waitFor(() => assert.match(rendered.host.textContent, /example was saved to \/tmp\/saved-sample.md, but couldn't be opened/));
+    assert.ok(rendered.host.querySelector('.empty-state-content'));
+    assert.match(rendered.host.textContent, /Synthetic read failure/);
+    rendered.setOpenDialogPath('/tmp/saved-sample.md');
+    clickButton(rendered.host, 'Open File');
+    await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+    assert.equal(flow.exports.length, 1);
+    assert.equal(rendered.diskContent(), flow.exports[0].content);
+  } finally { await rendered.cleanup(); }
+});
+
+test('sample cancel supersedes an in-flight session restore without exporting', async () => {
+  const session = deferred();
+  const dialog = deferred();
+  const flow = sampleFixture({ dialog: () => dialog.promise });
+  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    await waitFor(() => assert.ok(session.args));
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.equal(flow.dialogs.length, 1));
+    await act(async () => dialog.resolve(null));
+    await act(async () => session.resolve(rendered.openResult('# Late session')));
+    await act(async () => new Promise(setImmediate));
+    assert.deepEqual(rendered.openedPaths(), ['/tmp/continuity.md']);
+    assert.deepEqual(flow.exports, []);
+    assert.ok(rendered.host.querySelector('.empty-state-content'));
+  } finally { await rendered.cleanup(); }
+});
+
+test('sample cancels an already pending session open before showing its Save dialog', async () => {
+  const startup = deferred();
+  const dialog = deferred();
+  const flow = sampleFixture({ dialog: () => dialog.promise });
+  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    await waitFor(() => assert.ok(startup.args));
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.equal(flow.dialogs.length, 1));
+    await act(async () => startup.resolve(rendered.openResult('# Stale startup')));
+    assert.ok(!rendered.host.querySelector('article'));
+    await act(async () => dialog.resolve('/tmp/sample.md'));
+    await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /Welcome fixture/));
+    assert.doesNotMatch(rendered.host.textContent, /Stale startup/);
+  } finally { await rendered.cleanup(); }
+});
+
+test('sample completion after unmount does not open or publish stale feedback', async () => {
+  const write = deferred();
+  const flow = sampleFixture({ write: () => write.promise });
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
+  clickButton(rendered.host, 'Try an example');
+  await waitFor(() => assert.equal(flow.exports.length, 1));
+  await rendered.cleanup();
+  await act(async () => write.resolve(null));
+  assert.deepEqual(rendered.openedPaths(), []);
+  assert.doesNotMatch(rendered.host.textContent, /example was saved|Couldn't save/);
+});
+
+test('sample keeps the existing native-open busy guard and accepts a later retry', async () => {
+  const startup = deferred();
+  const flow = sampleFixture();
+  const rendered = await renderContinuityApp({ initialNativePath: '/tmp/startup.md', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  try {
+    await waitFor(() => assert.ok(startup.args));
+    const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    assert.equal(sample.disabled, true);
+    flushSync(() => sample.click());
+    assert.deepEqual(flow.dialogs, []);
+    await act(async () => startup.reject(Error('Synthetic open failure')));
+    await waitFor(() => assert.equal(sample.disabled, false));
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+    assert.equal(flow.exports.length, 1);
+  } finally { await rendered.cleanup(); }
+});
+
+async function selectReaderParagraph(rendered, index = 0) {
+  await waitFor(() => assert.ok(rendered.host.querySelectorAll('article p')[index]));
+  const range = document.createRange();
+  range.selectNodeContents(rendered.host.querySelectorAll('article p')[index]);
+  await act(async () => {
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.dispatchEvent(new window.Event('selectionchange'));
+  });
+  await waitFor(() => assert.ok([...rendered.host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Note')));
+}
+
+async function typeHighlightNote(rendered, text) {
+  await act(async () => {
+    const input = rendered.host.querySelector('textarea[aria-label="Highlight note"]');
+    assert.ok(input);
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, text);
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+}
+
+for (const focus of [false, true]) {
+  test(`App color highlight keeps panel/Focus state; Note opens and focuses exactly one note (Focus=${focus})`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      if (focus) dispatchShortcut('f', { shiftKey: true });
+      await selectReaderParagraph(rendered);
+      flushSync(() => rendered.host.querySelector('[aria-label="Highlight Green"]').click());
+      await waitFor(() => assert.ok(rendered.annotationWrites.length));
+      assert.equal(rendered.annotationWrites.at(-1).annotations.highlights.length, 1);
+      assert.equal(rendered.annotationWrites.at(-1).annotations.highlights[0].color, 'green');
+      assert.equal(Boolean(rendered.host.querySelector('.focus-bar')), focus);
+      assert.ok(rendered.host.querySelector('textarea') === null);
+      assert.ok(rendered.host.querySelector('[aria-label="Close highlights & notes"]') === null);
+      await selectReaderParagraph(rendered, 1);
+      clickButton(rendered.host, 'Note');
+      const input = await waitFor(() => {
+        const input = rendered.host.querySelector('textarea[aria-label="Highlight note"]');
+        assert.ok(input); assert.ok(document.activeElement === input); return input;
+      });
+      assert.ok(rendered.host.querySelector('.focus-bar') === null);
+      assert.ok(rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
+      await waitFor(() => assert.equal(rendered.annotationWrites.at(-1).annotations.highlights.length, 2));
+      const noteHighlight = rendered.annotationWrites.at(-1).annotations.highlights[1];
+      assert.equal(noteHighlight.color, 'yellow');
+      assert.equal(noteHighlight.exact, 'Closing words.');
+      await typeHighlightNote(rendered, 'Owned thought');
+      dispatchElementKey(input, 'Enter');
+      await waitFor(() => assert.equal(rendered.annotationWrites.at(-1).annotations.highlights[1].note, 'Owned thought'));
+      assert.equal(rendered.annotationWrites.at(-1).path, '/tmp/continuity.md');
+      assert.ok(rendered.host.querySelector('textarea') === null);
+    } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+  });
+}
+
+for (const next of ['switch', 'quit']) {
+  test(`App unfinished intentional Note commits to its original document before ${next}`, async () => {
+    const rendered = await renderContinuityApp();
+    try {
+      await selectReaderParagraph(rendered);
+      clickButton(rendered.host, 'Note');
+      await waitFor(() => assert.ok(rendered.host.querySelector('textarea')));
+      await typeHighlightNote(rendered, 'Unfinished original-document thought');
+      if (next === 'switch') {
+        rendered.setPendingNativeOpenPath('/tmp/other.md');
+        await act(async () => emit('bindars://native-open-available'));
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+      } else {
+        await act(async () => emit('bindars://quit-requested'));
+        await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+      }
+      assert.ok(rendered.annotationWrites.some(write => write.path === '/tmp/continuity.md' && write.annotations.highlights[0].note === 'Unfinished original-document thought'));
+      assert.equal(rendered.annotationWrites.some(write => write.path === '/tmp/other.md'), false);
+    } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+  });
+}
+
+test('sample canonical opening supports notes and ordinary reopening preserves edited text and notes', async () => {
+  const selectedPath = '/tmp/link-to-sample.md';
+  const actualPath = '/tmp/canonical-sample.md';
+  const flow = sampleFixture();
+  const history = { version: 3, value: { version: 1, files: [] }, writes: [] };
+  const rendered = await renderContinuityApp({ initialNativePath: null, requestedPath: selectedPath, canonicalPath: actualPath, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
+  try {
+    rendered.setSaveDialogPath(selectedPath);
+    clickButton(rendered.host, 'Try an example');
+    await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+    await waitFor(() => assert.equal(history.value.files[0].path, actualPath));
+    await selectReaderParagraph(rendered);
+    clickButton(rendered.host, 'Note');
+    await waitFor(() => assert.ok(rendered.host.querySelector('textarea')));
+    await typeHighlightNote(rendered, 'Keep this sample note');
+    dispatchElementKey(rendered.host.querySelector('textarea'), 'Enter');
+    await waitFor(() => assert.equal(rendered.annotationWrites.at(-1).annotations.highlights[0].note, 'Keep this sample note'));
+    assert.equal(rendered.annotationWrites.at(-1).path, actualPath);
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+    const edited = '# My saved sample\n\nSave with Ctrl+S.\n\nAdded by the reader.';
+    updateEditor(rendered.host, edited);
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.diskContent(), edited));
+    dispatchShortcut('n');
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ''));
+    rendered.setOpenDialogPath(actualPath);
+    dispatchShortcut('o');
+    await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /Added by the reader/));
+    assert.equal(flow.exports.length, 1);
+    assert.equal(rendered.diskContent(), edited);
+    assert.match(rendered.host.textContent, /Keep this sample note/);
+    assert.deepEqual(history.writes.filter(w => /sample|welcome/i.test(w.key)), []);
+  } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+});
+
+for (const outside of [false, true]) {
+  test(`intentional Note checks passage visibility after painting once, without taking note focus (outside=${outside})`, async () => {
+    const rendered = await renderContinuityApp();
+    const scrolledMarks = [];
+    const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
+    window.HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.matches('mark[data-highlight-id]')) return { top: outside ? 600 : 100, bottom: outside ? 620 : 120, left: 0, right: 200, width: 200, height: 20 };
+      return originalBounds.call(this);
+    };
+    window.HTMLElement.prototype.scrollIntoView = function (options) {
+      if (this.matches('mark[data-highlight-id]')) scrolledMarks.push({ id: this.dataset.highlightId, options });
+    };
+    try {
+      dispatchShortcut('f', { shiftKey: true });
+      await selectReaderParagraph(rendered);
+      clickButton(rendered.host, 'Note');
+      await waitFor(() => assert.ok(rendered.host.querySelector('textarea')));
+      await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id]')));
+      assert.equal(scrolledMarks.length, outside ? 1 : 0);
+      assert.ok(document.activeElement === rendered.host.querySelector('textarea'));
+      if (outside) assert.equal(scrolledMarks[0].id, rendered.annotationWrites.at(-1).annotations.highlights[0].id);
+      rendered.host.querySelector('article').dispatchEvent(new window.Event('bindars:diagram-rendered'));
+      await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
+      await act(async () => new Promise(setImmediate));
+      assert.equal(scrolledMarks.length, outside ? 1 : 0, 'later paints must not scroll again');
+      assert.ok(document.activeElement === rendered.host.querySelector('textarea'));
+    } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
   });
 }

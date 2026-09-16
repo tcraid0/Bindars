@@ -33,6 +33,7 @@ async function renderReader(content) {
     root.render(React.createElement(ToastProvider, null, React.createElement(MarkdownRenderer, {
       content,
       filePath: "/tmp/document.md",
+      imagesAuthorized: true,
       settings: readerSettings,
       contentRef: React.createRef(),
       onOpenFragment: () => false,

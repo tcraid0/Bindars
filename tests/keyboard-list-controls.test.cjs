@@ -108,7 +108,7 @@ test("highlight actions reveal on focus and removal moves next, previous, then t
   const view = renderComponent(Annotations);
   try {
     const removeButtons = () => [...view.host.querySelectorAll('[aria-label="Remove highlight"]')];
-    assertFocusReveal(buttonWithText(view.host, "Add note"));
+    assert.equal(buttonWithText(view.host, "Add note").classList.contains("opacity-0"), false);
     assertFocusReveal(view.host.querySelector('[aria-label="Edit note"]'));
     assertFocusReveal(removeButtons()[1]);
     click(removeButtons()[1]);
@@ -118,9 +118,9 @@ test("highlight actions reveal on focus and removal moves next, previous, then t
     assert.match(document.activeElement.textContent, /first/);
     assertFocusReveal(removeButtons()[0]);
     click(removeButtons()[0]);
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Close annotations");
-    assert.equal(view.host.querySelector('[aria-label="Export annotations as Markdown"]').disabled, true);
-    assert.match(view.host.textContent, /No annotations yet/);
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Close highlights & notes");
+    assert.equal(view.host.querySelector('[aria-label="Export highlights & notes as Markdown"]').disabled, true);
+    assert.match(view.host.textContent, /No highlights or notes yet/);
   } finally { view.cleanup(); }
 });
 
@@ -161,7 +161,7 @@ test("note blur saves without pulling focus back; empty note returns to Add note
     pressKey("Enter");
     assert.equal(document.activeElement.textContent, "Add note");
     click(view.host.querySelector('[aria-label="Edit note"]'));
-    const close = view.host.querySelector('[aria-label="Close annotations"]');
+    const close = view.host.querySelector('[aria-label="Close highlights & notes"]');
     focus(close);
     assert.ok(document.activeElement === close);
     assert.ok(view.host.querySelector("textarea") === null);

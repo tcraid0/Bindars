@@ -47,7 +47,7 @@ export function WorkspacePanel({
         {hasWorkspace && rootPath ? (
           <p className="workspace-path truncate" title={rootPath}>{rootPath}</p>
         ) : (
-          <p>Choose a folder to index Markdown and Fountain files for quick navigation and links.</p>
+          <p>Choose a folder to search Markdown and Fountain files for quick navigation and links.</p>
         )}
       </div>
 
@@ -67,7 +67,7 @@ export function WorkspacePanel({
               disabled={state.status === "indexing"}
               className="workspace-pill-btn disabled:cursor-default disabled:opacity-50"
             >
-              {state.status === "indexing" ? "Indexing…" : "Reindex"}
+              {state.status === "indexing" ? "Refreshing…" : "Refresh"}
             </button>
             <button
               type="button"
@@ -86,8 +86,8 @@ export function WorkspacePanel({
             {formatStatus(state)}
           </p>
           <p className="mt-1 text-[11px] text-text-muted">
-            Reindex after files change.
-            {state.indexedAt !== null && ` Last indexed: ${new Date(state.indexedAt).toLocaleString()}.`}
+            Refresh after files change to update search and links.
+            {state.indexedAt !== null && ` Last refreshed: ${new Date(state.indexedAt).toLocaleString()}.`}
           </p>
         </>
       )}

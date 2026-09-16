@@ -17,6 +17,37 @@
 /* KaTeX math rendering */
 @import "katex/dist/katex.min.css";
 
+/* Keep document actions and save feedback readable in compact native windows.
+   ReaderControls shares this height for its viewport-relative position. */
+.app-shell {
+  --header-height: var(--header-row-height, 52px);
+}
+
+@media (max-width: 1023px) {
+  .app-shell.has-document {
+    --header-height: calc(var(--header-row-height, 52px) + 40px);
+  }
+
+  .has-document .document-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: var(--header-row-height, 52px) 40px;
+  }
+
+  .has-document .document-header-context {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    padding-inline: 0;
+  }
+
+  .has-document .document-header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+}
+
 /* ── Theme tokens ── */
 
 :root {

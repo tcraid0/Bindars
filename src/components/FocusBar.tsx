@@ -5,6 +5,7 @@ import { SaveWhisper } from "./SaveWhisper";
 
 interface FocusBarProps {
   fileName: string | null;
+  isDraft?: boolean;
   isDirty: boolean;
   isSavedFlash: boolean;
   saveWarning: string | null;
@@ -21,6 +22,7 @@ const PROXIMITY_PX = 60;
 
 function FocusBarComponent({
   fileName,
+  isDraft = false,
   isDirty,
   isSavedFlash,
   saveWarning,
@@ -71,22 +73,23 @@ function FocusBarComponent({
       />
       <div
         data-tauri-drag-region
-        className="focus-bar mode-bar print-hide fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
+        className="focus-bar mode-bar print-hide fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none max-w-[calc(100vw-2rem)]"
         data-visible={nearTop}
         style={{
           transition: reducedEffects ? "none" : "opacity 200ms ease",
         }}
       >
         <SaveWhisper
+          isDraft={isDraft}
           dirty={isDirty}
           saved={isSavedFlash}
           warning={saveWarning}
         />
         {fileName && (
-          <span className="text-sm text-text-muted truncate max-w-[280px]">{fileName}</span>
+          <span className="text-sm text-text-muted truncate min-w-0 max-w-[280px]" title={fileName}>{fileName}</span>
         )}
         {statsSummary && (
-          <span className="text-[11px] text-text-muted">
+          <span className="text-[11px] text-text-muted whitespace-nowrap hidden sm:inline">
             <span ref={progressTextRef}>0%</span>
             {" · "}{statsSummary}
           </span>
@@ -100,7 +103,7 @@ function FocusBarComponent({
         <button
           type="button"
           onClick={onExit}
-          className="text-xs text-text-secondary hover:text-text-primary transition-colors duration-120"
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors duration-120 shrink-0"
           title={`Exit focus mode (${formatShortcutLabel("escape")})`}
         >
           Exit

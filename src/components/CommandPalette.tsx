@@ -77,8 +77,8 @@ function CommandPaletteComponent({
               {status === "indexing"
                 ? "The updated index will be available when indexing finishes."
                 : status === "error"
-                  ? "Indexing failed. Reindex from the Workspace panel to retry."
-                  : "Reindex from the Workspace panel after files change."}
+                  ? "Indexing failed. Use Refresh in the Workspace panel to retry."
+                  : "Use Refresh in the Workspace panel after files change."}
             </span>
             <span className="hidden sm:inline">
               {formatShortcutLabel("enter")} opens. {formatShortcutLabel("escape")} closes.

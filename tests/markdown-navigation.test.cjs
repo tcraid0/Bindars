@@ -82,6 +82,7 @@ test("MarkdownRenderer decodes heading and footnote fragments before navigation"
       React.createElement(MarkdownRenderer, {
         content,
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment(fragmentId) {
@@ -125,6 +126,7 @@ test("MarkdownRenderer reports a missing generic link target without calling it 
       React.createElement(MarkdownRenderer, {
         content: "[Missing](#not-there)",
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment() {
@@ -160,6 +162,7 @@ test("MarkdownRenderer explains why an absolute Markdown link cannot open", asyn
         // handler: the sanitizer drops the unknown `c:` scheme with its href.
         content: "[Absolute](/docs/other.md) and [Text](./notes.txt)",
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment: () => false,
@@ -220,6 +223,7 @@ test("PresentationView resolves fragments only inside the active slide", async (
         currentSlide: 0,
         settings: readerSettings,
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         onExit() {},
         onNext() {},
         onPrev() {},
@@ -263,7 +267,7 @@ const markedContent = "# Title\n\n![Preview](preview.png)\n\n[Jump](#title) word
 
 function readerElement(props) {
   return React.createElement(ToastProvider, null, React.createElement(MarkdownRenderer, {
-    content: markedContent, filePath: "/tmp/document.md", settings: readerSettings,
+    content: markedContent, filePath: "/tmp/document.md", imagesAuthorized: true, settings: readerSettings,
     contentRef: React.createRef(), onOpenFragment: () => true, ...props,
   }));
 }
@@ -277,14 +281,8 @@ function paintReaderMarks(host) {
   return article;
 }
 
-test("marked Markdown keeps nodes through delayed asset setup and uses the latest navigation callback", async () => {
+test("marked Markdown keeps nodes through image loading and uses the latest navigation callback", async () => {
   await installNavigationDom();
-  let resolvePaths;
-  const paths = new Promise((resolve) => { resolvePaths = resolve; });
-  mockIPC((command) => {
-    assert.equal(command, "plugin:path|resolve_directory");
-    return paths;
-  });
   const navigated = [];
   const rendered = await render(readerElement({ onNavigateToFile: () => navigated.push("old") }));
   try {
@@ -292,11 +290,11 @@ test("marked Markdown keeps nodes through delayed asset setup and uses the lates
     const nodes = [...article.querySelectorAll("a, code, table, img, mark")];
     const link = article.querySelector('a[href="next.md"]');
     link.focus();
-    await act(async () => resolvePaths("/tmp"));
+    await act(async () => article.querySelector("img").dispatchEvent(new window.Event("load")));
     await rendered.rerender(readerElement({
       onNavigateToFile: (path) => navigated.push(path),
     }));
-    assert.ok(nodes.every((node) => node.isConnected), "asset setup and callbacks must preserve marked nodes");
+    assert.ok(nodes.every((node) => node.isConnected), "image loading and callbacks must preserve marked nodes");
     assert.ok(document.activeElement === link);
     await click(link);
     assert.deepEqual(navigated, ["/tmp/next.md"]);
@@ -304,7 +302,6 @@ test("marked Markdown keeps nodes through delayed asset setup and uses the lates
     assert.equal(article.querySelectorAll('mark[data-highlight-id="saved"]').length, 1);
     assert.match(article.textContent, /Jump words code more words/);
   } finally {
-    resolvePaths("/tmp");
     await rendered.cleanup();
     clearMocks();
   }
@@ -331,12 +328,12 @@ test("identical Markdown in another file resets image errors and marks", async (
   const rendered = await render(readerElement());
   try {
     await act(async () => rendered.host.querySelector("img").dispatchEvent(new window.Event("error")));
-    assert.match(rendered.host.textContent, /image not found or unreadable/);
+    assert.match(rendered.host.textContent, /image not shown: unavailable/);
     paintReaderMarks(rendered.host);
     await rendered.rerender(readerElement({ filePath: "/tmp/other/document.md" }));
     const image = rendered.host.querySelector("img");
     assert.ok(image, "new file must get its own image loading state");
-    assert.ok(image.src.includes("other"));
+    assert.deepEqual(JSON.parse(decodeURIComponent(new URL(image.src).pathname.slice(1))), ["/tmp/other/document.md", "/tmp/other/preview.png"]);
     assert.ok(!rendered.host.querySelector("mark"));
     assert.match(rendered.host.textContent, /Jump words code more words/);
   } finally {

@@ -1,6 +1,6 @@
 # Bindars
 
-The reading app for markdown. Drop a file in, read it well.
+Read Markdown and Fountain files, highlight passages, and keep notes.
 
 Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
@@ -17,24 +17,32 @@ native testing and code signing.
 - Syntax-highlighted code blocks (highlight.js)
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
-- Highlights and bookmarks with text anchoring
+- Highlights & notes, plus bookmarks for returning to headings
 - Workspace quick switcher for Markdown and Fountain files
 - Fountain screenplay rendering with character focus and scene navigation
 - Focus mode and presentation mode
-- Position-continuous CodeMirror editing with undo history and find/replace
+- Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
 - New documents with guarded Save/Save As and external-change reconciliation
 - Optional Markdown heading formatting with an instant plain-markup fallback
-- Print and Save as PDF
+- Print the document or save it as PDF; export highlights and notes separately as Markdown
 - Keyboard-driven workflow - press `?` for the full shortcut list
 
-See [annotation behavior and recovery](docs/annotations.md) for location, saving,
-and document-path limitations.
+See [highlights, notes, and recovery](docs/annotations.md) for location, saving,
+and document-path limitations. You can also paste plain text into a new document.
+Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
+or PDF documents.
+
+On the empty screen, choose **Try an example** and save a copy to try highlighting
+and notes. Select a passage and choose **Note**, or choose **Add note** on an
+existing highlight. Reopen your saved copy from **Recent files**, **Open**, or
+your file manager. Choosing **Try an example** again asks where to save a fresh copy;
+confirming replacement writes the example text over the file you choose.
 
 ### Workspace search
 
 Choose a folder in the Workspace panel, then use Search or the quick switcher
 shortcut to find filenames, document titles, headings, and body excerpts.
-Choose **Reindex** after files change: editing, saving, adding, renaming, or
+Choose **Refresh** after files change: editing, saving, adding, renaming, or
 deleting a file does not automatically update the workspace snapshot.
 
 Results appear when indexing finishes; the previous snapshot stays available
@@ -49,8 +57,11 @@ This is a quick navigation tool, not an exhaustive full-document search.
 - Raw HTML in Markdown is removed, not rendered: `<br>`, `<details>`, `<img>`,
   and similar tags disappear and only the Markdown around them is shown.
 - Images must be relative paths inside the document's folder (or a subfolder).
-  Remote images, `data:` URLs, absolute paths, and `../` paths are not loaded.
-  The app can only read images under your home and temporary folders.
+  Remote images, `data:` URLs, and absolute paths are not loaded. A `../`
+  segment is allowed only while the resolved path stays inside that folder.
+  Image shortcuts (symbolic links) must also resolve inside that folder.
+  Images larger than 20 MiB are not loaded, and images are served only for
+  the document currently open in the reader.
 - Links to other `.md`, `.markdown`, and `.fountain` files open in the reader,
   including `../` paths. `http(s)` and `mailto` links open in your system
   browser or mail client; other URL schemes are removed.

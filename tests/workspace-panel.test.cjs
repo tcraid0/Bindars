@@ -16,8 +16,8 @@ test('workspace reports successful/discovered counts even when the limit is reac
     rootPath: state.rootPath, state, backlinks:[], mentions:[],
   }));
   assert.match(html, /1\/2 files indexed \(limit reached\)/);
-  assert.match(html, /Reindex after files change/);
-  assert.match(html, /Last indexed:/);
+  assert.match(html, /Refresh after files change to update search and links/);
+  assert.match(html, /Last refreshed:/);
 });
 
 for (const [status, message] of [

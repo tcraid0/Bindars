@@ -1,86 +1,52 @@
 ---
-title: Welcome to Bindars
+title: A Saturday with room to wander
 author: Bindars
-description: Your reading app for Markdown. Local-first, private, and distraction-free.
-tags: [welcome, getting-started]
+description: A short day-out plan to try reading, highlighting, and notes.
 ---
 
-## Getting Started
+## The plan
 
-Open any `.md`, `.markdown`, or `.fountain` file with **{{shortcut:openFile}}**, or drag and drop it onto the window. Press **{{shortcut:newFile}}** to start a new Markdown document.
+Leave the morning open enough to change your mind. Pick one place you want to
+visit, one place to eat, and a time to head home. Everything else can wait.
 
-Bindars remembers your recently opened files in the sidebar (**{{shortcut:toggleSidebar}}**), and restores your last reading position when you reopen a file.
+### Morning: take the long way
 
-### Editing
+Start with a walk and a coffee. Put your phone away for the first ten minutes.
+Look for somewhere you would usually walk past: a small garden, a bookshop,
+or a bench with a good view.
 
-Press **{{shortcut:toggleEditMode}}** to make the current document editable without losing your reading position. The editor supports undo history and find/replace. Save manually with **{{shortcut:saveFile}}**; Bindars warns before navigation or exit when unsaved work remains.
+### Lunch: leave a little space
 
-Markdown headings receive optional live formatting while editing. Use **{{shortcut:toggleMarkdownFormatting}}** to switch instantly between formatted headings and plain markup. Other Markdown syntax remains visible and editable as ordinary text.
+Choose somewhere close enough to walk. If it is busy, try the next place instead
+of spending the afternoon in a queue. Bring water and a layer for the weather.
 
-## Features
+### Afternoon: choose one thing
 
-### Rich Markdown Rendering
+Visit a museum, browse a market, or keep walking. You do not need to fit in all
+three. Before heading home, write down one place you would like to return to.
 
-Bindars renders GitHub Flavored Markdown with full support for tables, task lists, footnotes[^1], and syntax-highlighted code:
+## Make this plan yours
 
-```javascript
-function greet(name) {
-  return `Hello, ${name}!`;
-}
-```
+Open **Reader Settings** (the **Aa** button) to adjust the text size or theme.
 
-### Math Equations
+Select a sentence above and choose a color to highlight it. To attach a thought,
+select a passage and choose **Note**. Try “Which bookshop should we visit?”
+Press Enter to keep the note, or Shift+Enter for a new line.
 
-Inline math like $$E = mc^2$$ and display equations are rendered with KaTeX:
+Open **Highlights & notes** with **{{shortcut:toggleAnnotations}}** to find your
+marked passages. Choose **Add note** on an existing highlight to add a thought.
 
-$$
-\int_{-\infty}^{\infty} e^{-x^2} \, dx = \sqrt{\pi}
-$$
+## Come back or share
 
-### Mermaid Diagrams
+This is your saved copy. Reopen it from **Recent files**, **Open**, or Finder.
+**Try an example** makes another copy; confirming Replace regenerates the
+example text in the file you choose.
 
-```mermaid
-graph LR
-    A[Open] --> B[Read]
-    B --> C{Enjoy}
-    C --> D[Mark]
-    C --> E[Save]
-    C --> F[Share]
-```
+Choose **Print to PDF** from the export menu to share the document. Attached note
+text is not appended to that PDF. To share your highlights and notes, export
+them as Markdown from **Highlights & notes**. You can open that exported file
+and print it separately.
 
-### Highlights & Annotations
-
-Select any text to highlight it in one of four colors. Open the annotations panel (**{{shortcut:toggleAnnotations}}**) to review your highlights, add notes, and export everything to Markdown.
-
-### Workspace
-
-Choose a workspace folder to find Markdown and Fountain files with the command palette (**{{shortcut:workspaceSwitcher}}**). Search filenames, titles, headings, and body excerpts. Use **Reindex** in the Workspace panel after files change; the index does not update automatically.
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| **{{shortcut:newFile}}** | New Markdown document |
-| **{{shortcut:openFile}}** | Open file |
-| **{{shortcut:saveFile}}** | Save while editing |
-| **{{shortcut:toggleSidebar}}** | Toggle sidebar |
-| **{{shortcut:toggleTableOfContents}}** | Toggle table of contents |
-| **{{shortcut:searchDocument}}** | Search in document |
-| **{{shortcut:workspaceSwitcher}}** | Command palette |
-| **{{shortcut:toggleAnnotations}}** | Toggle annotations panel |
-| **{{shortcut:bookmarkHeading}}** | Bookmark current heading |
-| **{{shortcut:toggleEditMode}}** | Toggle edit mode |
-| **{{shortcut:toggleMarkdownFormatting}}** | Toggle Markdown formatting while editing |
-| **{{shortcut:cycleTheme}}** | Cycle theme |
-| **{{shortcut:focusMode}}** | Focus mode |
-| **{{shortcut:showShortcuts}}** | Keyboard shortcuts overlay |
-
-## Themes
-
-Cycle through Light, Sepia, Dark, and Midnight themes with **{{shortcut:cycleTheme}}**, or pick one directly from Reader Settings (the Aa button in the header).
-
----
-
-Read well.
-
-[^1]: Footnotes are rendered at the bottom, like this one.
+To change the plan itself, choose **Edit**. Markdown uses plain-text marks for
+headings and formatting. Press
+**{{shortcut:saveFile}}** to save, then choose **Read**.

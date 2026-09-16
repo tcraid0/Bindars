@@ -538,7 +538,7 @@ test("clean-editor reconciliation retains newer surface typing when atomic adopt
     assert.equal(rendered.api().buffer, "Newer surface typing");
     assert.equal(rendered.api().dirty, true);
     assert.equal(rendered.api().externalChange, "changed");
-    assert.match(rendered.api().saveError, /buffer is preserved and autosave is paused/);
+    assert.equal(rendered.api().saveError, "The file changed outside Bindars. Your current draft is preserved and autosave is paused.");
     assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
   } finally {
     rendered.cleanup();
@@ -634,7 +634,7 @@ test("confirmed deletion preserves even a clean editor buffer for later recovery
     assert.equal(rendered.api().buffer, "Recoverable words");
     assert.equal(rendered.api().dirty, true);
     assert.equal(rendered.api().externalChange, "deleted");
-    assert.match(rendered.api().saveError, /deleted outside Bindars/);
+    assert.equal(rendered.api().saveError, "This file was deleted outside Bindars. Your current draft is preserved and autosave is paused.");
     assert.deepEqual(rendered.api().captureSnapshotBuffer(), {
       content: "Recoverable words",
       dirty: true,

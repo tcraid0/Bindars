@@ -1,10 +1,21 @@
 # Annotations
 
-Select text in the reader and choose a highlight color. The Annotations panel
-lets you add or edit a note, remove a highlight, and remove bookmarks even when
-their headings have disappeared. Enter saves a note, Shift+Enter adds a line,
-and Escape cancels the current edit. Leaving the panel or switching documents
-commits the current note to the document where editing began.
+Select text in the reader and choose a color to highlight it. Choose **Note**
+instead to create a yellow highlight and open a note ready for typing. Note
+opens **Highlights & notes** and leaves Focus mode; choosing a color keeps the
+panel and Focus mode as they are.
+
+With reader text selected, press Tab to reach the first highlight color, or
+Shift+Tab to reach Note. Tab and Shift+Tab move through the actions; Enter or
+Space activates the focused action. Escape dismisses the actions and returns
+focus to the reader. Tab past either end leaves the group normally.
+
+The **Highlights & notes** panel lets you choose **Add note** on an existing
+highlight, edit a note, remove a highlight, and remove bookmarks even when their
+headings have disappeared. Enter keeps a note, Shift+Enter adds a line, and
+Escape cancels the current edit. Cancelling an empty note leaves its highlight.
+Starting another note, leaving the panel, or switching documents commits the
+current note to the document where editing began.
 
 ## Location and document identity
 
@@ -49,9 +60,14 @@ pending notes in the running process.
 
 A recovery copy is a JSON file containing full records for every pending path.
 To restore one, open an original document, choose **Restore recovery copy** in
-Annotations, and confirm replacement of that document's current collection.
+**Highlights & notes**, and confirm replacement of that document's current collection.
 Other paths in the copy are untouched; restore them by opening those documents.
 The copy is kept. Markdown export is a readable document, not an import format.
+
+To share your highlights and notes, export them as Markdown from **Highlights &
+notes**. Open that exported file in Bindars and choose **Print to PDF** if you
+want a PDF of the notes. Printing the original document does not append note
+text.
 
 ## Storage boundary
 

@@ -84,7 +84,7 @@ export const SHORTCUT_SECTIONS = [
     shortcuts: [
       { id: "searchDocument", label: "Search in document" },
       { id: "bookmarkHeading", label: "Bookmark current heading" },
-      { id: "toggleAnnotations", label: "Toggle annotations panel" },
+      { id: "toggleAnnotations", label: "Toggle Highlights & notes" },
       { id: "print", label: "Print / export PDF" },
       { id: "increaseFontSize", label: "Increase font size" },
       { id: "decreaseFontSize", label: "Decrease font size" },
@@ -94,7 +94,7 @@ export const SHORTCUT_SECTIONS = [
   {
     title: "Editing",
     shortcuts: [
-      { id: "toggleEditMode", label: "Toggle edit mode" },
+      { id: "toggleEditMode", label: "Switch Read / Edit" },
       { id: "saveFile", label: "Save file" },
       { id: "toggleMarkdownFormatting", label: "Toggle markup formatting" },
       { id: "escape", label: "Exit edit mode" },

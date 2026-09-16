@@ -56,12 +56,12 @@ function indexedHeadingId(markdown) {
   return id;
 }
 
-function renderMarkdownRenderer(content) {
+function renderMarkdownRenderer(content, { imagesAuthorized = true } = {}) {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   globalThis.window = {
     __TAURI_INTERNALS__: {
-      convertFileSrc: (filePath, protocol = "asset") => `${protocol}://${filePath}`,
+      convertFileSrc: (filePath, protocol = "asset") => `${protocol}://localhost/${encodeURIComponent(filePath)}`,
     },
     matchMedia: () => ({
       matches: false,
@@ -85,6 +85,7 @@ function renderMarkdownRenderer(content) {
         React.createElement(MarkdownRenderer, {
           content,
           filePath: "/workspace/current.md",
+          imagesAuthorized,
           settings: readerSettings,
           contentRef: React.createRef(),
           onOpenFragment: () => false,
@@ -318,10 +319,8 @@ test("workspace heading IDs match rendered IDs across inline markup, entities, a
   }
 });
 
-test("the bundled welcome document renders its inline math example", () => {
-  const source = fs.readFileSync(new URL("../src/assets/welcome.md", import.meta.url), "utf8");
-  const { body } = extractFrontmatter(source);
-  const html = renderMarkdown(body);
+test("inline and display math examples render together", () => {
+  const html = renderMarkdown("Inline math like $$E = mc^2$$ works.\n\n$$\n\\int_0^1 x^2 dx = \\frac{1}{3}\n$$");
 
   assert.match(html, /Inline math like <span class="katex">/);
   assert.doesNotMatch(html, /\$E = mc\^2\$/);
@@ -354,17 +353,21 @@ test("MarkdownRenderer does not serialize react-markdown node props", () => {
     ].join("\n"),
   );
 
-  assert.match(html, /<img[^>]+src="asset:\/\/\/workspace\/image\.png"[^>]+alt="Alt text"/);
+  assert.match(html, /<img[^>]+src="document-image:\/\/localhost\/[^" ]+"[^>]+alt="Alt text"/);
   assert.match(html, /<a href="\.\/target\.md">Target<\/a>/);
   assert.match(html, /<table(?:\s|>)/);
   assert.doesNotMatch(html, /\snode="/);
   assert.doesNotMatch(html, /\[object Object\]/);
 });
 
-test("MarkdownRenderer resolves encoded local image filenames before creating asset urls", () => {
+test("MarkdownRenderer passes decoded image paths to the confined native protocol", () => {
   const html = renderMarkdownRenderer("![Cover](<café cover.png>)");
 
-  assert.match(html, /src="asset:\/\/\/workspace\/café cover\.png"/);
+  const source = /<img[^>]+src="([^"]+)"/.exec(html)?.[1];
+  assert.ok(source);
+  const url = new URL(source);
+  assert.equal(url.protocol, "document-image:");
+  assert.deepEqual(JSON.parse(decodeURIComponent(url.pathname.slice(1))), ["/workspace/current.md", "/workspace/café cover.png"]);
 });
 
 test("MarkdownRenderer carries authoritative source points through the plugin chain", () => {
@@ -391,4 +394,28 @@ test("MarkdownRenderer carries authoritative source points through the plugin ch
   assert.match(html, /class="code-block-wrapper"[^>]+data-bindars-source-line="12"/);
   assert.equal((html.match(/data-bindars-source-line=/g) || []).length >= 4, true);
   assert.doesNotMatch(html, /id="not-a-heading"/);
+});
+
+test("MarkdownRenderer issues no document-image request until the document is authorized", () => {
+  const content = [
+    "![Alt text](./image.png)",
+    "",
+    "![Blocked](../outside.png)",
+    "",
+    "```mermaid",
+    "flowchart TD",
+    "  A-->B",
+    "```",
+  ].join("\n");
+
+  const pending = renderMarkdownRenderer(content, { imagesAuthorized: false });
+  assert.doesNotMatch(pending, /document-image:/);
+  assert.match(pending, /<img[^>]+alt="Alt text"/);
+  assert.doesNotMatch(pending, /<img[^>]+src=/, "no source until the native protocol accepts this document");
+  // Lexically blocked sources are explained immediately; they never reach native code.
+  assert.match(pending, /image not shown: only images inside the document(?:'|&#x27;)s folder are shown/);
+  assert.match(pending, /mermaid-loading/);
+
+  const authorized = renderMarkdownRenderer(content, { imagesAuthorized: true });
+  assert.match(authorized, /<img[^>]+src="document-image:\/\/localhost\/[^" ]+"[^>]+alt="Alt text"/);
 });
