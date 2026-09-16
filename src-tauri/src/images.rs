@@ -172,6 +172,13 @@ impl ConfinedImage {
         }
         let document =
             canonicalize_markdown_path(document_path).map_err(|_| ImageError::Unavailable)?;
+        // The accepted path is already canonical, so it must still resolve to
+        // itself. If the document or an ancestor was replaced by a symlink
+        // after acceptance, the name now identifies another document and must
+        // not choose that document's folder.
+        if document != document_path {
+            return Err(ImageError::OutsideDocument);
+        }
         let base = document.parent().ok_or(ImageError::Unavailable)?;
         // Keep a directory handle for the whole operation. Canonicalization is
         // only a name check; it must never be followed by an ambient file read.
@@ -249,8 +256,11 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let root = unique_temp_dir("confined-image");
+            fs::create_dir_all(root.join("document")).unwrap();
+            // The app only ever accepts native canonical paths; the temp
+            // directory itself may be an alias (macOS `/var` → `/private/var`).
+            let root = dunce::canonicalize(root).unwrap();
             let document = root.join("document/readme.md");
-            fs::create_dir_all(document.parent().unwrap()).unwrap();
             fs::write(&document, "# Images").unwrap();
             Self { root, document }
         }
@@ -602,16 +612,50 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn accepts_legitimate_document_directory_aliases_after_canonicalization() {
+    fn refuses_the_accepted_document_once_its_name_resolves_elsewhere() {
         use std::os::unix::fs::symlink;
         let fixture = Fixture::new();
-        let image = fixture.image("document/images/inside.png", PNG);
+        let image = fixture.image("document/inside.png", PNG);
+        let other_png: &[u8] = b"\x89PNG\r\n\x1a\nother folder";
+        let document_b = fixture.root.join("other/readme.md");
+        fs::create_dir_all(document_b.parent().unwrap()).unwrap();
+        fs::write(&document_b, "# Other").unwrap();
+        let image_b = fixture.image("other/private.png", other_png);
+        let origin = "document-image://localhost";
+        assert_eq!(
+            respond(&fixture, image_request(&fixture, &image, origin)).status(),
+            StatusCode::OK
+        );
+        // Another actor replaces the accepted document with a symlink to B
+        // after acceptance. The claim still matches the accepted path, but the
+        // name no longer identifies the accepted document, so neither B's
+        // folder nor the old folder is served through it.
+        fs::remove_file(&fixture.document).unwrap();
+        symlink(&document_b, &fixture.document).unwrap();
+        for target in [&image_b, &image] {
+            let response = respond(&fixture, image_request(&fixture, target, origin));
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(response.body().is_empty());
+        }
+        // The same holds when an ancestor directory is redirected, and for a
+        // document named through an alias of its own folder.
+        fs::remove_file(&fixture.document).unwrap();
+        fs::write(&fixture.document, "# Images").unwrap();
+        let base = fixture.document.parent().unwrap();
+        fs::rename(base, fixture.root.join("moved-document")).unwrap();
+        symlink(document_b.parent().unwrap(), base).unwrap();
+        assert_eq!(
+            respond(&fixture, image_request(&fixture, &image_b, origin)).status(),
+            StatusCode::FORBIDDEN
+        );
+        fs::remove_file(base).unwrap();
+        fs::rename(fixture.root.join("moved-document"), base).unwrap();
         let alias = fixture.root.join("document-alias");
-        symlink(fixture.document.parent().unwrap(), &alias).unwrap();
-        let result =
-            read_document_image_impl(&alias.join("readme.md"), &alias.join("images/inside.png"))
-                .unwrap();
-        assert_eq!(result.bytes, PNG);
+        symlink(base, &alias).unwrap();
+        assert_eq!(
+            read_document_image_impl(&alias.join("readme.md"), &image).unwrap_err(),
+            ImageError::OutsideDocument
+        );
         assert_eq!(fixture.read(&image).unwrap().bytes, PNG);
     }
 

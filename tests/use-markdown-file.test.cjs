@@ -829,6 +829,45 @@ test("native authorization follows publication order and a late result cannot ma
   }
 });
 
+test("returning to an earlier document keeps images pending until its own acknowledgement", async () => {
+  await installDom();
+  const opens = mockPendingOpens({ deferAuthorization: true });
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/a/A.md");
+    await act(async () => {
+      opens[0].resolve({ content: "A", canonicalPath: "/tmp/a/A.md", name: "A.md", revision: savedRevision });
+      await openPromise;
+    });
+    // A → B → A while A's first acknowledgement is still in flight. Matching
+    // the current path alone would mark A ready as soon as that first
+    // acknowledgement lands, while native state is about to move to B.
+    flushSync(() => rendered.api().adoptSavedFile({
+      content: "B", canonicalPath: "/tmp/b/B.md", name: "B.md", revision: savedRevision,
+    }));
+    flushSync(() => rendered.api().adoptSavedFile({
+      content: "A", canonicalPath: "/tmp/a/A.md", name: "A.md", revision: savedRevision,
+    }));
+    await settle(rendered);
+    assert.equal(rendered.api().filePath, "/tmp/a/A.md");
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md"]);
+
+    await settle(rendered, () => opens.authorizations[0].resolve(null));
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md", "/tmp/b/B.md"]);
+    assert.equal(rendered.api().imageDocumentPath, null, "A's first acknowledgement predates B natively");
+
+    await settle(rendered, () => opens.authorizations[1].resolve(null));
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md", "/tmp/b/B.md", "/tmp/a/A.md"]);
+    assert.equal(rendered.api().imageDocumentPath, null, "B's acknowledgement is not A's");
+
+    await settle(rendered, () => opens.authorizations[2].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, "/tmp/a/A.md");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("a failed authorization leaves images unauthorized and retries on the next publication", async () => {
   await installDom();
   const opens = mockPendingOpens({ deferAuthorization: true });
