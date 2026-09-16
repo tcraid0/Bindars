@@ -1,5 +1,6 @@
 import { memo, useRef, useEffect } from "react";
 import { isImeCompositionKey } from "../lib/keyboard";
+import { detectShortcutPlatform } from "../lib/shortcut-labels";
 
 interface SearchBarProps {
   visible: boolean;
@@ -23,6 +24,7 @@ function SearchBarComponent({
   onClose,
 }: SearchBarProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const isMac = detectShortcutPlatform() === "macos";
 
   useEffect(() => {
     if (visible && inputRef.current) {
@@ -54,6 +56,8 @@ function SearchBarComponent({
       <input
         ref={inputRef}
         type="text"
+        autoCorrect={isMac ? "off" : undefined}
+        spellCheck={isMac ? false : undefined}
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}

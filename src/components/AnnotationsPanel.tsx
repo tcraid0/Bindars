@@ -10,6 +10,7 @@ import { buildAnnotationMarkdown } from "../lib/annotation-export";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import { isImeCompositionKey } from "../lib/keyboard";
+import { detectShortcutPlatform } from "../lib/shortcut-labels";
 
 interface AnnotationsPanelProps {
   visible: boolean;
@@ -67,6 +68,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   fileName,
   headings,
 }: AnnotationsPanelProps) {
+  const isMac = detectShortcutPlatform() === "macos";
   const [recoveryRecord, setRecoveryRecord] = useState<unknown>(null);
   const [exporting, setExporting] = useState(false);
   const exportBusy = useRef(false);
@@ -370,6 +372,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   <div className="px-2 pb-1.5">
                     <textarea
                       ref={noteRef}
+                      autoCorrect={isMac ? "off" : undefined}
                       disabled={mutationsDisabled}
                       value={noteBuffer}
                       onChange={(e) => {

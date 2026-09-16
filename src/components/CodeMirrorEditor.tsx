@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { search, searchKeymap } from "@codemirror/search";
+import { search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import {
   EditorSelection,
   EditorState,
@@ -10,6 +10,7 @@ import {
 import { EditorView, keymap } from "@codemirror/view";
 import type { SourcePoint } from "../lib/editor-position";
 import { isImeCompositionKey } from "../lib/keyboard";
+import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { FileType } from "../types";
 import {
   markdownFormattingEnabled as markdownFormattingEnabledField,
@@ -365,6 +366,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         selection: EditorSelection | undefined,
         formattingEnabled: boolean,
       ): EditorState => {
+        const isMac = detectShortcutPlatform() === "macos";
         const preparedText = Text.of(
           preparedDocument.content.split(preparedDocument.lineSeparator),
         );
@@ -378,13 +380,21 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             EditorView.contentAttributes.of({
               "aria-label": "Edit document",
               "aria-multiline": "true",
-              spellcheck: "false",
+              spellcheck: isMac ? "true" : "false",
+              autocorrect: "off",
             }),
             history(),
             search({ top: true }),
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
               if (update.docChanged && !applyingExternalDocument) schedulePublication();
+              if (isMac && searchPanelOpen(update.state) && !searchPanelOpen(update.startState)) {
+                // CodeMirror mounts its search panel before notifying update listeners.
+                for (const input of update.view.dom.querySelectorAll(".cm-search input.cm-textfield")) {
+                  input.setAttribute("autocorrect", "off");
+                  input.setAttribute("spellcheck", "false");
+                }
+              }
             }),
             fileType === "markdown" ? markdownFormattingExtensions(formattingEnabled) : [],
             editorTheme,

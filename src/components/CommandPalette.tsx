@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from "react";
 import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
-import { formatShortcutLabel } from "../lib/shortcut-labels";
+import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
 
 interface CommandPaletteProps {
   visible: boolean;
@@ -29,6 +29,7 @@ function CommandPaletteComponent({
   onHoverIndex,
 }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const isMac = detectShortcutPlatform() === "macos";
 
   useEffect(() => {
     if (!visible) return;
@@ -65,6 +66,8 @@ function CommandPaletteComponent({
             <input
               ref={inputRef}
               type="text"
+              autoCorrect={isMac ? "off" : undefined}
+              spellCheck={isMac ? false : undefined}
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search files, headings, and content..."

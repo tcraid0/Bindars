@@ -109,10 +109,61 @@ test("CodeMirrorEditor mounts exact empty and non-empty documents and focuses it
       assert.equal(view.contentDOM.getAttribute("role"), "textbox");
       assert.equal(view.contentDOM.getAttribute("aria-label"), "Edit document");
       assert.equal(view.contentDOM.getAttribute("aria-multiline"), "true");
-      assert.equal(view.contentDOM.getAttribute("spellcheck"), "false");
       assert.equal(view.contentDOM.getAttribute("contenteditable"), "true");
     } finally {
       rendered.cleanup();
+    }
+  }
+});
+
+test("CodeMirrorEditor scopes Mac spelling to the document across search panel reopenings", async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    for (const { platform, spellcheck, searchSpellcheck, searchAutocorrect } of [
+      { platform: "MacIntel", spellcheck: "true", searchSpellcheck: "false", searchAutocorrect: "off" },
+      { platform: "Linux x86_64", spellcheck: "false", searchSpellcheck: null, searchAutocorrect: null },
+    ]) {
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: { platform, userAgent: "" },
+      });
+      const rendered = await renderEditor({
+        initialDocument: "Spelling example",
+        onBufferChange() { return false; },
+      });
+      try {
+        const view = findEditorView(rendered.host);
+        assert.equal(view.contentDOM.getAttribute("spellcheck"), spellcheck, platform);
+        assert.equal(view.contentDOM.getAttribute("autocorrect"), "off", platform);
+
+        let previousFields = [];
+        for (let opening = 0; opening < 2; opening++) {
+          assert.equal(openSearchPanel(view), true);
+          const fields = ["search", "replace"].map((name) => (
+            rendered.host.querySelector(`.cm-search input[name="${name}"]`)
+          ));
+          for (const [index, field] of fields.entries()) {
+            assert.ok(field, "expected the generated Find and Replace inputs");
+            assert.equal(field.getAttribute("spellcheck"), searchSpellcheck, platform);
+            assert.equal(field.getAttribute("autocorrect"), searchAutocorrect, platform);
+            if (opening > 0) {
+              assert.ok(field !== previousFields[index], "reopening must create fresh inputs");
+            }
+          }
+          assert.equal(view.contentDOM.getAttribute("spellcheck"), spellcheck, platform);
+          previousFields = fields;
+          assert.equal(closeSearchPanel(view), true);
+          assert.ok(rendered.host.querySelector(".cm-search") === null);
+        }
+      } finally {
+        rendered.cleanup();
+      }
+    }
+  } finally {
+    if (originalNavigator) {
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+    } else {
+      delete globalThis.navigator;
     }
   }
 });
