@@ -10,6 +10,7 @@ interface PresentationViewProps {
   currentSlide: number;
   settings: ReaderSettings;
   filePath: string;
+  imagesAuthorized: boolean;
   onNavigateToFile?: (path: string, anchor: string | null) => void;
   onExit: () => void;
   onNext: () => void;
@@ -21,6 +22,7 @@ function PresentationViewComponent({
   currentSlide,
   settings,
   filePath,
+  imagesAuthorized,
   onNavigateToFile,
   onExit,
   onNext,
@@ -80,6 +82,7 @@ function PresentationViewComponent({
           <MarkdownRenderer
             content={slide.content}
             filePath={filePath}
+            imagesAuthorized={imagesAuthorized}
             settings={settings}
             contentRef={contentRef}
             onOpenFragment={openFragment}

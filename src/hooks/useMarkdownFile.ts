@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppError, FileRevision, FileType, OpenFileResult } from "../types";
 import type { SavedFileSnapshot } from "../lib/editor-save";
@@ -73,12 +74,27 @@ function publishedFileDocument(file: OpenFileResult | SavedFileSnapshot): Publis
   };
 }
 
+interface ImageAuthorizationTracking {
+  /** Path last sent natively; `undefined` until the first publication. */
+  requested: string | null | undefined;
+  generation: number;
+  /** Native calls run strictly in publication order. */
+  queue: Promise<void>;
+}
+
 interface UseMarkdownFileReturn {
   content: string | null;
   filePath: string | null;
   fileName: string | null;
   fileRevision: FileRevision | null;
   fileType: FileType;
+  /**
+   * The published file path once the native image protocol has accepted it as
+   * the session's document, otherwise null. Rendering document images before
+   * this equals `filePath` would request them under the previous document's
+   * authorization and leave them permanently failed.
+   */
+  imageDocumentPath: string | null;
   error: AppError | null;
   documentError: DocumentErrorState | null;
   loading: boolean;
@@ -109,6 +125,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileRevision, setFileRevision] = useState<FileRevision | null>(null);
   const [documentError, setDocumentError] = useState<DocumentErrorState | null>(null);
+  const [imageDocumentPath, setImageDocumentPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
   const [openingSlow, setOpeningSlow] = useState(false);
@@ -125,6 +142,11 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     fileRevision: null,
   });
   const documentErrorRef = useRef<DocumentErrorState | null>(null);
+  const imageAuthorizationRef = useRef<ImageAuthorizationTracking>({
+    requested: undefined,
+    generation: 0,
+    queue: Promise.resolve(),
+  });
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -198,6 +220,34 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     setOpeningSlow(false);
   }, []);
 
+  // Native image access follows accepted publication only. Reads that never
+  // publish (workspace indexing, cancelled, timed-out or superseded opens,
+  // stale reconciliation, a pending native open still behind the save guard)
+  // therefore never authorize anything. Calls are queued in publication order
+  // so a slow earlier call cannot land after a newer document's, and only the
+  // newest generation may mark images ready.
+  const authorizeDocumentImages = useCallback((filePath: string | null) => {
+    const tracking = imageAuthorizationRef.current;
+    if (tracking.requested === filePath) return;
+    tracking.requested = filePath;
+    const generation = ++tracking.generation;
+    setImageDocumentPath(null);
+    tracking.queue = tracking.queue
+      .then(() => {
+        if (!mountedRef.current) return;
+        return invoke("authorize_document_images", { path: filePath });
+      })
+      .then(() => {
+        if (!mountedRef.current || generation !== tracking.generation) return;
+        setImageDocumentPath(filePath);
+      }, (error: unknown) => {
+        // Leave images unauthorized rather than guessing; the next publication
+        // of this path retries instead of being skipped as already requested.
+        if (generation === tracking.generation) tracking.requested = undefined;
+        console.warn("[images] Failed to authorize document images:", error);
+      });
+  }, []);
+
   const applyPublishedDocument = useCallback((document: PublishedDocument) => {
     // Always replace this object: reader restore compares its identity as a
     // generation token, including before React commits the corresponding state.
@@ -206,7 +256,8 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     setFilePath(document.filePath);
     setFileName(document.fileName);
     setFileRevision(document.fileRevision);
-  }, []);
+    authorizeDocumentImages(document.filePath);
+  }, [authorizeDocumentImages]);
 
   const publishDocument = useCallback((document: PublishedDocument) => {
     applyPublishedDocument(document);
@@ -457,6 +508,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     fileName,
     fileRevision,
     fileType,
+    imageDocumentPath,
     error: documentError?.error ?? null,
     documentError,
     loading,

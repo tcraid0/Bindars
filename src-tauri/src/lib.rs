@@ -67,9 +67,15 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol(
             "document-image",
-            |_context, request, responder| {
+            |context, request, responder| {
+                // Snapshot the accepted document at request time; the read
+                // then runs off the main thread against that snapshot.
+                let authorized = context
+                    .app_handle()
+                    .state::<images::AuthorizedDocument>()
+                    .current();
                 tauri::async_runtime::spawn_blocking(move || {
-                    responder.respond(images::protocol_response(request));
+                    responder.respond(images::protocol_response(request, authorized.as_deref()));
                 });
             },
         )
@@ -78,6 +84,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::clone(&pending_open_path))
+        .manage(images::AuthorizedDocument::default())
         .invoke_handler(tauri::generate_handler![
             annotations::initialize_annotation_storage,
             annotations::load_annotations,
@@ -90,6 +97,7 @@ pub fn run() {
             write_markdown_file_if_unmodified,
             open_markdown_file_externally,
             export_markdown_file,
+            images::authorize_document_images,
             take_pending_open_path,
             exit_after_guarded_quit,
             watch_file,

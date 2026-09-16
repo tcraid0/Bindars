@@ -57,9 +57,11 @@ This is a quick navigation tool, not an exhaustive full-document search.
 - Raw HTML in Markdown is removed, not rendered: `<br>`, `<details>`, `<img>`,
   and similar tags disappear and only the Markdown around them is shown.
 - Images must be relative paths inside the document's folder (or a subfolder).
-  Remote images, `data:` URLs, absolute paths, and `../` paths are not loaded.
+  Remote images, `data:` URLs, and absolute paths are not loaded. A `../`
+  segment is allowed only while the resolved path stays inside that folder.
   Image shortcuts (symbolic links) must also resolve inside that folder.
-  Images larger than 20 MiB are not loaded.
+  Images larger than 20 MiB are not loaded, and images are served only for
+  the document currently open in the reader.
 - Links to other `.md`, `.markdown`, and `.fountain` files open in the reader,
   including `../` paths. `http(s)` and `mailto` links open in your system
   browser or mail client; other URL schemes are removed.

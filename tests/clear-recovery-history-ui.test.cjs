@@ -143,6 +143,8 @@ async function renderApp({
         if (deferClear) return deferClear.promise;
         if (clearError) throw clearError;
         return null;
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }

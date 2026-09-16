@@ -56,7 +56,7 @@ function indexedHeadingId(markdown) {
   return id;
 }
 
-function renderMarkdownRenderer(content) {
+function renderMarkdownRenderer(content, { imagesAuthorized = true } = {}) {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   globalThis.window = {
@@ -85,6 +85,7 @@ function renderMarkdownRenderer(content) {
         React.createElement(MarkdownRenderer, {
           content,
           filePath: "/workspace/current.md",
+          imagesAuthorized,
           settings: readerSettings,
           contentRef: React.createRef(),
           onOpenFragment: () => false,
@@ -393,4 +394,28 @@ test("MarkdownRenderer carries authoritative source points through the plugin ch
   assert.match(html, /class="code-block-wrapper"[^>]+data-bindars-source-line="12"/);
   assert.equal((html.match(/data-bindars-source-line=/g) || []).length >= 4, true);
   assert.doesNotMatch(html, /id="not-a-heading"/);
+});
+
+test("MarkdownRenderer issues no document-image request until the document is authorized", () => {
+  const content = [
+    "![Alt text](./image.png)",
+    "",
+    "![Blocked](../outside.png)",
+    "",
+    "```mermaid",
+    "flowchart TD",
+    "  A-->B",
+    "```",
+  ].join("\n");
+
+  const pending = renderMarkdownRenderer(content, { imagesAuthorized: false });
+  assert.doesNotMatch(pending, /document-image:/);
+  assert.match(pending, /<img[^>]+alt="Alt text"/);
+  assert.doesNotMatch(pending, /<img[^>]+src=/, "no source until the native protocol accepts this document");
+  // Lexically blocked sources are explained immediately; they never reach native code.
+  assert.match(pending, /image not shown: only images inside the document(?:'|&#x27;)s folder are shown/);
+  assert.match(pending, /mermaid-loading/);
+
+  const authorized = renderMarkdownRenderer(content, { imagesAuthorized: true });
+  assert.match(authorized, /<img[^>]+src="document-image:\/\/localhost\/[^" ]+"[^>]+alt="Alt text"/);
 });

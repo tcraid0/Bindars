@@ -306,6 +306,8 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         return "/tmp/Save As.md";
       case "plugin:dialog|open":
         return null;
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }

@@ -47,9 +47,17 @@ function renderUseMarkdownFile() {
   };
 }
 
-function mockPendingOpens() {
+function mockPendingOpens({ deferAuthorization = false } = {}) {
   const opens = [];
+  // Every accepted publication reaches the native image protocol here; the
+  // recorded paths are the documents whose folders would be served.
+  opens.authorizations = [];
   mockIPC((cmd, args) => {
+    if (cmd === "authorize_document_images") {
+      const authorization = deferred();
+      opens.authorizations.push({ path: args.path, ...authorization });
+      return deferAuthorization ? authorization.promise : null;
+    }
     if (cmd !== "open_markdown_file") {
       throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -58,6 +66,18 @@ function mockPendingOpens() {
     return open.promise;
   });
   return opens;
+}
+
+function authorizedPaths(opens) {
+  return opens.authorizations.map((authorization) => authorization.path);
+}
+
+async function settle(rendered, action = () => {}) {
+  await act(async () => {
+    await action();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return rendered.api();
 }
 
 function startOpen(rendered, path = "/tmp/Slow.md", retryAction) {
@@ -675,6 +695,161 @@ test("a superseded restore cannot dismiss a newer owned error", async () => {
       await opens[0].promise;
     });
     assert.equal(rendered.api().error.message, "The newer file is temporarily unavailable.");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("an opened file authorizes its images only after native acceptance completes", async () => {
+  await installDom();
+  const opens = mockPendingOpens({ deferAuthorization: true });
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/a/A.md");
+    assert.deepEqual(authorizedPaths(opens), [], "a pending read must not authorize");
+
+    let result;
+    await act(async () => {
+      opens[0].resolve({
+        content: "![Pic](pic.png)",
+        canonicalPath: "/tmp/a/A.md",
+        name: "A.md",
+        revision: savedRevision,
+      });
+      result = await openPromise;
+    });
+    assert.deepEqual(result, { status: "opened", canonicalPath: "/tmp/a/A.md" });
+    assert.equal(rendered.api().filePath, "/tmp/a/A.md");
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md"]);
+    assert.equal(rendered.api().imageDocumentPath, null, "images wait for the native acknowledgement");
+
+    await settle(rendered, () => opens.authorizations[0].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, "/tmp/a/A.md");
+
+    // Reconciliation re-publishing the same accepted path keeps the
+    // authorization without another native round trip.
+    flushSync(() => rendered.api().adoptReconciledDocument({
+      content: "![Pic](pic.png) changed",
+      canonicalPath: "/tmp/a/A.md",
+      name: "A.md",
+      revision: { ...savedRevision, mtimeMs: 3 },
+    }));
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md"]);
+    assert.equal(rendered.api().imageDocumentPath, "/tmp/a/A.md");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("superseded, cancelled and late reads never authorize their document", async () => {
+  await installDom();
+  const opens = mockPendingOpens();
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    // A slow open of B is overtaken by a new draft; B's read still completes.
+    const supersededOpen = startOpen(rendered, "/tmp/b/B.md");
+    flushSync(() => rendered.api().setVirtualContent("", "Untitled.md"));
+    await settle(rendered);
+    assert.deepEqual(authorizedPaths(opens), [null], "a draft authorizes no folder");
+    await act(async () => {
+      opens[0].resolve({ content: "late", canonicalPath: "/tmp/b/B.md", name: "B.md", revision: savedRevision });
+      assert.deepEqual(await supersededOpen, { status: "superseded" });
+    });
+    await settle(rendered);
+    assert.deepEqual(authorizedPaths(opens), [null]);
+    assert.equal(rendered.api().imageDocumentPath, null);
+
+    // A cancelled open (the user declined the save/discard guard) likewise.
+    const cancelledOpen = startOpen(rendered, "/tmp/c/C.md");
+    flushSync(() => rendered.api().cancelPendingOpen());
+    await act(async () => {
+      opens[1].resolve({ content: "late", canonicalPath: "/tmp/c/C.md", name: "C.md", revision: savedRevision });
+      assert.deepEqual(await cancelledOpen, { status: "cancelled" });
+    });
+    await settle(rendered);
+    assert.deepEqual(authorizedPaths(opens), [null]);
+
+    // A rejected open too.
+    const failedOpen = startOpen(rendered, "/tmp/d/D.md");
+    await act(async () => {
+      opens[2].reject(new Error("unreadable"));
+      assert.equal((await failedOpen).status, "failed");
+    });
+    await settle(rendered);
+    assert.deepEqual(authorizedPaths(opens), [null]);
+    assert.equal(rendered.api().imageDocumentPath, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("native authorization follows publication order and a late result cannot mark a newer document ready", async () => {
+  await installDom();
+  const opens = mockPendingOpens({ deferAuthorization: true });
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/a/A.md");
+    await act(async () => {
+      opens[0].resolve({ content: "A", canonicalPath: "/tmp/a/A.md", name: "A.md", revision: savedRevision });
+      await openPromise;
+    });
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md"]);
+
+    // Save As publishes B without any native read while A's acceptance is
+    // still in flight. B's call is queued behind A's, so the native state can
+    // never end on A.
+    flushSync(() => rendered.api().adoptSavedFile({
+      content: "B", canonicalPath: "/tmp/b/B.md", name: "B.md", revision: savedRevision,
+    }));
+    await settle(rendered);
+    assert.equal(rendered.api().filePath, "/tmp/b/B.md");
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md"], "B waits for A's call to finish");
+    assert.equal(rendered.api().imageDocumentPath, null);
+
+    await settle(rendered, () => opens.authorizations[0].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, null, "A's stale acceptance must not mark B ready");
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md", "/tmp/b/B.md"]);
+
+    await settle(rendered, () => opens.authorizations[1].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, "/tmp/b/B.md");
+
+    // Recovering or creating a virtual draft clears the folder natively and
+    // in the reader.
+    flushSync(() => rendered.api().setVirtualContent("Recovered draft", "Untitled.md"));
+    await settle(rendered);
+    assert.equal(rendered.api().imageDocumentPath, null);
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md", "/tmp/b/B.md", null]);
+    await settle(rendered, () => opens.authorizations[2].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("a failed authorization leaves images unauthorized and retries on the next publication", async () => {
+  await installDom();
+  const opens = mockPendingOpens({ deferAuthorization: true });
+  const rendered = renderUseMarkdownFile();
+
+  try {
+    const openPromise = startOpen(rendered, "/tmp/a/A.md");
+    await act(async () => {
+      opens[0].resolve({ content: "A", canonicalPath: "/tmp/a/A.md", name: "A.md", revision: savedRevision });
+      await openPromise;
+    });
+    await settle(rendered, () => opens.authorizations[0].reject(new Error("native state unavailable")));
+    assert.equal(rendered.api().imageDocumentPath, null);
+
+    flushSync(() => rendered.api().adoptReconciledDocument({
+      content: "A again", canonicalPath: "/tmp/a/A.md", name: "A.md", revision: { ...savedRevision, mtimeMs: 4 },
+    }));
+    await settle(rendered);
+    assert.deepEqual(authorizedPaths(opens), ["/tmp/a/A.md", "/tmp/a/A.md"]);
+    await settle(rendered, () => opens.authorizations[1].resolve(null));
+    assert.equal(rendered.api().imageDocumentPath, "/tmp/a/A.md");
   } finally {
     rendered.cleanup();
   }

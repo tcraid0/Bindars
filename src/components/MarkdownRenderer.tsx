@@ -25,6 +25,12 @@ import {
 interface MarkdownRendererProps {
   content: string;
   filePath: string;
+  /**
+   * False until the native image protocol has accepted `filePath` as the
+   * session's document. Until then no document-image request is issued: an
+   * early request would be refused and the image left permanently failed.
+   */
+  imagesAuthorized: boolean;
   settings: ReaderSettings;
   contentRef: React.RefObject<HTMLElement | null>;
   onOpenFragment: (fragmentId: string) => boolean;
@@ -39,11 +45,13 @@ function MarkdownImage({
   src,
   alt,
   filePath,
+  imagesAuthorized,
   ...props
 }: {
   src?: string;
   alt?: string;
   filePath: string;
+  imagesAuthorized: boolean;
   [key: string]: unknown;
 }) {
   const [failed, setFailed] = useState(false);
@@ -63,6 +71,12 @@ function MarkdownImage({
   const resolvedPath = resolveImagePath(src, filePath);
   if (!resolvedPath) {
     return <ImageNotice reason={describeBlockedImageSource(src)} label={alt || src} />;
+  }
+
+  if (!imagesAuthorized) {
+    // Same element, no source yet: the request starts once authorization for
+    // this document is confirmed, without remounting or an error state.
+    return <img {...props} alt={alt || ""} loading="lazy" />;
   }
 
   const resolved = resolveImageSrc(src, filePath);
@@ -110,6 +124,7 @@ function describeBlockedImageSource(src: string): string {
 interface MarkdownContentProps {
   content: string;
   filePath: string;
+  imagesAuthorized: boolean;
   onOpenFragment: (fragmentId: string) => boolean;
   onNavigateToFile?: (path: string, anchor: string | null) => void;
 }
@@ -130,12 +145,13 @@ function useMarkdownContext(): MarkdownContextValue {
 // Replacing their types would remount marked text and invalidate React's DOM references.
 const markdownComponents: Components = {
   img: function Image({ node: _node, src, alt, ...props }) {
-    const { filePath } = useMarkdownContext();
+    const { filePath, imagesAuthorized } = useMarkdownContext();
     return (
       <MarkdownImage
         src={src}
         alt={alt}
         filePath={filePath}
+        imagesAuthorized={imagesAuthorized}
         {...props}
       />
     );
@@ -209,7 +225,7 @@ const markdownComponents: Components = {
     );
   },
   pre: function Pre({ node: _node, children, ...props }) {
-    const { handleCodeCopyError } = useMarkdownContext();
+    const { handleCodeCopyError, imagesAuthorized } = useMarkdownContext();
     const positionedProps = props as typeof props & SourcePositionAttributes;
     const sourcePosition: SourcePositionAttributes = {
       "data-bindars-source-line": positionedProps["data-bindars-source-line"],
@@ -248,6 +264,15 @@ const markdownComponents: Components = {
 
     // Mermaid diagrams: render as diagram instead of a fenced code block.
     if (language === "mermaid") {
+      // Mermaid issues its own image requests for image nodes while rendering,
+      // so it starts under the same authorization gate as document images.
+      if (!imagesAuthorized) {
+        return (
+          <div className="mermaid-diagram mermaid-loading" {...sourcePosition}>
+            <span className="text-text-muted text-sm">Rendering diagram...</span>
+          </div>
+        );
+      }
       return <MermaidBlock chart={rawCode} sourcePosition={sourcePosition} />;
     }
 
@@ -283,6 +308,7 @@ const markdownComponents: Components = {
 const MarkdownContent = memo(function MarkdownContent({
   content,
   filePath,
+  imagesAuthorized,
   onOpenFragment,
   onNavigateToFile,
 }: MarkdownContentProps) {
@@ -299,9 +325,9 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 
   const context = useMemo(() => ({
-    filePath, onOpenFragment, onNavigateToFile,
+    filePath, imagesAuthorized, onOpenFragment, onNavigateToFile,
     handleCodeCopyError,
-  }), [filePath, onOpenFragment, onNavigateToFile, handleCodeCopyError]);
+  }), [filePath, imagesAuthorized, onOpenFragment, onNavigateToFile, handleCodeCopyError]);
 
   return (
     <MarkdownContext.Provider value={context}>
@@ -324,6 +350,7 @@ const MarkdownContent = memo(function MarkdownContent({
 function MarkdownRendererComponent({
   content,
   filePath,
+  imagesAuthorized,
   settings,
   contentRef,
   onOpenFragment,
@@ -346,6 +373,7 @@ function MarkdownRendererComponent({
       <MarkdownContent
         content={content}
         filePath={filePath}
+        imagesAuthorized={imagesAuthorized}
         onOpenFragment={onOpenFragment}
         onNavigateToFile={onNavigateToFile}
       />

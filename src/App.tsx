@@ -228,6 +228,7 @@ function App() {
     fileName,
     fileRevision,
     fileType,
+    imageDocumentPath,
     error,
     documentError,
     loading,
@@ -248,6 +249,9 @@ function App() {
     supersedePendingOpen,
     dismissError,
   } = useMarkdownFile();
+  // Virtual drafts have no folder to authorize; a file waits for the native
+  // acceptance of exactly the published path.
+  const imagesAuthorized = filePath === null || imageDocumentPath === filePath;
   const { recentFiles, status: recentFilesStatus, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
   const { canGoBack, canGoForward, pushEntry, peekBack, commitBack, peekForward, commitForward } =
     useNavigationHistory();
@@ -554,8 +558,11 @@ function App() {
 
   const handlePrint = useCallback(async () => {
     const root = contentRef.current;
+    // Images are not in the DOM until authorized, so preparation would print
+    // without them; refuse like any other in-flight transition.
     if (printSessionRef.current || !root || !isDocumentOpen(content)
-      || editing || loading || presentationMode || documentTransitionInFlight) return;
+      || editing || loading || presentationMode || documentTransitionInFlight
+      || !imagesAuthorized) return;
 
     const session = { invoked: false, nativePending: false };
     printSessionRef.current = session;
@@ -590,7 +597,7 @@ function App() {
       if (printMountedRef.current) toast("Couldn't print document. Please try again.", "error");
     }
   }, [armPrintCleanup, clearPrintSession, content, filePath, editing, loading,
-    presentationMode, documentTransitionInFlight, toast]);
+    presentationMode, documentTransitionInFlight, imagesAuthorized, toast]);
 
   // Invalidate pending preparation before a changed reader can be printed.
   useLayoutEffect(() => {
@@ -3187,6 +3194,7 @@ function App() {
             <MarkdownRenderer
               content={content}
               filePath={filePath || ""}
+              imagesAuthorized={imagesAuthorized}
               settings={settings}
               contentRef={contentRef}
               onOpenFragment={openMarkdownFragment}
@@ -3329,6 +3337,7 @@ function App() {
           currentSlide={currentSlide}
           settings={settings}
           filePath={filePath || ""}
+          imagesAuthorized={imagesAuthorized}
           onExit={exitPresentation}
           onNext={nextSlide}
           onPrev={prevSlide}

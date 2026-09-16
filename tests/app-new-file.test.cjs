@@ -282,6 +282,8 @@ async function renderEditorApp({
           throw new Error(`Missing snapshot fixture: ${args.snapshotId}`);
         }
         return snapshotContents[args.snapshotId];
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1008,6 +1010,8 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
         return successfulSnapshotWrite(args);
       case "retire_snapshot_draft":
         return null;
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1133,6 +1137,8 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
         return null;
       case "write_document_snapshot":
         return successfulSnapshotWrite(args);
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
@@ -1260,6 +1266,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
         return successfulSnapshotWrite(args);
       case "retire_snapshot_draft":
         recoveryOperations.push({ kind: "retire", document: args.document });
+        return null;
+      case "authorize_document_images":
         return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
@@ -1637,6 +1645,8 @@ async function renderContinuityApp({
           throw new Error(`Missing snapshot fixture: ${args.snapshotId}`);
         }
         return snapshotContents[args.snapshotId];
+      case "authorize_document_images":
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }

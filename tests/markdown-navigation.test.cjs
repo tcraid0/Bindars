@@ -82,6 +82,7 @@ test("MarkdownRenderer decodes heading and footnote fragments before navigation"
       React.createElement(MarkdownRenderer, {
         content,
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment(fragmentId) {
@@ -125,6 +126,7 @@ test("MarkdownRenderer reports a missing generic link target without calling it 
       React.createElement(MarkdownRenderer, {
         content: "[Missing](#not-there)",
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment() {
@@ -160,6 +162,7 @@ test("MarkdownRenderer explains why an absolute Markdown link cannot open", asyn
         // handler: the sanitizer drops the unknown `c:` scheme with its href.
         content: "[Absolute](/docs/other.md) and [Text](./notes.txt)",
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         settings: readerSettings,
         contentRef: React.createRef(),
         onOpenFragment: () => false,
@@ -220,6 +223,7 @@ test("PresentationView resolves fragments only inside the active slide", async (
         currentSlide: 0,
         settings: readerSettings,
         filePath: "/tmp/document.md",
+        imagesAuthorized: true,
         onExit() {},
         onNext() {},
         onPrev() {},
@@ -263,7 +267,7 @@ const markedContent = "# Title\n\n![Preview](preview.png)\n\n[Jump](#title) word
 
 function readerElement(props) {
   return React.createElement(ToastProvider, null, React.createElement(MarkdownRenderer, {
-    content: markedContent, filePath: "/tmp/document.md", settings: readerSettings,
+    content: markedContent, filePath: "/tmp/document.md", imagesAuthorized: true, settings: readerSettings,
     contentRef: React.createRef(), onOpenFragment: () => true, ...props,
   }));
 }

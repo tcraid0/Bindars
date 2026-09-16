@@ -2,6 +2,7 @@ use cap_fs_ext::{DirExt, OpenOptionsSyncExt};
 use cap_std::fs::{Dir, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use tauri::http::{header, HeaderValue, Method, Request, Response, StatusCode};
 use tauri::utils::mime_type::MimeType;
 
@@ -23,15 +24,61 @@ pub(crate) struct DocumentImage {
     bytes: Vec<u8>,
 }
 
+/// The document the frontend has accepted and is displaying. An image URL
+/// carries a document path of its own, but that is only a claim: the protocol
+/// serves a folder solely when the claim equals this session state, so
+/// content that mints its own URLs (Mermaid image nodes, for example) cannot
+/// choose another folder. Only the frontend's accepted-publication boundary
+/// updates it; native reads that never publish (workspace indexing, cancelled
+/// or superseded opens, stale reconciliation) leave it untouched.
+#[derive(Debug, Default)]
+pub(crate) struct AuthorizedDocument(Mutex<Option<PathBuf>>);
+
+impl AuthorizedDocument {
+    pub(crate) fn current(&self) -> Option<PathBuf> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(crate) fn replace(&self, document: Option<PathBuf>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = document;
+    }
+}
+
+/// `path` is the published canonical document path, or `None` for a virtual
+/// draft, which authorizes nothing. The frontend serializes these calls so a
+/// late call cannot overwrite a newer document's authorization.
+#[tauri::command]
+pub(crate) fn authorize_document_images(
+    authorized: tauri::State<'_, AuthorizedDocument>,
+    path: Option<String>,
+) {
+    authorized.replace(path.map(PathBuf::from));
+}
+
 /// Serve only bounded image bytes. The browser owns lazy loading and print
-/// readiness, while this protocol owns all filesystem access.
-pub(crate) fn protocol_response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
+/// readiness, while this protocol owns all filesystem access. `authorized` is
+/// the session's accepted document at request time; requests naming any other
+/// document are refused before the filesystem is consulted.
+pub(crate) fn protocol_response(
+    request: Request<Vec<u8>>,
+    authorized: Option<&Path>,
+) -> Response<Vec<u8>> {
     let result = if request.method() != Method::GET {
         Err(StatusCode::METHOD_NOT_ALLOWED)
     } else {
         decode_image_request(request.uri().path(), request.uri().query())
             .map_err(|_| StatusCode::BAD_REQUEST)
             .and_then(|(document, image)| {
+                // Exact match against the accepted path, not a canonicalized
+                // one: the frontend already publishes the native canonical
+                // path, and touching the filesystem for an unaccepted claim
+                // would let content probe folders it may not read.
+                if authorized != Some(Path::new(&document)) {
+                    return Err(StatusCode::FORBIDDEN);
+                }
                 read_document_image_impl(Path::new(&document), Path::new(&image)).map_err(|error| {
                     match error {
                         ImageError::OutsideDocument => StatusCode::FORBIDDEN,
@@ -227,15 +274,24 @@ mod tests {
     }
 
     fn image_request(fixture: &Fixture, image: &Path, origin: &str) -> Request<Vec<u8>> {
+        image_request_for(&fixture.document, image, origin)
+    }
+
+    fn image_request_for(document: &Path, image: &Path, origin: &str) -> Request<Vec<u8>> {
         let paths =
-            serde_json::to_string(&(fixture.document.to_str().unwrap(), image.to_str().unwrap()))
-                .unwrap();
+            serde_json::to_string(&(document.to_str().unwrap(), image.to_str().unwrap())).unwrap();
         let encoded =
             percent_encoding::utf8_percent_encode(&paths, percent_encoding::NON_ALPHANUMERIC);
         Request::builder()
             .uri(format!("{origin}/{encoded}"))
             .body(Vec::new())
             .unwrap()
+    }
+
+    /// Respond as the running app does while `fixture.document` is the
+    /// accepted document.
+    fn respond(fixture: &Fixture, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
+        protocol_response(request, Some(&fixture.document))
     }
 
     #[test]
@@ -246,7 +302,7 @@ mod tests {
             "document-image://localhost",
             "http://document-image.localhost",
         ] {
-            let response = protocol_response(image_request(&fixture, &image, origin));
+            let response = respond(&fixture, image_request(&fixture, &image, origin));
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.body(), PNG);
             assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
@@ -272,30 +328,115 @@ mod tests {
                 .uri(format!("document-image://localhost{path}"))
                 .body(Vec::new())
                 .unwrap();
-            let response = protocol_response(request);
+            let response = respond(&fixture, request);
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
             assert!(response.body().is_empty());
         }
         let outside = fixture.image("outside/private.png", PNG);
-        let response = protocol_response(image_request(
+        let response = respond(
             &fixture,
-            &outside,
-            "document-image://localhost",
-        ));
+            image_request(&fixture, &outside, "document-image://localhost"),
+        );
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert!(response.body().is_empty());
         let text = fixture.image("document/private.txt", b"private text");
-        let response =
-            protocol_response(image_request(&fixture, &text, "document-image://localhost"));
+        let response = respond(
+            &fixture,
+            image_request(&fixture, &text, "document-image://localhost"),
+        );
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert!(response.body().is_empty());
         let mut request = image_request(&fixture, &text, "document-image://localhost");
         *request.method_mut() = Method::POST;
         assert_eq!(
-            protocol_response(request).status(),
+            respond(&fixture, request).status(),
             StatusCode::METHOD_NOT_ALLOWED
         );
         assert!(decode_image_request("/[]", Some("path=elsewhere")).is_err());
+    }
+
+    #[test]
+    fn protocol_serves_only_the_document_the_session_accepted() {
+        // Document A is open. A request minted by content (a Mermaid image
+        // node, for instance) names document B and an image in B's folder.
+        // B's folder is otherwise a perfectly valid confinement root.
+        let fixture = Fixture::new();
+        let image_a = fixture.image("document/inside.png", PNG);
+        let document_b = fixture.root.join("other/readme.md");
+        fs::create_dir_all(document_b.parent().unwrap()).unwrap();
+        fs::write(&document_b, "# Other").unwrap();
+        let other_png: &[u8] = b"\x89PNG\r\n\x1a\nother folder";
+        let image_b = fixture.image("other/private.png", other_png);
+        let origin = "document-image://localhost";
+        let request_a = || image_request_for(&fixture.document, &image_a, origin);
+        let request_b = || image_request_for(&document_b, &image_b, origin);
+
+        // Nothing accepted yet (startup, or a virtual draft): nothing served.
+        for request in [request_a(), request_b()] {
+            let response = protocol_response(request, None);
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(response.body().is_empty());
+        }
+
+        let response = protocol_response(request_a(), Some(&fixture.document));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), PNG);
+        let response = protocol_response(request_b(), Some(&fixture.document));
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(response.body().is_empty());
+
+        // Opening B natively without the frontend accepting it (workspace
+        // indexing, a cancelled open) changes nothing: acceptance is separate
+        // state, not a side effect of reading.
+        let session = AuthorizedDocument::default();
+        session.replace(Some(fixture.document.clone()));
+        crate::document_io::open_markdown_file_impl(document_b.to_string_lossy().into_owned())
+            .unwrap();
+        assert_eq!(
+            session.current().as_deref(),
+            Some(fixture.document.as_path())
+        );
+        let response = protocol_response(request_b(), session.current().as_deref());
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        // Accepting B, as a real open or Save As does, swaps the served folder.
+        session.replace(Some(document_b.clone()));
+        let response = protocol_response(request_b(), session.current().as_deref());
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), other_png);
+        let response = protocol_response(request_a(), session.current().as_deref());
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        // Returning to a virtual draft clears authorization again.
+        session.replace(None);
+        assert_eq!(session.current(), None);
+        let response = protocol_response(request_b(), session.current().as_deref());
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protocol_requires_the_exact_accepted_path_rather_than_an_alias() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let image = fixture.image("document/inside.png", PNG);
+        let alias = fixture.root.join("document-alias");
+        symlink(fixture.document.parent().unwrap(), &alias).unwrap();
+        let origin = "document-image://localhost";
+        // The alias canonicalizes to the accepted document, but the claim is
+        // compared before any filesystem lookup, so it is still refused.
+        let aliased = image_request_for(&alias.join("readme.md"), &image, origin);
+        assert_eq!(
+            protocol_response(aliased, Some(&fixture.document)).status(),
+            StatusCode::FORBIDDEN
+        );
+        // Images may still be named through an internal alias; confinement
+        // canonicalizes them as before.
+        let exact = image_request_for(&fixture.document, &alias.join("inside.png"), origin);
+        assert_eq!(
+            protocol_response(exact, Some(&fixture.document)).status(),
+            StatusCode::OK
+        );
     }
 
     #[test]
