@@ -24,6 +24,7 @@ native testing and code signing.
 - Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
 - New documents with guarded Save/Save As and external-change reconciliation
 - Optional Markdown heading formatting with an instant plain-markup fallback
+- macOS spelling underlines and native right-click suggestions while editing
 - Print the document or save it as PDF; export highlights and notes separately as Markdown
 - Keyboard-driven workflow - press `?` for the full shortcut list
 
@@ -37,6 +38,21 @@ and notes. Select a passage and choose **Note**, or choose **Add note** on an
 existing highlight. Reopen your saved copy from **Recent files**, **Open**, or
 your file manager. Choosing **Try an example** again asks where to save a fresh copy;
 confirming replacement writes the example text over the file you choose.
+
+### Spelling on macOS
+
+In Edit mode, macOS can underline misspelled words and offer corrections when
+you right-click them. Notes also retain native spelling assistance. Automatic
+spelling correction is off in both fields; document search, the quick switcher,
+and Edit-mode Find/Replace disable autocorrection and spelling underlines to keep
+search and replacement text literal.
+Checking follows native timing, so existing text may not be marked until you
+edit it. These field controls apply only on macOS; Linux behavior is unchanged.
+
+Quotes, dashes, text shortcuts, and URLs stay literal by default; saved native
+Substitutions choices can override those defaults. See the
+[validation notes](docs/macos-spellcheck-validation.md) for tested behavior
+and remaining platform coverage.
 
 ### Workspace search
 

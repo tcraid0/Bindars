@@ -54,8 +54,38 @@ fn keep_wake_observer_or_continue(
     }
 }
 
+#[cfg(target_os = "macos")]
+fn register_macos_text_checking_defaults() {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{ns_string, NSDictionary, NSNumber, NSString, NSUserDefaults};
+
+    // WebKit caches these implementation-specific defaults during initialization:
+    // https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/mac/TextCheckerMac.mm
+    // Register fallbacks before creating the webview so saved native user choices win.
+    let enabled = NSNumber::numberWithBool(true);
+    let disabled = NSNumber::numberWithBool(false);
+    let registration = NSDictionary::<NSString, AnyObject>::from_slices(
+        &[
+            ns_string!("WebContinuousSpellCheckingEnabled"),
+            ns_string!("WebAutomaticQuoteSubstitutionEnabled"),
+            ns_string!("WebAutomaticDashSubstitutionEnabled"),
+            ns_string!("WebAutomaticTextReplacementEnabled"),
+            ns_string!("WebAutomaticLinkDetectionEnabled"),
+        ],
+        &[&*enabled, &*disabled, &*disabled, &*disabled, &*disabled],
+    );
+
+    // SAFETY: String keys and Boolean NSNumbers are valid property-list objects.
+    unsafe {
+        NSUserDefaults::standardUserDefaults().registerDefaults(&registration);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    register_macos_text_checking_defaults();
+
     let pending_open_path = Arc::new(PendingOpenPath::default());
 
     #[cfg(any(windows, target_os = "linux"))]
