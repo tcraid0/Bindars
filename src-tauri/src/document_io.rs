@@ -131,29 +131,23 @@ fn write_markdown_file_if_unmodified_impl(
 }
 
 #[tauri::command]
-pub(crate) async fn open_markdown_file_externally(
+pub(crate) async fn reveal_markdown_file_in_folder(
     path: String,
     app: tauri::AppHandle,
 ) -> Result<(), NativeFileError> {
     run_blocking_file_io(move || {
-        let canonical_path = resolve_external_markdown_path_impl(path)?;
+        let canonical_path = canonicalize_markdown_path(Path::new(&path))?;
         app.opener()
-            .open_path(canonical_path, None::<String>)
+            .reveal_item_in_dir(canonical_path)
             .map_err(|error| {
                 NativeFileError::unknown(
-                    NativeFileOperation::OpenExternally,
-                    "Bindars could not open the document with its default application.",
+                    NativeFileOperation::RevealInFolder,
+                    "Bindars could not show the document in its folder.",
                     error.to_string(),
                 )
             })
     })
     .await
-}
-
-fn resolve_external_markdown_path_impl(path: String) -> Result<String, NativeFileError> {
-    let requested_path = PathBuf::from(path);
-    let canonical_path = canonicalize_markdown_path(&requested_path)?;
-    Ok(canonical_path.to_string_lossy().into_owned())
 }
 
 pub(crate) fn canonicalize_markdown_path(path: &Path) -> Result<PathBuf, NativeFileError> {
@@ -640,17 +634,16 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn external_open_resolves_supported_symlink_to_canonical_path() {
+    fn canonicalize_resolves_supported_symlink_to_canonical_path() {
         let target = temp_path("md");
         let link = temp_path("md");
 
         fs::write(&target, "# canonical").expect("write target fixture");
         symlink(&target, &link).expect("create symlink");
 
-        let resolved = resolve_external_markdown_path_impl(link.to_string_lossy().into_owned())
-            .expect("resolve path");
+        let resolved = canonicalize_markdown_path(&link).expect("resolve path");
         assert_eq!(
-            PathBuf::from(resolved),
+            resolved,
             fs::canonicalize(&target).expect("canonical target")
         );
 
@@ -659,30 +652,31 @@ mod tests {
     }
 
     #[test]
-    fn external_open_resolves_supported_markdown_files() {
-        let path = temp_path("md");
-        fs::write(&path, "# Open externally").expect("write fixture");
+    fn canonicalize_resolves_supported_document_types() {
+        for extension in ["md", "markdown", "fountain"] {
+            let path = temp_path(extension);
+            fs::write(&path, "Document to reveal").expect("write fixture");
 
-        let resolved = resolve_external_markdown_path_impl(path.to_string_lossy().into_owned())
-            .expect("resolve external-open path");
+            let resolved = canonicalize_markdown_path(&path).expect("resolve document path");
 
-        assert_eq!(
-            PathBuf::from(resolved),
-            dunce::canonicalize(&path).expect("canonical fixture")
-        );
+            assert_eq!(
+                resolved,
+                dunce::canonicalize(&path).expect("canonical fixture")
+            );
 
-        cleanup(&path);
+            cleanup(&path);
+        }
     }
 
     #[test]
-    fn external_open_rejects_non_markdown_files() {
+    fn canonicalize_rejects_non_markdown_files() {
         let path = temp_path("txt");
         fs::write(&path, "plain text").expect("write fixture");
 
-        let result = resolve_external_markdown_path_impl(path.to_string_lossy().into_owned());
+        let result = canonicalize_markdown_path(&path);
 
         assert!(result
-            .expect_err("external open should reject non-markdown files")
+            .expect_err("document validation should reject non-markdown files")
             .contains("Not a supported file type"));
 
         cleanup(&path);

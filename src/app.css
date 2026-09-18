@@ -23,6 +23,11 @@
   --header-height: var(--header-row-height, 52px);
 }
 
+/* Save feedback shares the metadata line, never the filename's width. */
+.document-header-detail > span {
+  max-width: 100%;
+}
+
 @media (max-width: 1023px) {
   .app-shell.has-document {
     --header-height: calc(var(--header-row-height, 52px) + 40px);

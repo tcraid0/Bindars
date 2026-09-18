@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { flushSync } = require("react-dom");
+const { clearMocks, mockIPC } = require("@tauri-apps/api/mocks");
 const { installDom } = require("./_helpers/dom.cjs");
 const { dispatchPointer, pointerClick } = require("./_helpers/pointer.cjs");
 const { renderComponent, buttonWithText, click, focus, pressKey } = require("./_helpers/component-view.cjs");
@@ -66,6 +67,86 @@ async function setup(props = {}) {
     panel(kind) { return view.host.querySelector(kind === "reader" ? '[role="dialog"]:not([aria-modal])' : '[role="group"][aria-label="Export options"]'); },
     open(kind) { const trigger = this.trigger(kind); focus(trigger); click(trigger); return this.panel(kind); },
   };
+}
+
+for (const { platform, label, failureMessage } of [
+  { platform: "MacIntel", label: "Show in Finder", failureMessage: "Couldn't show this file in Finder" },
+  { platform: "Linux x86_64", label: "Show in folder", failureMessage: "Couldn't show this file in its folder" },
+]) {
+  test(`location: ${label} reveals the current saved file in Read and Edit, but not drafts`, async () => {
+    await installDom();
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true, value: { platform, userAgent: "" },
+    });
+    const calls = [];
+    mockIPC((command, payload) => { calls.push({ command, payload }); return null; });
+    const view = await setup({ isDraft: true, isEditing: true });
+    try {
+      assert.ok(view.host.querySelector(`button[aria-label="${label}"]`) === null);
+      view.render({ isEditing: false });
+      assert.ok(view.host.querySelector(`button[aria-label="${label}"]`) === null);
+      assert.deepEqual(calls, [], "drafts must not invoke the file manager");
+
+      for (const [isEditing, filePath] of [[false, "/documents/Trip plan.md"], [true, "/documents/Revised plan.md"]]) {
+        view.render({ isDraft: false, isEditing, filePath });
+        const button = view.host.querySelector(`button[aria-label="${label}"]`);
+        assert.ok(button);
+        assert.equal(button.disabled, false);
+        assert.equal(button.tabIndex, 0);
+        assert.equal(button.title, `${label}\n${filePath}`);
+        focus(button);
+        assert.ok(document.activeElement === button);
+        await React.act(async () => { click(button); });
+      }
+      assert.deepEqual(calls, [
+        { command: "reveal_markdown_file_in_folder", payload: { path: "/documents/Trip plan.md" } },
+        { command: "reveal_markdown_file_in_folder", payload: { path: "/documents/Revised plan.md" } },
+      ]);
+      assert.ok(view.host.querySelector('[role="alert"]') === null);
+      view.render({ filePath: null, isDraft: true });
+      assert.ok(view.host.querySelector(`button[aria-label="${label}"]`) === null);
+    } finally {
+      view.cleanup();
+      clearMocks();
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+    }
+  });
+
+  for (const { kind, error, message } of [
+    { kind: "unexpected", error: new Error("The file manager is unavailable"), message: failureMessage },
+    {
+      kind: "missing-file",
+      error: {
+        category: "notFound", operation: "resolveDocument",
+        message: "This file is no longer available.",
+        detail: "No such file or directory: /documents/Trip plan.md",
+      },
+      message: "This file is no longer available.",
+    },
+  ]) {
+    test(`location: ${label} reports a ${kind} failure without leaving Edit`, async (t) => {
+      await installDom();
+      const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true, value: { platform, userAgent: "" },
+      });
+      t.mock.method(console, "warn", () => {});
+      mockIPC(() => { throw error; });
+      const view = await setup({ filePath: "/documents/Trip plan.md", isEditing: true });
+      try {
+        const button = view.host.querySelector(`button[aria-label="${label}"]`);
+        await React.act(async () => { click(button); });
+        assert.equal(view.host.querySelector('[role="alert"]').textContent.trim(), message);
+        assert.equal(view.host.querySelector('button[aria-label="Edit mode"]').getAttribute("aria-pressed"), "true");
+        assert.equal(button.disabled, false, "a failed reveal must remain retryable");
+      } finally {
+        view.cleanup();
+        clearMocks();
+        Object.defineProperty(globalThis, "navigator", originalNavigator);
+      }
+    });
+  }
 }
 
 for (const fileType of ["markdown", "fountain"]) {

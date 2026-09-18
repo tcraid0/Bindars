@@ -20,7 +20,7 @@ mod test_support;
 mod workspace;
 
 use document_io::{
-    open_markdown_file, open_markdown_file_externally, read_markdown_file,
+    open_markdown_file, read_markdown_file, reveal_markdown_file_in_folder,
     write_markdown_file_if_unmodified,
 };
 use exports::export_markdown_file;
@@ -125,7 +125,7 @@ pub fn run() {
             read_markdown_file,
             open_markdown_file,
             write_markdown_file_if_unmodified,
-            open_markdown_file_externally,
+            reveal_markdown_file_in_folder,
             export_markdown_file,
             images::authorize_document_images,
             take_pending_open_path,
