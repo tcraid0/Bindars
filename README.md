@@ -22,6 +22,7 @@ native testing and code signing.
 - Fountain screenplay rendering with character focus and scene navigation
 - Focus mode and presentation mode
 - Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
+- Show the opened file in Finder (macOS) or its folder from either Read or Edit mode
 - New documents with guarded Save/Save As and external-change reconciliation
 - Optional Markdown heading formatting with an instant plain-markup fallback
 - macOS spelling underlines and native right-click suggestions while editing

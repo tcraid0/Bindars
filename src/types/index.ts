@@ -116,7 +116,7 @@ export type NativeFileOperation =
   | "resolveWorkspace"
   | "inspectWorkspace"
   | "watchDocument"
-  | "openExternally"
+  | "revealInFolder"
   | "saveRecoveryData"
   | "accessRecoveryData";
 

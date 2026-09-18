@@ -38,7 +38,7 @@ pub(crate) enum NativeFileOperation {
     ResolveWorkspace,
     InspectWorkspace,
     WatchDocument,
-    OpenExternally,
+    RevealInFolder,
     SaveRecoveryData,
     AccessRecoveryData,
 }
@@ -68,7 +68,7 @@ impl NativeFileOperation {
             Self::ResolveWorkspace => "locate the workspace",
             Self::InspectWorkspace => "inspect the workspace",
             Self::WatchDocument => "watch the document",
-            Self::OpenExternally => "open the document with its default application",
+            Self::RevealInFolder => "show the document in its folder",
             Self::SaveRecoveryData => "save recovery data",
             Self::AccessRecoveryData => "access recovery data",
         }

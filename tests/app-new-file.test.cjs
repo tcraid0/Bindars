@@ -3311,7 +3311,9 @@ test("native file switching drains the snapshot queue before replacing the docum
     const editButton = rendered.host.querySelector('button[aria-label="Edit mode"]');
     assert.ok(editButton);
     assert.equal(editButton.disabled, true);
-    assert.ok(!rendered.host.querySelector('button[aria-label="Earlier versions"]'));
+    const earlierVersionsButton = rendered.host.querySelector('button[aria-label="Earlier versions"]');
+    assert.ok(earlierVersionsButton);
+    assert.equal(earlierVersionsButton.disabled, true);
     dispatchShortcut("e");
     assert.ok(!rendered.host.querySelector(".cm-editor"));
 
