@@ -43,6 +43,7 @@ function Toolbar({ modal = false, onAction = () => {}, ...headerOverrides }) {
       onClose: () => setReaderOpen(false),
       onClearRecoveryHistory: () => { setReaderOpen(false); setConfirmation(true); },
       recoveryStorageStats: null, recoveryStorageStatsLoading: false, recoveryStorageStatsError: null,
+      canRestoreDrafts: true, isEditing: false,
     }),
     React.createElement(ConfirmDialog, {
       visible: modal || confirmation, title: "Confirmation", message: "Continue?",
@@ -427,6 +428,27 @@ test("export: Fountain keeps print-only keyboard and focus behavior", async () =
   } finally { view.cleanup(); }
 });
 
+test("reader: the editing instruction appears only while editing", async () => {
+  await installDom();
+  const trigger = document.createElement("button");
+  document.body.append(trigger);
+  const view = renderComponent(ReaderControls, {
+    id: "reader", triggerRef: { current: trigger }, visible: true, settings: defaults, theme: "light",
+    canRestoreDrafts: true, isEditing: false, onClose() {},
+  });
+  try {
+    const restore = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Restore an unsaved draft…");
+    assert.equal(restore.disabled, false);
+    assert.doesNotMatch(document.body.textContent, /Finish current edits/);
+    view.render({ canRestoreDrafts: false, isEditing: true });
+    assert.equal(restore.disabled, true);
+    assert.match(document.body.textContent, /Finish current edits and return to Read mode/);
+    // A busy app disables the button without an instruction the user cannot act on.
+    view.render({ canRestoreDrafts: false, isEditing: false });
+    assert.doesNotMatch(document.body.textContent, /Finish current edits/);
+  } finally { view.cleanup(); trigger.remove(); }
+});
+
 test("reader: external close and unmount restore the opener and remove listeners", async () => {
   await installDom();
   const trigger = document.createElement("button");
@@ -436,6 +458,7 @@ test("reader: external close and unmount restore the opener and remove listeners
   focus(trigger);
   const view = renderComponent(ReaderControls, {
     id: "reader", triggerRef, visible: true, settings: defaults, theme: "light", onClose: () => { closed += 1; },
+    canRestoreDrafts: true, isEditing: false,
   });
   try {
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close reader settings");
@@ -501,7 +524,7 @@ test("reader: values announce only real changes, reset coalesces, and selected g
       assert.equal(group.querySelectorAll('[aria-pressed="true"]').length, 1);
       assert.equal(status.textContent, "");
     }
-    for (const [label, spoken] of [["font size", "Font size 18 pixels"], ["width", "Width 70 characters"], ["line height", "Line height 1.8"]]) {
+    for (const [label, spoken] of [["font size", "Font size 18 pixels"], ["width", "Width 70"], ["line height", "Line height 1.8"]]) {
       const increase = panel.querySelector(`[aria-label="Increase ${label}"]`);
       focus(increase);
       // Announcements update from an effect after the settings render. A single
@@ -513,15 +536,19 @@ test("reader: values announce only real changes, reset coalesces, and selected g
     const group = panel.querySelector('[role="group"][aria-label="Font size"]');
     assert.equal(document.getElementById(group.getAttribute("aria-describedby")).textContent, "18px");
     await React.act(async () => { click(buttonWithText(panel, "Reset to defaults")); });
-    assert.equal(status.textContent, "Font size 17 pixels. Width 65 characters. Line height 1.7");
+    assert.equal(status.textContent, "Font size 17 pixels. Width 65. Line height 1.7");
     const increase = panel.querySelector('[aria-label="Increase font size"]');
     await React.act(async () => {
       for (let i = 0; i < 10; i += 1) click(increase);
     });
     assert.equal(status.textContent, "Font size 24 pixels");
+    // At a bound the stepper is disabled, and a stray activation changes nothing.
+    assert.equal(increase.disabled, true);
+    assert.equal(panel.querySelector('[aria-label="Decrease font size"]').disabled, false);
     const lastText = status.firstChild;
     await React.act(async () => { click(increase); });
     assert.ok(status.firstChild === lastText, "clamped no-op must not mutate the live region");
+    assert.doesNotMatch(panel.textContent, /Finish current edits/, "Read mode gets no editing instruction");
     pressKey("Escape");
     assert.equal(view.open("reader").querySelector('[role="status"]').textContent, "");
   } finally { view.cleanup(); }
