@@ -1051,16 +1051,23 @@ test("macOS quit while another action owns the guard is refused with feedback an
 
 // --- other platforms keep the destroy-on-close behavior ---
 
-test("non-macOS clean close still destroys the window", async () => {
+test("non-macOS clean close drains recovery writes, then completes the programmatic close handshake", async () => {
   const rendered = await renderLifecycleApp({ platform: "other" });
   try {
     await rendered.openLifecycleDocument();
     noDialog(rendered.host);
 
+    // Even a clean close never destroys the window directly: the continuation
+    // drains queued recovery writes first, then asks the window to close.
     await rendered.requestClose();
-
-    await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    assert.equal(rendered.destroyCount(), 0);
     assert.equal(rendered.hideCount(), 0);
+    noDialog(rendered.host);
+
+    // Tauri answers appWindow.close() with a fresh close-requested event.
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.destroyCount(), 1));
     assert.equal(rendered.exitCalls().length, 0);
   } finally {
     await rendered.cleanup();

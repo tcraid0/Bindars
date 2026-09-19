@@ -10,7 +10,6 @@ const {
 } = require("../.tmp/workspace-tests/src/lib/app-flow.js");
 
 const IDLE_CLOSE_STATE = {
-  closePolicy: "native",
   programmaticCloseInFlight: false,
   closeDrainPending: false,
   actionAdmissionInFlight: false,
@@ -26,15 +25,6 @@ test("a programmatic close completes its own handshake first", () => {
     decideNativeCloseRequest({ ...IDLE_CLOSE_STATE, programmaticCloseInFlight: true }),
     "complete-programmatic-close",
   );
-  // The handshake outranks even the macOS hide policy.
-  assert.equal(
-    decideNativeCloseRequest({
-      ...IDLE_CLOSE_STATE,
-      closePolicy: "hide",
-      programmaticCloseInFlight: true,
-    }),
-    "complete-programmatic-close",
-  );
 });
 
 test("repeat close requests while a close drains or an action owns the guard are swallowed", () => {
@@ -43,19 +33,10 @@ test("repeat close requests while a close drains or an action owns the guard are
     decideNativeCloseRequest({ ...IDLE_CLOSE_STATE, actionAdmissionInFlight: true }),
     "prevent-silently",
   );
-  assert.equal(
-    decideNativeCloseRequest({
-      ...IDLE_CLOSE_STATE,
-      closePolicy: "hide",
-      actionAdmissionInFlight: true,
-    }),
-    "prevent-silently",
-  );
 });
 
-test("macOS close requests are always guarded; other platforms allow native close when idle", () => {
-  assert.equal(decideNativeCloseRequest({ ...IDLE_CLOSE_STATE, closePolicy: "hide" }), "prevent-and-guard");
-  assert.equal(decideNativeCloseRequest(IDLE_CLOSE_STATE), "allow-native-close");
+test("an idle close request is guarded on every platform so queued recovery writes can drain", () => {
+  assert.equal(decideNativeCloseRequest(IDLE_CLOSE_STATE), "prevent-and-guard");
 });
 
 test("loading blocks entering edit mode but still allows exiting edit mode", () => {

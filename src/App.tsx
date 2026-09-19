@@ -1678,10 +1678,10 @@ function App() {
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
-  // Tauri window close guard. On macOS the main window is hidden instead of
-  // destroyed so the process stays available for Dock reopen; a dirty document
-  // resolves Save/Discard/Cancel first. Other platforms keep the previous
-  // behavior of destroying the window and exiting on the last close.
+  // Tauri window close guard. Every request is prevented and routed through
+  // the action guard, which drains queued recovery writes before the
+  // continuation hides the window (macOS, so the process stays available for
+  // Dock reopen) or closes it (other platforms, exiting on the last close).
   // Register once and read live state from refs to avoid stale closures.
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -1691,7 +1691,6 @@ function App() {
     const handleCloseRequest = (event: { preventDefault: () => void }) => {
       if (isPrintInvoked()) { event.preventDefault(); return; }
       const decision = decideNativeCloseRequest({
-        closePolicy,
         programmaticCloseInFlight: programmaticCloseRef.current !== null,
         closeDrainPending: closeDrainPendingRef.current,
         actionAdmissionInFlight: actionAdmissionOwnerRef.current !== null,
@@ -1722,35 +1721,14 @@ function App() {
           event.preventDefault();
           return;
         case "prevent-and-guard":
-          // macOS never lets the close request destroy the window. Clean and
-          // dirty requests converge on the same guard: a dirty document
-          // resolves Save/Discard/Cancel, and the continuation hides the
-          // window once the snapshot queue has drained.
+          // The request never destroys the window directly on any platform.
+          // Clean and dirty requests converge on the same guard: a dirty
+          // document resolves Save/Discard/Cancel, and the continuation waits
+          // for queued recovery writes (a Discard capture may still be in
+          // flight) before it hides the window on macOS or closes it elsewhere.
           event.preventDefault();
           guardActionRef.current({ kind: "close-window" });
           return;
-        case "allow-native-close": {
-          // A reader note is unsaved work even when the document editor is clean.
-          flushSync(() => flushAnnotationNoteRef.current?.());
-          if ((!editingRef.current || !flushAndReadDirty()) && Object.keys(pendingAnnotationRecords()).length === 0) {
-            return;
-          }
-
-          event.preventDefault();
-
-          // Keep unsaved-change protection strict while the confirm dialog is
-          // open and never stack the unsaved-changes dialog under the restore
-          // modal. guardAction refuses those states too; these checks keep
-          // the close request visibly swallowed instead of dropped silently.
-          if (showConfirmDialogRef.current || showConflictDialogRef.current) {
-            return;
-          }
-          if (restoreDialogOpenRef.current) return;
-          if (boundaryFlushInFlightRef.current) return;
-
-          guardActionRef.current({ kind: "close-window" });
-          return;
-        }
       }
     };
 
@@ -1776,7 +1754,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [closePolicy, flushAndReadDirty, pendingAnnotationRecords, getAnnotationMutationVersion]);
+  }, [pendingAnnotationRecords, getAnnotationMutationVersion]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {

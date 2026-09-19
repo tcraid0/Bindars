@@ -3535,6 +3535,41 @@ test("Cancel releases a slow admitted open while its native read remains abandon
   }
 });
 
+test("a clean close after Discard waits for the discard capture before asking the window to close", async () => {
+  // Discard enqueues a recovery capture of the abandoned text and returns to
+  // the reader. A close request arriving while that capture is in flight must
+  // not destroy the window; the continuation drains the queue first.
+  const rendered = await renderContinuityApp();
+  const capture = deferred();
+  try {
+    dispatchShortcut("n");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Older draft snapshot");
+    await waitForEditorPublication();
+    await waitFor(() => assert.ok(rendered.snapshotOperationLog().some((entry) => entry.phase === "finish")));
+    updateEditor(rendered.host, "Newest words discarded immediately before close");
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"]')));
+    rendered.deferNextSnapshotWrite(capture);
+    clickButton(rendered.host, "Discard");
+    await waitFor(() => assert.ok(capture.args));
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+
+    await act(async () => emit("tauri://close-requested"));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    assert.equal(rendered.windowCloseCount(), 0);
+
+    await act(async () => capture.resolve(successfulSnapshotWrite(capture.args)));
+    await waitFor(() => assert.equal(rendered.windowCloseCount(), 1));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    assert.ok(rendered.snapshotOperationLog().some((entry) => entry.content === capture.args.content && entry.phase === "finish"));
+  } finally {
+    capture.resolve(successfulSnapshotWrite(capture.args || { content: "" }));
+    await rendered.cleanup();
+  }
+});
+
 test("native close flushes the pending autosave before closing the window", async () => {
   const rendered = await renderContinuityApp();
   try {
