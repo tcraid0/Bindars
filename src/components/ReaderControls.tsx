@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useEffect, useState, useId } from "react";
 import type { ReaderSettings, FontFamily, ParagraphSpacing, Theme } from "../types";
-import { resolveFontCss } from "../lib/reader-settings";
+import { READER_SETTINGS_LIMITS, resolveFontCss } from "../lib/reader-settings";
 import type { SnapshotStorageStats } from "../lib/snapshots";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
@@ -54,6 +54,9 @@ interface ReaderControlsProps {
   recoveryStorageStatsLoading: boolean;
   recoveryStorageStatsError: string | null;
   canRestoreDrafts: boolean;
+  // Editing is the only reason for unavailability that the user can act on;
+  // a busy app is transient and gets no instruction.
+  isEditing: boolean;
   onRestoreDrafts: () => void;
   onClearRecoveryHistory: () => void;
   onClose: () => void;
@@ -72,6 +75,7 @@ function ReaderControlsComponent({
   recoveryStorageStatsLoading,
   recoveryStorageStatsError,
   canRestoreDrafts,
+  isEditing,
   onRestoreDrafts,
   onClearRecoveryHistory,
   onClose,
@@ -92,7 +96,7 @@ function ReaderControlsComponent({
     const changes: string[] = [];
     if (visible && wasVisibleRef.current) {
       if (settings.fontSize !== previous.fontSize) changes.push(`Font size ${settings.fontSize} pixels`);
-      if (settings.contentWidth !== previous.contentWidth) changes.push(`Width ${settings.contentWidth} characters`);
+      if (settings.contentWidth !== previous.contentWidth) changes.push(`Width ${settings.contentWidth}`);
       if (settings.lineHeight !== previous.lineHeight) changes.push(`Line height ${settings.lineHeight.toFixed(1)}`);
     }
     // One region coalesces reset changes; opening and unrelated settings stay quiet.
@@ -163,14 +167,18 @@ function ReaderControlsComponent({
       <ControlRow
         label="Font size"
         value={`${settings.fontSize}px`}
+        canDecrease={settings.fontSize > READER_SETTINGS_LIMITS.fontSize.min}
+        canIncrease={settings.fontSize < READER_SETTINGS_LIMITS.fontSize.max}
         onDecrease={() => onUpdate({ fontSize: settings.fontSize - 1 })}
         onIncrease={() => onUpdate({ fontSize: settings.fontSize + 1 })}
       />
 
-      {/* Content width */}
+      {/* Content width: a unitless step, not a character count (see reader-settings.ts) */}
       <ControlRow
         label="Width"
-        value={`${settings.contentWidth}ch`}
+        value={`${settings.contentWidth}`}
+        canDecrease={settings.contentWidth > READER_SETTINGS_LIMITS.contentWidth.min}
+        canIncrease={settings.contentWidth < READER_SETTINGS_LIMITS.contentWidth.max}
         onDecrease={() => onUpdate({ contentWidth: settings.contentWidth - 5 })}
         onIncrease={() => onUpdate({ contentWidth: settings.contentWidth + 5 })}
       />
@@ -179,6 +187,8 @@ function ReaderControlsComponent({
       <ControlRow
         label="Line height"
         value={settings.lineHeight.toFixed(1)}
+        canDecrease={settings.lineHeight > READER_SETTINGS_LIMITS.lineHeight.min}
+        canIncrease={settings.lineHeight < READER_SETTINGS_LIMITS.lineHeight.max}
         onDecrease={() => onUpdate({ lineHeight: settings.lineHeight - 0.1 })}
         onIncrease={() => onUpdate({ lineHeight: settings.lineHeight + 0.1 })}
       />
@@ -242,6 +252,15 @@ function ReaderControlsComponent({
         />
       </div>
 
+      {/* Reset covers the settings above it; the theme below has its own storage and is left alone. */}
+      <button
+        type="button"
+        onClick={onReset}
+        className="w-full mt-3 py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-md transition-colors duration-120"
+      >
+        Reset to defaults
+      </button>
+
       {/* Theme swatches */}
       <div className="mt-3 pt-3 border-t border-border">
         <span className="text-xs text-text-secondary block mb-2">Theme</span>
@@ -291,14 +310,6 @@ function ReaderControlsComponent({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onReset}
-        className="w-full mt-3 py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-md transition-colors duration-120"
-      >
-        Reset to defaults
-      </button>
-
       <div className="mt-3 pt-3 border-t border-border">
         <span className="text-xs text-text-secondary block mb-1.5">Recovery</span>
         <button
@@ -312,9 +323,11 @@ function ReaderControlsComponent({
         >
           Restore an unsaved draft…
         </button>
-        <p className="text-[11px] leading-relaxed text-text-muted mb-1.5">
-          Finish current edits and return to Read mode before restoring another draft.
-        </p>
+        {isEditing && (
+          <p className="text-[11px] leading-relaxed text-text-muted mb-1.5">
+            Finish current edits and return to Read mode before restoring another draft.
+          </p>
+        )}
         <p className="text-[11px] leading-relaxed text-text-muted mb-1.5" aria-live="polite">
           {recoveryStorageStatsLoading
             ? "Calculating recovery data…"
@@ -383,11 +396,15 @@ function ToggleRow({
 function ControlRow({
   label,
   value,
+  canDecrease,
+  canIncrease,
   onDecrease,
   onIncrease,
 }: {
   label: string;
   value: string;
+  canDecrease: boolean;
+  canIncrease: boolean;
   onDecrease: () => void;
   onIncrease: () => void;
 }) {
@@ -399,8 +416,9 @@ function ControlRow({
         <button
           type="button"
           onClick={onDecrease}
+          disabled={!canDecrease}
           aria-label={`Decrease ${label.toLowerCase()}`}
-          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120"
+          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
         >
           -
         </button>
@@ -408,8 +426,9 @@ function ControlRow({
         <button
           type="button"
           onClick={onIncrease}
+          disabled={!canIncrease}
           aria-label={`Increase ${label.toLowerCase()}`}
-          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120"
+          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
         >
           +
         </button>

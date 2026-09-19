@@ -29,6 +29,10 @@ function getLocalSettings(): ReaderSettings | null {
   return null;
 }
 
+function settingsEqual(a: ReaderSettings, b: ReaderSettings): boolean {
+  return (Object.keys(a) as (keyof ReaderSettings)[]).every((key) => a[key] === b[key]);
+}
+
 export function useReaderSettings(pause?: StatePause) {
   // One initial decode decides both the displayed value and local precedence.
   const [localSettings] = useState(getLocalSettings);
@@ -97,15 +101,21 @@ export function useReaderSettings(pause?: StatePause) {
 
   const updateSettings = useCallback(
     (updates: Partial<ReaderSettings>) => {
+      // A clamped or repeated choice changes nothing, so it must not count as
+      // user intent (which would cancel a pending native read), rerender, or
+      // write. Decide synchronously against the rendered value so the intent
+      // flag still flips before any queued hydration can apply.
+      const intended = normalizeReaderSettings(updates, settings);
+      if (!intended || settingsEqual(intended, settings)) return;
       userUpdatedRef.current = true;
       setSettingsState((prev) => {
         const next = normalizeReaderSettings(updates, prev);
-        if (!next) return prev;
+        if (!next || settingsEqual(next, prev)) return prev;
         persistSettings(next);
         return next;
       });
     },
-    [persistSettings],
+    [persistSettings, settings],
   );
 
   const resetSettings = useCallback(() => {

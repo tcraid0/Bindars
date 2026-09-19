@@ -3278,6 +3278,7 @@ function App() {
             recoveryStorageStatsLoading={recoveryStorageStatsLoading}
             recoveryStorageStatsError={recoveryStorageStatsError}
             canRestoreDrafts={!editing && !actionAdmissionInFlight}
+            isEditing={editing}
             onRestoreDrafts={openDraftSnapshotRestore}
             onClearRecoveryHistory={requestClearRecoveryHistory}
             onClose={closeReaderControls}
