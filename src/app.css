@@ -1300,16 +1300,16 @@ mark.annotation-highlight-pink {
   opacity: 1;
 }
 
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-action,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-scene-heading,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-transition,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-centered,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-note,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-lyrics,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-page-break,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-character,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-dialogue,
-[data-reduced-effects] .fountain-body[data-focus-character] .fountain-parenthetical {
+.reduced-effects .fountain-body[data-focus-character] .fountain-action,
+.reduced-effects .fountain-body[data-focus-character] .fountain-scene-heading,
+.reduced-effects .fountain-body[data-focus-character] .fountain-transition,
+.reduced-effects .fountain-body[data-focus-character] .fountain-centered,
+.reduced-effects .fountain-body[data-focus-character] .fountain-note,
+.reduced-effects .fountain-body[data-focus-character] .fountain-lyrics,
+.reduced-effects .fountain-body[data-focus-character] .fountain-page-break,
+.reduced-effects .fountain-body[data-focus-character] .fountain-character,
+.reduced-effects .fountain-body[data-focus-character] .fountain-dialogue,
+.reduced-effects .fountain-body[data-focus-character] .fountain-parenthetical {
   transition: none;
 }
 

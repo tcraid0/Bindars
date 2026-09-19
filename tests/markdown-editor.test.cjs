@@ -60,7 +60,7 @@ test("MarkdownEditor applies reader typography without replacing its live editin
     const view = findEditorView(host);
     const shell = host.firstElementChild;
 
-    assert.equal(shell.style.maxWidth, "65ch");
+    assert.equal(shell.style.maxWidth, "36.855em");
     assert.equal(shell.style.fontSize, "18px");
     assert.equal(shell.style.lineHeight, "1.6");
     assert.equal(shell.style.fontFamily, "var(--font-reading-newsreader)");
@@ -79,7 +79,7 @@ test("MarkdownEditor applies reader typography without replacing its live editin
     assert.equal(view.contentDOM.getAttribute("contenteditable"), "true");
     assert.match(host.textContent, /Disk full/);
 
-    assert.equal(shell.style.maxWidth, "80ch");
+    assert.equal(shell.style.maxWidth, "45.36em");
     assert.equal(shell.style.fontSize, "24px");
     assert.equal(shell.style.lineHeight, "2");
     assert.equal(shell.style.fontFamily, "var(--font-reading-opendyslexic)");

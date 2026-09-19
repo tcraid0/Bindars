@@ -105,11 +105,18 @@ export function resolveFontCss(value: unknown): string {
     : FONT_CSS_MAP.newsreader;
 }
 
+// The column is sized in em, not ch, so it scales with the font size but does
+// not change width (and recenter) when the font family changes. The factor is
+// Newsreader's "0" advance, which keeps the default column exactly as wide as
+// its previous `<contentWidth>ch` value. The number is a calibration, not a
+// character count: other families fit more or fewer characters per line.
+export const CONTENT_WIDTH_EM_PER_UNIT = 0.567;
+
 export function resolveReaderSurfaceStyle(
   settings: Pick<ReaderSettings, "contentWidth" | "fontSize" | "lineHeight" | "fontFamily">,
 ): ReaderSurfaceStyle {
   return {
-    maxWidth: `${settings.contentWidth}ch`,
+    maxWidth: `${Math.round(settings.contentWidth * CONTENT_WIDTH_EM_PER_UNIT * 1000) / 1000}em`,
     fontSize: `${settings.fontSize}px`,
     lineHeight: settings.lineHeight,
     fontFamily: resolveFontCss(settings.fontFamily),

@@ -58,6 +58,7 @@ async function setup(t, { primary, legacy, native = null, paused = false, strict
       onUpdate: latest.updateSettings, onReset: latest.resetSettings,
       theme: 'light', onSetTheme() {}, onClose() {}, onClearRecoveryHistory() {},
       recoveryStorageStats: null, recoveryStorageStatsLoading: false, recoveryStorageStatsError: null,
+      canRestoreDrafts: true, isEditing: false,
     });
   }
   async function render() {
@@ -195,6 +196,23 @@ test('reader settings: user update overtakes a held native read', async t => {
   await view.unmount(); assert.deepEqual(view.writes, [expected]);
 });
 
+test('reader settings: a no-op update neither cancels a held native read nor writes', async t => {
+  const held = deferred();
+  const view = await setup(t, { native: held.promise });
+  // Re-choosing the current values changes nothing, so the stored choice must still land.
+  await view.update({ fontFamily: 'newsreader' });
+  await view.update({ fontSize: 17, paragraphSpacing: 'comfortable' });
+  assert.equal(view.localWrites.mock.callCount(), 0);
+  await act(async () => held.resolve(chosen));
+  assert.deepEqual(view.latest().settings, chosen);
+  // A real change persists once; repeating it past the bound is a no-op again.
+  await view.update({ fontSize: 30 });
+  await view.update({ fontSize: 30 });
+  assert.equal(view.localWrites.mock.callCount(), 1);
+  assert.deepEqual(JSON.parse(localStorage.getItem(primaryKey)), { ...chosen, fontSize: 24 });
+  await view.unmount(); assert.deepEqual(view.writes, [{ ...chosen, fontSize: 24 }]);
+});
+
 test('reader settings: print holds normalized hydration until release without writes', async t => {
   const held = deferred();
   const view = await setup(t, { native: held.promise, paused: true });
@@ -270,6 +288,12 @@ test('reader settings: updates share hydration bounds and rounding', async t => 
   await view.update({ fontSize: Number.MAX_VALUE, contentWidth: -100, lineHeight: Number.MAX_VALUE });
   assert.deepEqual(JSON.parse(localStorage.getItem(primaryKey)), { ...chosen, fontSize: 24, contentWidth: 50, lineHeight: 2 });
   await view.update({ lineHeight: -100 });
+  // Already at the bound: a repeated clamped update neither rerenders nor writes.
+  const localWritesBefore = view.localWrites.mock.callCount();
+  const settingsBefore = view.latest().settings;
+  await view.update({ lineHeight: -100, fontSize: 24 });
+  assert.equal(view.localWrites.mock.callCount(), localWritesBefore);
+  assert.ok(view.latest().settings === settingsBefore);
   await view.unmount();
   assert.deepEqual(view.writes, [{ ...chosen, fontSize: 24, contentWidth: 50, lineHeight: 1.4 }]);
 });
