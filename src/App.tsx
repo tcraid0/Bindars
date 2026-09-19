@@ -890,22 +890,33 @@ function App() {
     }
   }, [snapshotCurrentState, toast]);
 
+  // An awaited step can outlast the editor session that requested it: the
+  // document may have been swapped and a new session begun. Callers holding a
+  // file path in their closure must recheck before acting on that path.
+  const editorSessionIsCurrent = useCallback((sessionKey: number) =>
+    editingRef.current && editorSessionKeyRef.current === sessionKey, []);
+
   const saveCurrentEditsWithRecovery = useCallback(async (
     options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveResult> => {
     const sessionKey = editorSessionKeyRef.current;
     const outcome = await saveCurrentEdits(options);
     await finishDraftSnapshotAdoption(outcome.draftAdoption);
-    if (!editingRef.current || editorSessionKeyRef.current !== sessionKey) return "stale";
+    if (!editorSessionIsCurrent(sessionKey)) return "stale";
     // Recovery migration can outlast the file write. Flush the live editor
     // before a caller treats that earlier write as permission to leave.
     if (outcome.status === "saved" && flushAndReadDirty()) return "saved-with-newer-edits";
     return outcome.status;
-  }, [finishDraftSnapshotAdoption, flushAndReadDirty, saveCurrentEdits]);
+  }, [editorSessionIsCurrent, finishDraftSnapshotAdoption, flushAndReadDirty, saveCurrentEdits]);
 
   const handleSave = useCallback(async () => {
     if (actionAdmissionOwnerRef.current !== null) return;
+    const sessionKey = editorSessionKeyRef.current;
     const pendingIssue = await cancelAutosaveAndWait();
+    // Waiting on the autosave can outlast this session (undo to clean, open
+    // another file, start editing it). This closure's file path belongs to
+    // the old session, so a superseded Save must not run against it.
+    if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
     if (pendingIssue?.kind === "conflict") {
       openConflictDialog("stay-editing");
       return;
@@ -926,11 +937,13 @@ function App() {
     if (result === "conflict") {
       openConflictDialog("stay-editing");
     }
-  }, [cancelAutosaveAndWait, clearAutosaveIssue, filePath, flashSaved, flushAndReadDirty, openConflictDialog, recordSaveResult, saveCurrentEditsWithRecovery]);
+  }, [cancelAutosaveAndWait, clearAutosaveIssue, editorSessionIsCurrent, filePath, flashSaved, flushAndReadDirty, openConflictDialog, recordSaveResult, saveCurrentEditsWithRecovery]);
 
   const handleSaveAsAfterError = useCallback(async () => {
     if (actionAdmissionOwnerRef.current !== null) return;
+    const sessionKey = editorSessionKeyRef.current;
     await cancelAutosaveAndWait();
+    if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
     clearAutosaveIssue();
 
     const result = await saveCurrentEditsWithRecovery({ saveAs: true });
