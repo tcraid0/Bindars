@@ -3044,6 +3044,72 @@ test("file switching flushes the pending autosave before opening the next file",
   }
 });
 
+test("a manual Save that waited on an autosave is dropped once the editor session has changed", async () => {
+  // The wait can outlast the session: undo to clean, open another file from
+  // Finder, start editing it. The old closure's file path must never receive
+  // the new document's text.
+  const rendered = await renderContinuityApp();
+  const oldWrite = deferred();
+  try {
+    const initial = rendered.diskContent();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, `${initial}\nOld session autosave contents`);
+    rendered.deferNextWrite(oldWrite);
+    await waitForEditorPublication();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2650)));
+    await waitFor(() => assert.ok(oldWrite.args));
+
+    dispatchShortcut("s");
+    updateEditor(rendered.host, initial);
+    rendered.setPendingNativeOpenPath("/tmp/second-copy.md");
+    await act(async () => emit("bindars://native-open-available"));
+    await waitFor(() => assert.match(rendered.host.textContent, /second-copy\.md/));
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const newWords = "New document words which must never reach continuity.md";
+    updateEditor(rendered.host, newWords);
+
+    await act(async () => oldWrite.reject(new Error("Temporary old-file save error")));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.equal(rendered.fileWrites().length, 1);
+    assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
+    assert.match(rendered.host.textContent, /second-copy\.md/);
+    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+  } finally {
+    oldWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
+    await rendered.cleanup();
+  }
+});
+
+test("a manual Save still completes after waiting on an autosave in the same session", async () => {
+  const rendered = await renderContinuityApp();
+  const autosaveWrite = deferred();
+  try {
+    const initial = rendered.diskContent();
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, `${initial}\nAutosaved words`);
+    rendered.deferNextWrite(autosaveWrite);
+    await waitForEditorPublication();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2650)));
+    await waitFor(() => assert.ok(autosaveWrite.args));
+
+    const newerWords = `${initial}\nAutosaved words\nTyped while saving`;
+    updateEditor(rendered.host, newerWords);
+    dispatchShortcut("s");
+    await act(async () => autosaveWrite.reject(new Error("Temporary save error")));
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 2));
+    assert.equal(rendered.fileWrites()[1].path, "/tmp/continuity.md");
+    assert.equal(rendered.fileWrites()[1].content, newerWords);
+    await waitFor(() => assert.equal(rendered.diskContent(), newerWords));
+  } finally {
+    autosaveWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
+    await rendered.cleanup();
+  }
+});
+
 test("the initial native open wins over stored session restore", async () => {
   const rendered = await renderContinuityApp({
     requestedPath: "/tmp/stored-session.md",
@@ -3465,6 +3531,41 @@ test("Cancel releases a slow admitted open while its native read remains abandon
     assert.doesNotMatch(rendered.host.textContent, /Late stale file/);
   } finally {
     stalledOpen.resolve(rendered.openResult());
+    await rendered.cleanup();
+  }
+});
+
+test("a clean close after Discard waits for the discard capture before asking the window to close", async () => {
+  // Discard enqueues a recovery capture of the abandoned text and returns to
+  // the reader. A close request arriving while that capture is in flight must
+  // not destroy the window; the continuation drains the queue first.
+  const rendered = await renderContinuityApp();
+  const capture = deferred();
+  try {
+    dispatchShortcut("n");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Older draft snapshot");
+    await waitForEditorPublication();
+    await waitFor(() => assert.ok(rendered.snapshotOperationLog().some((entry) => entry.phase === "finish")));
+    updateEditor(rendered.host, "Newest words discarded immediately before close");
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"]')));
+    rendered.deferNextSnapshotWrite(capture);
+    clickButton(rendered.host, "Discard");
+    await waitFor(() => assert.ok(capture.args));
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+
+    await act(async () => emit("tauri://close-requested"));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    assert.equal(rendered.windowCloseCount(), 0);
+
+    await act(async () => capture.resolve(successfulSnapshotWrite(capture.args)));
+    await waitFor(() => assert.equal(rendered.windowCloseCount(), 1));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    assert.ok(rendered.snapshotOperationLog().some((entry) => entry.content === capture.args.content && entry.phase === "finish"));
+  } finally {
+    capture.resolve(successfulSnapshotWrite(capture.args || { content: "" }));
     await rendered.cleanup();
   }
 });

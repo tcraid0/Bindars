@@ -31,12 +31,10 @@ export type WindowClosePolicy = "hide" | "native";
 
 export type NativeCloseRequestOutcome =
   | "complete-programmatic-close"
-  | "allow-native-close"
   | "prevent-and-guard"
   | "prevent-silently";
 
 interface NativeCloseRequestState {
-  closePolicy: WindowClosePolicy;
   programmaticCloseInFlight: boolean;
   closeDrainPending: boolean;
   actionAdmissionInFlight: boolean;
@@ -52,13 +50,13 @@ export function windowClosePolicy(platform: ShortcutPlatform): WindowClosePolicy
 // Classifies a native close request (red button or Command-W) from the guard's
 // in-flight state. Ordering is load-bearing: a programmatic close completes
 // its own handshake, an in-flight close or admission swallows repeat requests,
-// the hide policy never lets the window be destroyed, and the native policy
-// lets a clean document close while a dirty one is guarded by the caller.
+// and every other request is guarded on every platform. Even a clean document
+// may have a queued recovery write (a Discard capture) that the continuation
+// must drain before it hides the window on macOS or closes it elsewhere.
 export function decideNativeCloseRequest(state: NativeCloseRequestState): NativeCloseRequestOutcome {
   if (state.programmaticCloseInFlight) return "complete-programmatic-close";
   if (state.closeDrainPending || state.actionAdmissionInFlight) return "prevent-silently";
-  if (state.closePolicy === "hide") return "prevent-and-guard";
-  return "allow-native-close";
+  return "prevent-and-guard";
 }
 
 interface EditEntryState {
