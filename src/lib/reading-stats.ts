@@ -1,0 +1,64 @@
+import { withoutByteOrderMark } from "./frontmatter";
+import { countWords } from "./word-count";
+
+export interface ReadingStats {
+  wordCount: number;
+  readingTimeMinutes: number;
+  pageCount?: number;
+}
+
+interface FormatReadingStatsSummaryOptions {
+  pageCount?: number | null;
+  runtimeMinutes?: number | null;
+}
+
+const WORDS_PER_MINUTE = 230;
+
+/**
+ * Compute word count and estimated reading time from markdown/fountain content.
+ * Strips frontmatter/title page and code blocks before counting.
+ */
+export function computeReadingStats(content: string, fileType?: string): ReadingStats {
+  let text = withoutByteOrderMark(content);
+
+  if (fileType === "fountain") {
+    // Strip Fountain title page (key: value lines at start, ending at first blank line)
+    // One indent character, not [ \t]+: overlapping with .* made this quadratic.
+    text = text.replace(/^(?:[A-Za-z][A-Za-z ]*:.*(?:\r?\n(?:[ \t].*))*\r?\n)*\r?\n/, "");
+  } else {
+    // Strip YAML frontmatter
+    text = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  }
+
+  // Strip fenced code blocks
+  text = text.replace(/```[\s\S]*?```/g, "");
+  text = text.replace(/~~~[\s\S]*?~~~/g, "");
+
+  const wordCount = countWords(text);
+  const readingTimeMinutes = Math.max(1, Math.round(wordCount / WORDS_PER_MINUTE));
+
+  const WORDS_PER_SCREENPLAY_PAGE = 160;
+  const pageCount = fileType === "fountain"
+    ? Math.max(1, Math.round(wordCount / WORDS_PER_SCREENPLAY_PAGE))
+    : undefined;
+
+  return { wordCount, readingTimeMinutes, pageCount };
+}
+
+export function formatWordCount(count: number): string {
+  return count.toLocaleString();
+}
+
+export function formatReadingStatsSummary(
+  stats: ReadingStats,
+  options: FormatReadingStatsSummaryOptions = {},
+): string {
+  const pageCount = options.pageCount ?? stats.pageCount ?? null;
+  const runtimeMinutes = options.runtimeMinutes ?? null;
+
+  if (pageCount != null) {
+    return `~${pageCount} pg${runtimeMinutes != null ? ` · ~${runtimeMinutes} min` : ""} · ${formatWordCount(stats.wordCount)} words`;
+  }
+
+  return `${formatWordCount(stats.wordCount)} words · ${stats.readingTimeMinutes} min`;
+}

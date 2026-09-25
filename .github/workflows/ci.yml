@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and build frontend
+        run: npm run build
+
+      - name: Run workspace integration tests
+        run: npm run test:workspace
+
+  licenses:
+    name: Third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - run: npm ci
+
+      - name: Fetch locked Rust dependency sources
+        working-directory: src-tauri
+        run: cargo fetch --locked
+
+      - name: Test third-party notice generation
+        run: npm run licenses:test
+
+      - name: Verify third-party notices
+        run: npm run licenses:check
+
+  rust-tests:
+    name: Rust unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --lib --locked
+
+      - name: Run Rust lints
+        working-directory: src-tauri
+        run: cargo clippy --lib --tests --locked -- -D warnings
+
+  macos:
+    name: macOS 15 arm64
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = arm64
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - name: Run workspace integration tests
+        run: npm run test:workspace
+
+      - name: Run parser cases in JavaScriptCore
+        run: npm run verify:jsc
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Check Rust sources
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Run Rust lints
+        working-directory: src-tauri
+        run: cargo clippy --lib --tests --locked -- -D warnings
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Typecheck, build, and bundle unsigned app
+        run: npx tauri build --bundles app --no-sign --ci
+
+      - name: Validate app bundle
+        run: npm run validate:macos-app

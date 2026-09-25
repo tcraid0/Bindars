@@ -1,0 +1,277 @@
+use std::sync::Arc;
+
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
+use tauri::Manager;
+
+mod annotations;
+mod atomic_write;
+mod document_io;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod document_write;
+mod drafts;
+mod exports;
+mod file_errors;
+mod file_watcher;
+mod images;
+mod native_lifecycle;
+mod navigation;
+mod printing;
+#[cfg(test)]
+mod test_support;
+mod workspace;
+
+use document_io::{
+    open_markdown_file, read_markdown_file, reveal_markdown_file_in_folder,
+    write_markdown_file_if_unmodified,
+};
+use drafts::{create_draft_document, delete_draft_document, is_draft_document};
+use exports::export_markdown_file;
+use file_watcher::{unwatch_file, watch_file, FileWatcher};
+#[cfg(any(windows, target_os = "linux"))]
+use native_lifecycle::initial_cli_open_path;
+#[cfg(desktop)]
+use native_lifecycle::window_state_flags;
+#[cfg(target_os = "macos")]
+use native_lifecycle::{
+    default_menu_with_guarded_quit, first_supported_opened_path, handle_macos_menu_event,
+    register_macos_wake_observer, reveal_main_window, MacWakeObserver, NATIVE_OPEN_AVAILABLE_EVENT,
+};
+use native_lifecycle::{exit_after_guarded_quit, take_pending_open_path, PendingOpenPath};
+use workspace::list_workspace_markdown_files;
+
+#[cfg(target_os = "macos")]
+fn keep_wake_observer_or_continue(
+    registration: Result<MacWakeObserver, std::io::Error>,
+) -> Option<MacWakeObserver> {
+    match registration {
+        Ok(observer) => Some(observer),
+        Err(error) => {
+            log::error!("Failed to register the macOS wake observer: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn register_macos_text_checking_defaults() {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{ns_string, NSDictionary, NSNumber, NSString, NSUserDefaults};
+
+    // WebKit caches these implementation-specific defaults during initialization:
+    // https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/mac/TextCheckerMac.mm
+    // Register fallbacks before creating the webview so saved native user choices win.
+    let enabled = NSNumber::numberWithBool(true);
+    let disabled = NSNumber::numberWithBool(false);
+    let registration = NSDictionary::<NSString, AnyObject>::from_slices(
+        &[
+            ns_string!("WebContinuousSpellCheckingEnabled"),
+            ns_string!("WebAutomaticQuoteSubstitutionEnabled"),
+            ns_string!("WebAutomaticDashSubstitutionEnabled"),
+            ns_string!("WebAutomaticTextReplacementEnabled"),
+            ns_string!("WebAutomaticLinkDetectionEnabled"),
+        ],
+        &[&*enabled, &*disabled, &*disabled, &*disabled, &*disabled],
+    );
+
+    // SAFETY: String keys and Boolean NSNumbers are valid property-list objects.
+    unsafe {
+        NSUserDefaults::standardUserDefaults().registerDefaults(&registration);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(target_os = "macos")]
+    register_macos_text_checking_defaults();
+
+    let pending_open_path = Arc::new(PendingOpenPath::default());
+
+    #[cfg(any(windows, target_os = "linux"))]
+    if let Some(path) = initial_cli_open_path() {
+        let accepted = pending_open_path.replace_if_supported(path);
+        debug_assert!(accepted);
+    }
+
+    let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "document-image",
+            |context, request, responder| {
+                // Snapshot the accepted document at request time; the read
+                // then runs off the main thread against that snapshot.
+                let authorized = context
+                    .app_handle()
+                    .state::<images::AuthorizedDocument>()
+                    .current();
+                tauri::async_runtime::spawn_blocking(move || {
+                    responder.respond(images::protocol_response(request, authorized.as_deref()));
+                });
+            },
+        )
+        .plugin(navigation::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Arc::clone(&pending_open_path))
+        .manage(images::AuthorizedDocument::default())
+        .invoke_handler(tauri::generate_handler![
+            annotations::initialize_annotation_storage,
+            annotations::load_annotations,
+            annotations::save_annotations,
+            annotations::export_annotation_recovery,
+            annotations::read_annotation_recovery,
+            printing::print_current_webview,
+            read_markdown_file,
+            open_markdown_file,
+            write_markdown_file_if_unmodified,
+            create_draft_document,
+            is_draft_document,
+            delete_draft_document,
+            reveal_markdown_file_in_folder,
+            export_markdown_file,
+            images::authorize_document_images,
+            take_pending_open_path,
+            exit_after_guarded_quit,
+            watch_file,
+            unwatch_file,
+            list_workspace_markdown_files
+        ])
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle().plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(window_state_flags())
+                    .build(),
+            )?;
+
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+
+            app.manage(FileWatcher::new());
+
+            Ok(())
+        });
+
+    // The predefined macOS Quit item terminates through AppKit without any
+    // frontend event, which would bypass the unsaved-change guard. Install a
+    // menu whose Quit item routes through the guard instead. On other
+    // platforms no menu is installed, matching the previous behavior.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(default_menu_with_guarded_quit)
+        .on_menu_event(handle_macos_menu_event);
+
+    let app = builder.build(tauri::generate_context!());
+
+    match app {
+        Ok(app) => {
+            #[cfg(target_os = "macos")]
+            let mut runtime_ready = false;
+            #[cfg(target_os = "macos")]
+            let mut _wake_observer = None;
+
+            app.run(move |app_handle, event| {
+                #[cfg(target_os = "macos")]
+                match event {
+                    tauri::RunEvent::Ready => {
+                        runtime_ready = true;
+                        _wake_observer = keep_wake_observer_or_continue(
+                            register_macos_wake_observer(app_handle),
+                        );
+                    }
+                    tauri::RunEvent::Reopen { .. } => {
+                        // Clicking the Dock icon brings the hidden or minimized
+                        // main window back; the app keeps running after close.
+                        reveal_main_window(app_handle);
+                    }
+                    tauri::RunEvent::Opened { urls } => {
+                        let Some(path) = first_supported_opened_path(&urls) else {
+                            return;
+                        };
+                        let accepted = pending_open_path.replace_if_supported(path);
+                        debug_assert!(accepted);
+
+                        if runtime_ready {
+                            reveal_main_window(app_handle);
+                            if let Err(error) = app_handle.emit_to(
+                                "main",
+                                NATIVE_OPEN_AVAILABLE_EVENT,
+                                (),
+                            ) {
+                                log::warn!(
+                                    "Failed to notify the frontend of a native open request: {error}"
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                let _ = (app_handle, event);
+            });
+        }
+        Err(error) => {
+            eprintln!("error while building tauri application: {error}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn wake_observer_setup_failure_returns_no_observer() {
+        let observer = super::keep_wake_observer_or_continue(Err(std::io::Error::other(
+            "wake observer unavailable",
+        )));
+
+        assert!(observer.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_open_preserves_a_supported_symlink_path_for_normal_open_validation() {
+        use crate::document_io::open_markdown_file_impl;
+        use crate::native_lifecycle::{cli_open_path_from_args, PendingOpenPath};
+        use crate::test_support::{cleanup_temp_path, unique_temp_path};
+        use std::fs;
+        use std::os::unix::fs::symlink;
+        use std::path::{Path, PathBuf};
+
+        fn temp_path(ext: &str) -> PathBuf {
+            unique_temp_path(ext)
+        }
+
+        fn cleanup(path: &Path) {
+            cleanup_temp_path(path);
+        }
+
+        let unsupported_target = temp_path("txt");
+        let supported_link = temp_path("md");
+        fs::write(&unsupported_target, "not supported").expect("write CLI symlink target");
+        symlink(&unsupported_target, &supported_link).expect("create supported CLI symlink");
+        let args = [
+            std::ffi::OsString::from("bindars"),
+            supported_link.clone().into_os_string(),
+        ];
+
+        let selected = cli_open_path_from_args(args).expect("select supported CLI link");
+        assert_eq!(selected, supported_link);
+
+        let pending = PendingOpenPath::default();
+        assert!(pending.replace_if_supported(selected));
+        let delivered = pending.take().expect("deliver supported CLI link");
+        let error = open_markdown_file_impl(delivered.to_string_lossy().into_owned())
+            .expect_err("unsupported canonical target should reach normal open validation");
+        assert!(error.contains("Not a supported file type"));
+
+        cleanup(&supported_link);
+        cleanup(&unsupported_target);
+    }
+}

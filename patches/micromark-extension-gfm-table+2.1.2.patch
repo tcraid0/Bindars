@@ -1,0 +1,32 @@
+diff --git a/node_modules/micromark-extension-gfm-table/dev/lib/edit-map.js b/node_modules/micromark-extension-gfm-table/dev/lib/edit-map.js
+index 26b3ac4..ffa1cbf 100644
+--- a/node_modules/micromark-extension-gfm-table/dev/lib/edit-map.js
++++ b/node_modules/micromark-extension-gfm-table/dev/lib/edit-map.js
+@@ -119,8 +119,9 @@ export class EditMap {
+         this.map[index][2]
+       )
+ 
+-      // Truncate rest.
+-      events.length = this.map[index][0]
++      // Truncate rest. Splice, not `length =`: JavaScriptCore makes shrinking a
++      // large array cost O(length), once per edit in a big table.
++      events.splice(this.map[index][0])
+     }
+ 
+     vecs.push(events.slice())
+diff --git a/node_modules/micromark-extension-gfm-table/lib/edit-map.js b/node_modules/micromark-extension-gfm-table/lib/edit-map.js
+index 93a30ff..bc6e6ff 100644
+--- a/node_modules/micromark-extension-gfm-table/lib/edit-map.js
++++ b/node_modules/micromark-extension-gfm-table/lib/edit-map.js
+@@ -116,8 +116,9 @@ export class EditMap {
+       index -= 1;
+       vecs.push(events.slice(this.map[index][0] + this.map[index][1]), this.map[index][2]);
+ 
+-      // Truncate rest.
+-      events.length = this.map[index][0];
++      // Truncate rest. Splice, not `length =`: JavaScriptCore makes shrinking a
++      // large array cost O(length), once per edit in a big table.
++      events.splice(this.map[index][0]);
+     }
+     vecs.push(events.slice());
+     events.length = 0;

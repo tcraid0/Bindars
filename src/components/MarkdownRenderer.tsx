@@ -1,0 +1,423 @@
+import React, { memo, useMemo, useState, useCallback, createContext, useContext } from "react";
+import Markdown from "react-markdown";
+import { remarkPlugins, createRehypePlugins } from "../lib/markdown-plugins";
+import {
+  decodeUriComponentSafe,
+  resolveImagePath,
+  resolveImageSrc,
+  resolveMarkdownLink,
+} from "../lib/paths";
+import { extractFrontmatter, formatFrontmatterDate } from "../lib/frontmatter";
+import { extractCodeText } from "../lib/code-text";
+import { CodeBlock } from "./CodeBlock";
+import { MermaidBlock } from "./MermaidBlock";
+import { useToast } from "./ToastProvider";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { resolveParagraphSpacingCss, resolveReaderSurfaceStyle } from "../lib/reader-settings";
+import type { ReaderSettings } from "../types";
+import type { Components } from "react-markdown";
+import type { SourcePositionAttributes } from "../lib/markdown-source-position";
+import {
+  OPENABLE_FILE_TYPES_DESCRIPTION,
+  isOpenableDocumentExtension,
+} from "../lib/openable-files";
+
+interface MarkdownRendererProps {
+  content: string;
+  filePath: string;
+  /**
+   * False until the native image protocol has accepted `filePath` as the
+   * session's document. Until then no document-image request is issued: an
+   * early request would be refused and the image left permanently failed.
+   */
+  imagesAuthorized: boolean;
+  settings: ReaderSettings;
+  contentRef: React.RefObject<HTMLElement | null>;
+  onOpenFragment: (fragmentId: string) => boolean;
+  onNavigateToFile?: (path: string, anchor: string | null) => void;
+}
+
+/* ------------------------------------------------------------------ */
+/*  MarkdownImage — self-contained error state per image               */
+/* ------------------------------------------------------------------ */
+
+function MarkdownImage({
+  src,
+  alt,
+  filePath,
+  imagesAuthorized,
+  ...props
+}: {
+  src?: string;
+  alt?: string;
+  filePath: string;
+  imagesAuthorized: boolean;
+  [key: string]: unknown;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  // The sanitizer already removed `data:`, `file:`, and other non-web sources
+  // before this component runs, so an empty src is either that or an authoring
+  // mistake; the message covers both.
+  if (!src) {
+    return (
+      <ImageNotice
+        reason="the source is missing or uses an unsupported URL"
+        label={alt}
+      />
+    );
+  }
+
+  const resolvedPath = resolveImagePath(src, filePath);
+  if (!resolvedPath) {
+    return <ImageNotice reason={describeBlockedImageSource(src)} label={alt || src} />;
+  }
+
+  if (!imagesAuthorized) {
+    // Same element, no source yet: the request starts once authorization for
+    // this document is confirmed, without remounting or an error state.
+    return <img {...props} alt={alt || ""} loading="lazy" />;
+  }
+
+  const resolved = resolveImageSrc(src, filePath);
+  if (failed) {
+    return (
+      <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
+        [image not shown: unavailable, outside the document's folder, or larger than 20 MiB: {alt || src}]
+      </span>
+    );
+  }
+
+  return (
+    <img
+      {...props}
+      src={resolved}
+      alt={alt || ""}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function ImageNotice({ reason, label }: { reason: string; label?: string }) {
+  return (
+    <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
+      [image not shown: {reason}{label ? `: ${label}` : ""}]
+    </span>
+  );
+}
+
+const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
+
+/** Why resolveImagePath refused a source, in the order it checks. */
+function describeBlockedImageSource(src: string): string {
+  const trimmed = decodeUriComponentSafe(src.trim().split(/[?#]/, 1)[0]);
+  if (URI_SCHEME_RE.test(trimmed)) return "remote and URL images are not loaded";
+  if (/^[\\/]/.test(trimmed)) return "absolute paths are not supported";
+  return "only images inside the document's folder are shown";
+}
+
+/* ------------------------------------------------------------------ */
+/*  MarkdownContent — memoized expensive rendering                     */
+/* ------------------------------------------------------------------ */
+
+interface MarkdownContentProps {
+  content: string;
+  filePath: string;
+  imagesAuthorized: boolean;
+  onOpenFragment: (fragmentId: string) => boolean;
+  onNavigateToFile?: (path: string, anchor: string | null) => void;
+}
+
+interface MarkdownContextValue extends Omit<MarkdownContentProps, "content"> {
+  handleCodeCopyError: (message: string) => void;
+}
+
+const MarkdownContext = createContext<MarkdownContextValue | null>(null);
+
+function useMarkdownContext(): MarkdownContextValue {
+  const context = useContext(MarkdownContext);
+  if (!context) throw new Error("Markdown components require MarkdownContext");
+  return context;
+}
+
+// Component types stay stable when navigation callbacks change.
+// Replacing their types would remount marked text and invalidate React's DOM references.
+const markdownComponents: Components = {
+  img: function Image({ node: _node, src, alt, ...props }) {
+    const { filePath, imagesAuthorized } = useMarkdownContext();
+    return (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        filePath={filePath}
+        imagesAuthorized={imagesAuthorized}
+        {...props}
+      />
+    );
+  },
+  a: function Link({ node: _node, href, children, ...props }) {
+    const { filePath, onOpenFragment, onNavigateToFile } = useMarkdownContext();
+    const { toast } = useToast();
+    const isFragment = Boolean(href?.startsWith("#"));
+    const isExternal = Boolean(href && /^https?:\/\//i.test(href));
+    const isMailto = Boolean(href && /^mailto:/i.test(href));
+
+    const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+      if (!href) return;
+
+      if (isFragment) {
+        e.preventDefault();
+        const targetId = href.slice(1);
+        if (!onOpenFragment(targetId)) {
+          toast(`Link target "#${targetId}" not found in this document. Check for typos in the link target.`, "error");
+        }
+        return;
+      }
+
+      e.preventDefault();
+      if (isExternal || isMailto) {
+        void openUrl(href).catch(() => {
+          // No-op: if system opener fails, keep app stable.
+        });
+        return;
+      }
+
+      // Try resolving as a relative supported-file link.
+      if (onNavigateToFile) {
+        const resolved = resolveMarkdownLink(href, filePath);
+        if (resolved) {
+          onNavigateToFile(resolved.path, resolved.anchor);
+          return;
+        }
+      }
+
+      const extMatch = href.match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
+      const ext = extMatch?.[1]?.toLowerCase();
+      if (ext && !isOpenableDocumentExtension(ext)) {
+        toast(`Cannot open .${ext} files — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
+      } else if (ext && (URI_SCHEME_RE.test(href) || /^[\\/]/.test(href))) {
+        // A supported extension that resolveMarkdownLink still refused: the
+        // path is absolute, a drive-letter path, or a non-web URL.
+        toast(`Cannot open "${href}" — absolute paths and URLs to local files are not supported; use a link relative to this document`, "error");
+      } else {
+        toast(`Cannot open "${href}" — only ${OPENABLE_FILE_TYPES_DESCRIPTION} links are supported`, "error");
+      }
+    };
+
+    return (
+      <a {...props} href={href} onClick={handleClick}>
+        {children}
+        {isExternal && (
+          <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        )}
+        {isMailto && (
+          <svg className="inline-block ml-0.5 align-baseline" width="0.75em" height="0.75em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </svg>
+        )}
+      </a>
+    );
+  },
+  pre: function Pre({ node: _node, children, ...props }) {
+    const { handleCodeCopyError, imagesAuthorized } = useMarkdownContext();
+    const positionedProps = props as typeof props & SourcePositionAttributes;
+    const sourcePosition: SourcePositionAttributes = {
+      "data-bindars-source-line": positionedProps["data-bindars-source-line"],
+      "data-bindars-source-column": positionedProps["data-bindars-source-column"],
+    };
+    const codeChild = React.Children.toArray(children).find(
+      (child): child is React.ReactElement<{
+        className?: string;
+        children?: React.ReactNode;
+        node?: { tagName?: string };
+      }> => {
+        if (!React.isValidElement<{
+          className?: string;
+          children?: React.ReactNode;
+          node?: { tagName?: string };
+        }>(child)) {
+          return false;
+        }
+
+        if (child.type === "code") {
+          return true;
+        }
+
+        return child.props.node?.tagName === "code";
+      },
+    );
+    if (!codeChild) {
+      return <pre {...props}>{children}</pre>;
+    }
+
+    const className = codeChild.props.className;
+    const codeChildren = codeChild.props.children;
+    const match = /language-([^\s]+)/.exec(className || "");
+    const language = match ? match[1] : undefined;
+    const rawCode = extractCodeText(codeChildren).replace(/\n$/, "");
+
+    // Mermaid diagrams: render as diagram instead of a fenced code block.
+    // Fence languages are case-insensitive, as in highlight.js (```Mermaid).
+    if (language?.toLowerCase() === "mermaid") {
+      // Mermaid issues its own image requests for image nodes while rendering,
+      // so it starts under the same authorization gate as document images.
+      if (!imagesAuthorized) {
+        return (
+          <div className="mermaid-diagram mermaid-loading" {...sourcePosition}>
+            <span className="text-text-muted text-sm">Rendering diagram...</span>
+          </div>
+        );
+      }
+      return <MermaidBlock chart={rawCode} sourcePosition={sourcePosition} />;
+    }
+
+    return (
+      <CodeBlock
+        language={language}
+        className={className}
+        rawText={rawCode}
+        sourcePosition={sourcePosition}
+        onCopyError={handleCodeCopyError}
+      >
+        {codeChildren}
+      </CodeBlock>
+    );
+  },
+
+  table: ({ node: _node, children, ...props }) => (
+    <div style={{ overflowX: "auto" }}>
+      <table {...props}>{children}</table>
+    </div>
+  ),
+
+  code: ({ className, children }) => {
+    // Inline code and any code that is not wrapped in <pre>.
+    return (
+      <code className={className}>
+        {children}
+      </code>
+    );
+  },
+};
+
+const MarkdownContent = memo(function MarkdownContent({
+  content,
+  filePath,
+  imagesAuthorized,
+  onOpenFragment,
+  onNavigateToFile,
+}: MarkdownContentProps) {
+  const { toast } = useToast();
+  const handleCodeCopyError = useCallback((message: string) => {
+    toast(message, "error");
+  }, [toast]);
+
+  // Extract frontmatter before rendering
+  const { frontmatter, body, bodyStartLine } = useMemo(() => extractFrontmatter(content), [content]);
+  const positionedRehypePlugins = useMemo(
+    () => createRehypePlugins(bodyStartLine - 1),
+    [bodyStartLine],
+  );
+
+  const context = useMemo(() => ({
+    filePath, imagesAuthorized, onOpenFragment, onNavigateToFile,
+    handleCodeCopyError,
+  }), [filePath, imagesAuthorized, onOpenFragment, onNavigateToFile, handleCodeCopyError]);
+
+  return (
+    <MarkdownContext.Provider value={context}>
+      {frontmatter && <FrontmatterHeader frontmatter={frontmatter} />}
+      <Markdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={positionedRehypePlugins}
+        components={markdownComponents}
+      >
+        {body}
+      </Markdown>
+    </MarkdownContext.Provider>
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/*  MarkdownRenderer — thin style shell                                */
+/* ------------------------------------------------------------------ */
+
+function MarkdownRendererComponent({
+  content,
+  filePath,
+  imagesAuthorized,
+  settings,
+  contentRef,
+  onOpenFragment,
+  onNavigateToFile,
+}: MarkdownRendererProps) {
+  const documentKey = useMemo(() => JSON.stringify([filePath, content]), [filePath, content]);
+
+  return (
+    <article
+      // Search and annotations mutate text inside this document. Replace the whole
+      // article on file or source changes instead of reconciling altered text nodes.
+      key={documentKey}
+      ref={contentRef}
+      className="markdown-body"
+      style={{
+        ...resolveReaderSurfaceStyle(settings),
+        "--paragraph-spacing": resolveParagraphSpacingCss(settings.paragraphSpacing),
+      } as React.CSSProperties}
+    >
+      <MarkdownContent
+        content={content}
+        filePath={filePath}
+        imagesAuthorized={imagesAuthorized}
+        onOpenFragment={onOpenFragment}
+        onNavigateToFile={onNavigateToFile}
+      />
+    </article>
+  );
+}
+
+export const MarkdownRenderer = memo(MarkdownRendererComponent);
+
+function FrontmatterHeader({ frontmatter }: { frontmatter: Record<string, unknown> }) {
+  const title = typeof frontmatter.title === "string" ? frontmatter.title : null;
+  const author = typeof frontmatter.author === "string" ? frontmatter.author : null;
+  const date = typeof frontmatter.date === "string" ? frontmatter.date : null;
+  const description = typeof frontmatter.description === "string"
+    ? frontmatter.description
+    : typeof frontmatter.subtitle === "string"
+      ? frontmatter.subtitle
+      : null;
+  const tags = Array.isArray(frontmatter.tags)
+    ? (frontmatter.tags as unknown[]).filter((t): t is string => typeof t === "string")
+    : null;
+
+  // Don't render if there's nothing meaningful to show
+  if (!title && !author && !date && !description && (!tags || tags.length === 0)) return null;
+
+  return (
+    <header className="frontmatter-header">
+      {title && <h1 className="frontmatter-title">{title}</h1>}
+      {(author || date) && (
+        <div className="frontmatter-meta">
+          {author && <span className="frontmatter-author">{author}</span>}
+          {author && date && <span className="frontmatter-separator">&middot;</span>}
+          {date && <time className="frontmatter-date">{formatFrontmatterDate(date)}</time>}
+        </div>
+      )}
+      {description && <p className="frontmatter-description">{description}</p>}
+      {tags && tags.length > 0 && (
+        <div className="frontmatter-tags">
+          {tags.map((tag, i) => (
+            <span key={`${tag}-${i}`} className="frontmatter-tag">{tag}</span>
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}

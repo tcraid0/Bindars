@@ -1,0 +1,53 @@
+# Security Policy
+
+## Threat Model
+
+Bindars is a **local-only** desktop application. It reads and renders markdown files from the user's filesystem. There are zero outbound network requests — no `fetch`, `XMLHttpRequest`, `WebSocket`, or HTTP client usage anywhere in the codebase. CSP enforces `connect-src 'none'`.
+
+The primary trust boundary is **untrusted markdown content**: a malicious `.md` file should not be able to execute code, access files outside its directory, or crash the application.
+
+Rendering policy that follows from this: raw HTML is removed before rendering (never inserted into the DOM); document-authored `href` and `src` values are limited to `http`, `https`, `mailto`, and relative paths; images load only from relative paths inside the document's folder. The native image protocol resolves symbolic links and reads through a directory-confined file handle, rejects non-image files, and limits each image to 20 MiB. The general asset protocol is disabled. Mermaid runs at `securityLevel: "strict"`, and the webview may not navigate away from the app origin.
+
+## Supported Versions
+
+| Version | Supported |
+| ------- | --------- |
+| latest  | Yes       |
+
+Only the latest release receives security fixes.
+
+## Reporting a Vulnerability
+
+**Do not open a public issue for security vulnerabilities.** Use the
+**Report a vulnerability** button on the repository's
+[Security tab](../../security/advisories/new) to submit a private GitHub
+Security Advisory.
+
+Please include:
+- Description of the vulnerability
+- Steps to reproduce (a sample `.md` file is ideal)
+- Impact assessment (what can an attacker achieve?)
+
+### Response timeline
+
+- **Acknowledgment**: within 72 hours
+- **Assessment**: within 1 week
+- **Fix or mitigation**: within 30 days for confirmed issues
+
+## Scope
+
+### In scope
+
+- Code execution via crafted markdown content
+- File system access outside the opened file's directory
+- Application crashes or freezes from crafted input (DoS)
+- Bypass of the sanitize schema (XSS via markdown rendering)
+- Path traversal in image loading or file operations
+
+### Out of scope
+
+- Attacks requiring physical access to the machine
+- Social engineering the user into opening a malicious file (that's the OS's job)
+- Vulnerabilities in upstream dependencies with no reachable code path in Bindars
+- Visual rendering bugs or UI glitches
+- Issues that require the user to modify application source code

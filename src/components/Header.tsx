@@ -1,0 +1,463 @@
+import { memo, useState, useRef, useEffect, useCallback, useId } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { Theme, FileType } from "../types";
+import { normalizeFileError } from "../lib/native-file-error";
+import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
+import { useToast } from "./ToastProvider";
+import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
+import { SaveWhisper } from "./SaveWhisper";
+import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
+
+interface HeaderProps {
+  fileName: string | null;
+  filePath: string | null;
+  theme: Theme;
+  onCycleTheme: () => void;
+  onNewFile: () => void;
+  onOpenFile: () => void;
+  onToggleSidebar: () => void;
+  onToggleToc: () => void;
+  onToggleReaderControls: () => void;
+  readerControlsVisible: boolean;
+  readerControlsId: string;
+  readerControlsTriggerRef: React.RefObject<HTMLButtonElement | null>;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  isEditing: boolean;
+  isDraft?: boolean;
+  saveChoosesLocation?: boolean;
+  isDirty: boolean;
+  isSavedFlash: boolean;
+  saveWarning: string | null;
+  canSave: boolean;
+  canToggleEdit: boolean;
+  onToggleEdit: () => void;
+  onSave: () => void;
+  statsSummary: string | null;
+  progressTextRef: React.RefObject<HTMLSpanElement | null>;
+  onToggleAnnotations: () => void;
+  hasAnnotations: boolean;
+  onPrint: () => void;
+  onPresent: () => void;
+  canPresent: boolean;
+  fileType: FileType;
+  markdownFormattingEnabled: boolean;
+  onToggleMarkdownFormatting: () => void;
+}
+
+const themeLabels: Record<Theme, string> = {
+  light: "Light",
+  sepia: "Sepia",
+  dark: "Dark",
+  "deep-dark": "Midnight",
+};
+
+function HeaderComponent({
+  fileName,
+  filePath,
+  theme,
+  onCycleTheme,
+  onNewFile,
+  onOpenFile,
+  onToggleSidebar,
+  onToggleToc,
+  onToggleReaderControls,
+  readerControlsVisible,
+  readerControlsId,
+  readerControlsTriggerRef,
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  isEditing,
+  isDraft = false,
+  saveChoosesLocation = isDraft,
+  isDirty,
+  isSavedFlash,
+  saveWarning,
+  canSave,
+  canToggleEdit,
+  onToggleEdit,
+  onSave,
+  statsSummary,
+  progressTextRef,
+  onToggleAnnotations,
+  hasAnnotations,
+  onPrint,
+  onPresent,
+  canPresent,
+  fileType,
+  markdownFormattingEnabled,
+  onToggleMarkdownFormatting,
+}: HeaderProps) {
+  const { toast } = useToast();
+  const isMac = detectShortcutPlatform() === "macos";
+  const revealLabel = isMac ? "Show in Finder" : "Show in folder";
+  const hasSaveFeedback = Boolean(saveWarning || isDraft || isDirty || isSavedFlash);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportTriggerRef = useRef<HTMLButtonElement>(null);
+  const exportPanelRef = useRef<HTMLDivElement>(null);
+  const exportId = useId();
+  const dismissExport = useDismissiblePopover({
+    open: exportOpen && Boolean(fileName) && !isEditing,
+    triggerRef: exportTriggerRef,
+    panelRef: exportPanelRef,
+    onClose: () => setExportOpen(false),
+  });
+
+  useEffect(() => {
+    if (!fileName || isEditing) setExportOpen(false);
+  }, [fileName, isEditing]);
+
+  const handlePrint = useCallback(() => {
+    dismissExport(true);
+    onPrint();
+  }, [dismissExport, onPrint]);
+
+  const handlePresent = useCallback(() => {
+    dismissExport(true);
+    onPresent();
+  }, [dismissExport, onPresent]);
+
+  const handleRevealFile = useCallback(async () => {
+    if (!filePath) return;
+    try {
+      await invoke("reveal_markdown_file_in_folder", { path: filePath });
+    } catch (err) {
+      console.warn("[reveal-file] Failed to show document location:", err);
+      const fallback = isMac ? "Couldn't show this file in Finder" : "Couldn't show this file in its folder";
+      toast(normalizeFileError(err, fallback).native?.message ?? fallback, "error");
+    }
+  }, [filePath, isMac, toast]);
+
+  return (
+    <header
+      className="document-header print-hide flex items-center px-4 border-b border-border bg-bg-secondary shrink-0 select-none"
+      style={{ height: "var(--header-height, 52px)" }}
+      data-tauri-drag-region
+    >
+      {/* Left: sidebar toggle, back/forward, wordmark */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-label="Toggle sidebar"
+          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
+          title={`Toggle sidebar (${formatShortcutLabel("toggleSidebar")})`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onGoBack}
+          disabled={!canGoBack}
+          aria-label="Go back"
+          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
+          title={`Go back (${formatShortcutLabel("goBack")})`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onGoForward}
+          disabled={!canGoForward}
+          aria-label="Go forward"
+          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
+          title={`Go forward (${formatShortcutLabel("goForward")})`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </button>
+        <span className="font-ui font-semibold text-[15px] text-text-primary tracking-tight ml-2">
+          Bindars
+        </span>
+      </div>
+
+      {/* Keep document identity and mode controls anchored as secondary content changes. */}
+      <div className="document-header-context flex-1 flex items-center gap-1.5 px-4 min-w-0" data-tauri-drag-region>
+        {fileName && (
+          <>
+            <div className="flex-1 min-w-0" data-tauri-drag-region>
+              <div className="document-header-filename text-sm text-text-muted truncate" title={fileName}>
+                {fileName}
+              </div>
+              <div className="document-header-detail h-4 flex items-center overflow-hidden text-[11px] text-text-muted whitespace-nowrap" data-tauri-drag-region>
+                <SaveWhisper
+                  isDraft={isDraft}
+                  dirty={isDirty}
+                  saved={isSavedFlash}
+                  warning={saveWarning}
+                />
+                {statsSummary && !isEditing && (
+                  <span className={saveWarning ? "hidden" : "truncate"}>
+                    {hasSaveFeedback && <span className="px-1" aria-hidden="true">·</span>}
+                    <span ref={progressTextRef} className="inline-block min-w-[2.5ch] text-right">0%</span>
+                    {" · "}
+                    {statsSummary}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="w-7 shrink-0">
+              {filePath && (
+                <button
+                  type="button"
+                  onClick={handleRevealFile}
+                  aria-label={revealLabel}
+                  className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
+                  title={`${revealLabel}\n${filePath}`}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2z" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            <div role="group" aria-label="Document mode" className="flex items-center shrink-0 rounded-md border border-border p-0.5">
+              <button
+                type="button"
+                onClick={() => { if (isEditing) onToggleEdit(); }}
+                disabled={!canToggleEdit}
+                aria-label="Read mode"
+                aria-pressed={!isEditing}
+                className={`px-2 py-1 rounded text-xs transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none ${!isEditing ? "bg-bg-tertiary text-text-primary" : "text-text-muted hover:bg-bg-tertiary hover:text-text-primary"}`}
+                title={`Read mode (${formatShortcutLabel("toggleEditMode")})`}
+              >Read</button>
+              <button
+                type="button"
+                onClick={() => { if (!isEditing) onToggleEdit(); }}
+                disabled={!canToggleEdit}
+                aria-label="Edit mode"
+                aria-pressed={isEditing}
+                className={`px-2 py-1 rounded text-xs transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none ${isEditing ? "bg-bg-tertiary text-text-primary" : "text-text-muted hover:bg-bg-tertiary hover:text-text-primary"}`}
+                title={`Edit mode (${formatShortcutLabel("toggleEditMode")})`}
+              >Edit</button>
+            </div>
+            <div className="w-[60px] shrink-0">
+              {isEditing && fileType === "markdown" && (
+                <MarkdownFormattingToggle
+                  enabled={markdownFormattingEnabled}
+                  onToggle={onToggleMarkdownFormatting}
+                />
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Right: controls */}
+      <div className="document-header-actions flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={onNewFile}
+          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          title={`New file (${formatShortcutLabel("newFile")})`}
+        >
+          New
+        </button>
+        <button
+          type="button"
+          onClick={onOpenFile}
+          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          title={`Open file (${formatShortcutLabel("openFile")})`}
+        >
+          Open
+        </button>
+        <button
+          type="button"
+          onClick={onToggleReaderControls}
+          ref={readerControlsTriggerRef}
+          aria-label="Toggle reader settings"
+          aria-haspopup="dialog"
+          aria-expanded={readerControlsVisible}
+          aria-controls={readerControlsVisible ? readerControlsId : undefined}
+          className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          title="Reader settings"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7V4h16v3" />
+            <path d="M9 20h6" />
+            <path d="M12 4v16" />
+          </svg>
+        </button>
+        {/* The three reading actions and Save share a stable toolbar footprint. */}
+        <div className="flex items-center justify-end gap-1 w-[98px] shrink-0">
+          {isEditing ? (
+            canSave && (
+              <button
+                type="button"
+                onClick={onSave}
+                className="px-2.5 py-1.5 rounded-md text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                title={`${saveChoosesLocation ? "Save to choose a filename and location" : "Save"} (${formatShortcutLabel("saveFile")})`}
+              >
+                Save
+              </button>
+            )
+          ) : (
+            <>
+              {/* Export dropdown */}
+              {fileName && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      // WebKit does not focus buttons on pointer activation.
+                      // Keep Escape and subsequent Tab navigation in this disclosure.
+                      event.currentTarget.focus();
+                      setExportOpen((v) => !v);
+                    }}
+                    ref={exportTriggerRef}
+                    aria-label="Export options"
+                    aria-expanded={exportOpen}
+                    aria-controls={exportOpen ? exportId : undefined}
+                    className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
+                      exportOpen ? "text-accent" : "text-text-secondary hover:text-text-primary"
+                    }`}
+                    title={`Export (${formatShortcutLabel("print")})`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 6 2 18 2 18 9" />
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                      <rect x="6" y="14" width="12" height="8" />
+                    </svg>
+                  </button>
+                  {exportOpen && (
+                    <div
+                      id={exportId}
+                      ref={exportPanelRef}
+                      role="group"
+                      aria-label="Export options"
+                      className="absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
+                      style={{ animation: "fadeIn 100ms ease" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={handlePrint}
+                        className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 6 2 18 2 18 9" />
+                          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                          <rect x="6" y="14" width="12" height="8" />
+                        </svg>
+                        Print to PDF
+                        <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("print")}</kbd>
+                      </button>
+                      {fileType !== "fountain" && (
+                        <button
+                          type="button"
+                          onClick={handlePresent}
+                          disabled={!canPresent}
+                          className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors duration-120 flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" />
+                            <line x1="8" y1="21" x2="16" y2="21" />
+                            <line x1="12" y1="17" x2="12" y2="21" />
+                          </svg>
+                          Present as Slides
+                          <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("presentation")}</kbd>
+                        </button>
+                      )}
+                      <div className="border-t border-border mt-1 pt-1 px-3 py-1.5">
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Tip: Uncheck "Headers and footers" in the print dialog for clean output.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={onToggleAnnotations}
+                aria-label="Toggle Highlights & notes"
+                className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
+                  hasAnnotations ? "text-accent" : "text-text-secondary hover:text-text-primary"
+                }`}
+                title={`Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={onToggleToc}
+                aria-label="Toggle table of contents"
+                className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                title={`Toggle table of contents (${formatShortcutLabel("toggleTableOfContents")})`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onCycleTheme}
+          aria-label={`Switch theme (current: ${themeLabels[theme]})`}
+          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          title={`Theme: ${themeLabels[theme]} (${formatShortcutLabel("cycleTheme")})`}
+        >
+          {theme === "light" ? (
+            /* Sun — full sun with rays */
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="5" />
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          ) : theme === "sepia" ? (
+            /* Sunset — sun half-below horizon */
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 18a5 5 0 0 0-10 0" />
+              <line x1="12" y1="9" x2="12" y2="3" />
+              <line x1="4.22" y1="10.22" x2="5.64" y2="11.64" />
+              <line x1="1" y1="18" x2="3" y2="18" />
+              <line x1="21" y1="18" x2="23" y2="18" />
+              <line x1="18.36" y1="11.64" x2="19.78" y2="10.22" />
+              <line x1="23" y1="22" x2="1" y2="22" />
+            </svg>
+          ) : theme === "dark" ? (
+            /* Moon — crescent */
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          ) : (
+            /* Stars — deep night sky */
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2l1.09 3.26L16 6l-2.91.74L12 10l-1.09-3.26L8 6l2.91-.74L12 2z" />
+              <path d="M5 13l.72 2.17L8 16l-2.28.83L5 19l-.72-2.17L2 16l2.28-.83L5 13z" />
+              <path d="M19 14l.6 1.8L21.4 16.6l-1.8.6-.6 1.8-.6-1.8-1.8-.6 1.8-.6.6-1.8z" />
+            </svg>
+          )}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+export const Header = memo(HeaderComponent);

@@ -1,0 +1,30 @@
+diff --git a/node_modules/micromark/dev/lib/create-tokenizer.js b/node_modules/micromark/dev/lib/create-tokenizer.js
+index abd242f..d8fa317 100644
+--- a/node_modules/micromark/dev/lib/create-tokenizer.js
++++ b/node_modules/micromark/dev/lib/create-tokenizer.js
+@@ -577,7 +577,9 @@ export function createTokenizer(parser, initialize, from) {
+       point = startPoint
+       context.previous = startPrevious
+       context.currentConstruct = startCurrentConstruct
+-      context.events.length = startEventsIndex
++      // Truncate with splice: JavaScriptCore makes `length =` on a large array
++      // cost O(length), so failed attempts in one huge paragraph went quadratic.
++      context.events.splice(startEventsIndex)
+       stack = startStack
+       accountForPotentialSkip()
+       debug('position: restore: `%j`', point)
+diff --git a/node_modules/micromark/lib/create-tokenizer.js b/node_modules/micromark/lib/create-tokenizer.js
+index 50aded8..bb19e99 100644
+--- a/node_modules/micromark/lib/create-tokenizer.js
++++ b/node_modules/micromark/lib/create-tokenizer.js
+@@ -489,7 +489,9 @@ export function createTokenizer(parser, initialize, from) {
+       point = startPoint;
+       context.previous = startPrevious;
+       context.currentConstruct = startCurrentConstruct;
+-      context.events.length = startEventsIndex;
++      // Truncate with splice: JavaScriptCore makes `length =` on a large array
++      // cost O(length), so failed attempts in one huge paragraph went quadratic.
++      context.events.splice(startEventsIndex);
+       stack = startStack;
+       accountForPotentialSkip();
+     }

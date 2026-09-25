@@ -1,0 +1,145 @@
+import { memo, useEffect, useRef } from "react";
+import { DialogFrame } from "./DialogFrame";
+import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
+import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
+
+interface CommandPaletteProps {
+  visible: boolean;
+  query: string;
+  pending: boolean;
+  results: WorkspaceSearchHit[];
+  selectedIndex: number;
+  status: WorkspaceStatus;
+  onQueryChange: (value: string) => void;
+  onClose: () => void;
+  onOpenHit: (hit: WorkspaceSearchHit) => void;
+  onHoverIndex: (index: number) => void;
+}
+
+function CommandPaletteComponent({
+  visible,
+  query,
+  pending,
+  results,
+  selectedIndex,
+  status,
+  onQueryChange,
+  onClose,
+  onOpenHit,
+  onHoverIndex,
+}: CommandPaletteProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const isMac = detectShortcutPlatform() === "macos";
+
+  useEffect(() => {
+    if (!visible) return;
+    inputRef.current?.select();
+  }, [visible]);
+
+  return (
+    <DialogFrame
+      visible={visible}
+      title="Quick switcher"
+      initialFocusRef={inputRef}
+      onDismiss={onClose}
+      backdropClassName="command-palette-backdrop print-hide fixed inset-0 z-50 flex items-start justify-center"
+      backdropStyle={{
+        background: "color-mix(in srgb, var(--bg-primary) 84%, transparent)",
+        backdropFilter: "blur(5px)",
+        animation: "none",
+      }}
+      className="command-palette-shell mt-[12vh] w-full max-w-[720px] mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden"
+      titleClassName="ui-chip-label"
+      renderHeader={(title) => (
+        <div className="px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            {title}
+            <span className="ui-subsection-label text-[11px]">
+              {pending
+                ? "Updating results…"
+                : status === "indexing"
+                ? "Indexing in progress"
+                : `${results.length} result${results.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+          <div className="command-palette-input-wrap">
+            <input
+              ref={inputRef}
+              type="text"
+              autoCorrect={isMac ? "off" : undefined}
+              spellCheck={isMac ? false : undefined}
+              value={query}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder="Search files, headings, and content..."
+              className="w-full bg-transparent text-text-primary text-sm outline-none placeholder:text-text-muted"
+              aria-label="Workspace quick switcher"
+            />
+          </div>
+          <div className="mt-2 text-[11px] text-text-muted flex items-center justify-between gap-3">
+            <span>
+              {status === "indexing"
+                ? "The updated index will be available when indexing finishes."
+                : status === "error"
+                  ? "Indexing failed. Use Refresh in the Workspace panel to retry."
+                  : "Use Refresh in the Workspace panel after files change."}
+            </span>
+            <span className="hidden sm:inline">
+              {formatShortcutLabel("enter")} opens. {formatShortcutLabel("escape")} closes.
+            </span>
+          </div>
+        </div>
+      )}
+    >
+      <ul className="max-h-[50vh] overflow-y-auto">
+        {results.length === 0 ? (
+          <li className="px-4 py-6 text-sm text-text-muted">
+            {status === "idle"
+              ? "Choose a folder in the Workspace panel to search."
+              : pending
+                ? "Updating results…"
+                : status === "indexing"
+                  ? "Waiting for indexing to finish."
+                  : query.trim() ? "No matches for this query." : "No indexed files to show."}
+          </li>
+        ) : (
+          results.map((hit, idx) => {
+            const selected = idx === selectedIndex;
+            return (
+              <li key={`${hit.path}:${hit.kind}:${hit.headingId ?? "none"}:${idx}`}>
+                <button
+                  type="button"
+                  onMouseEnter={() => onHoverIndex(idx)}
+                  onFocus={() => onHoverIndex(idx)}
+                  onClick={() => onOpenHit(hit)}
+                  className={`w-full text-left px-4 py-2.5 border-b border-border/50 transition-colors ${
+                    selected
+                      ? "bg-bg-tertiary border-l-2 border-l-accent pl-[14px]"
+                      : "hover:bg-bg-tertiary/60 border-l-2 border-l-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="ui-chip-label">{kindLabel(hit.kind)}</span>
+                    <span className="text-sm text-text-primary truncate">{hit.relPath}</span>
+                  </div>
+                  {hit.snippet && (
+                    <p className="mt-1 text-xs text-text-secondary line-clamp-2">
+                      {hit.snippet}
+                    </p>
+                  )}
+                </button>
+              </li>
+            );
+          })
+        )}
+      </ul>
+    </DialogFrame>
+  );
+}
+
+export const CommandPalette = memo(CommandPaletteComponent);
+
+function kindLabel(kind: WorkspaceSearchHit["kind"]): string {
+  if (kind === "title") return "File";
+  if (kind === "heading") return "Heading";
+  return "Content";
+}

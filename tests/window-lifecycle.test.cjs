@@ -1,0 +1,1488 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { act } = React;
+const { createRoot } = require("react-dom/client");
+const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
+const { emit } = require("@tauri-apps/api/event");
+const { installDom } = require("./_helpers/dom.cjs");
+const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
+const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
+
+const DOC_PATH = "/tmp/lifecycle.md";
+const DOC_NAME = "lifecycle.md";
+const DOC_CONTENT = "# Lifecycle\n\nOpening words.\n\n## Deeper\n\nClosing words.\n";
+
+let flushSync;
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitFor(assertion) {
+  let lastError;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      return assertion();
+    } catch (error) {
+      lastError = error;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+  }
+  throw lastError;
+}
+
+function loadApp() {
+  const Module = require("node:module");
+  const originalLoad = Module._load;
+  Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
+    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture";
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    return require("../.tmp/workspace-tests/src/App.js").default;
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
+function keyboardEvent(key, options = {}) {
+  return new window.KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  });
+}
+
+function dispatchShortcut(key, options = {}) {
+  const event = keyboardEvent(key, { ctrlKey: true, ...options });
+  flushSync(() => window.dispatchEvent(event));
+  return event;
+}
+
+function dispatchWindowKey(key, options = {}) {
+  const event = keyboardEvent(key, options);
+  flushSync(() => window.dispatchEvent(event));
+  return event;
+}
+
+async function cancelDialog(host) {
+  dispatchWindowKey("Escape");
+  await waitFor(() => noDialog(host));
+}
+
+function clickButton(host, text, scope = host) {
+  const button = Array.from(scope.querySelectorAll("button"))
+    .find((candidate) => candidate.textContent.trim() === text);
+  assert.ok(button, `expected a ${text} button`);
+  flushSync(() => {
+    button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+}
+
+function updateEditor(host, value) {
+  const view = findEditorView(host);
+  flushSync(() => {
+    replaceEditorDocument(view, value);
+  });
+  return view;
+}
+
+async function requestClose() {
+  await act(async () => {
+    await emit("tauri://close-requested");
+  });
+}
+
+async function requestQuit() {
+  await act(async () => {
+    await emit("bindars://quit-requested");
+  });
+}
+
+async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null } = {}) {
+  await installDom();
+  ({ flushSync } = require("react-dom"));
+  window.localStorage.clear();
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() { return false; },
+  });
+  const originalIntersectionObserver = globalThis.IntersectionObserver;
+  const observedHeadings = new Set();
+  globalThis.IntersectionObserver = class IntersectionObserver {
+    observe(node) { observedHeadings.add(node); }
+    unobserve(node) { observedHeadings.delete(node); }
+    disconnect() { observedHeadings.clear(); }
+  };
+
+  // The App freezes its window close policy from the call-time platform
+  // detector, so the navigator must report the platform under test before
+  // the first render.
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  assert.ok(originalNavigator);
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    enumerable: true,
+    value: platform === "mac"
+      ? { platform: "MacIntel" }
+      : { platform: platform === "windows" ? "Win32" : platform === "linux" ? "Linux x86_64" : "X11; Darwin arm64" },
+  });
+
+  mockWindows("main");
+  let diskContent = content;
+  let revisionNumber = 1;
+  let failedWritesRemaining = 0;
+  let conflictNextWrite = false;
+  let deferredOpen = null;
+  let deferredWrite = null;
+  let failedHidesRemaining = 0;
+  let failedClosesRemaining = 0;
+  let failedExitsRemaining = 0;
+  const operationLog = [];
+  const openedPaths = [];
+  const fileWrites = [];
+  const nativeOpen = createNativeOpenIpc();
+
+  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+    switch (cmd) {
+      case "initialize_annotation_storage":
+        return { settingsReady: true, settingsError: null };
+      case "load_annotations":
+        return args.path === DOC_PATH ? { highlights, bookmarks: [], version: 2 } : null;
+      case "save_annotations":
+        return annotationWrite(args);
+      case "plugin:store|save":
+        return null;
+      case "plugin:store|load":
+        return 1;
+      case "plugin:store|get":
+        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
+        if (args.key === "session" && initialSessionOperation) {
+          initialSessionOperation.args = args;
+          return initialSessionOperation.promise;
+        }
+        if (args.key === `annotations:${DOC_PATH}`) {
+          return [{ highlights, bookmarks: [], version: 2 }, true];
+        }
+        return [null, false];
+      case "plugin:store|set":
+        return null;
+      case "plugin:window|set_title":
+        return null;
+      case "plugin:window|hide":
+        if (failedHidesRemaining > 0) {
+          failedHidesRemaining -= 1;
+          throw new Error("window hide failed");
+        }
+        operationLog.push("hide");
+        return null;
+      case "plugin:window|close":
+        if (failedClosesRemaining > 0) {
+          failedClosesRemaining -= 1;
+          throw new Error("window close failed");
+        }
+        operationLog.push("close");
+        return null;
+      case "plugin:window|destroy":
+        operationLog.push("destroy");
+        return null;
+      case "exit_after_guarded_quit":
+        if (failedExitsRemaining > 0) {
+          failedExitsRemaining -= 1;
+          throw new Error("guarded exit failed");
+        }
+        operationLog.push("exit");
+        return null;
+      case "open_markdown_file": {
+        openedPaths.push(args.path);
+        operationLog.push("open");
+        if (deferredOpen) {
+          const operation = deferredOpen;
+          deferredOpen = null;
+          operation.args = args;
+          return operation.promise;
+        }
+        return {
+          canonicalPath: args.path,
+          name: args.path.split("/").at(-1),
+          content: diskContent,
+          revision: { mtimeMs: revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
+        };
+      }
+      case "write_markdown_file_if_unmodified": {
+        fileWrites.push(args);
+        operationLog.push("file-write");
+        if (deferredWrite) {
+          const operation = deferredWrite;
+          deferredWrite = null;
+          operation.args = args;
+          return operation.promise;
+        }
+        if (failedWritesRemaining > 0) {
+          failedWritesRemaining -= 1;
+          throw new Error("disk unavailable");
+        }
+        if (conflictNextWrite) {
+          conflictNextWrite = false;
+          return {
+            conflict: true,
+            canonicalPath: args.path,
+            name: args.path.split("/").at(-1),
+            currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
+          };
+        }
+        diskContent = args.content;
+        return {
+          conflict: false,
+          canonicalPath: args.path,
+          name: args.path.split("/").at(-1),
+          currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
+        };
+      }
+      case "is_draft_document":
+        return args.path === "/tmp/Bindars Drafts/Untitled.md";
+      case "create_draft_document":
+        if (draftCreationError) throw draftCreationError;
+        diskContent = args.content;
+        operationLog.push("draft-create");
+        return {
+          conflict: false,
+          canonicalPath: "/tmp/Bindars Drafts/Untitled.md",
+          name: "Untitled.md",
+          currentRevision: { mtimeMs: ++revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
+        };
+      case "watch_file":
+      case "unwatch_file":
+        return null;
+      case "plugin:dialog|save":
+        return "/tmp/Save As.md";
+      case "plugin:dialog|open":
+        return null;
+      case "authorize_document_images":
+        return null;
+      default:
+        throw new Error(`Unexpected IPC command: ${cmd}`);
+    }
+  }), { shouldMockEvents: true });
+
+  const App = loadApp();
+  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  flushSync(() => {
+    root.render(React.createElement(ToastProvider, null, React.createElement(App)));
+  });
+  if (!initialSessionOperation) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
+
+  async function openLifecycleDocument() {
+    nativeOpen.setPendingPath(DOC_PATH);
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+    await waitFor(() => assert.ok(host.textContent.includes(DOC_NAME)));
+  }
+
+  async function enterEditingWithDirtyText(text) {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(host.querySelector(".cm-editor")));
+    updateEditor(host, text);
+  }
+
+  async function requestNativeOpen(path = DOC_PATH) {
+    nativeOpen.setPendingPath(path);
+    await act(async () => {
+      await emit("bindars://native-open-available");
+    });
+  }
+
+  return {
+    host,
+    operationLog: () => [...operationLog],
+    openedPaths: () => [...openedPaths],
+    observedHeadings: () => [...observedHeadings],
+    fileWrites: () => [...fileWrites],
+    diskContent: () => diskContent,
+    hideCount: () => operationLog.filter((entry) => entry === "hide").length,
+    closeCount: () => operationLog.filter((entry) => entry === "close").length,
+    destroyCount: () => operationLog.filter((entry) => entry === "destroy").length,
+    exitCalls: () => operationLog.filter((entry) => entry === "exit"),
+    failNextWrite(times = 1) { failedWritesRemaining += times; },
+    failNextHide(times = 1) { failedHidesRemaining += times; },
+    failNextClose() { failedClosesRemaining += 1; },
+    failNextExit(times = 1) { failedExitsRemaining += times; },
+    conflictNextWrite() { conflictNextWrite = true; },
+    deferNextOpen(operation) { deferredOpen = operation; },
+    deferNextWrite(operation) { deferredWrite = operation; },
+    openLifecycleDocument,
+    enterEditingWithDirtyText,
+    requestNativeOpen,
+    requestClose,
+    requestQuit,
+    async cleanup() {
+      await act(async () => {
+        root.unmount();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      host.remove();
+      window.matchMedia = originalMatchMedia;
+      globalThis.IntersectionObserver = originalIntersectionObserver;
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+      clearMocks();
+    },
+  };
+}
+
+function confirmDialog(host) {
+  const dialog = host.querySelector('[role="dialog"]');
+  assert.ok(dialog, "expected an open dialog");
+  return dialog;
+}
+
+function noDialog(host) {
+  assert.ok(!host.querySelector('[role="dialog"]'), "expected no open dialog");
+}
+
+test("Save As reconfirms typing during the file write before leaving the document", async (context) => {
+  for (const action of ["editor exit", "Finder open", "close", "quit"]) {
+    await context.test(action, async () => {
+      const rendered = await renderLifecycleApp({ draftCreationError: new Error("Documents unavailable") });
+      const save = deferred();
+      const savedWords = "Words included in the Save As write.";
+      const newerWords = `${savedWords}\nMore words typed during the write.`;
+      const finderPath = "/tmp/after-save-as.md";
+      try {
+        await act(async () => { dispatchShortcut("n"); });
+        await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+        updateEditor(rendered.host, savedWords);
+        if (action === "editor exit") dispatchShortcut("e");
+        else if (action === "Finder open") await rendered.requestNativeOpen(finderPath);
+        else if (action === "close") await rendered.requestClose();
+        else await rendered.requestQuit();
+        const dialog = await waitFor(() => confirmDialog(rendered.host));
+        assert.match(dialog.textContent, /Unsaved changes/);
+        rendered.deferNextWrite(save);
+        clickButton(rendered.host, "Save", dialog);
+        await waitFor(() => assert.ok(save.args));
+        assert.equal(save.args.path, "/tmp/Save As.md");
+        assert.equal(save.args.content, savedWords);
+
+        // Do not wait for CodeMirror's debounced publication: the continuation
+        // must flush the live editor after the file write resolves.
+        updateEditor(rendered.host, newerWords);
+        await act(async () => {
+          save.resolve({
+            conflict: false,
+            canonicalPath: "/tmp/Save As.md",
+            name: "Save As.md",
+            currentRevision: { mtimeMs: 2, size: savedWords.length, contentHash: "save-as" },
+          });
+          await save.promise;
+        });
+
+        const reconfirm = await waitFor(() => confirmDialog(rendered.host));
+        assert.match(reconfirm.textContent, /Unsaved changes/);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), newerWords);
+        assert.equal(rendered.fileWrites().length, 1);
+        assert.equal(rendered.hideCount(), 0);
+        assert.equal(rendered.exitCalls().length, 0);
+        assert.equal(rendered.openedPaths().includes(finderPath), false);
+        clickButton(rendered.host, "Save", reconfirm);
+
+        await waitFor(() => assert.equal(rendered.diskContent(), newerWords));
+        if (action === "editor exit") await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+        else if (action === "Finder open") await waitFor(() => assert.ok(rendered.openedPaths().includes(finderPath)));
+        else if (action === "close") await waitFor(() => assert.equal(rendered.hideCount(), 1));
+        else await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+        assert.equal(rendered.destroyCount(), 0);
+        noDialog(rendered.host);
+      } finally {
+        save.resolve(null);
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+test("a late Save As write leaves a newer draft and its confirmation intact", async () => {
+  const rendered = await renderLifecycleApp({ draftCreationError: new Error("Documents unavailable") });
+  const save = deferred();
+  try {
+    await act(async () => { dispatchShortcut("n"); });
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "First draft saved.");
+    dispatchShortcut("e");
+    const dialog = await waitFor(() => confirmDialog(rendered.host));
+    rendered.deferNextWrite(save);
+    clickButton(rendered.host, "Save", dialog);
+    await waitFor(() => assert.ok(save.args));
+
+    // The first draft is still dirty while its write waits. Explicitly discard
+    // that session before starting another draft, leaving the old write pending.
+    dispatchShortcut("n");
+    const newFileDialog = await waitFor(() => confirmDialog(rendered.host));
+    clickButton(rendered.host, "Discard", newFileDialog);
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    updateEditor(rendered.host, "Keep this newer draft.");
+    await rendered.requestQuit();
+    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    await act(async () => {
+      save.resolve({
+        conflict: false,
+        canonicalPath: "/tmp/Save As.md",
+        name: "Save As.md",
+        currentRevision: { mtimeMs: 2, size: save.args.content.length, contentHash: "old-save-as" },
+      });
+      await save.promise;
+    });
+
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Keep this newer draft.");
+    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    assert.equal(rendered.exitCalls().length, 0);
+    // The old save must neither execute nor cancel the newer quit admission.
+    clickButton(rendered.host, "Discard", newerDialog);
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    save.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation", async () => {
+  const rendered = await renderLifecycleApp();
+  const overwrite = deferred();
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to save.`);
+    rendered.conflictNextWrite();
+    await rendered.requestQuit();
+    const conflict = await waitFor(() => confirmDialog(rendered.host));
+    assert.match(conflict.textContent, /File changed/);
+    rendered.deferNextWrite(overwrite);
+    clickButton(rendered.host, "Overwrite", conflict);
+    await waitFor(() => assert.equal(overwrite.args?.force, true));
+    await cancelDialog(rendered.host);
+    await rendered.requestQuit();
+    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    assert.match(newerDialog.textContent, /Unsaved changes/);
+    await act(async () => {
+      overwrite.resolve({
+        conflict: false,
+        canonicalPath: DOC_PATH,
+        name: DOC_NAME,
+        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
+      });
+      await overwrite.promise;
+    });
+
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    assert.equal(rendered.exitCalls().length, 0);
+    await cancelDialog(rendered.host);
+    await rendered.requestQuit();
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    overwrite.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+// --- macOS close behavior ---
+
+test("hiding the macOS window during startup still allows stored session restoration", async () => {
+  const settings = deferred();
+  const rendered = await renderLifecycleApp({ initialSessionOperation: settings });
+  try {
+    await waitFor(() => assert.ok(settings.args));
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    await act(async () => {
+      settings.resolve([{ filePath: DOC_PATH, headingId: null }, true]);
+      await settings.promise;
+    });
+    await waitFor(() => assert.ok(rendered.host.textContent.includes(DOC_NAME)));
+    assert.deepEqual(rendered.openedPaths(), [DOC_PATH]);
+    assert.equal(rendered.hideCount(), 1);
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    settings.resolve([null, false]);
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close with a healthy disk flushes the boundary autosave and hides without a dialog", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nAutosaved before close.`);
+
+    await rendered.requestClose();
+
+    // The boundary autosave satisfies the dirty guard without a dialog,
+    // preserving the pre-P0.3 close behavior on top of hide-on-close.
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.fileWrites().length, 1);
+    assert.equal(rendered.fileWrites()[0].content, `${DOC_CONTENT}\n\nAutosaved before close.`);
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(rendered.exitCalls().length, 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close Save resolves the dialog and then hides once", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nSaved before close.`);
+    rendered.failNextWrite(); // the boundary autosave fails and raises the dialog
+
+    await rendered.requestClose();
+    const dialog = confirmDialog(rendered.host);
+    assert.equal(
+      dialog.querySelector("p").textContent,
+      `You have unsaved changes to ${DOC_NAME}. If you discard them, they can't be recovered.`,
+    );
+    clickButton(rendered.host, "Save", dialog);
+
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.fileWrites()[1].content, `${DOC_CONTENT}\n\nSaved before close.`);
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(rendered.exitCalls().length, 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close Discard dismisses the dialog and hides exactly once", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nDiscarded words.`);
+    rendered.failNextWrite();
+
+    await rendered.requestClose();
+    clickButton(rendered.host, "Discard", confirmDialog(rendered.host));
+
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.closeCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(rendered.exitCalls().length, 0);
+    assert.equal(rendered.fileWrites().length, 1, "Discard must not retry the failed autosave");
+    assert.equal(rendered.diskContent(), DOC_CONTENT);
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close Cancel keeps the document and editor intact for another attempt", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nKept words.`);
+    rendered.failNextWrite();
+
+    await rendered.requestClose();
+    confirmDialog(rendered.host);
+    await cancelDialog(rendered.host);
+
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), `${DOC_CONTENT}\n\nKept words.`);
+
+    // The paused autosave keeps the document dirty, so another close runs the
+    // guard again; the raised dialog Save succeeds on the healthy disk.
+    await rendered.requestClose();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 2));
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close with a failed Save leaves the app and document intact", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nRecoverable words.`);
+
+    // The boundary autosave and the explicit Save both fail.
+    rendered.failNextWrite(2);
+    await rendered.requestClose();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+
+    await waitFor(() => noDialog(rendered.host));
+    assert.equal(rendered.hideCount(), 0, "a failed Save must not hide the window");
+    assert.equal(
+      findEditorView(rendered.host).state.sliceDoc(),
+      `${DOC_CONTENT}\n\nRecoverable words.`,
+    );
+
+    // The paused autosave raises the dialog again without a write; a retry
+    // Save on the healthy disk completes the close.
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 2));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await rendered.requestClose();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS dirty close conflict resolves through Overwrite and then hides once", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nOverwrite words.`);
+    rendered.conflictNextWrite();
+
+    await rendered.requestClose();
+    const dialog = confirmDialog(rendered.host);
+    assert.match(dialog.textContent, /File changed on disk/);
+    assert.equal(
+      dialog.querySelector("p").textContent,
+      `"${DOC_NAME}" was modified outside Bindars while you were editing. Reload replaces your changes here with the version on disk; they can't be recovered. Overwrite keeps your changes and replaces the file on disk.`,
+    );
+    clickButton(rendered.host, "Overwrite", dialog);
+
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.fileWrites().length, 2, "the retried overwrite write must complete");
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.destroyCount(), 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("repeated macOS close requests during the guard resolve to a single hide", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nOnly one hide.`);
+
+    const pendingWrite = deferred();
+    rendered.deferNextWrite(pendingWrite);
+    await rendered.requestClose();
+
+    // The boundary autosave write is in flight; repeated native close
+    // requests must not stack a second guard or hide behind it.
+    await rendered.requestClose();
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 1));
+
+    await act(async () => {
+      pendingWrite.resolve({
+        conflict: false,
+        canonicalPath: DOC_PATH,
+        name: DOC_NAME,
+        currentRevision: { mtimeMs: 99, size: 0, contentHash: "r99" },
+      });
+      await pendingWrite.promise.then(() => undefined, () => undefined);
+    });
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.destroyCount(), 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a newly entered edit session cancels a stale native close while annotations save", async () => {
+  const annotationSave = deferred();
+  const annotationWrites = [];
+  const rendered = await renderLifecycleApp({
+    platform: "windows",
+    highlights: [ANNOTATION_FIXTURE],
+    annotationWrite(args) {
+      annotationWrites.push(args);
+      return annotationSave.promise;
+    },
+  });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await waitFor(() => assert.equal(annotationWrites.length, 1));
+    const savedWords = `${DOC_CONTENT}\n\nStale close.`;
+    await rendered.enterEditingWithDirtyText(savedWords);
+    await rendered.requestClose();
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 1);
+      assert.equal(rendered.fileWrites()[0].content, savedWords);
+      assert.ok(!rendered.host.querySelector(".cm-editor"));
+    });
+    assert.equal(rendered.closeCount(), 0);
+
+    // Native close waits for annotations after the editor exits; macOS hide
+    // does not. An autosave wait keeps the original editor active instead.
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    const newEditor = findEditorView(rendered.host);
+    assert.equal(newEditor.state.sliceDoc(), savedWords);
+
+    await act(async () => {
+      annotationSave.resolve();
+      await annotationSave.promise;
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    assert.equal(rendered.closeCount(), 0, "a stale close must not close a newly active edit session");
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+    assert.ok(findEditorView(rendered.host) === newEditor);
+  } finally {
+    annotationSave.resolve();
+    await rendered.cleanup();
+  }
+});
+
+test("a macOS close request while an unsaved-changes dialog is already open is swallowed", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nDialog words.`);
+    rendered.failNextWrite();
+
+    // A native open of another file raises the existing Save/Discard/Cancel dialog.
+    await rendered.requestNativeOpen("/tmp/other.md");
+    const dialog = confirmDialog(rendered.host);
+
+    await rendered.requestClose();
+    assert.equal(rendered.hideCount(), 0);
+    assert.ok(
+      !rendered.openedPaths().includes("/tmp/other.md"),
+      "the pending open must still own the guard",
+    );
+    const dialogsAfterClose = rendered.host.querySelectorAll('[role="dialog"]');
+    assert.equal(dialogsAfterClose.length, 1, "no second dialog may stack");
+
+    await cancelDialog(rendered.host);
+    assert.equal(rendered.hideCount(), 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("Finder delivery still opens documents after the macOS window hides", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+
+    // The native side reveals the hidden window before this event; the
+    // frontend flow is unchanged and must admit the open.
+    await rendered.requestNativeOpen("/tmp/hidden-delivery.md");
+    await waitFor(() => assert.ok(rendered.openedPaths().includes("/tmp/hidden-delivery.md")));
+    await waitFor(() => assert.ok(rendered.host.textContent.includes("hidden-delivery.md")));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a failed macOS hide reports the problem and leaves close retryable", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    rendered.failNextHide();
+
+    await rendered.requestClose();
+
+    await waitFor(() => assert.match(
+      rendered.host.textContent,
+      /couldn't close the window/i,
+    ));
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+// --- macOS quit behavior ---
+
+test("macOS quit with a clean document exits only through the guarded command", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+
+    await rendered.requestQuit();
+
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit with a dirty document and healthy disk autosaves and exits without a dialog", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nAutosaved before quit.`);
+
+    await rendered.requestQuit();
+
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites().length, 1);
+    assert.equal(rendered.fileWrites()[0].content, `${DOC_CONTENT}\n\nAutosaved before quit.`);
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit with a dirty document Saves through the dialog and then exits once", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nSaved before quit.`);
+    rendered.failNextWrite(); // the boundary autosave fails and raises the dialog
+
+    await rendered.requestQuit();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.fileWrites()[1].content, `${DOC_CONTENT}\n\nSaved before quit.`);
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit Cancel keeps the app and editor intact and leaves quit retryable", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nKept through a cancelled quit.`);
+    rendered.failNextWrite(); // the boundary autosave fails and raises the dialog
+
+    await rendered.requestQuit();
+    confirmDialog(rendered.host);
+    await cancelDialog(rendered.host);
+
+    assert.equal(rendered.exitCalls().length, 0);
+    assert.equal(
+      findEditorView(rendered.host).state.sliceDoc(),
+      `${DOC_CONTENT}\n\nKept through a cancelled quit.`,
+    );
+
+    // Cancel releases the guard, so a later quit is admitted and can Save.
+    await rendered.requestQuit();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites().at(-1).content, `${DOC_CONTENT}\n\nKept through a cancelled quit.`);
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("quit blocks a new edit session while annotation exit is pending", async () => {
+  const annotationSave = deferred();
+  const annotationWrites = [];
+  const rendered = await renderLifecycleApp({
+    platform: "mac",
+    highlights: [ANNOTATION_FIXTURE],
+    annotationWrite(args) {
+      annotationWrites.push(args);
+      return annotationSave.promise;
+    },
+  });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await waitFor(() => assert.equal(annotationWrites.length, 1));
+    const savedWords = `${DOC_CONTENT}\n\nStale quit.`;
+    await rendered.enterEditingWithDirtyText(savedWords);
+    await rendered.requestQuit();
+    await waitFor(() => {
+      assert.equal(rendered.fileWrites().length, 1);
+      assert.equal(rendered.fileWrites()[0].content, savedWords);
+      assert.ok(!rendered.host.querySelector(".cm-editor"));
+    });
+    assert.equal(rendered.exitCalls().length, 0);
+
+    // Quit keeps document entry blocked after the original editor exits.
+    const editButton = rendered.host.querySelector('button[aria-label="Edit mode"]');
+    assert.ok(editButton);
+    assert.equal(editButton.disabled, true);
+    dispatchShortcut("e");
+    assert.ok(!rendered.host.querySelector(".cm-editor"), "Ctrl+E must not begin a session during quit");
+    dispatchShortcut("n");
+    assert.ok(!rendered.host.querySelector(".cm-editor"), "New must not begin a session during quit");
+    assert.ok(rendered.host.textContent.includes(DOC_NAME));
+    assert.equal(rendered.exitCalls().length, 0, "quit must wait for annotation acknowledgement");
+    noDialog(rendered.host);
+
+    await act(async () => {
+      annotationSave.resolve();
+      await annotationSave.promise;
+    });
+
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.closeCount(), 0);
+    assert.equal(rendered.destroyCount(), 0);
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    noDialog(rendered.host);
+  } finally {
+    annotationSave.resolve();
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit with a failed Save leaves the app usable for another attempt", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nQuit retry words.`);
+
+    rendered.failNextWrite(2);
+    await rendered.requestQuit();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+
+    await waitFor(() => noDialog(rendered.host));
+    assert.equal(rendered.exitCalls().length, 0, "a failed Save must not exit");
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+
+    // The paused autosave raises the dialog again without a write; a retry
+    // Save on the healthy disk completes the quit.
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 2));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await rendered.requestQuit();
+    clickButton(rendered.host, "Save", confirmDialog(rendered.host));
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a failed guarded exit reports the problem and leaves quit retryable", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    rendered.failNextExit();
+
+    await rendered.requestQuit();
+
+    await waitFor(() => assert.match(
+      rendered.host.textContent,
+      /couldn't quit bindars/i,
+    ));
+    assert.equal(rendered.exitCalls().length, 0);
+
+    await rendered.requestQuit();
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit conflict resolves through Overwrite and then exits", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nQuit overwrite.`);
+    rendered.conflictNextWrite();
+
+    await rendered.requestQuit();
+    const dialog = confirmDialog(rendered.host);
+    assert.match(dialog.textContent, /File changed on disk/);
+    clickButton(rendered.host, "Overwrite", dialog);
+
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites()[1].force, true);
+    assert.equal(rendered.hideCount(), 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("macOS quit while another action owns the guard is refused with feedback and stays retryable", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nBusy quit words.`);
+
+    const pendingOpen = deferred();
+    rendered.deferNextOpen(pendingOpen);
+    await rendered.requestNativeOpen("/tmp/busy-open.md");
+    await waitFor(() => assert.ok(rendered.openedPaths().includes("/tmp/busy-open.md")));
+
+    await rendered.requestQuit();
+    await waitFor(() => assert.match(
+      rendered.host.textContent,
+      /finishing another file action/i,
+    ));
+    assert.equal(rendered.exitCalls().length, 0);
+    noDialog(rendered.host);
+
+    await act(async () => {
+      pendingOpen.resolve({
+        canonicalPath: "/tmp/busy-open.md",
+        name: "busy-open.md",
+        content: "# Busy open\n",
+        revision: { mtimeMs: 5, size: 13, contentHash: "busy" },
+      });
+      await pendingOpen.promise.then(() => undefined, () => undefined);
+    });
+    await waitFor(() => assert.ok(rendered.host.textContent.includes("busy-open.md")));
+
+    // Once the previous action finished, quitting works.
+    await rendered.requestQuit();
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+// --- other platforms keep the destroy-on-close behavior ---
+
+test("non-macOS clean close completes the programmatic close handshake", async () => {
+  const rendered = await renderLifecycleApp({ platform: "other" });
+  try {
+    await rendered.openLifecycleDocument();
+    noDialog(rendered.host);
+
+    // Even a clean close asks the window to close before completing Tauri’s
+    // programmatic-close handshake on the following native close event.
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(rendered.hideCount(), 0);
+    noDialog(rendered.host);
+
+    // Tauri answers appWindow.close() with a fresh close-requested event.
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("non-macOS dirty close still autosaves and completes the programmatic close handshake", async () => {
+  const rendered = await renderLifecycleApp({ platform: "other" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nLegacy close.`);
+
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    assert.equal(rendered.fileWrites().length, 1);
+    assert.equal(rendered.hideCount(), 0);
+    noDialog(rendered.host);
+
+    // Tauri answers appWindow.close() with a fresh close-requested event;
+    // the guard must let that handshake finish the destroy.
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("non-macOS dirty close Discard completes the programmatic close handshake", async () => {
+  const rendered = await renderLifecycleApp({ platform: "other" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nDiscarded words.`);
+    rendered.failNextWrite();
+
+    await rendered.requestClose();
+    clickButton(rendered.host, "Discard", confirmDialog(rendered.host));
+
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.fileWrites().length, 1, "Discard must not retry the failed autosave");
+    assert.equal(rendered.diskContent(), DOC_CONTENT);
+    assert.ok(!rendered.host.querySelector(".cm-editor"));
+    noDialog(rendered.host);
+
+    // Tauri emits another close event to finish the requested close.
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+    assert.equal(rendered.closeCount(), 1);
+    assert.equal(rendered.hideCount(), 0);
+    assert.equal(rendered.exitCalls().length, 0);
+    noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+const MIXED_READER_CONTENT = "# Lifecycle\n\n[Jump](#deeper) words `code` more words.\n\n## Deeper\n\n[Next](next.md) words after link.\n";
+
+async function searchReader(host, query) {
+  dispatchShortcut("f");
+  const input = host.querySelector('input[aria-label="Search in document"]');
+  assert.ok(input);
+  flushSync(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, query);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.ok(host.querySelector("mark.search-highlight-active"), "search should paint matches");
+}
+
+test("reader keeps its focused link and skips the Markdown pipeline on unrelated App updates", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    // Enable the existing probe only after module initialization, avoiding its interval timer.
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__ = true;
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    await rendered.openLifecycleDocument();
+    assert.ok(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length > 0, "probe must observe the initial parse");
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    const link = rendered.host.querySelector('.markdown-body a');
+    assert.ok(link);
+    link.focus();
+    dispatchShortcut("b");
+    dispatchShortcut("j");
+    dispatchShortcut("m");
+    assert.ok(link.isConnected, "sidebar and panel toggles must retain document nodes");
+    assert.ok(document.activeElement === link, "focused link must retain focus");
+    assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 0);
+  } finally {
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__;
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__;
+    await rendered.cleanup();
+  }
+});
+
+test("reader search survives mixed inline text, clearing, and a different document", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    await rendered.openLifecycleDocument();
+    await searchReader(rendered.host, "wo");
+    flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+    await searchReader(rendered.host, "wo");
+    const opening = deferred();
+    rendered.deferNextOpen(opening);
+    await rendered.requestNativeOpen("/tmp/next.md");
+    await act(async () => {
+      opening.resolve({ canonicalPath: "/tmp/next.md", name: "next.md",
+        content: "# Next\n\nUpdated **words** after navigation.",
+        revision: { mtimeMs: 2, size: 40, contentHash: "next" } });
+    });
+    await waitFor(() => assert.match(rendered.host.querySelector('.markdown-body')?.textContent ?? "", /Updated words/));
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("saved highlights survive search and panel changes, then a saved edit returns to the reader", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [{
+    id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
+    color: "yellow", note: "Saved note", nearestHeadingId: "lifecycle", createdAt: 1,
+  }] });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+    await searchReader(rendered.host, "wo");
+    dispatchShortcut("m");
+    flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
+    assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]'));
+    assert.ok(rendered.host.textContent.includes("Saved note"));
+    const edited = MIXED_READER_CONTENT.replace("more words", "revised words");
+    await rendered.enterEditingWithDirtyText(edited);
+    dispatchShortcut("e");
+    await waitFor(() => assert.match(rendered.host.querySelector('.markdown-body')?.textContent ?? "", /revised words/));
+    assert.equal(rendered.diskContent(), edited);
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("Fountain search survives replacing mixed-emphasis screenplay content", async () => {
+  const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
+  try {
+    await rendered.requestNativeOpen("/tmp/script.fountain");
+    await waitFor(() => assert.ok(rendered.host.querySelector('.fountain-body')));
+    await searchReader(rendered.host, "wo");
+    const opening = deferred();
+    rendered.deferNextOpen(opening);
+    await rendered.requestNativeOpen("/tmp/next.fountain");
+    await act(async () => opening.resolve({ canonicalPath: "/tmp/next.fountain", name: "next.fountain",
+      content: "INT. OFFICE - DAY\n\nChanged **words** after navigation.",
+      revision: { mtimeMs: 2, size: 60, contentHash: "next" } }));
+    await waitFor(() => assert.match(rendered.host.querySelector('.fountain-body')?.textContent ?? "", /Changed words/));
+    assert.ok(!rendered.host.querySelector('mark.search-highlight-active'));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("opening identical text in another file resets search and observes the new headings", async () => {
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.equal(rendered.observedHeadings().length, 2));
+    await searchReader(rendered.host, "wo");
+    await rendered.requestNativeOpen("/tmp/identical.md");
+    await waitFor(() => {
+      const headings = [...rendered.host.querySelectorAll('.markdown-body h1, .markdown-body h2')];
+      assert.equal(headings.length, 2);
+      assert.ok(headings.every((node) => rendered.observedHeadings().includes(node)), "TOC must observe the replacement document");
+      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+    });
+    assert.ok(!rendered.host.querySelector("mark.search-highlight-active"));
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+
+test("identical Fountain content at another path clears search without losing text", async () => {
+  const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
+  try {
+    await rendered.requestNativeOpen("/tmp/script.fountain");
+    await waitFor(() => assert.ok(rendered.host.querySelector('.fountain-body')));
+    const article = rendered.host.querySelector('.fountain-body');
+    const originalText = article.textContent;
+    await searchReader(rendered.host, "wo");
+    await rendered.requestNativeOpen("/tmp/identical.fountain");
+    await waitFor(() => {
+      assert.ok(rendered.host.textContent.includes("identical.fountain"));
+      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+    });
+    assert.ok(article === rendered.host.querySelector('.fountain-body'), "identical Fountain source retains its article");
+    assert.equal(article.textContent, originalText);
+    assert.ok(!article.querySelector('mark'));
+    await searchReader(rendered.host, "wo");
+    assert.equal(article.querySelectorAll('mark').length, 2);
+    assert.equal(article.textContent, originalText);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+const ANNOTATION_FIXTURE = { id: "pending-note", prefix: "", exact: "Opening words.", suffix: "",
+  color: "yellow", note: "Keep me", nearestHeadingId: "lifecycle", createdAt: 1 };
+async function removeFixtureAnnotation(rendered) {
+  await rendered.openLifecycleDocument();
+  dispatchShortcut("m");
+  await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove highlight"]')));
+  flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
+}
+
+test("quit waits for annotation disk acknowledgement with a clean editor", async () => {
+  const write = deferred(); const records = [];
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite(args) {
+    records.push(args); return write.promise;
+  } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestQuit();
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0].annotations.highlights, []);
+    assert.equal(rendered.exitCalls().length, 0);
+    await act(async () => write.resolve());
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+  } finally { write.resolve(); await rendered.cleanup(); }
+});
+
+test("failed annotation quit can keep the app open and retry the latest record", async () => {
+  let fail = true; const writes = [];
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite(args) {
+    writes.push(args); if (fail) throw new Error("disk full");
+  } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestQuit();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    assert.equal(rendered.exitCalls().length, 0);
+    clickButton(rendered.host, "Keep open");
+    await act(async () => { await Promise.resolve(); });
+    assert.equal(rendered.exitCalls().length, 0);
+    await rendered.requestQuit();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    fail = false;
+    clickButton(rendered.host, "Retry saving");
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(writes.length, 2);
+    assert.deepEqual(writes[1], writes[0]);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const platform of ["windows", "linux"]) {
+  test(`${platform} clean native close cannot bypass pending annotations`, async () => {
+    const write = deferred();
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE], annotationWrite: () => write.promise });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      assert.equal(rendered.closeCount(), 0);
+      assert.equal(rendered.destroyCount(), 0);
+      await act(async () => write.resolve());
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    } finally { write.resolve(); await rendered.cleanup(); }
+  });
+}
+
+test("macOS hide keeps pending annotations without asking to discard them", async () => {
+  const write = deferred();
+  const rendered = await renderLifecycleApp({ highlights: [ANNOTATION_FIXTURE], annotationWrite: () => write.promise });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestClose();
+    await waitFor(() => assert.equal(rendered.hideCount(), 1));
+    assert.equal(rendered.exitCalls().length, 0);
+    assert.doesNotMatch(rendered.host.textContent, /Annotations haven't been saved/);
+  } finally { write.resolve(); await rendered.cleanup(); }
+});
+
+test("failed location evidence removes stale paint while keeping notes accessible", async (t) => {
+  const anchor = { id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
+    color: "yellow", note: "Still accessible", nearestHeadingId: "lifecycle", createdAt: 1 };
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT,
+    highlights: [anchor, { ...anchor, id: "second" }] });
+  try {
+    await rendered.openLifecycleDocument();
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+    const anchoring = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
+    t.mock.method(anchoring, "prepareAnnotationDocument", async () => { throw new Error("digest unavailable"); });
+    dispatchShortcut("m");
+    flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
+    await waitFor(() => assert.match(rendered.host.textContent, /Location uncertain/));
+    assert.ok(!rendered.host.querySelector('mark[data-highlight-id]'));
+    assert.match(rendered.host.textContent, /Still accessible/);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const platform of ["windows", "linux"]) {
+  test(`${platform} Quit without saving completes only its approved close handshake`, async () => {
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE],
+      annotationWrite() { throw new Error("disk full"); } });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Quit without saving");
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+      assert.equal(rendered.destroyCount(), 0);
+      // The close IPC response and the native close-requested event are separate.
+      await rendered.requestClose();
+      await waitFor(() => assert.equal(rendered.destroyCount(), 1));
+      assert.equal(rendered.closeCount(), 1);
+      // The harness keeps the view mounted after destroy. Consent must be spent.
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      assert.equal(rendered.destroyCount(), 1);
+      clickButton(rendered.host, "Keep open");
+    } finally { await rendered.cleanup(); }
+  });
+
+  test(`${platform} newer annotations cancel a previously approved unsaved close`, async () => {
+    const rendered = await renderLifecycleApp({ platform, highlights: [ANNOTATION_FIXTURE],
+      annotationWrite() { throw new Error("disk full"); } });
+    try {
+      await removeFixtureAnnotation(rendered);
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Quit without saving");
+      await waitFor(() => assert.equal(rendered.closeCount(), 1));
+      const bookmark = rendered.host.querySelector('[aria-label="Add bookmark"]');
+      assert.ok(bookmark);
+      flushSync(() => bookmark.click());
+      await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]')));
+      await rendered.requestClose();
+      assert.equal(rendered.destroyCount(), 0, "the old decision must not discard the newer bookmark");
+      await rendered.requestClose();
+      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      clickButton(rendered.host, "Keep open");
+      assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]'));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+
+test("a note draft entered after close acknowledgement cancels the old discard decision", async () => {
+  const writes = [];
+  const rendered = await renderLifecycleApp({ platform: "windows",
+    highlights: [ANNOTATION_FIXTURE, { ...ANNOTATION_FIXTURE, id: "remaining" }],
+    annotationWrite(args) { writes.push(args); throw new Error("disk full"); } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    clickButton(rendered.host, "Quit without saving");
+    await waitFor(() => assert.equal(rendered.closeCount(), 1));
+    flushSync(() => rendered.host.querySelector('[aria-label="Edit note"]').click());
+    const input = rendered.host.querySelector("textarea");
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, "New draft after consent");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await rendered.requestClose();
+    assert.equal(rendered.destroyCount(), 0);
+    assert.equal(writes[writes.length - 1].annotations.highlights[0].note, "New draft after consent");
+    assert.match(rendered.host.textContent, /New draft after consent/);
+  } finally { await rendered.cleanup(); }
+});
+
+test("a failed native close cannot leave discard consent for the next close request", async () => {
+  const rendered = await renderLifecycleApp({ platform: "linux", highlights: [ANNOTATION_FIXTURE],
+    annotationWrite() { throw new Error("disk full"); } });
+  try {
+    await removeFixtureAnnotation(rendered);
+    rendered.failNextClose();
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    clickButton(rendered.host, "Quit without saving");
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't close the window/));
+    await rendered.requestClose();
+    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    assert.equal(rendered.destroyCount(), 0);
+    clickButton(rendered.host, "Keep open");
+  } finally { await rendered.cleanup(); }
+});

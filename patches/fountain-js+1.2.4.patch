@@ -1,0 +1,379 @@
+diff --git a/node_modules/fountain-js/dist.esm/lexer.js b/node_modules/fountain-js/dist.esm/lexer.js
+--- a/node_modules/fountain-js/dist.esm/lexer.js
++++ b/node_modules/fountain-js/dist.esm/lexer.js
+@@ -10,7 +10,11 @@ export class Lexer {
+      * @returns {string} empty string or blank lines
+      */
+     static boneyardStripper(match) {
+-        const endAtStrStart = /^[^\S\n]*\*\//m;
++        // Consume an unclosed comment once, but keep it as literal text.
++        if (match.length < 4 || !match.endsWith('*/')) return match;
++        // Keep each whitespace run on its own line: a multiline ^ also starts
++        // after \r, U+2028 and U+2029, so a run crossing them rescanned the rest.
++        const endAtStrStart = /^[^\S\n\r\u2028\u2029]*\*\//m;
+         let boneyardEnd = '';
+         if (endAtStrStart.test(match)) {
+             boneyardEnd = '\n\n';
+diff --git a/node_modules/fountain-js/dist.esm/rules.js b/node_modules/fountain-js/dist.esm/rules.js
+--- a/node_modules/fountain-js/dist.esm/rules.js
++++ b/node_modules/fountain-js/dist.esm/rules.js
+@@ -1,18 +1,22 @@
+ export const rules = {
+     title_page: /^\s*((?:title|credit|authors?|source|notes|draft ?date|date|contact|copyright|revisions?)\:)(?=[^\S\n]*(?:\n(?: {3,}|\t))?\S.*)/i,
+     scene_heading: /^\s*((?:\*{0,3}_?)?(?:(?:int|i)\.?\/(?:ext|e)|int|ext|est)[. ].+$)|^\s*\.(?!\.+)(\S.*)$/i,
+-    scene_number: /\s*#([\w.-]+?)#\s*$/,
+-    transition: /^\s*((?:FADE (?:TO BLACK|OUT)|CUT TO BLACK)\.|.+ TO\:)[^\S\n]*$|^\s*> *(.+)$/,
++    // Start only at a whitespace run's beginning; restarts inside it rescanned it.
++    scene_number: /(?<!\s)\s*#([\w.-]+?)#\s*$/,
++    // Disjoint whitespace/text starts avoid repeated rescans on failed transitions.
++    // The whitespace-only alternatives retain "  TO:" and "> ".
++    transition: /^\s*((?:FADE (?:TO BLACK|OUT)|CUT TO BLACK)\.|(?:\S.*|[^\S\r\n\u2028\u2029]) TO\:)[^\S\n]*$|^\s*> *((?! ).+| )$/,
+     dialogue: /(?!^\s*\\@|^\s*[!.>~=#])(?!^\s*[0-9 _*]+(?:\(.*\))?[*_]*(?:\^?)?\s*\n)(^\s*(?:@[^^()\n]+|[^^()\na-z]+(?<!(?:BLACK|OUT)\.|TO:\s*))(?:\(.*\))?[ *_]*)(\^?)?\s*\n(?!\n+)([\s\S]+)/,
+     parenthetical: /^ *(?:(?<u1>_{0,1})(?<s1>\*{0,3})(?=.+\k<s1>\k<u1>)|(?<s2>\*{0,3})(?<u2>_{0,1})(?=.+\k<u2>\k<s2>))(\(.+?\))(\k<s1>\k<u1>|\k<u2>\k<s2>) *$/,
+     action: /^(.+)/g,
+-    centered: /^\s*>.+<[^\S\r\n]*(?:\s*>.+<[^\S\r\n]*)*$/,
++    centered: /^\s*>.+<(?:[^\S\n\u2028\u2029]*[\n\u2028\u2029]\s*>.+<)*[^\S\r\n]*$/,
+     lyrics: /^\s*~(?! ).+(?:\n\s*~(?! ).+)*$/,
+-    section: /^\s*(#+) *(.*)$/,
+-    synopsis: /^\s*=(?!=+) *(.*)$/,
++    // (?!#) and (?! ) stop backtracking into hash/space runs on multi-line blocks.
++    section: /^\s*(#+)(?!#) *(?! )(.*)$/,
++    synopsis: /^\s*=(?!=+) *(?! )(.*)$/,
+     note: /^\[{2}(?!\[+)(.+)]{2}(?!\[+)$/,
+     note_inline: /\[{2}(?!\[+)([\s\S]+?)]{2}(?!\[+)/g,
+-    boneyard: /\/\*[\S\s]*?\*\//g,
++    boneyard: /\/\*[\S\s]*?(?:\*\/|$)/g,
+     page_break: /^={3,}$/,
+     line_break: /^ {2}$/,
+     bold_italic_underline: /(?<!\\)(?:(?=\w)(?<![^\W_]_*)_\*{3}(?=.+?(?<=\S)(?<!\*)\*{3}_(?!\*))|\*{3}_(?=.+?(?<=\S)(?<!_)_\*{3}(?!_)))(?=\S)(.+?(?<=\S))(?<!\\)(?:(?<!\*)\*{3}_(?!\*)|(?<!_)_\*{3}(?!_))/g,
+@@ -23,6 +27,6 @@ export const rules = {
+     italic: /(?<!\\)\*(?!\*)(?=\S)(.+?(?<=[^\s*]))(?<!\\)\*/g,
+     underline: /(?=\w)(?<![^\W_]_*)(?<!\\)_(?!_)(?<![^_])(?=\S)(?!<[^>]*>)(.+?(?<=\S)(?=_(?<=\w)(?![^\W_])))(?<!\\)(?<!<[^>]*>)_/g,
+     escape: /\\([@#!*_$~`+=.><\\\/])/g,
+-    blank_lines: /\n(?:(?! {2}\n)(?:[^\S\n]*| {3,}[^\S\n]*)(?:\n|$))+|^[^\S\n]*(?:\n|$)/g
++    blank_lines: /\n(?:(?! {2}\n)[^\S\n]*(?:\n|$))+|^[^\S\n]*(?:\n|$)/g
+ };
+ //# sourceMappingURL=rules.js.map
+\ No newline at end of file
+diff --git a/node_modules/fountain-js/dist.esm/token.js b/node_modules/fountain-js/dist.esm/token.js
+--- a/node_modules/fountain-js/dist.esm/token.js
++++ b/node_modules/fountain-js/dist.esm/token.js
+@@ -2,8 +2,12 @@ import { rules } from './rules';
+ export class TitlePageBlock {
+     constructor(source) {
+         this.tokens = [];
+-        const titlePageBlock = /^\s*(?:[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?: {3}|\t))?[^\S\n]*\S.*)+(?:\n|$))+/;
+-        const keyValuePair = /^\s*[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?![\w ]+\:)(?: {3}|\t))?[^\S\n]*\S.*)+(?:\n|$)/;
++        // [^\n] rather than .: "." stops at U+2028 while [^\S\n] consumes it,
++        // which made a failed value search every split of the line.
++        const titlePageBlock = /^\s*(?:[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?: {3}|\t))?[^\S\n]*\S[^\n]*)+(?:\n|$))+/;
++        // A key with a word character, or of spaces only: the same text as
++        // \s*[\w ]+, without retrying every split of a space run.
++        const keyValuePair = /^(?:\s*\w[\w ]*|\s* )(?<!\\)\:[^\S\n]*(?:(?:\n(?![\w ]+\:)(?: {3}|\t))?[^\S\n]*\S[^\n]*)+(?:\n|$)/;
+         let scanPosition = 0;
+         const match = source.match(titlePageBlock);
+         if (match) {
+@@ -35,7 +39,7 @@ export class TitlePageToken {
+         this.is_title = true;
+         const [key, delimeter, value] = pair.split(/(\:[^\S\n]*\n?)([\S\s]*)/, 3);
+         this.type = key.trim().toLowerCase().replace(/ /g, '_');
+-        this.text = value.replace(/^\s*|\s*$/gm, '');
++        this.text = value.replace(/^\s+|(?<=\S)\s+$/gm, '');
+     }
+     addTo(tokens) {
+         return [...tokens, this];
+@@ -66,7 +70,7 @@ export class CenteredToken {
+         this.type = 'centered';
+         const match = line.match(rules.centered);
+         if (match) {
+-            this.text = match[0].replace(/[^\S\n]*[><][^\S\n]*/g, '');
++            this.text = match[0].replace(/(?<![^\S\n])[^\S\n]+(?=[><])|[><][^\S\n]*/g, '');
+         }
+     }
+     addTo(tokens) {
+@@ -91,10 +95,54 @@ export class TransitionToken {
+         return rules.transition.test(line);
+     }
+ }
++// Split the cue from its body before matching: overlapping whitespace in
++// rules.dialogue can backtrack polynomially even on a short action line.
++function matchDialogue(line) {
++    const start = line.search(/\S/);
++    if (start < 0 || /^[!.>~=#]|^\\@/.test(line.slice(start, start + 2))) return null;
++    // A space-only leading line is excluded by the original cue grammar.
++    const leadingSpace = line.indexOf(' ');
++    if (leadingSpace >= 0 && leadingSpace < line.lastIndexOf('\n', start)) return null;
++    const newline = line.indexOf('\n', start);
++    if (newline < 0) return null;
++    const cue = line.slice(line.lastIndexOf('\n', start - 1) + 1, newline);
++    const trimmed = cue.trimEnd();
++    const dual = trimmed.endsWith('^');
++    const name = dual ? trimmed.slice(0, -1) : cue;
++    const open = name.indexOf('(');
++    const close = name.lastIndexOf(')');
++    const prefix = open < 0 ? name : name.slice(0, open);
++    let suffix = '';
++    if (open >= 0) {
++      if (close < open || /[\r\n\u2028\u2029]/.test(name.slice(open, close))) return null;
++      suffix = name.slice(close + 1);
++      if (!dual) suffix = suffix.trimEnd();
++      if (/[^ *_]/.test(suffix)) return null;
++    }
++    if (!prefix || /[\^()]/.test(prefix)) return null;
++    const unindented = prefix.trimStart();
++    const forced = unindented.startsWith('@') && unindented.length > 1;
++    if (!forced && (/[a-z]/.test(prefix) || /(?:BLACK|OUT)\.$/.test(prefix) || prefix.trimEnd().endsWith('TO:'))) return null;
++    // Pure numbers/emphasis marks are action, not character cues.
++    let numericPrefix = unindented;
++    if (open < 0 && !dual) numericPrefix = numericPrefix.trimEnd();
++    if (!numericPrefix) {
++      // The grammar treats spaces as numeric cues, but permits tab-only cues.
++      const spaceCue = open < 0 && !dual ? prefix.includes(' ') : prefix.endsWith(' ');
++      numericPrefix = spaceCue ? ' ' : '';
++    }
++    if (/^[0-9 _*]+$/.test(numericPrefix) && /^[*_]*$/.test(suffix)) return null;
++    let bodyStart = -1;
++    for (let i = newline; i < line.length && /\s/.test(line[i]); i++) {
++      if (line[i] === '\n' && i + 1 < line.length && line[i + 1] !== '\n') bodyStart = i + 1;
++    }
++    return bodyStart < 0 ? null : [line, name, dual ? '^' : undefined, line.slice(bodyStart)];
++}
++
+ export class DialogueBlock {
+     constructor(line, dual) {
+         this.tokens = [];
+-        const match = line.match(rules.dialogue);
++        const match = matchDialogue(line);
+         if (match) {
+             this.scanIndex = match.length;
+             let name = match[1].trim();
+@@ -119,7 +167,7 @@ export class DialogueBlock {
+                     return [...p, new ParentheticalToken(text)];
+                 }
+                 if (rules.lyrics.test(text)) {
+-                    if (previousToken.type === 'lyrics') {
++                    if (previousToken?.type === 'lyrics') {
+                         p[lastIndex].text =
+                             `${previousToken.text}\n${text.replace(/^~/, '')}`;
+                         return p;
+@@ -148,7 +196,7 @@ export class DialogueBlock {
+         return [...tokens, ...this.tokens];
+     }
+     static matchedBy(line) {
+-        return rules.dialogue.test(line);
++        return !!matchDialogue(line);
+     }
+ }
+ export class DialogueBeginToken {
+@@ -288,14 +336,19 @@ export class SpacesToken {
+         return [...tokens, this];
+     }
+     static matchedBy(line) {
+-        return rules.blank_lines.test(line);
++        // Whole block only. blank_lines.test matched a two-space line at either
++        // end, dropping the block's text, and as a global regex it kept
++        // lastIndex from the previous call, even across documents.
++        return !/\S/.test(line);
+     }
+ }
+ export class ActionToken {
+     constructor(line) {
+         this.type = 'action';
+         this.text = line
+-            .replace(/^(\s*)!(?! )/gm, '$1')
++            // Keep each whitespace run on its own line: ^(\s*) crossed line breaks,
++            // rescanning every following U+2028 or two-space line from each start.
++            .replace(/^([^\S\n\r\u2028\u2029]*)!(?! )/gm, '$1')
+             .replace(/^( *)(\t+)/gm, (_, leading, tabs) => {
+             return leading + '    '.repeat(tabs.length);
+         });
+diff --git a/node_modules/fountain-js/dist/lexer.js b/node_modules/fountain-js/dist/lexer.js
+--- a/node_modules/fountain-js/dist/lexer.js
++++ b/node_modules/fountain-js/dist/lexer.js
+@@ -13,7 +13,11 @@ class Lexer {
+      * @returns {string} empty string or blank lines
+      */
+     static boneyardStripper(match) {
+-        const endAtStrStart = /^[^\S\n]*\*\//m;
++        // Consume an unclosed comment once, but keep it as literal text.
++        if (match.length < 4 || !match.endsWith('*/')) return match;
++        // Keep each whitespace run on its own line: a multiline ^ also starts
++        // after \r, U+2028 and U+2029, so a run crossing them rescanned the rest.
++        const endAtStrStart = /^[^\S\n\r\u2028\u2029]*\*\//m;
+         let boneyardEnd = '';
+         if (endAtStrStart.test(match)) {
+             boneyardEnd = '\n\n';
+diff --git a/node_modules/fountain-js/dist/rules.js b/node_modules/fountain-js/dist/rules.js
+--- a/node_modules/fountain-js/dist/rules.js
++++ b/node_modules/fountain-js/dist/rules.js
+@@ -4,18 +4,22 @@ exports.rules = void 0;
+ exports.rules = {
+     title_page: /^\s*((?:title|credit|authors?|source|notes|draft ?date|date|contact|copyright|revisions?)\:)(?=[^\S\n]*(?:\n(?: {3,}|\t))?\S.*)/i,
+     scene_heading: /^\s*((?:\*{0,3}_?)?(?:(?:int|i)\.?\/(?:ext|e)|int|ext|est)[. ].+$)|^\s*\.(?!\.+)(\S.*)$/i,
+-    scene_number: /\s*#([\w.-]+?)#\s*$/,
+-    transition: /^\s*((?:FADE (?:TO BLACK|OUT)|CUT TO BLACK)\.|.+ TO\:)[^\S\n]*$|^\s*> *(.+)$/,
++    // Start only at a whitespace run's beginning; restarts inside it rescanned it.
++    scene_number: /(?<!\s)\s*#([\w.-]+?)#\s*$/,
++    // Disjoint whitespace/text starts avoid repeated rescans on failed transitions.
++    // The whitespace-only alternatives retain "  TO:" and "> ".
++    transition: /^\s*((?:FADE (?:TO BLACK|OUT)|CUT TO BLACK)\.|(?:\S.*|[^\S\r\n\u2028\u2029]) TO\:)[^\S\n]*$|^\s*> *((?! ).+| )$/,
+     dialogue: /(?!^\s*\\@|^\s*[!.>~=#])(?!^\s*[0-9 _*]+(?:\(.*\))?[*_]*(?:\^?)?\s*\n)(^\s*(?:@[^^()\n]+|[^^()\na-z]+(?<!(?:BLACK|OUT)\.|TO:\s*))(?:\(.*\))?[ *_]*)(\^?)?\s*\n(?!\n+)([\s\S]+)/,
+     parenthetical: /^ *(?:(?<u1>_{0,1})(?<s1>\*{0,3})(?=.+\k<s1>\k<u1>)|(?<s2>\*{0,3})(?<u2>_{0,1})(?=.+\k<u2>\k<s2>))(\(.+?\))(\k<s1>\k<u1>|\k<u2>\k<s2>) *$/,
+     action: /^(.+)/g,
+-    centered: /^\s*>.+<[^\S\r\n]*(?:\s*>.+<[^\S\r\n]*)*$/,
++    centered: /^\s*>.+<(?:[^\S\n\u2028\u2029]*[\n\u2028\u2029]\s*>.+<)*[^\S\r\n]*$/,
+     lyrics: /^\s*~(?! ).+(?:\n\s*~(?! ).+)*$/,
+-    section: /^\s*(#+) *(.*)$/,
+-    synopsis: /^\s*=(?!=+) *(.*)$/,
++    // (?!#) and (?! ) stop backtracking into hash/space runs on multi-line blocks.
++    section: /^\s*(#+)(?!#) *(?! )(.*)$/,
++    synopsis: /^\s*=(?!=+) *(?! )(.*)$/,
+     note: /^\[{2}(?!\[+)(.+)]{2}(?!\[+)$/,
+     note_inline: /\[{2}(?!\[+)([\s\S]+?)]{2}(?!\[+)/g,
+-    boneyard: /\/\*[\S\s]*?\*\//g,
++    boneyard: /\/\*[\S\s]*?(?:\*\/|$)/g,
+     page_break: /^={3,}$/,
+     line_break: /^ {2}$/,
+     bold_italic_underline: /(?<!\\)(?:(?=\w)(?<![^\W_]_*)_\*{3}(?=.+?(?<=\S)(?<!\*)\*{3}_(?!\*))|\*{3}_(?=.+?(?<=\S)(?<!_)_\*{3}(?!_)))(?=\S)(.+?(?<=\S))(?<!\\)(?:(?<!\*)\*{3}_(?!\*)|(?<!_)_\*{3}(?!_))/g,
+@@ -26,6 +30,6 @@ exports.rules = {
+     italic: /(?<!\\)\*(?!\*)(?=\S)(.+?(?<=[^\s*]))(?<!\\)\*/g,
+     underline: /(?=\w)(?<![^\W_]_*)(?<!\\)_(?!_)(?<![^_])(?=\S)(?!<[^>]*>)(.+?(?<=\S)(?=_(?<=\w)(?![^\W_])))(?<!\\)(?<!<[^>]*>)_/g,
+     escape: /\\([@#!*_$~`+=.><\\\/])/g,
+-    blank_lines: /\n(?:(?! {2}\n)(?:[^\S\n]*| {3,}[^\S\n]*)(?:\n|$))+|^[^\S\n]*(?:\n|$)/g
++    blank_lines: /\n(?:(?! {2}\n)[^\S\n]*(?:\n|$))+|^[^\S\n]*(?:\n|$)/g
+ };
+ //# sourceMappingURL=rules.js.map
+\ No newline at end of file
+diff --git a/node_modules/fountain-js/dist/token.js b/node_modules/fountain-js/dist/token.js
+--- a/node_modules/fountain-js/dist/token.js
++++ b/node_modules/fountain-js/dist/token.js
+@@ -5,8 +5,12 @@ const rules_1 = require("./rules");
+ class TitlePageBlock {
+     constructor(source) {
+         this.tokens = [];
+-        const titlePageBlock = /^\s*(?:[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?: {3}|\t))?[^\S\n]*\S.*)+(?:\n|$))+/;
+-        const keyValuePair = /^\s*[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?![\w ]+\:)(?: {3}|\t))?[^\S\n]*\S.*)+(?:\n|$)/;
++        // [^\n] rather than .: "." stops at U+2028 while [^\S\n] consumes it,
++        // which made a failed value search every split of the line.
++        const titlePageBlock = /^\s*(?:[\w ]+(?<!\\)\:[^\S\n]*(?:(?:\n(?: {3}|\t))?[^\S\n]*\S[^\n]*)+(?:\n|$))+/;
++        // A key with a word character, or of spaces only: the same text as
++        // \s*[\w ]+, without retrying every split of a space run.
++        const keyValuePair = /^(?:\s*\w[\w ]*|\s* )(?<!\\)\:[^\S\n]*(?:(?:\n(?![\w ]+\:)(?: {3}|\t))?[^\S\n]*\S[^\n]*)+(?:\n|$)/;
+         let scanPosition = 0;
+         const match = source.match(titlePageBlock);
+         if (match) {
+@@ -39,7 +43,7 @@ class TitlePageToken {
+         this.is_title = true;
+         const [key, delimeter, value] = pair.split(/(\:[^\S\n]*\n?)([\S\s]*)/, 3);
+         this.type = key.trim().toLowerCase().replace(/ /g, '_');
+-        this.text = value.replace(/^\s*|\s*$/gm, '');
++        this.text = value.replace(/^\s+|(?<=\S)\s+$/gm, '');
+     }
+     addTo(tokens) {
+         return [...tokens, this];
+@@ -72,7 +76,7 @@ class CenteredToken {
+         this.type = 'centered';
+         const match = line.match(rules_1.rules.centered);
+         if (match) {
+-            this.text = match[0].replace(/[^\S\n]*[><][^\S\n]*/g, '');
++            this.text = match[0].replace(/(?<![^\S\n])[^\S\n]+(?=[><])|[><][^\S\n]*/g, '');
+         }
+     }
+     addTo(tokens) {
+@@ -99,10 +103,54 @@ class TransitionToken {
+     }
+ }
+ exports.TransitionToken = TransitionToken;
++// Split the cue from its body before matching: overlapping whitespace in
++// rules.dialogue can backtrack polynomially even on a short action line.
++function matchDialogue(line) {
++    const start = line.search(/\S/);
++    if (start < 0 || /^[!.>~=#]|^\\@/.test(line.slice(start, start + 2))) return null;
++    // A space-only leading line is excluded by the original cue grammar.
++    const leadingSpace = line.indexOf(' ');
++    if (leadingSpace >= 0 && leadingSpace < line.lastIndexOf('\n', start)) return null;
++    const newline = line.indexOf('\n', start);
++    if (newline < 0) return null;
++    const cue = line.slice(line.lastIndexOf('\n', start - 1) + 1, newline);
++    const trimmed = cue.trimEnd();
++    const dual = trimmed.endsWith('^');
++    const name = dual ? trimmed.slice(0, -1) : cue;
++    const open = name.indexOf('(');
++    const close = name.lastIndexOf(')');
++    const prefix = open < 0 ? name : name.slice(0, open);
++    let suffix = '';
++    if (open >= 0) {
++      if (close < open || /[\r\n\u2028\u2029]/.test(name.slice(open, close))) return null;
++      suffix = name.slice(close + 1);
++      if (!dual) suffix = suffix.trimEnd();
++      if (/[^ *_]/.test(suffix)) return null;
++    }
++    if (!prefix || /[\^()]/.test(prefix)) return null;
++    const unindented = prefix.trimStart();
++    const forced = unindented.startsWith('@') && unindented.length > 1;
++    if (!forced && (/[a-z]/.test(prefix) || /(?:BLACK|OUT)\.$/.test(prefix) || prefix.trimEnd().endsWith('TO:'))) return null;
++    // Pure numbers/emphasis marks are action, not character cues.
++    let numericPrefix = unindented;
++    if (open < 0 && !dual) numericPrefix = numericPrefix.trimEnd();
++    if (!numericPrefix) {
++      // The grammar treats spaces as numeric cues, but permits tab-only cues.
++      const spaceCue = open < 0 && !dual ? prefix.includes(' ') : prefix.endsWith(' ');
++      numericPrefix = spaceCue ? ' ' : '';
++    }
++    if (/^[0-9 _*]+$/.test(numericPrefix) && /^[*_]*$/.test(suffix)) return null;
++    let bodyStart = -1;
++    for (let i = newline; i < line.length && /\s/.test(line[i]); i++) {
++      if (line[i] === '\n' && i + 1 < line.length && line[i + 1] !== '\n') bodyStart = i + 1;
++    }
++    return bodyStart < 0 ? null : [line, name, dual ? '^' : undefined, line.slice(bodyStart)];
++}
++
+ class DialogueBlock {
+     constructor(line, dual) {
+         this.tokens = [];
+-        const match = line.match(rules_1.rules.dialogue);
++        const match = matchDialogue(line);
+         if (match) {
+             this.scanIndex = match.length;
+             let name = match[1].trim();
+@@ -127,7 +175,7 @@ class DialogueBlock {
+                     return [...p, new ParentheticalToken(text)];
+                 }
+                 if (rules_1.rules.lyrics.test(text)) {
+-                    if (previousToken.type === 'lyrics') {
++                    if (previousToken?.type === 'lyrics') {
+                         p[lastIndex].text =
+                             `${previousToken.text}\n${text.replace(/^~/, '')}`;
+                         return p;
+@@ -156,7 +204,7 @@ class DialogueBlock {
+         return [...tokens, ...this.tokens];
+     }
+     static matchedBy(line) {
+-        return rules_1.rules.dialogue.test(line);
++        return !!matchDialogue(line);
+     }
+ }
+ exports.DialogueBlock = DialogueBlock;
+@@ -309,7 +357,10 @@ class SpacesToken {
+         return [...tokens, this];
+     }
+     static matchedBy(line) {
+-        return rules_1.rules.blank_lines.test(line);
++        // Whole block only. blank_lines.test matched a two-space line at either
++        // end, dropping the block's text, and as a global regex it kept
++        // lastIndex from the previous call, even across documents.
++        return !/\S/.test(line);
+     }
+ }
+ exports.SpacesToken = SpacesToken;
+@@ -317,7 +368,9 @@ class ActionToken {
+     constructor(line) {
+         this.type = 'action';
+         this.text = line
+-            .replace(/^(\s*)!(?! )/gm, '$1')
++            // Keep each whitespace run on its own line: ^(\s*) crossed line breaks,
++            // rescanning every following U+2028 or two-space line from each start.
++            .replace(/^([^\S\n\r\u2028\u2029]*)!(?! )/gm, '$1')
+             .replace(/^( *)(\t+)/gm, (_, leading, tabs) => {
+             return leading + '    '.repeat(tabs.length);
+         });
