@@ -49,13 +49,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         {recoveryPath && (
           <div
             role="status"
-            className="font-ui mb-4 px-4 py-3 rounded-lg border border-red-400/30 bg-red-500/10 text-red-400 text-sm flex items-start gap-3"
+            className="font-ui mb-4 px-4 py-3 rounded-lg border border-danger/30 bg-danger/10 text-danger text-sm flex items-start gap-3"
           >
             <span className="flex-1 min-w-0">{retainedVersionNotice(recoveryPath)}</span>
             <button
               type="button"
               onClick={onSaveAsAfterError}
-              className="shrink-0 rounded px-2 py-0.5 font-medium text-red-300 hover:bg-red-500/10"
+              className="shrink-0 rounded px-2 py-0.5 font-medium text-danger hover:bg-danger/10"
             >
               Save As…
             </button>
@@ -64,14 +64,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         {saveError && (
           <div
             role="alert"
-            className="font-ui mb-4 px-4 py-3 rounded-lg border border-red-400/30 bg-red-500/10 text-red-400 text-sm flex items-start gap-3"
+            className="font-ui mb-4 px-4 py-3 rounded-lg border border-danger/30 bg-danger/10 text-danger text-sm flex items-start gap-3"
           >
             <span className="flex-1 min-w-0">{saveError}</span>
             {canSaveAsAfterError && (
               <button
                 type="button"
                 onClick={onSaveAsAfterError}
-                className="shrink-0 rounded px-2 py-0.5 font-medium text-red-300 hover:bg-red-500/10"
+                className="shrink-0 rounded px-2 py-0.5 font-medium text-danger hover:bg-danger/10"
               >
                 Save As…
               </button>
@@ -80,7 +80,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               <button
                 type="button"
                 onClick={onDismissSaveError}
-                className="shrink-0 p-0.5 rounded hover:bg-red-500/10 transition-colors duration-120"
+                className="shrink-0 p-0.5 rounded hover:bg-danger/10 transition-colors duration-120"
                 aria-label="Dismiss error"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

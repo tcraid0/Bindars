@@ -172,7 +172,7 @@ function ReaderControlsComponent({
               aria-pressed={settings.fontFamily === opt.value}
               className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left leading-tight ${
                 settings.fontFamily === opt.value
-                  ? "bg-accent text-white font-medium"
+                  ? "bg-accent text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
               }`}
               style={{ fontFamily: resolveFontCss(opt.value) }}
@@ -196,7 +196,7 @@ function ReaderControlsComponent({
               aria-pressed={settings.paragraphSpacing === opt.value}
               className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
                 settings.paragraphSpacing === opt.value
-                  ? "bg-accent text-white font-medium"
+                  ? "bg-accent text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
               }`}
             >

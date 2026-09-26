@@ -35,6 +35,7 @@ interface HeaderProps {
   canToggleEdit: boolean;
   onToggleEdit: () => void;
   onSave: () => void;
+  onMakeCopy?: () => void;
   statsSummary: string | null;
   progressTextRef: React.RefObject<HTMLSpanElement | null>;
   onToggleAnnotations: () => void;
@@ -81,6 +82,7 @@ function HeaderComponent({
   canToggleEdit,
   onToggleEdit,
   onSave,
+  onMakeCopy,
   statsSummary,
   progressTextRef,
   onToggleAnnotations,
@@ -321,7 +323,7 @@ function HeaderComponent({
                     aria-expanded={exportOpen}
                     aria-controls={exportOpen ? exportId : undefined}
                     className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
-                      exportOpen ? "text-accent" : "text-text-secondary hover:text-text-primary"
+                      exportOpen ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                     }`}
                     title={`Export (${formatShortcutLabel("print")})`}
                   >
@@ -340,6 +342,14 @@ function HeaderComponent({
                       className="absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
                       style={{ animation: "fadeIn 100ms ease" }}
                     >
+                      {onMakeCopy && filePath && (
+                        <button
+                          type="button"
+                          disabled={!canToggleEdit}
+                          onClick={() => { dismissExport(true); onMakeCopy(); }}
+                          className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary disabled:opacity-50"
+                        >Make a copy…</button>
+                      )}
                       <button
                         type="button"
                         onClick={handlePrint}
@@ -383,7 +393,7 @@ function HeaderComponent({
                 onClick={onToggleAnnotations}
                 aria-label="Toggle Highlights & notes"
                 className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
-                  hasAnnotations ? "text-accent" : "text-text-secondary hover:text-text-primary"
+                  hasAnnotations ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                 }`}
                 title={`Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
               >

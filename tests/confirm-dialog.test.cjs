@@ -34,7 +34,7 @@ function renderDialog(props = {}) {
   });
 
   return {
-    host,
+    host: document.getElementById("dialog-root"),
     root,
     cleanup() {
       flushSync(() => root.unmount());
@@ -88,7 +88,7 @@ test("ConfirmDialog uses instance-scoped accessible labels", async () => {
       );
     });
 
-    const dialogs = Array.from(host.querySelectorAll('[role="dialog"]'));
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
     assert.equal(dialogs.length, 2);
 
     const titleIds = dialogs.map((dialog) => dialog.getAttribute("aria-labelledby"));

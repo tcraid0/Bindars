@@ -57,7 +57,7 @@ function ConfirmDialogComponent({
           ref={confirmRef}
           type="button"
           onClick={onConfirm}
-          className="px-3 py-1.5 rounded-md text-sm font-medium text-accent hover:bg-bg-tertiary transition-colors duration-120"
+          className="px-3 py-1.5 rounded-md text-sm font-medium text-accent-text hover:bg-bg-tertiary transition-colors duration-120"
         >
           {confirmLabel}
         </button>
@@ -67,7 +67,7 @@ function ConfirmDialogComponent({
             onClick={onSecondary}
             className={`px-3 py-1.5 rounded-md text-sm transition-colors duration-120 ${
               secondaryTone === "danger"
-                ? "text-red-500 hover:bg-red-500/10"
+                ? "text-danger hover:bg-danger/10"
                 : "text-text-secondary hover:bg-bg-tertiary"
             }`}
           >

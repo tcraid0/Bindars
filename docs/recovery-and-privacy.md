@@ -14,9 +14,13 @@ are named `Untitled.md`, `Untitled 2.md`, and so on without replacing existing
 drafts. An empty, unchanged new document does not create a file.
 
 While editing a file in this folder, **Save** opens the filename and location
-dialog. A name with no extension is saved as `.md`. If that file already
-exists, Bindars leaves it untouched and asks for another name. After saving
-successfully elsewhere, Bindars removes the original draft. Canceling the
+dialog. A name with no extension is saved as `.md`. If that added-extension
+filename already exists, Bindars leaves it untouched and asks for another name.
+Selecting an existing file with a supported extension allows replacement through
+the save dialog. After saving successfully elsewhere, Bindars removes the
+original draft only if it can confirm that the draft has no highlights, notes,
+or bookmarks. Otherwise it keeps the draft and its Recent entry; annotations
+stay with that original path. Canceling the
 dialog, or a name that cannot be used, leaves the draft in place and autosave
 keeps running. Choosing the same file also leaves the draft in place. These
 files can also be opened and managed like other documents, and follow the
@@ -33,9 +37,21 @@ shutdown. Discarding changes or reloading from disk also loses the unsaved text;
 there is no recovery copy of it. Autosave does not replace backups or a version
 history you manage yourself.
 
+## Making a copy before editing
+
+While reading a saved document, open **Export options** and choose **Make a
+copy…**. Choose a fresh filename and location. The suggested name adds `copy`
+and keeps the source extension; a name without an extension also uses the source
+extension. The dialog uses the system's usual save location.
+
+Bindars refuses an existing destination file or a name that still has saved
+highlights, notes, or bookmarks. It opens the new copy for editing only after
+creation succeeds. Canceling or a failed save leaves you reading the original.
+The copy contains the document text; annotations remain with the original path.
+
 ## Recovery copies from older builds
 
-Builds before this one kept hidden recovery snapshots: complete, unencrypted
+Builds before 1.5.0 kept hidden recovery snapshots: complete, unencrypted
 plaintext copies of documents being edited, with each document's name and, for
 saved files, its absolute path. Earlier versions, unsaved-draft restore, and
 discarded-text recovery were built on them and are gone. Current builds neither
@@ -58,7 +74,7 @@ perform secure erasure.
 
 ## Recent-file history upgrades and older builds
 
-Recent-file history stores its format version and entries together in the
+Since 1.4.4, recent-file history stores its format version and entries together in the
 `recent-files` setting: `{ "version": 1, "files": [...] }`. Format 1 uses current
 heading IDs. Bindars can convert the older array format; it reads the old
 `config-version` first to determine whether heading IDs need conversion.
@@ -71,7 +87,7 @@ Failed reads leave recent history unavailable and prevent writes from an
 empty startup state. A failed legacy conversion is not retried during that
 session. Unsupported formats are preserved.
 
-Older builds may not understand this history format. Builds with the guarded
+Builds before 1.4.4 may not understand this history format. Builds with the guarded
 history loader show it as unavailable; earlier builds may replace it with a
 new list when opening a file. There is no second legacy copy or automatic
 downgrade conversion. Back up settings before switching back to an older build

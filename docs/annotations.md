@@ -69,6 +69,8 @@ never authorizes discarding work. Closing the window on macOS hides it and keeps
 pending notes in the running process.
 
 A recovery copy is a JSON file containing full records for every pending path.
+Save it outside Bindars' app-data directory; destinations inside that directory
+are refused to protect annotations, preferences, and migration files.
 To restore one, open an original document, choose **Restore recovery copy** in
 **Highlights & notes**, and confirm replacement of that document's current collection.
 Other paths in the copy are untouched; restore them by opening those documents.
@@ -100,9 +102,26 @@ replacement. The settings plugin cannot open until migration preservation has
 succeeded. Unrecognized individual records and extra fields are retained when
 other annotations are edited.
 
-Keep backups of these files together. If primary storage is damaged, preserve
-it before repairing or restoring a known valid collection; do not delete the
-migration marker to force reimport of stale settings. Retry loading after repair.
-The recovery-copy UI requires a readable destination collection and does not
-silently replace damaged primary storage. Damaged preferences can require an app
-restart after external repair.
+## If annotations cannot be loaded
+
+A record with a recognizable newer version needs that version of Bindars or
+later. It is not evidence that the notes are damaged. Do not reset or rewrite it
+with an older build.
+
+If storage is damaged, quit Bindars and copy the entire app-data directory to a
+safe location before attempting repair. Its usual locations are:
+
+- Linux: `~/.local/share/io.github.tcraid0.bindars/` (or under `$XDG_DATA_HOME`).
+- macOS: `~/Library/Application Support/io.github.tcraid0.bindars/`.
+- Windows: `%APPDATA%\io.github.tcraid0.bindars\`.
+
+Keep `annotations.json`, `settings.json`, `annotations-legacy-settings.json`,
+and `annotations-migration.json` together when present. Restore a known valid
+backup, or have someone familiar with the storage format repair a copy before
+replacing the affected file. Do not delete the migration marker to force
+reimport of stale settings, or clear the whole collection to repair one document.
+
+A damaged collection can also prevent settings and recent files from loading.
+Restart after external repair, then use **Retry loading** if the annotations
+panel still reports an error. The recovery-copy UI requires a readable
+destination collection; it does not reset damaged primary storage.

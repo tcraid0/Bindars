@@ -962,3 +962,30 @@ test("a fresh editor session receives its own clamped initial source point", asy
     rendered.cleanup();
   }
 });
+
+for (const formatting of [true, false]) {
+  for (const initialDocument of ['- first', '1. first', '- [ ] first']) {
+    test(`list continuation exits the empty item with formatting=${formatting}: ${initialDocument}`, async () => {
+      const rendered = await renderEditor({ initialDocument, markdownFormattingEnabled: formatting, onBufferChange() { return true; } });
+      try {
+        const view = findEditorView(rendered.host);
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+        dispatchKey(view.contentDOM, 'Enter');
+        const continued = view.state.doc.toString();
+        assert.match(continued, /\n(?:- |2\. |- \[ \] )$/);
+        assert.equal(undo(view), true);
+        assert.equal(view.state.doc.toString(), initialDocument);
+        dispatchKey(view.contentDOM, 'Enter');
+        dispatchKey(view.contentDOM, 'Enter');
+        assert.equal(view.state.doc.toString(), `${initialDocument}\n`);
+      } finally { rendered.cleanup(); }
+    });
+  }
+}
+test('Fountain Enter does not apply Markdown list continuation', async () => {
+  const rendered = await renderEditor({ initialDocument: '- action', fileType: 'fountain', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host); view.dispatch({ selection: { anchor: view.state.doc.length } });
+    dispatchKey(view.contentDOM, 'Enter'); assert.equal(view.state.doc.toString(), '- action\n');
+  } finally { rendered.cleanup(); }
+});

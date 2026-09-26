@@ -70,9 +70,9 @@ async function pauseDraftAutosave(rendered) {
   // existing Save/Discard/Cancel boundary.
   rendered.failNextDraftCreate(new Error("Draft creation unavailable for this guard test"));
   dispatchShortcut("e");
-  await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"]')));
+  await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
   dispatchWindowKey("Escape");
-  await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+  await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
 }
 
 async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, words) {
@@ -94,7 +94,7 @@ async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, wo
   });
 
   return waitFor(() => {
-    const dialog = rendered.host.querySelector('[role="dialog"]');
+    const dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog);
     assert.match(dialog.textContent, /Unsaved changes/);
     return dialog;
@@ -109,7 +109,7 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
 
   const dialog = await waitFor(() => {
     if (rendered.openedPaths().includes(targetPath)) return null;
-    const candidate = rendered.host.querySelector('[role="dialog"]');
+    const candidate = document.querySelector('[role="dialog"]');
     assert.ok(candidate);
     return candidate;
   });
@@ -169,7 +169,7 @@ function dispatchElementKey(target, key, options = {}) {
   return event;
 }
 
-function clickButton(host, text, scope = host) {
+function clickButton(host, text, scope = document.querySelector('#dialog-root > :not([inert]) [role="dialog"]') ?? host) {
   const button = Array.from(scope.querySelectorAll("button"))
     .find((candidate) => candidate.textContent.trim() === text);
   assert.ok(button, `expected a ${text} button`);
@@ -415,7 +415,7 @@ test("new document autosave creates a draft, keeps typing intact, and uses its r
     assert.deepEqual(rendered.fileWrites[0].expectedRevision, successfulDraftWrite(initial).currentRevision);
     assert.equal(rendered.fileWrites[0].force, false);
     assert.equal(rendered.draftCreates.length, 1);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
   } finally {
     creation.resolve(successfulDraftWrite(""));
     context.mock.timers.reset();
@@ -451,7 +451,7 @@ for (const boundary of ["close", "quit"]) {
       await waitFor(() => assert.equal(boundary === "close" ? rendered.windowCloseCount() : rendered.guardedExitCount(), 1));
       assert.deepEqual(rendered.draftCreates, [{ content }]);
       assert.deepEqual(rendered.saveDialogs, []);
-      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.ok(!document.querySelector('[role="dialog"]'));
     } finally { await rendered.cleanup(); }
   });
 }
@@ -1206,11 +1206,11 @@ test("search-panel Escape closes only the panel before closed-panel Escape guard
     assert.equal(panelEscape.defaultPrevented, true);
     assert.ok(!rendered.host.querySelector(".cm-panel"));
     assert.ok(findEditorView(rendered.host) === view);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
 
     const exitEscape = dispatchEditorKey(rendered.host, "Escape");
     assert.equal(exitEscape.defaultPrevented, true);
-    await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
     assert.ok(findEditorView(rendered.host) === view);
   } finally {
     await rendered.cleanup();
@@ -1240,7 +1240,7 @@ test("non-save App shortcuts are suppressed while the CodeMirror search panel ow
       assert.equal(event.defaultPrevented, true, `${key} should not reach App or the WebView`);
       assert.ok(findEditorView(rendered.host) === view);
       assert.ok(rendered.host.querySelector(".cm-panel"));
-      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.ok(!document.querySelector('[role="dialog"]'));
       assert.ok(!rendered.host.querySelector('[role="combobox"]'));
       assert.equal(document.documentElement.getAttribute("data-theme"), initialTheme);
     }
@@ -1580,20 +1580,20 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
     assert.ok(host.querySelector('[aria-label="Not saved yet"]'));
     dispatchShortcut("n");
     const cancelDialog = await waitFor(() => {
-      const dialog = host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.ok(dialog);
       return dialog;
     });
     assert.match(cancelDialog.textContent, /Unsaved changes/);
 
     dispatchWindowKey("Escape");
-    await waitFor(() => assert.ok(!host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
     assert.equal(findEditorView(host).state.sliceDoc(), "Keep these words");
     assert.ok(document.activeElement === findEditorView(host).contentDOM);
 
     dispatchShortcut("n");
     const discardDialog = await waitFor(() => {
-      const dialog = host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.ok(dialog);
       return dialog;
     });
@@ -1604,7 +1604,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
     updateEditor(host, "Save these words");
     dispatchShortcut("n");
     const saveDialog = await waitFor(() => {
-      const dialog = host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.ok(dialog);
       return dialog;
     });
@@ -1691,25 +1691,25 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
     assert.equal(beforeUnload.defaultPrevented, true);
 
     dispatchShortcut("e");
-    await waitFor(() => assert.ok(host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
     dispatchWindowKey("Escape");
-    await waitFor(() => assert.ok(!host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
     assert.equal(findEditorView(host).state.sliceDoc(), "Pending exit words");
     assert.ok(document.activeElement === findEditorView(host).contentDOM);
 
     const selectionView = findEditorView(host);
     selectionView.dispatch({ selection: { anchor: 0, head: 7 } });
     assert.equal(dispatchEditorKey(host, "Escape").defaultPrevented, true);
-    await waitFor(() => assert.ok(host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
     dispatchWindowKey("Escape");
-    await waitFor(() => assert.ok(!host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
     assert.ok(findEditorView(host) === selectionView);
     assert.equal(selectionView.state.selection.main.anchor, 0);
     assert.equal(selectionView.state.selection.main.head, 7);
     assert.ok(document.activeElement === selectionView.contentDOM);
 
     dispatchEditorKey(host, "o", { ctrlKey: true });
-    await waitFor(() => assert.ok(host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
     assert.equal(saveDialogCount, 0, "Open must not bypass the dirty guard");
     flushSync(() => {
       window.dispatchEvent(new window.KeyboardEvent("keydown", {
@@ -1718,7 +1718,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
         cancelable: true,
       }));
     });
-    await waitFor(() => assert.ok(!host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
 
     for (const [key, options] of [
       ["n", { ctrlKey: true, isComposing: true }],
@@ -1730,14 +1730,14 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       const event = dispatchEditorKey(host, key, options);
       assert.equal(event.defaultPrevented, false);
     }
-    assert.ok(!host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.equal(saveDialogCount, 0);
     assert.equal(findEditorView(host).state.sliceDoc(), "Pending exit words");
 
     await act(async () => {
       await emit("tauri://close-requested");
     });
-    await waitFor(() => assert.ok(host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
     assert.equal(findEditorView(host).state.sliceDoc(), "Pending exit words");
   } finally {
     await act(async () => {
@@ -1888,6 +1888,7 @@ async function renderContinuityApp({
   settingsRead = null,
   recentStorage = null,
   sampleFlow = null,
+  copyDestinationCheck = path => path,
   checkDraft = (args) => args.path === DRAFT_PATH,
 } = {}) {
   await installDom();
@@ -2096,6 +2097,8 @@ async function renderContinuityApp({
           if (sampleFlow.directory) return sampleFlow.directory(args.directory);
         }
         return args.directory === 6 ? '/tmp/Documents' : '/tmp/Home';
+      case "check_copy_destination":
+        return copyDestinationCheck(args.path);
       case "plugin:dialog|save":
         saveDialogs.push(args);
         if (sampleFlow) {
@@ -2307,9 +2310,9 @@ test("Read mode retains the save guard after reader settings close", async () =>
     flushSync(() => rendered.host.querySelector('[aria-label="Close reader settings"]').click());
     rendered.failNextFileWrite(new Error("Synthetic save failure"));
     clickButton(rendered.host, "Read");
-    await waitFor(() => assert.match(rendered.host.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
+    await waitFor(() => assert.match(document.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
     dispatchWindowKey("Escape");
-    await waitFor(() => assert.ok(!rendered.host.querySelector('[aria-modal="true"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[aria-modal="true"]')));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
     assert.notEqual(rendered.diskContent(), words);
     assert.equal(rendered.fileWrites().length, 1, "only the failed guarded save was attempted");
@@ -2847,11 +2850,11 @@ test("an idle autosave conflict warns quietly and waits for manual save to open 
     });
     assert.match(warning.getAttribute("aria-label"), /file changed outside Bindars/i);
     assert.equal(rendered.fileWrites().length, 1);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
 
     dispatchShortcut("s");
     const dialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       assert.match(candidate.textContent, /File changed on disk/);
       return candidate;
@@ -2875,13 +2878,13 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     rendered.conflictNextWrite();
     dispatchShortcut("s");
     const firstDialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       assert.match(candidate.textContent, /File changed/);
       return candidate;
     });
     clickButton(rendered.host, "Cancel", firstDialog);
-    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
 
     flushSync(() => assert.equal(undo(view), true));
     await waitForEditorPublication();
@@ -2895,7 +2898,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     const writeCount = rendered.fileWrites().length;
     dispatchShortcut("s");
     const secondDialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       assert.match(candidate.textContent, /File changed/);
       return candidate;
@@ -2904,10 +2907,10 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
 
     clickButton(rendered.host, "Cancel", secondDialog);
-    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
     dispatchShortcut("e");
     await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       assert.match(candidate.textContent, /File changed/);
       assert.ok(rendered.host.querySelector(".cm-editor"));
@@ -2932,7 +2935,7 @@ test("file switching flushes the pending autosave before opening the next file",
     await waitFor(() => assert.match(rendered.host.textContent, /switched\.md/));
     assert.equal(rendered.fileWrites()[0].content, switchedWords);
     assert.equal(rendered.diskContent(), switchedWords);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
   } finally {
     await rendered.cleanup();
   }
@@ -2970,7 +2973,7 @@ test("a manual Save that waited on an autosave is dropped once the editor sessio
     assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
     assert.match(rendered.host.textContent, /second-copy\.md/);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
   } finally {
     oldWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
     await rendered.cleanup();
@@ -3012,7 +3015,7 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
     assert.equal(rendered.diskContent(), initial);
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
     assert.match(rendered.host.textContent, /continuity\.md/);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
   } finally {
     oldWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
     context.mock.timers.reset();
@@ -3201,7 +3204,7 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
 
         if (choice === "Cancel") {
           dispatchWindowKey("Escape");
-          await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+          await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
           assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
           assert.match(rendered.host.textContent, /continuity\.md/);
           assert.doesNotMatch(rendered.host.textContent, /native-cancel\.md/);
@@ -3281,7 +3284,7 @@ test("a failed Save during native file switching preserves the current document"
       await Promise.resolve();
     });
 
-    await waitFor(() => assert.ok(!rendered.host.querySelector('[role="dialog"]')));
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), localWords);
     assert.match(rendered.host.textContent, /continuity\.md/);
     assert.doesNotMatch(rendered.host.textContent, /native-failed-save\.md/);
@@ -3485,7 +3488,7 @@ test("native close flushes the pending autosave before closing the window", asyn
     await waitFor(() => assert.equal(rendered.windowCloseCount(), 1));
     assert.equal(rendered.fileWrites()[0].content, closingWords);
     assert.equal(rendered.diskContent(), closingWords);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
   } finally {
     await rendered.cleanup();
   }
@@ -3539,7 +3542,7 @@ test("save-and-exit restores the surviving edited position", async () => {
     rendered.deferNextOpen(reconciliation);
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector("#third")));
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.match(rendered.host.querySelector("article").textContent, /Saved words/);
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 900));
     await act(async () => {
@@ -4404,7 +4407,7 @@ test("discard and conflict reload restore the original reader anchor", async () 
       try { await failedBoundarySave.promise; } catch { /* expected */ }
     });
     const discardDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.ok(dialog);
       return dialog;
     });
@@ -4424,7 +4427,7 @@ test("discard and conflict reload restore the original reader anchor", async () 
     rendered.conflictNextWrite();
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.match(dialog.textContent, /File changed/);
       return dialog;
     });
@@ -4448,7 +4451,7 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
     rendered.conflictNextWrite();
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.match(dialog.textContent, /File changed/);
       return dialog;
     });
@@ -4470,7 +4473,7 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
     });
 
     const reconfirmDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.match(dialog.textContent, /Unsaved changes/);
       return dialog;
     });
@@ -4480,7 +4483,7 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.ok(rendered.host.querySelector(".cm-editor"));
     assert.equal(
       findEditorView(rendered.host).state.sliceDoc(),
@@ -4502,7 +4505,7 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
     rendered.conflictNextWrite();
     dispatchShortcut("e");
     const conflictDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.match(dialog.textContent, /File changed/);
       return dialog;
     });
@@ -4523,7 +4526,7 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
     });
 
     const reconfirmDialog = await waitFor(() => {
-      const dialog = rendered.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.match(dialog.textContent, /Unsaved changes/);
       return dialog;
     });
@@ -4580,7 +4583,7 @@ test("virtual save-as scopes restoration to the adopted document", async () => {
     rendered.failNextDraftCreate(new Error("Draft creation unavailable for this Save As test"));
     dispatchShortcut("e");
     const dialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       return candidate;
     });
@@ -4683,7 +4686,7 @@ test("a repeated native close during autosave cannot destroy the window", async 
     assert.equal(write.args.path, "/tmp/continuity.md");
     assert.equal(write.args.content, newestWords);
     assert.ok(rendered.host.querySelector(".cm-editor"));
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
 
     // The admitted close still owns the pending autosave. A repeated native
     // request must remain prevented while those words are being written.
@@ -4812,8 +4815,8 @@ test("palette result buttons keep native activation after Tab focus and ArrowDow
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.command-palette-shell li button').length, 2));
-    const rows = rendered.host.querySelectorAll('.command-palette-shell li button');
+    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    const rows = document.querySelectorAll('.command-palette-shell li button');
     const second = rows[1];
     flushSync(() => second.focus()); // Native Tab traversal is checked in the packaged app.
     assert.ok(second.classList.contains("bg-bg-tertiary"));
@@ -4822,7 +4825,7 @@ test("palette result buttons keep native activation after Tab focus and ArrowDow
       assert.ok(document.activeElement === second);
       assert.ok(second.classList.contains("bg-bg-tertiary"));
     }
-    assert.equal(rendered.host.querySelectorAll('.command-palette-shell').length, 1,
+    assert.equal(document.querySelectorAll('.command-palette-shell').length, 1,
       "App must not activate its selected hit from a result-button keydown");
     const before = rendered.openedPaths().length;
     // happy-dom does not synthesize native Enter/Space clicks; exercise the allowed click path.
@@ -4836,11 +4839,11 @@ test("palette input retains arrow selection and Enter activation", async () => {
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.command-palette-shell li button').length, 2));
-    const input = rendered.host.querySelector('.command-palette-shell input');
+    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    const input = document.querySelector('.command-palette-shell input');
     assert.equal(dispatchElementKey(input, "ArrowDown").defaultPrevented, true);
     assert.ok(document.activeElement === input);
-    assert.ok(rendered.host.querySelectorAll('.command-palette-shell li button')[1].classList.contains("bg-bg-tertiary"));
+    assert.ok(document.querySelectorAll('.command-palette-shell li button')[1].classList.contains("bg-bg-tertiary"));
     assert.equal(dispatchElementKey(input, "Enter").defaultPrevented, true);
     await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
   } finally { await rendered.cleanup(); }
@@ -4852,15 +4855,15 @@ test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", 
     const opener = rendered.host.querySelector("button");
     opener.focus();
     dispatchWindowKey("?");
-    const close = rendered.host.querySelector('[role="dialog"] button');
+    const close = document.querySelector('[role="dialog"] button');
     assert.ok(document.activeElement === close);
     dispatchShortcut("k");
-    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 2);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 2);
     dispatchElementKey(document.activeElement, "Escape");
-    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 1);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
     assert.ok(document.activeElement === close);
     dispatchElementKey(close, "Escape");
-    assert.equal(rendered.host.querySelectorAll('[role="dialog"]').length, 0);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 0);
     assert.ok(document.activeElement === opener);
   } finally { await rendered.cleanup(); }
 });
@@ -5042,15 +5045,15 @@ test('typing a new palette query and immediately pressing Enter never opens the 
   const view = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 2));
-    const input = view.host.querySelector('.command-palette-shell input');
+    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    const input = document.querySelector('.command-palette-shell input');
     setPaletteQuery(input, 'Alpha');
     await waitForPaletteSearch();
     const before = view.openedPaths().length;
     setPaletteQuery(input, 'Beta');
     dispatchElementKey(input, 'Enter');
     assert.equal(view.openedPaths().length, before);
-    assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 0);
+    assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 0);
     await waitForPaletteSearch();
     dispatchElementKey(input, 'Enter');
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Beta.md'));
@@ -5068,10 +5071,10 @@ for (const [indexedHeading, currentHeading, missing] of [
     });
     try {
       dispatchShortcut('k');
-      await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
-      setPaletteQuery(view.host.querySelector('.command-palette-shell input'), indexedHeading);
+      await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+      setPaletteQuery(document.querySelector('.command-palette-shell input'), indexedHeading);
       await waitForPaletteSearch();
-      const row = [...view.host.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+      const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
       assert.ok(row);
       const before = view.openedPaths().length;
       view.scrolledIds.length = 0;
@@ -5079,7 +5082,7 @@ for (const [indexedHeading, currentHeading, missing] of [
       if (missing) await waitFor(() => assert.match(view.host.textContent, /not found in this document/));
       else await waitFor(() => assert.ok(view.scrolledIds.includes(currentHeading.toLowerCase())));
       assert.equal(view.openedPaths().length, before);
-      assert.ok(!view.host.querySelector('.command-palette-shell'));
+      assert.ok(!document.querySelector('.command-palette-shell'));
     } finally { await view.cleanup(); }
   });
 }
@@ -5092,10 +5095,10 @@ test('cross-file workspace heading opens the requested document and scrolls its 
   });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
-    setPaletteQuery(view.host.querySelector('.command-palette-shell input'), 'Second heading');
+    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+    setPaletteQuery(document.querySelector('.command-palette-shell input'), 'Second heading');
     await waitForPaletteSearch();
-    const row = [...view.host.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+    const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
     assert.ok(row);
     view.scrolledIds.length = 0;
     flushSync(() => row.click());
@@ -5109,10 +5112,10 @@ test('a deleted workspace result preserves the current document and reports the 
   const view = await renderContinuityApp({ workspaceFiles: [paletteWorkspaceFiles[0]] });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(view.host.querySelectorAll('.command-palette-shell li button').length, 1));
+    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
     const pending = deferred();
     view.deferNextOpen(pending);
-    flushSync(() => view.host.querySelector('.command-palette-shell li button').click());
+    flushSync(() => document.querySelector('.command-palette-shell li button').click());
     await waitFor(() => assert.ok(pending.args));
     await act(async () => pending.reject({
       category: 'notFound', operation: 'resolveDocument',
@@ -5339,11 +5342,11 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
     const rendered = await renderContinuityApp();
     try {
       dispatchShortcut('k');
-      const palette = await waitFor(() => rendered.host.querySelector('[role="dialog"] input') || assert.fail('missing switcher'));
+      const palette = await waitFor(() => document.querySelector('[role="dialog"] input') || assert.fail('missing switcher'));
       assert.equal(dispatchElementKey(palette, 'Escape', composition).defaultPrevented, false);
       assert.ok(palette.isConnected);
       dispatchElementKey(palette, 'Escape');
-      assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+      assert.ok(!document.querySelector('[role="dialog"]'));
       dispatchShortcut('f');
       const search = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
       const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -5422,7 +5425,7 @@ for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'c
       const toggle = rendered.host.querySelector('[aria-label="Read mode"]');
       toggle.focus(); flushSync(() => toggle.click());
       if (route !== 'saved') {
-        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save decision'));
+        const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('missing save decision'));
         assert.equal(calls.length, 0);
         if (route === 'cancel') dispatchElementKey(dialog, 'Escape');
         else {
@@ -5519,7 +5522,7 @@ for (const newer of ['editor', 'new-document', 'dialog', 'presentation', 'pendin
         await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
         assert.ok(findEditorView(rendered.host).hasFocus);
       } else if (newer === 'dialog') {
-        const dialog = rendered.host.querySelector('[role="dialog"]');
+        const dialog = document.querySelector('[role="dialog"]');
         assert.ok(dialog && dialog.contains(document.activeElement));
         dispatchElementKey(document.activeElement, 'Escape');
       } else if (newer === 'presentation') {
@@ -5576,7 +5579,7 @@ for (const route of ['clean', 'save-as', 'cancel-save-as']) {
       if (route !== 'clean') rendered.failNextDraftCreate(new Error('Draft creation unavailable for this Save As test'));
       dispatchEditorKey(rendered.host, 'Escape');
       if (route !== 'clean') {
-        const dialog = await waitFor(() => rendered.host.querySelector('[role="dialog"]') || assert.fail('missing save choice'));
+        const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('missing save choice'));
         clickButton(rendered.host, 'Save', dialog);
       }
       await act(async () => { await Promise.resolve(); });
@@ -6111,7 +6114,7 @@ test("missing parent on save keeps edits and offers working Save As without a co
     rendered.failNextFileWrite({ category: "notFound", operation: "resolveWriteParent", message: "Missing folder", detail: "ENOENT" });
     dispatchShortcut("s");
     await waitFor(() => assert.match(rendered.host.textContent, /destination folder is no longer available/));
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
     rendered.setSaveDialogPath("/tmp/recovered.md");
     clickButton(rendered.host, "Save As…");
@@ -6250,7 +6253,7 @@ for (const route of ["manual Save", "Save As after error"]) {
       assert.ok(rendered.host.querySelector('[aria-label^="Save warning: Autosave is paused"]'));
       assert.match(rendered.host.textContent, /kept another version/);
       dispatchShortcut("e");
-      await waitFor(() => assert.ok(rendered.host.querySelector('[role="dialog"]')));
+      await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), latest);
       dispatchWindowKey("Escape");
 
@@ -6279,7 +6282,7 @@ test("the next save after a retained version uses the written revision and desti
     assert.equal(rendered.fileWrites()[1].content, `${local}\nNewer words`);
     assert.deepEqual(rendered.fileWrites()[1].expectedRevision, written);
     assert.equal(rendered.fileWrites()[1].force, false);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     await waitFor(() => assert.doesNotMatch(rendered.host.textContent, /kept another version/));
   } finally { await rendered.cleanup(); }
 });
@@ -6404,7 +6407,7 @@ test("discard after a retained version leaves the written text and drops newer t
     updateEditor(rendered.host, `${local}\nNewer words`);
     dispatchShortcut("e");
     const dialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       return candidate;
     });
@@ -6424,7 +6427,7 @@ test("a retained version does not offer Reload until a later conflict, and Reloa
     rendered.conflictNextWrite();
     dispatchShortcut("s");
     const dialog = await waitFor(() => {
-      const candidate = rendered.host.querySelector('[role="dialog"]');
+      const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
       return candidate;
     });
@@ -6456,7 +6459,7 @@ test("Command-S does not write a pathname after its folder moved", async () => {
     dispatchShortcut("s");
     await act(async () => { await Promise.resolve(); });
     assert.equal(rendered.fileWrites().length, 1);
-    assert.ok(!rendered.host.querySelector('[role="dialog"]'));
+    assert.ok(!document.querySelector('[role="dialog"]'));
     rendered.setSaveDialogPath("/tmp/after-move.md");
     clickButton(rendered.host, "Save As…");
     await waitFor(() => assert.equal(rendered.fileWrites().length, 2));
@@ -6557,3 +6560,42 @@ test("a malformed saved heading still opens a usable document", async () => {
     restoreLocalStorage();
   }
 });
+
+for (const outcome of ['created', 'cancelled', 'notes-exist', 'write-failed']) {
+  test(`Make a copy keeps the source in reading mode until adoption: ${outcome}`, async () => {
+    const picker = deferred();
+    const view = await renderContinuityApp({
+      sampleFlow: { dialogs: [], dialog: () => picker.promise },
+      copyDestinationCheck: path => {
+        if (outcome === 'notes-exist') throw 'This name already has saved notes. Choose another name.';
+        return path;
+      },
+    });
+    try {
+      const source = view.diskContent();
+      if (outcome === 'write-failed') view.failNextFileWrite(new Error('Copy destination is full'));
+      flushSync(() => view.host.querySelector('button[aria-label="Export options"]').click());
+      clickButton(view.host, 'Make a copy…');
+      await waitFor(() => assert.equal(view.saveDialogs().length, 1));
+      assert.ok(view.host.querySelector('.cm-editor') === null);
+      assert.equal(view.fileWrites().length, 0);
+      assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, true);
+      await act(async () => picker.resolve(outcome === 'cancelled' ? null : '/tmp/continuity copy.md'));
+      await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+      if (outcome === 'created') {
+        await waitFor(() => assert.ok(view.host.querySelector('.cm-editor')));
+        assert.equal(view.fileWrites().length, 1);
+        assert.equal(view.fileWrites()[0].path, '/tmp/continuity copy.md');
+        assert.equal(view.fileWrites()[0].createNew, true);
+        assert.equal(view.fileWrites()[0].force, false);
+        assert.equal(findEditorView(view.host).state.sliceDoc(), source);
+      } else {
+        assert.ok(view.host.querySelector('.cm-editor') === null);
+        assert.equal(view.diskContent(), source);
+        assert.equal(view.fileWrites().length, outcome === 'write-failed' ? 1 : 0);
+        if (outcome === 'notes-exist') assert.match(document.body.textContent, /saved notes/);
+      }
+      assert.ok(view.fileWrites().every(write => write.path !== '/tmp/continuity.md'));
+    } finally { picker.resolve(null); await view.cleanup(); }
+  });
+}

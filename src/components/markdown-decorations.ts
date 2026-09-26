@@ -1,7 +1,7 @@
-import { commonmarkLanguage, markdown } from "@codemirror/lang-markdown";
+import { commonmarkLanguage, markdown, insertNewlineContinueMarkupCommand, deleteMarkupBackward } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import { StateEffect, StateField, type Extension, type Range, type Text } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { Prec, StateEffect, StateField, type Extension, type Range, type Text } from "@codemirror/state";
+import { keymap, Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 
 interface StableSyntaxNodeLike {
@@ -171,6 +171,10 @@ export const markdownHeadingViewPlugin = ViewPlugin.fromClass(class {
 export function markdownFormattingExtensions(initiallyEnabled: boolean): Extension {
   return [
     markdownLanguageSupport,
+    Prec.high(keymap.of([
+      { key: "Enter", run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+      { key: "Backspace", run: deleteMarkupBackward },
+    ])),
     markdownFormattingEnabled.init(() => initiallyEnabled),
     markdownHeadingViewPlugin,
   ];

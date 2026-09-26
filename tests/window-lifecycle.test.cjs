@@ -80,7 +80,7 @@ async function cancelDialog(host) {
   await waitFor(() => noDialog(host));
 }
 
-function clickButton(host, text, scope = host) {
+function clickButton(host, text, scope = document.querySelector('#dialog-root > :not([inert]) [role="dialog"]') ?? host) {
   const button = Array.from(scope.querySelectorAll("button"))
     .find((candidate) => candidate.textContent.trim() === text);
   assert.ok(button, `expected a ${text} button`);
@@ -351,13 +351,13 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
 }
 
 function confirmDialog(host) {
-  const dialog = host.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[role="dialog"]');
   assert.ok(dialog, "expected an open dialog");
   return dialog;
 }
 
 function noDialog(host) {
-  assert.ok(!host.querySelector('[role="dialog"]'), "expected no open dialog");
+  assert.ok(!document.querySelector('[role="dialog"]'), "expected no open dialog");
 }
 
 test("Save As reconfirms typing during the file write before leaving the document", async (context) => {
@@ -780,7 +780,7 @@ test("a macOS close request while an unsaved-changes dialog is already open is s
       !rendered.openedPaths().includes("/tmp/other.md"),
       "the pending open must still own the guard",
     );
-    const dialogsAfterClose = rendered.host.querySelectorAll('[role="dialog"]');
+    const dialogsAfterClose = document.querySelectorAll('[role="dialog"]');
     assert.equal(dialogsAfterClose.length, 1, "no second dialog may stack");
 
     await cancelDialog(rendered.host);
@@ -1339,13 +1339,13 @@ test("failed annotation quit can keep the app open and retry the latest record",
   try {
     await removeFixtureAnnotation(rendered);
     await rendered.requestQuit();
-    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
     assert.equal(rendered.exitCalls().length, 0);
     clickButton(rendered.host, "Keep open");
     await act(async () => { await Promise.resolve(); });
     assert.equal(rendered.exitCalls().length, 0);
     await rendered.requestQuit();
-    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
     fail = false;
     clickButton(rendered.host, "Retry saving");
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
@@ -1377,7 +1377,7 @@ test("macOS hide keeps pending annotations without asking to discard them", asyn
     await rendered.requestClose();
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     assert.equal(rendered.exitCalls().length, 0);
-    assert.doesNotMatch(rendered.host.textContent, /Annotations haven't been saved/);
+    assert.doesNotMatch(document.body.textContent, /Annotations haven't been saved/);
   } finally { write.resolve(); await rendered.cleanup(); }
 });
 
@@ -1406,7 +1406,7 @@ for (const platform of ["windows", "linux"]) {
     try {
       await removeFixtureAnnotation(rendered);
       await rendered.requestClose();
-      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
       clickButton(rendered.host, "Quit without saving");
       await waitFor(() => assert.equal(rendered.closeCount(), 1));
       assert.equal(rendered.destroyCount(), 0);
@@ -1416,7 +1416,7 @@ for (const platform of ["windows", "linux"]) {
       assert.equal(rendered.closeCount(), 1);
       // The harness keeps the view mounted after destroy. Consent must be spent.
       await rendered.requestClose();
-      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
       assert.equal(rendered.destroyCount(), 1);
       clickButton(rendered.host, "Keep open");
     } finally { await rendered.cleanup(); }
@@ -1428,7 +1428,7 @@ for (const platform of ["windows", "linux"]) {
     try {
       await removeFixtureAnnotation(rendered);
       await rendered.requestClose();
-      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
       clickButton(rendered.host, "Quit without saving");
       await waitFor(() => assert.equal(rendered.closeCount(), 1));
       const bookmark = rendered.host.querySelector('[aria-label="Add bookmark"]');
@@ -1438,7 +1438,7 @@ for (const platform of ["windows", "linux"]) {
       await rendered.requestClose();
       assert.equal(rendered.destroyCount(), 0, "the old decision must not discard the newer bookmark");
       await rendered.requestClose();
-      await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
       clickButton(rendered.host, "Keep open");
       assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]'));
     } finally { await rendered.cleanup(); }
@@ -1454,7 +1454,7 @@ test("a note draft entered after close acknowledgement cancels the old discard d
   try {
     await removeFixtureAnnotation(rendered);
     await rendered.requestClose();
-    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
     clickButton(rendered.host, "Quit without saving");
     await waitFor(() => assert.equal(rendered.closeCount(), 1));
     flushSync(() => rendered.host.querySelector('[aria-label="Edit note"]').click());
@@ -1477,11 +1477,11 @@ test("a failed native close cannot leave discard consent for the next close requ
     await removeFixtureAnnotation(rendered);
     rendered.failNextClose();
     await rendered.requestClose();
-    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
     clickButton(rendered.host, "Quit without saving");
     await waitFor(() => assert.match(rendered.host.textContent, /Couldn't close the window/));
     await rendered.requestClose();
-    await waitFor(() => assert.match(rendered.host.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
     assert.equal(rendered.destroyCount(), 0);
     clickButton(rendered.host, "Keep open");
   } finally { await rendered.cleanup(); }

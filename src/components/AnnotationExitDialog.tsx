@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DialogFrame } from "./DialogFrame";
+import { normalizeFileError } from "../lib/native-file-error";
 import type { FileAnnotations } from "../types";
 
 interface Props {
@@ -27,8 +28,10 @@ export function AnnotationExitDialog({ paths, waiting, onKeepOpen, onRetry, onQu
         await invoke("export_annotation_recovery", { path, documents });
         setMessage("Recovery copy saved and verified. To restore, open each original document and choose Restore recovery copy in Annotations.");
       }
-    } catch {
-      setMessage("Couldn't save the recovery copy. Your changes remain available while Bindars stays open.");
+    } catch (error) {
+      const fallback = "Couldn't save the recovery copy.";
+      const { native } = normalizeFileError(error, fallback);
+      setMessage(`${native?.message || fallback} Your changes remain available while Bindars stays open.`);
     } finally { setExporting(false); }
   }
   return <DialogFrame visible={paths !== null} title="Annotations haven't been saved"
@@ -40,7 +43,7 @@ export function AnnotationExitDialog({ paths, waiting, onKeepOpen, onRetry, onQu
       <button ref={keepOpen} disabled={exporting} onClick={onKeepOpen}>Keep open</button>
       <button disabled={waiting || exporting} onClick={onRetry}>{waiting ? "Waiting for save..." : "Retry saving"}</button>
       <button disabled={exporting || waiting} onClick={() => void recover()}>Save recovery copy</button>
-      <button disabled={exporting} onClick={onQuit} className="text-red-500">Quit without saving</button>
+      <button disabled={exporting} onClick={onQuit} className="text-danger">Quit without saving</button>
     </div>
   </DialogFrame>;
 }

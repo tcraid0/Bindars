@@ -12,7 +12,7 @@ export function SaveWhisper({ isDraft = false, dirty, saved, warning }: SaveWhis
         role="status"
         aria-label={`Save warning: ${warning}`}
         title={warning}
-        className="text-amber-500 text-xs font-medium truncate shrink-0 max-w-[180px]"
+        className="text-warning text-xs font-medium truncate shrink-0 max-w-[180px]"
       >{warning}</span>
     );
   }
@@ -29,7 +29,7 @@ export function SaveWhisper({ isDraft = false, dirty, saved, warning }: SaveWhis
 
   if (dirty) {
     return (
-      <span className="text-accent text-xs whitespace-nowrap shrink-0" aria-label="Unsaved changes">
+      <span className="text-accent-text text-xs whitespace-nowrap shrink-0" aria-label="Unsaved changes">
         Unsaved changes
       </span>
     );
@@ -40,7 +40,7 @@ export function SaveWhisper({ isDraft = false, dirty, saved, warning }: SaveWhis
       <span
         role="status"
         aria-label="Saved"
-        className="save-whisper-saved text-accent text-xs whitespace-nowrap shrink-0"
+        className="save-whisper-saved text-accent-text text-xs whitespace-nowrap shrink-0"
       >Saved</span>
     );
   }

@@ -1,6 +1,7 @@
+import { createPortal } from "react-dom";
+import { useActiveDialog } from "./DialogFrame";
 import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { useReducedMotion } from "../hooks/useReducedMotion";
 
 type ToastVariant = "success" | "error" | "info";
 
@@ -27,9 +28,9 @@ export function useToast(): ToastContextValue {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const activeDialog = useActiveDialog();
   const idRef = useRef(0);
   const timersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
-  const reducedMotion = useReducedMotion();
 
   const dismiss = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -67,11 +68,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const contextValue = useMemo(() => ({ toast }), [toast]);
 
-  return (
-    <ToastContext.Provider value={contextValue}>
-      {children}
+  const notifications = (
       <div
-        className="print-hide fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex flex-col-reverse items-center gap-2 pointer-events-none"
+        className={activeDialog ? "print-hide mt-4 flex flex-col gap-2" : "print-hide fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex flex-col-reverse items-center gap-2 pointer-events-none"}
         role="status"
         aria-live="polite"
       >
@@ -84,20 +83,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             style={{
               borderLeftColor:
                 t.variant === "error"
-                  ? "#ef4444"
+                  ? "var(--danger)"
                   : t.variant === "success"
-                    ? "var(--color-accent)"
+                    ? "var(--accent-text)"
                     : "var(--color-border)",
-              animation: reducedMotion ? "none" : "toastIn 250ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+              animation: "toastIn 250ms cubic-bezier(0.34, 1.56, 0.64, 1)",
             }}
           >
             {t.variant === "success" ? (
-              <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                 <polyline points="22 4 12 14.01 9 11.01" />
               </svg>
             ) : t.variant === "error" ? (
-              <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="15" y1="9" x2="9" y2="15" />
                 <line x1="9" y1="9" x2="15" y2="15" />
@@ -124,6 +123,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           </div>
         ))}
       </div>
+  );
+  return (
+    <ToastContext.Provider value={contextValue}>
+      {children}
+      {activeDialog ? createPortal(notifications, activeDialog) : notifications}
     </ToastContext.Provider>
   );
 }

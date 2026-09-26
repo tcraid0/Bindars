@@ -62,6 +62,7 @@ const TOCItem = memo(function TOCItem({
       <button
         type="button"
         ref={isActive ? activeRef : null}
+        aria-current={isActive ? "location" : undefined}
         onClick={() => onClick?.(heading.id)}
         className={`w-full text-left px-4 py-1.5 pr-8 text-[13px] leading-snug transition-colors duration-200 hover:text-text-primary ${
           indentByLevel[heading.level] || "pl-4"
@@ -82,11 +83,11 @@ const TOCItem = memo(function TOCItem({
             e.stopPropagation();
             onToggleBookmark(heading.id, heading.text);
           }}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-accent transition-opacity duration-150 ${
+          className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-accent-text transition-opacity duration-150 ${
             bookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={bookmarked ? "text-accent" : ""}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={bookmarked ? "text-accent-text" : ""}>
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
           </svg>
         </button>
@@ -205,9 +206,10 @@ function TableOfContentsComponent({
                   <button
                     type="button"
                     onClick={() => onToggleCharacterFocus?.(char.name)}
+                    aria-pressed={focusedCharacter === char.name}
                     className={`w-full text-left px-2 py-1 rounded text-xs flex items-start gap-1 transition-colors ${
                       focusedCharacter === char.name
-                        ? "bg-accent/15 text-accent font-medium"
+                        ? "bg-accent/15 text-accent-text font-medium"
                         : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                     }`}
                   >

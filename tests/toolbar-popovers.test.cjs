@@ -311,7 +311,7 @@ for (const kind of ["reader", "export"]) {
       focus(opener);
       view.render({ modal: true });
       assert.ok(view.panel(kind));
-      const modal = view.host.querySelector('[aria-modal="true"]');
+      const modal = document.querySelector('#dialog-root [aria-modal="true"]');
       flushSync(() => pointerClick(modal));
       assert.ok(view.panel(kind));
       pressKey("Escape");

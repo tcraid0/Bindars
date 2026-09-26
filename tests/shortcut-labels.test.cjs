@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const React = require("react");
-const { renderToStaticMarkup } = require("react-dom/server");
+const { renderMarkup } = require("./_helpers/render-markup.cjs");
 
 const { CommandPalette } = require("../.tmp/workspace-tests/src/components/CommandPalette.js");
 const { EmptyState } = require("../.tmp/workspace-tests/src/components/EmptyState.js");
@@ -54,7 +54,7 @@ function withNavigator(navigatorValue, callback) {
 }
 
 function renderPlatformLabels(navigatorValue) {
-  return withNavigator(navigatorValue, () => renderToStaticMarkup(
+  return withNavigator(navigatorValue, () => renderMarkup(
     React.createElement(
       React.Fragment,
       null,

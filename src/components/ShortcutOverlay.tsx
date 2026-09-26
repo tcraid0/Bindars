@@ -12,6 +12,7 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
 
   return (
     <DialogFrame
+      appShortcuts
       visible={visible}
       title="Keyboard Shortcuts"
       initialFocusRef={closeRef}

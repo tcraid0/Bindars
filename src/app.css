@@ -60,8 +60,8 @@
   --bg-secondary: #F5F4F2;
   --bg-tertiary: #EDECEB;
   --text-primary: #1C1917;
-  --text-secondary: #57534E;
-  --text-muted: #A8A29E;
+  --text-secondary: #4E4A46;
+  --text-muted: #665F5B;
   --accent: #BD9264;
   --accent-hover: #AD8358;
   --border: #E8E7E6;
@@ -79,15 +79,19 @@
   --syntax-attr: #005cc5;
   --syntax-variable: #e36209;
   --syntax-deletion: #b31d28;
+  --accent-text: #6E4F30;
+  --on-accent: #24180D;
+  --danger: #A52C32;
+  --warning: #785108;
 }
 
 [data-theme="sepia"] {
   --bg-primary: #F3EACE;
   --bg-secondary: #EAE0C4;
   --bg-tertiary: #E0D6B8;
-  --text-primary: #5B4636;
-  --text-secondary: #7D6B5D;
-  --text-muted: #A99B8A;
+  --text-primary: #3C2F24;
+  --text-secondary: #4F433B;
+  --text-muted: #65584A;
   --accent: #C8956C;
   --accent-hover: #B8855C;
   --border: #D9CEBC;
@@ -105,6 +109,10 @@
   --syntax-attr: #8B6834;
   --syntax-variable: #B07330;
   --syntax-deletion: #A0392B;
+  --accent-text: #644327;
+  --on-accent: #24180D;
+  --danger: #942627;
+  --warning: #6E4600;
 }
 
 [data-theme="dark"] {
@@ -112,16 +120,17 @@
   --bg-secondary: #231F1C;
   --bg-tertiary: #2C2724;
   --text-primary: #EEEBE6;
-  --text-secondary: #A39E98;
-  --text-muted: #6B6560;
+  --text-secondary: #C2BEBA;
+  --text-muted: #A6A19C;
   --accent: #D4A373;
   --accent-hover: #E0B48A;
   --border: #352F2B;
   --code-bg: #221E1B;
-  --highlight-yellow: rgba(250, 204, 21, 0.3);
-  --highlight-green: rgba(74, 222, 128, 0.3);
-  --highlight-blue: rgba(96, 165, 250, 0.3);
-  --highlight-pink: rgba(244, 114, 182, 0.3);
+  /* Opaque mixes prevent overlapping annotations from accumulating tint. */
+  --highlight-yellow: color-mix(in srgb, #facc15 30%, var(--bg-primary));
+  --highlight-green: color-mix(in srgb, #4ade80 30%, var(--bg-primary));
+  --highlight-blue: color-mix(in srgb, #60a5fa 30%, var(--bg-primary));
+  --highlight-pink: color-mix(in srgb, #f472b6 30%, var(--bg-primary));
   --syntax-base: #adbac7;
   --syntax-comment: #768390;
   --syntax-keyword: #f47067;
@@ -131,6 +140,10 @@
   --syntax-attr: #6cb6ff;
   --syntax-variable: #f69d50;
   --syntax-deletion: #f47067;
+  --accent-text: #F7D6B7;
+  --on-accent: #24180D;
+  --danger: #FFA3A3;
+  --warning: #F2CA83;
 }
 
 [data-theme="deep-dark"] {
@@ -138,16 +151,16 @@
   --bg-secondary: #1A1816;
   --bg-tertiary: #231F1C;
   --text-primary: #E7E5E4;
-  --text-secondary: #87817C;
-  --text-muted: #57534E;
+  --text-secondary: #B5B2AE;
+  --text-muted: #9B968F;
   --accent: #DAA97A;
   --accent-hover: #E5B88E;
   --border: #292524;
   --code-bg: #161412;
-  --highlight-yellow: rgba(250, 204, 21, 0.25);
-  --highlight-green: rgba(74, 222, 128, 0.25);
-  --highlight-blue: rgba(96, 165, 250, 0.25);
-  --highlight-pink: rgba(244, 114, 182, 0.25);
+  --highlight-yellow: color-mix(in srgb, #facc15 25%, var(--bg-primary));
+  --highlight-green: color-mix(in srgb, #4ade80 25%, var(--bg-primary));
+  --highlight-blue: color-mix(in srgb, #60a5fa 25%, var(--bg-primary));
+  --highlight-pink: color-mix(in srgb, #f472b6 25%, var(--bg-primary));
   --syntax-base: #9DA5AE;
   --syntax-comment: #636C76;
   --syntax-keyword: #E06058;
@@ -157,6 +170,10 @@
   --syntax-attr: #5A9FD6;
   --syntax-variable: #D98F48;
   --syntax-deletion: #E06058;
+  --accent-text: #E8BC91;
+  --on-accent: #24180D;
+  --danger: #FFA3A3;
+  --warning: #F2CA83;
 }
 
 /* ── Tailwind theme mapping ── */
@@ -169,6 +186,10 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
   --color-accent-hover: var(--accent-hover);
   --color-border: var(--border);
   --color-code-bg: var(--code-bg);
@@ -211,23 +232,29 @@ code, pre, pre * {
   transition: none !important;
 }
 
+/* Keep reduced motion static and visible, including forwards-filled fades.
+   The pre-React loading screen has its own visible reduced-motion state. */
+.reduced-motion :is(#root, #dialog-root),
+.reduced-motion :is(#root, #dialog-root) *,
+.reduced-motion :is(#root, #dialog-root) *::before,
+.reduced-motion :is(#root, #dialog-root) *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+.reduced-motion button:active:not(:disabled),
+.reduced-motion [role="button"]:active:not(:disabled) {
+  transform: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0ms !important;
+  :is(#root, #dialog-root), :is(#root, #dialog-root) *, :is(#root, #dialog-root) *::before, :is(#root, #dialog-root) *::after {
+    animation: none !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
-
-  .drop-zone-border,
-  .empty-state-title,
-  .empty-state-subtitle,
-  .empty-state-content {
-    animation: none !important;
-  }
-
-  button:active:not(:disabled),
-  [role="button"]:active:not(:disabled) {
+  button:active:not(:disabled), [role="button"]:active:not(:disabled) {
     transform: none !important;
   }
 }
@@ -329,24 +356,6 @@ body {
 .reduced-effects .command-palette-backdrop,
 .reduced-effects .drop-zone-overlay {
   backdrop-filter: none !important;
-}
-
-.reduced-effects .empty-state-title,
-.reduced-effects .empty-state-subtitle,
-.reduced-effects .empty-state-content {
-  animation: none !important;
-}
-
-.reduced-effects .workspace-panel,
-.reduced-effects .search-bar,
-.reduced-effects .command-palette-shell,
-.reduced-effects .command-palette-input-wrap {
-  transition: none !important;
-}
-
-.reduced-effects button:active:not(:disabled),
-.reduced-effects [role="button"]:active:not(:disabled) {
-  transform: none !important;
 }
 
 /* ── Sepia paper texture ── */
@@ -472,7 +481,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body a {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
   text-underline-offset: 2px;
@@ -480,8 +489,8 @@ button:active:not(:disabled),
 }
 
 .markdown-body a:hover {
-  color: var(--accent-hover);
-  text-decoration-color: var(--accent-hover);
+  color: var(--accent-text);
+  text-decoration-color: var(--accent-text);
 }
 
 .markdown-body strong {
@@ -728,10 +737,6 @@ button:active:not(:disabled),
   animation: fadeOut 1.5s ease forwards;
 }
 
-.reduced-effects .save-whisper-saved {
-  animation: none;
-}
-
 @keyframes pulse-border {
   0%, 100% { border-color: var(--accent); }
   50% { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
@@ -798,7 +803,7 @@ button:active:not(:disabled),
 /* ── Search highlights ── */
 
 mark.search-highlight {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: color-mix(in srgb, var(--accent) 25%, var(--bg-primary));
   border-radius: 2px;
   padding: 1px 0;
   color: inherit;
@@ -806,7 +811,7 @@ mark.search-highlight {
 
 mark.search-highlight-active {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-radius: 2px;
   padding: 1px 0;
 }
@@ -843,6 +848,21 @@ mark.annotation-highlight-pink {
   padding: 1px 0;
   color: inherit;
   cursor: pointer;
+}
+
+/* Lift secondary prose only where it is marked; preserve link and code colours. */
+:is(.markdown-body h6, .markdown-body blockquote, .markdown-body del,
+    .markdown-body .footnotes, .frontmatter-description, .frontmatter-meta, .frontmatter-separator,
+    .fountain-credit, .fountain-draft-date, .fountain-title-entry,
+    .fountain-section, .fountain-synopsis, .fountain-note)
+mark:not(.search-highlight-active, .search-highlight-active *):not(a *, code *, .frontmatter-tag *) {
+  color: var(--text-primary);
+}
+
+/* Annotation repainting can place marks inside the active search result. */
+mark.search-highlight-active mark {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* ── Syntax highlighting (variable-driven, all themes) ── */
@@ -965,7 +985,7 @@ mark.annotation-highlight-pink {
   font-family: var(--font-ui);
   font-size: 0.8em;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
@@ -1038,7 +1058,7 @@ mark.annotation-highlight-pink {
   font-weight: 500;
   padding: 0.2em 0.65em;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: 999px;
   letter-spacing: 0.02em;
 }
@@ -1085,26 +1105,26 @@ mark.annotation-highlight-pink {
   font-family: var(--font-ui);
   font-size: 0.75em;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: none;
   padding: 0 0.15em;
 }
 
 .markdown-body sup a[data-footnote-ref]:hover {
   text-decoration: underline;
-  color: var(--accent-hover);
+  color: var(--accent-text);
 }
 
 .markdown-body a[data-footnote-backref] {
   font-family: var(--font-ui);
   font-size: 0.8em;
   text-decoration: none;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-left: 0.25em;
 }
 
 .markdown-body a[data-footnote-backref]:hover {
-  color: var(--accent-hover);
+  color: var(--accent-text);
 }
 
 /* ── KaTeX overrides ── */

@@ -1567,3 +1567,35 @@ for (const operation of ["resolveDocument", "resolveWriteParent"]) {
     } finally { rendered.cleanup(); }
   });
 }
+
+for (const scenario of ['created', 'notes-exist', 'cancelled']) {
+  test(`Copy reuses Save As with create-only writes and preserves Fountain names: ${scenario}`, async () => {
+    await installDom(); const writes = [], checks = [];
+    mockIPC((command, args) => {
+      if (command === 'plugin:dialog|save') return scenario === 'cancelled' ? null : '/tmp/Scene copy';
+      if (command === 'check_copy_destination') {
+        checks.push(args.path);
+        if (scenario === 'notes-exist') throw 'This name already has saved notes. Choose another name.';
+        return args.path;
+      }
+      if (command === 'write_markdown_file_if_unmodified') {
+        writes.push(args);
+        return { conflict: false, canonicalPath: args.path, name: 'Scene copy.fountain', currentRevision: originalRevision };
+      }
+      throw Error(command);
+    });
+    const rendered = renderUseEditor();
+    try {
+      enterEditMode(rendered, 'INT. ROOM - DAY'); let result;
+      await act(async () => { result = await rendered.api().saveAs('Scene copy.fountain', '/tmp/Scene.fountain', { copy: true, extension: 'fountain' }); });
+      assert.equal(result.status, scenario === 'created' ? 'saved' : scenario === 'cancelled' ? 'cancelled' : 'error');
+      assert.equal(writes.length, scenario === 'created' ? 1 : 0);
+      if (writes.length) {
+        assert.equal(writes[0].createNew, true); assert.equal(writes[0].force, false);
+        assert.equal(writes[0].path, '/tmp/Scene copy.fountain');
+      }
+      if (scenario === 'notes-exist') assert.match(result.message, /saved notes/);
+      assert.equal(rendered.api().saving, false);
+    } finally { rendered.cleanup(); }
+  });
+}

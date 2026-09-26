@@ -19,7 +19,7 @@ export function MarkdownFormattingToggle({
       aria-pressed={enabled}
       className={`px-2 py-1 rounded-md border font-ui text-[11px] leading-none transition-colors duration-120 shrink-0 ${
         enabled
-          ? "border-accent/40 bg-accent/10 text-accent"
+          ? "border-accent/40 bg-accent/10 text-accent-text"
           : "border-border text-text-muted hover:bg-bg-tertiary hover:text-text-secondary"
       } ${className}`.trim()}
       title={`Use ${enabled ? "plain" : "formatted"} Markdown (${formatShortcutLabel("toggleMarkdownFormatting")})`}
