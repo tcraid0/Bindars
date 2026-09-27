@@ -6613,3 +6613,54 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
     } finally { picker.resolve(null); await view.cleanup(); }
   });
 }
+
+for (const format of ["markdown", "fountain"]) {
+  for (const readyBy of ["history", "deadline"]) {
+    test(`reader headings survive late startup mount: ${format}, ${readyBy}`, async (context) => {
+      const held = deferred();
+      const history = { value: { version: 1, files: [] }, writes: [], read: () => held.promise };
+      context.mock.timers.enable({ apis: ["setTimeout"] });
+      const isFountain = format === "fountain";
+      const heading = isFountain ? "INT. ROOM - DAY" : "Second";
+      const rendered = await renderContinuityApp({
+        requestedPath: `/tmp/late.${isFountain ? "fountain" : "md"}`,
+        initialContent: isFountain ? "INT. ROOM - DAY\n\nA reader waits.\n\nNORA\nReady.\n" : undefined,
+        recentStorage: history, readySelector: null,
+      });
+      try {
+        await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
+        await act(async () => new Promise(setImmediate));
+        assert.ok(!rendered.host.querySelector("article"), "startup still hides the prepared document");
+        await act(async () => {
+          if (readyBy === "history") held.resolve([history.value, true]);
+          else context.mock.timers.tick(3000);
+        });
+        await waitFor(() => assert.ok(rendered.host.querySelector("article h1[id], article h2[id], article h3[id]")));
+        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Table of contents"] button'))
+          .some(button => button.textContent.trim() === heading), "Contents must include the rendered heading"));
+        assert.doesNotMatch(rendered.host.textContent, /No headings/);
+      } finally {
+        context.mock.timers.reset();
+        held.resolve([history.value, true]);
+        await rendered.cleanup();
+      }
+    });
+  }
+}
+
+test("saved heading restores when the reader mounts after the session document loads", async () => {
+  const held = deferred();
+  const history = { value: { version: 1, files: [] }, writes: [], read: () => held.promise };
+  const rendered = await renderContinuityApp({ restoreHeadingId: "second", recentStorage: history, readySelector: null });
+  try {
+    await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
+    await act(async () => new Promise(setImmediate));
+    assert.ok(!rendered.host.querySelector("article"));
+    await act(async () => held.resolve([history.value, true]));
+    await waitFor(() => assert.ok(rendered.host.querySelector("#second")));
+    await waitFor(() => assert.ok(rendered.scrolledIds.includes("second"), "restore waits for the startup-hidden reader to mount"));
+  } finally {
+    held.resolve([history.value, true]);
+    await rendered.cleanup();
+  }
+});
