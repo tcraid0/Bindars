@@ -1486,10 +1486,6 @@ function App() {
     };
   }, [content, editing, focusMode, presentationMode, updateReadingProgressNow]);
 
-  // Extract headings after the reader DOM renders. Active tracking is colocated
-  // with the TOC so heading changes do not rerender the full App tree.
-  const headings = useHeadings(contentRef, content, !editing && readerDocumentReady, filePath);
-
   const scrollToHeading = useCallback(
     (
       headingId: string,
@@ -1578,33 +1574,6 @@ function App() {
     setFocusedCharacter((prev) => prev === name ? null : name);
   }, []);
 
-  const sceneItems = useMemo(() => {
-    if (!settings.sceneLensEnabled || !readerDocumentReady) return [];
-    if (workspaceInsights.scenes.length > 0) return workspaceInsights.scenes;
-
-    if (parsedFountain) {
-      return parsedFountain.scenes.map((s) => ({
-        id: s.id,
-        label: s.text,
-        line: s.index,
-        headingId: s.id,
-      }));
-    }
-
-    const fallbackScenes: SceneItem[] = [];
-    for (let i = 0; i < headings.length; i += 1) {
-      const heading = headings[i];
-      if (!isMarkdownSceneHeadingText(heading.text)) continue;
-      fallbackScenes.push({
-        id: `scene-fallback-${heading.id}`,
-        label: heading.text,
-        line: i + 1,
-        headingId: heading.id,
-      });
-    }
-    return fallbackScenes;
-  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain, readerDocumentReady]);
-
   // Pending reader target: set before navigation or reader restoration and
   // consumed once by the newly mounted, correctly scoped reader DOM.
   const openAttemptIdRef = useRef(0);
@@ -1664,8 +1633,43 @@ function App() {
     waitForInitialNativeOpen,
   });
 
+  // The deadline permits interaction, not storage writes. History and preference
+  // hooks keep their own authority/user-intent guards while reads are pending.
+  const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
+
+  // Preparation can finish while startup still hides the reader. Wait for
+  // the same readiness gate as the JSX so this effect sees its committed DOM.
+  const headings = useHeadings(contentRef, content, appReady && !editing && readerDocumentReady, filePath);
+
+  const sceneItems = useMemo(() => {
+    if (!settings.sceneLensEnabled || !readerDocumentReady) return [];
+    if (workspaceInsights.scenes.length > 0) return workspaceInsights.scenes;
+
+    if (parsedFountain) {
+      return parsedFountain.scenes.map((s) => ({
+        id: s.id,
+        label: s.text,
+        line: s.index,
+        headingId: s.id,
+      }));
+    }
+
+    const fallbackScenes: SceneItem[] = [];
+    for (let i = 0; i < headings.length; i += 1) {
+      const heading = headings[i];
+      if (!isMarkdownSceneHeadingText(heading.text)) continue;
+      fallbackScenes.push({
+        id: `scene-fallback-${heading.id}`,
+        label: heading.text,
+        line: i + 1,
+        headingId: heading.id,
+      });
+    }
+    return fallbackScenes;
+  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain, readerDocumentReady]);
+
   useLayoutEffect(() => {
-    if (editing || !pendingReaderTarget) return;
+    if (!appReady || editing || !pendingReaderTarget) return;
     const root = contentRef.current;
     const scrollRoot = mainScrollRef.current;
     if (!root || !scrollRoot) return;
@@ -1695,7 +1699,7 @@ function App() {
       toast(`"${pendingReaderTarget.headingId}" was not found in this document — it may have been renamed or removed.`, "error");
     }
     setPendingReaderTarget(null);
-  }, [content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
+  }, [appReady, content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
 
   // Deliberate returns already cause a render. Complete once, after the layout
   // restoration and child dialog cleanup; a blocked request must never linger.
@@ -2639,9 +2643,6 @@ function App() {
     };
   }, [armPrintCleanup, clearPrintSession]);
 
-  // The deadline permits interaction, not storage writes. History and preference
-  // hooks keep their own authority/user-intent guards while reads are pending.
-  const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
   useEffect(() => {
     if (appReady) {
       signalAppReady();
