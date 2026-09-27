@@ -49,7 +49,8 @@ function updateIsolation() {
 }
 
 function dialogHost() {
-  let host = document.getElementById("dialog-root");
+  // Reader headings can have the same ID; only the body owns the modal host.
+  let host = document.querySelector<HTMLDivElement>("body > div#dialog-root");
   if (!host) {
     host = document.createElement("div");
     host.id = "dialog-root";

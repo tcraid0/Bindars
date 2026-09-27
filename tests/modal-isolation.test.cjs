@@ -7,7 +7,62 @@ const { mockIPC, clearMocks } = require('@tauri-apps/api/mocks');
 const { ConfirmDialog } = require('../.tmp/workspace-tests/src/components/ConfirmDialog.js');
 const { ToastProvider, useToast } = require('../.tmp/workspace-tests/src/components/ToastProvider.js');
 const { AnnotationsPanel } = require('../.tmp/workspace-tests/src/components/AnnotationsPanel.js');
+const { AnnotationExitDialog } = require('../.tmp/workspace-tests/src/components/AnnotationExitDialog.js');
+const Markdown = require('react-markdown').default;
+const { remarkPlugins, rehypePlugins } = require('../.tmp/workspace-tests/src/lib/markdown-plugins.js');
 const noop = () => {};
+
+for (const existingHost of [false, true]) {
+  test(`document headings cannot own recovery dialogs (existing host: ${existingHost})`, async t => {
+    document.body.innerHTML = '';
+    const host = document.createElement('div'); host.id = 'root'; document.body.append(host);
+    if (existingHost) {
+      const portal = document.createElement('div'); portal.id = 'dialog-root'; document.body.append(portal);
+    }
+    const root = createRoot(host);
+    let retries = 0;
+    function Probe() {
+      const [open, setOpen] = React.useState(false);
+      return React.createElement(React.Fragment, null,
+        React.createElement(Markdown, { remarkPlugins, rehypePlugins }, '# Dialog root'),
+        React.createElement('button', { onClick: () => setOpen(true) }, 'Show recovery'),
+        React.createElement(AnnotationExitDialog, {
+          paths: open ? ['/synthetic/notes.md'] : null, waiting: false,
+          onKeepOpen: () => setOpen(false), onRetry: () => { retries++; }, onQuit: noop,
+          pendingRecords: () => ({}),
+        }));
+    }
+    t.after(async () => {
+      await act(async () => root.unmount());
+      host.remove();
+      document.querySelector('body > div#dialog-root')?.remove();
+    });
+    // Commit the real Markdown heading before opening the dialog. Rendering
+    // both together would look up the host before the heading enters the DOM.
+    await act(async () => root.render(React.createElement(Probe)));
+    const heading = host.querySelector('h1#dialog-root');
+    assert.ok(heading);
+    const opener = host.querySelector('button'); opener.focus();
+    await act(async () => opener.click());
+    const portal = document.querySelector('body > div#dialog-root');
+    assert.ok(portal);
+    const dialog = portal.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.equal(host.contains(dialog), false);
+    assert.ok(host.hasAttribute('inert'));
+    assert.ok(dialog.closest('[inert]') === null);
+    const buttons = [...dialog.querySelectorAll('button')];
+    const keepOpen = buttons.find(button => button.textContent === 'Keep open');
+    assert.ok(document.activeElement === keepOpen);
+    await act(async () => buttons.find(button => button.textContent === 'Retry saving').click());
+    assert.equal(retries, 1);
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    assert.ok(portal.querySelector('[role="dialog"]') === null);
+    assert.equal(host.hasAttribute('inert'), false);
+    assert.ok(document.activeElement === opener);
+    assert.equal(heading.textContent, 'Dialog root');
+  });
+}
 
 test('modal isolation preserves prior inertness and puts toast controls inside the active dialog', async t => {
   const host = document.createElement('div'); host.id = 'root'; host.setAttribute('inert', ''); document.body.append(host);

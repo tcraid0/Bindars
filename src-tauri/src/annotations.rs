@@ -1,7 +1,7 @@
 //! Annotation storage is separate from the settings plugin: a successful command
 //! acknowledges an atomic file replacement, not an update to an autosave cache.
 use crate::atomic_write::write_contents_atomic_private;
-use crate::file_errors::{NativeFileError, NativeFileOperation};
+use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::{collections::HashSet, fs, io::Read, path::Path, sync::Mutex};
@@ -401,15 +401,14 @@ pub(crate) async fn check_copy_destination(
     app: tauri::AppHandle,
     path: String,
 ) -> Result<String, NativeFileError> {
-    let (path, occupied) = run(app, move |root| {
-        let path = crate::document_io::resolve_markdown_write_name(Path::new(&path))
-            .map_err(|e| e.message)?;
-        let path = path.to_string_lossy().into_owned();
-        let occupied = annotated_paths_at(root)?.contains(&path);
-        Ok((path, occupied))
+    // Destination failures belong to the file operation, not annotation storage.
+    let path = run_blocking_file_io(move || {
+        crate::document_io::resolve_markdown_write_name(Path::new(&path))
     })
-    .await?;
-    if occupied {
+    .await?
+    .to_string_lossy()
+    .into_owned();
+    if annotated_paths(app).await?.contains(&path) {
         return Err(NativeFileError::invalid(
             NativeFileOperation::ValidateDocument,
             "This name already has saved highlights, notes, or bookmarks. Choose a different name for the copy.",

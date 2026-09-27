@@ -6561,13 +6561,21 @@ test("a malformed saved heading still opens a usable document", async () => {
   }
 });
 
-for (const outcome of ['created', 'cancelled', 'notes-exist', 'write-failed']) {
+for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 'storage-failed', 'write-failed']) {
   test(`Make a copy keeps the source in reading mode until adoption: ${outcome}`, async () => {
     const picker = deferred();
     const view = await renderContinuityApp({
       sampleFlow: { dialogs: [], dialog: () => picker.promise },
       copyDestinationCheck: path => {
         if (outcome === 'notes-exist') throw 'This name already has saved notes. Choose another name.';
+        if (outcome === 'missing-folder') throw {
+          category: 'notFound', operation: 'resolveWriteParent',
+          message: 'Bindars could not locate the destination folder.', detail: 'synthetic missing parent',
+        };
+        if (outcome === 'storage-failed') throw {
+          category: 'unknown', operation: 'accessRecoveryData',
+          message: "Couldn't access annotation storage. Existing data was preserved.", detail: 'synthetic storage failure',
+        };
         return path;
       },
     });
@@ -6594,6 +6602,12 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'write-failed']) {
         assert.equal(view.diskContent(), source);
         assert.equal(view.fileWrites().length, outcome === 'write-failed' ? 1 : 0);
         if (outcome === 'notes-exist') assert.match(document.body.textContent, /saved notes/);
+        if (outcome === 'missing-folder') {
+          assert.match(document.body.textContent, /destination folder is no longer available/);
+          assert.doesNotMatch(document.body.textContent, /Couldn't access annotation storage/);
+        }
+        if (outcome === 'storage-failed') assert.match(document.body.textContent, /Couldn't access annotation storage/);
+        assert.doesNotMatch(document.body.textContent, /synthetic missing parent|synthetic storage failure/);
       }
       assert.ok(view.fileWrites().every(write => write.path !== '/tmp/continuity.md'));
     } finally { picker.resolve(null); await view.cleanup(); }
