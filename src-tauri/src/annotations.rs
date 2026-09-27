@@ -1,7 +1,7 @@
 //! Annotation storage is separate from the settings plugin: a successful command
 //! acknowledges an atomic file replacement, not an update to an autosave cache.
 use crate::atomic_write::write_contents_atomic_private;
-use crate::file_errors::{NativeFileError, NativeFileOperation};
+use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::{collections::HashSet, fs, io::Read, path::Path, sync::Mutex};
@@ -113,38 +113,70 @@ pub(crate) async fn save_annotations(
 
 #[tauri::command]
 pub(crate) async fn export_annotation_recovery(
+    app: tauri::AppHandle,
     path: String,
     documents: Value,
 ) -> Result<(), NativeFileError> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| recovery_export_error(e.to_string()))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let path = Path::new(&path);
-        if path.extension().and_then(|v| v.to_str()) != Some("json") || !documents.is_object() {
-            return Err("Choose a .json recovery file".to_string());
-        }
-        let parent = path.parent().ok_or("Missing recovery destination")?;
-        crate::document_io::canonicalize_directory_path(
-            parent,
-            NativeFileOperation::ResolveWriteParent,
-            NativeFileOperation::InspectWriteParent,
-        )
-        .map_err(|e| e.message)?;
-        let data = json!({"kind":"bindars-annotation-recovery","version":1,"documents":documents});
-        if serde_json::to_vec_pretty(&data)
-            .map_err(|e| e.to_string())?
-            .len()
-            > 64 * 1024 * 1024
-        {
-            return Err("Recovery copy exceeds 64 MiB".into());
-        }
-        write_json(path, &data)?;
-        if read_recovery_at(path)? != data {
-            return Err("Couldn't verify recovery copy".into());
-        }
-        Ok(())
+        export_recovery_at(&root, Path::new(&path), documents)
     })
     .await
-    .map_err(|e| error(e.to_string()))?
-    .map_err(error)
+    .map_err(|e| recovery_export_error(e.to_string()))?
+}
+
+fn recovery_export_error(detail: impl Into<String>) -> NativeFileError {
+    NativeFileError::unknown(
+        NativeFileOperation::SaveRecoveryData,
+        "Couldn't save the recovery copy.",
+        detail,
+    )
+}
+
+fn export_recovery_at(root: &Path, path: &Path, documents: Value) -> Result<(), NativeFileError> {
+    let invalid =
+        |message| NativeFileError::invalid(NativeFileOperation::SaveRecoveryData, message);
+    if path.extension().and_then(|v| v.to_str()) != Some("json") || !documents.is_object() {
+        return Err(invalid("Choose a .json recovery file."));
+    }
+    let parent = crate::document_io::canonicalize_directory_path(
+        path.parent()
+            .ok_or_else(|| invalid("Choose a recovery destination folder."))?,
+        NativeFileOperation::ResolveWriteParent,
+        NativeFileOperation::InspectWriteParent,
+    )?;
+    match dunce::canonicalize(root) {
+        Ok(root) if parent.starts_with(&root) => {
+            return Err(invalid(
+                "Choose a recovery destination outside Bindars' app data folder.",
+            ));
+        }
+        // A missing app-data folder cannot contain an existing destination folder.
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(recovery_export_error(e.to_string()))
+        }
+        _ => {}
+    }
+    let path = parent.join(
+        path.file_name()
+            .ok_or_else(|| invalid("Choose a recovery filename."))?,
+    );
+    let data = json!({"kind":"bindars-annotation-recovery","version":1,"documents":documents});
+    if serde_json::to_vec_pretty(&data)
+        .map_err(|e| recovery_export_error(e.to_string()))?
+        .len()
+        > 64 * 1024 * 1024
+    {
+        return Err(invalid("Recovery copy exceeds 64 MiB."));
+    }
+    write_json(&path, &data).map_err(recovery_export_error)?;
+    if read_recovery_at(&path).map_err(recovery_export_error)? != data {
+        return Err(recovery_export_error("Couldn't verify recovery copy"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -353,10 +385,36 @@ fn annotated_paths_at(root: &Path) -> Result<HashSet<String>, String> {
     Ok(documents
         .iter()
         .filter(|(_, record)| {
-            !(record.is_object() && empty(record, "highlights") && empty(record, "bookmarks"))
+            !(record.is_object()
+                && record
+                    .get("version")
+                    .is_none_or(|version| [json!(1), json!(2), json!(3)].contains(version))
+                && empty(record, "highlights")
+                && empty(record, "bookmarks"))
         })
         .map(|(path, _)| path.clone())
         .collect())
+}
+
+#[tauri::command]
+pub(crate) async fn check_copy_destination(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<String, NativeFileError> {
+    // Destination failures belong to the file operation, not annotation storage.
+    let path = run_blocking_file_io(move || {
+        crate::document_io::resolve_markdown_write_name(Path::new(&path))
+    })
+    .await?
+    .to_string_lossy()
+    .into_owned();
+    if annotated_paths(app).await?.contains(&path) {
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "This name already has saved highlights, notes, or bookmarks. Choose a different name for the copy.",
+        ));
+    }
+    Ok(path)
 }
 
 fn save_at(root: &Path, path: &str, annotations: Value) -> Result<(), String> {
@@ -658,6 +716,69 @@ mod tests {
         assert_eq!(read_recovery_at(&path).unwrap(), data);
         fs::write(&path, b"{broken").unwrap();
         assert!(read_recovery_at(&path).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn recovery_export_refuses_app_data_and_descendants_without_changing_bytes() {
+        let root = fixture();
+        let storage = root.join("app");
+        fs::create_dir_all(storage.join("nested")).unwrap();
+        let original =
+            br#"{"version":1,"documents":{"/other.md":{"highlights":[{"note":"keep"}]}}}"#;
+        for name in [DATA, "settings.json", RECEIPT, ARCHIVE, "nested/copy.json"] {
+            let path = storage.join(name);
+            fs::write(&path, original).unwrap();
+            let failure =
+                export_recovery_at(&storage, &path, json!({"/pending.md": {}})).unwrap_err();
+            assert_eq!(
+                failure.category,
+                crate::file_errors::NativeFileErrorCategory::InvalidInput
+            );
+            assert_eq!(failure.operation, NativeFileOperation::SaveRecoveryData);
+            assert_eq!(
+                failure.message,
+                "Choose a recovery destination outside Bindars' app data folder."
+            );
+            assert_eq!(fs::read(path).unwrap(), original);
+        }
+        // A sibling whose name begins with the storage name is a valid destination.
+        let outside = root.join("app-copies");
+        fs::create_dir(&outside).unwrap();
+        let destination = outside.join("copy.json");
+        export_recovery_at(
+            &storage,
+            &destination,
+            json!({"/pending.md": {"note":"pending"}}),
+        )
+        .unwrap();
+        assert_eq!(
+            read_recovery_at(&destination).unwrap()["documents"]["/pending.md"]["note"],
+            "pending"
+        );
+        #[cfg(unix)]
+        {
+            let alias = root.join("alias");
+            std::os::unix::fs::symlink(&storage, &alias).unwrap();
+            assert!(export_recovery_at(&storage, &alias.join(DATA), json!({})).is_err());
+            assert_eq!(fs::read(storage.join(DATA)).unwrap(), original);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn future_record_versions_reserve_names_even_when_known_lists_are_empty() {
+        let root = fixture();
+        fs::write(
+            root.join(DATA),
+            br#"{"version":1,"documents":{
+            "/future.md":{"version":4,"highlights":[],"bookmarks":[],"futureNotes":["keep"]},
+            "/empty.md":{"version":3,"highlights":[],"bookmarks":[]}
+        }}"#,
+        )
+        .unwrap();
+        let paths = annotated_paths_at(&root).unwrap();
+        assert!(paths.contains("/future.md"));
+        assert!(!paths.contains("/empty.md"));
         fs::remove_dir_all(root).unwrap();
     }
     #[cfg(unix)]

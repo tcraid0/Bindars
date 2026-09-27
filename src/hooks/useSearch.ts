@@ -63,18 +63,18 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
   return matches;
 }
 
-function setActiveMatch(matches: HTMLElement[], index: number, prevIndex: number) {
+function setActiveMatch(matches: HTMLElement[], index: number, prevIndex: number, reducedMotion: boolean) {
   if (prevIndex >= 0 && prevIndex < matches.length && matches[prevIndex].isConnected) {
     matches[prevIndex].className = SEARCH_HIGHLIGHT_CLASS;
   }
 
   if (index >= 0 && index < matches.length && matches[index].isConnected) {
     matches[index].className = SEARCH_ACTIVE_CLASS;
-    matches[index].scrollIntoView({ behavior: "smooth", block: "center" });
+    matches[index].scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
   }
 }
 
-export function useSearch(contentRef: React.RefObject<HTMLElement | null>): UseSearchResult {
+export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reducedMotion = false): UseSearchResult {
   const [state, setState] = useState<SearchState>({
     query: "",
     matchCount: 0,
@@ -83,6 +83,8 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>): UseS
 
   const matchesRef = useRef<HTMLElement[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reducedMotionRef = useRef(reducedMotion);
+  reducedMotionRef.current = reducedMotion;
 
   const performSearch = useCallback(
     (query: string) => {
@@ -105,7 +107,7 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>): UseS
       matchesRef.current = matches;
       const currentIndex = matches.length > 0 ? 0 : -1;
       if (currentIndex >= 0) {
-        setActiveMatch(matches, currentIndex, -1);
+        setActiveMatch(matches, currentIndex, -1, reducedMotionRef.current);
       }
       setState({ query, matchCount: matches.length, currentIndex });
     },
@@ -129,20 +131,20 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>): UseS
     if (matches.length === 0) return;
     setState((prev) => {
       const nextIndex = (prev.currentIndex + 1) % matches.length;
-      setActiveMatch(matches, nextIndex, prev.currentIndex);
+      setActiveMatch(matches, nextIndex, prev.currentIndex, reducedMotion);
       return { ...prev, currentIndex: nextIndex };
     });
-  }, []);
+  }, [reducedMotion]);
 
   const previous = useCallback(() => {
     const matches = matchesRef.current;
     if (matches.length === 0) return;
     setState((prev) => {
       const prevIndex = (prev.currentIndex - 1 + matches.length) % matches.length;
-      setActiveMatch(matches, prevIndex, prev.currentIndex);
+      setActiveMatch(matches, prevIndex, prev.currentIndex, reducedMotion);
       return { ...prev, currentIndex: prevIndex };
     });
-  }, []);
+  }, [reducedMotion]);
 
   const clear = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

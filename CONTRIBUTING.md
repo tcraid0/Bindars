@@ -63,8 +63,16 @@ contents, verifies the bundled notices, installs it on Ubuntu 22.04, and runs a
 headless launch test. Review the uploaded control file, file manifest, linked
 libraries, checksum, and smoke-test log before creating a version tag.
 
-A `v*` tag runs the same verification and publishes the Debian package only
-after every check passes. AppImage and Arch package publication remain paused.
+A `v*` tag rebuilds, runs the same verification, and publishes that exact tested
+Debian package only after every check passes. A manually dispatched candidate
+and a later tag build are separate artifacts; manually checking the candidate
+does not validate the exact bytes published by the tag run. The current workflow
+has no manual approval step between testing the tag artifact and publishing it.
+
+Finalize `.github/release-body.md` and synchronize the package, lockfile, Cargo,
+and Tauri versions before creating the tag: release notes come from the tagged
+commit. Never describe a manual native check as complete unless its results have
+been recorded. AppImage and Arch package publication remain paused.
 
 ## Pull Requests
 

@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useLayoutEffect, useId, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { isImeCompositionKey } from "../lib/keyboard";
 
@@ -9,6 +10,54 @@ interface OpenDialog {
 
 // Opening order determines keyboard ownership, independently of callback renders.
 const openDialogs: OpenDialog[] = [];
+const listeners = new Set<() => void>();
+let background: { element: HTMLElement; wasInert: boolean } | null = null;
+
+export function getActiveDialog() {
+  return openDialogs[openDialogs.length - 1]?.element ?? null;
+}
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
+
+// Notifications follow the active dialog so their controls and announcements
+// remain inside the modal's accessible, keyboard-reachable subtree.
+export function useActiveDialog() {
+  return useSyncExternalStore(subscribe, getActiveDialog, () => null);
+}
+
+function updateIsolation() {
+  const active = getActiveDialog();
+  if (active && !background) {
+    const element = document.getElementById("root") ?? document.querySelector<HTMLElement>(".app-shell");
+    if (element) {
+      background = { element, wasInert: element.hasAttribute("inert") };
+      element.setAttribute("inert", "");
+    }
+  } else if (!active && background) {
+    background.element.toggleAttribute("inert", background.wasInert);
+    background = null;
+  }
+  for (const { element } of openDialogs) {
+    element.parentElement?.toggleAttribute("inert", element !== active);
+    if (element !== active) element.parentElement?.setAttribute("aria-hidden", "true");
+    else element.parentElement?.removeAttribute("aria-hidden");
+  }
+  for (const listener of listeners) listener();
+}
+
+function dialogHost() {
+  // Reader headings can have the same ID; only the body owns the modal host.
+  let host = document.querySelector<HTMLDivElement>("body > div#dialog-root");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "dialog-root";
+    document.body.append(host);
+  }
+  return host;
+}
 
 function isTopDialog(element: HTMLDivElement | null) {
   return openDialogs[openDialogs.length - 1]?.element === element;
@@ -32,6 +81,7 @@ interface DialogFrameProps {
   initialFocusRef: RefObject<HTMLElement | null>;
   onDismiss: () => void;
   dismissible?: boolean;
+  appShortcuts?: boolean;
   children: ReactNode;
   maxWidthClassName?: string;
   // Replaces the default card classes, including maxWidthClassName.
@@ -50,6 +100,7 @@ export function DialogFrame({
   initialFocusRef,
   onDismiss,
   dismissible = true,
+  appShortcuts = false,
   children,
   maxWidthClassName = "max-w-[360px]",
   className = `w-full ${maxWidthClassName} mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6`,
@@ -63,7 +114,7 @@ export function DialogFrame({
   const backdropPointerRef = useRef<number | null>(null);
   const titleId = useId();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = dialogRef.current;
     if (!visible || !element) return;
 
@@ -72,7 +123,9 @@ export function DialogFrame({
       previousFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     };
     openDialogs.push(entry);
+    updateIsolation();
     initialFocusRef.current?.focus();
+    if (!element.contains(document.activeElement)) focusInside(element);
 
     return () => {
       const wasTop = isTopDialog(element);
@@ -84,6 +137,7 @@ export function DialogFrame({
         }
       }
       backdropPointerRef.current = null;
+      updateIsolation();
       if (wasTop) {
         const remainingDialog = openDialogs[openDialogs.length - 1]?.element;
         if (remainingDialog) {
@@ -101,6 +155,13 @@ export function DialogFrame({
 
   useEffect(() => {
     if (!visible) return;
+
+    const containFocus = (event: FocusEvent) => {
+      const dialog = dialogRef.current;
+      if (dialog && isTopDialog(dialog) && event.target instanceof Node && !dialog.contains(event.target)) {
+        focusInside(dialog);
+      }
+    };
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !isTopDialog(dialogRef.current)) return;
@@ -136,14 +197,18 @@ export function DialogFrame({
     };
 
     window.addEventListener("keydown", handleKey, { capture: true });
-    return () => window.removeEventListener("keydown", handleKey, { capture: true });
+    document.addEventListener("focusin", containFocus, true);
+    return () => {
+      window.removeEventListener("keydown", handleKey, { capture: true });
+      document.removeEventListener("focusin", containFocus, true);
+    };
   }, [dismissible, onDismiss, visible]);
 
   if (!visible) return null;
 
   const heading = <h2 id={titleId} className={titleClassName}>{title}</h2>;
 
-  return (
+  return createPortal(
     <div
       ref={backdropRef}
       onPointerDown={(event) => {
@@ -177,6 +242,7 @@ export function DialogFrame({
         role="dialog"
         tabIndex={-1}
         aria-modal="true"
+        data-app-shortcuts={appShortcuts ? "allowed" : "blocked"}
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         className={className}
@@ -184,6 +250,6 @@ export function DialogFrame({
         {renderHeader ? renderHeader(heading) : heading}
         {children}
       </div>
-    </div>
+    </div>, dialogHost(),
   );
 }

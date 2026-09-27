@@ -59,16 +59,12 @@ function appErrorCategory(error: NormalizedFileError): ErrorCategory {
       case "permissionDenied": return "permission-denied";
       case "readOnly": return "read-only";
       case "resourceUnavailable": return "resource-unavailable";
-      case "invalidInput": break;
+      case "invalidInput": return "generic";
       case "alreadyExists":
       case "incompleteWrite":
       case "unknown": return "generic";
     }
   }
 
-  if (error.message.includes("File not found")) return "not-found";
-  if (error.message.includes("too large")) return "too-large";
-  if (error.message.includes("Not a supported file type")) return "not-markdown";
-  if (error.message.includes("UTF-8")) return "utf8";
   return "generic";
 }

@@ -118,6 +118,7 @@ pub fn run() {
             annotations::initialize_annotation_storage,
             annotations::load_annotations,
             annotations::save_annotations,
+            annotations::check_copy_destination,
             annotations::export_annotation_recovery,
             annotations::read_annotation_recovery,
             printing::print_current_webview,

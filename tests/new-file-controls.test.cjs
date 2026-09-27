@@ -112,7 +112,7 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
     click(buttonWithText(rendered.host, "New"));
     const saveButton = buttonWithText(rendered.host, "Save");
     assert.equal(saveButton.classList.contains("text-text-muted"), true);
-    assert.equal(saveButton.classList.contains("text-accent"), false);
+    assert.equal(saveButton.classList.contains("text-accent-text"), false);
     click(saveButton);
     click(buttonWithText(rendered.host, "Styled"));
     assert.equal(newCount, 1);
@@ -132,7 +132,7 @@ test("ShortcutOverlay documents the New file shortcut", async () => {
   }));
 
   try {
-    const rows = Array.from(rendered.host.querySelectorAll(".flex.items-center.justify-between"));
+    const rows = Array.from(document.querySelectorAll("#dialog-root .flex.items-center.justify-between"));
     const newFileRow = rows.find((row) => row.textContent.includes("New file"));
     assert.ok(newFileRow);
     assert.match(newFileRow.textContent, /Ctrl\+N/);

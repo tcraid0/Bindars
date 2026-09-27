@@ -9,7 +9,39 @@ const { installDom } = require("./_helpers/dom.cjs");
 const { MarkdownRenderer } = require("../.tmp/workspace-tests/src/components/MarkdownRenderer.js");
 const { MermaidSvg } = require("../.tmp/workspace-tests/src/components/MermaidBlock.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-const { highlightSearchMatches, clearSearchHighlights } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
+const { useSearch, highlightSearchMatches, clearSearchHighlights } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
+
+test("search uses the current motion preference for queued searches and navigation", async t => {
+  await installDom();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const scrolling = [];
+  t.mock.method(window.HTMLElement.prototype, "scrollIntoView", options => scrolling.push(options.behavior));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let search, setMotion;
+  function Probe() {
+    const [motion, update] = React.useState(false); setMotion = update;
+    const ref = React.useRef(null);
+    search = useSearch(ref, motion);
+    return React.createElement("article", { ref }, "Needle and another needle.");
+  }
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => search.setQuery("needle"));
+    await act(async () => setMotion(true));
+    await act(async () => t.mock.timers.tick(150));
+    assert.equal(search.matchCount, 2);
+    assert.equal(scrolling.at(-1), "auto", "a pending search must use the new preference");
+    await act(async () => search.next());
+    assert.equal(scrolling.at(-1), "auto");
+    await act(async () => setMotion(false));
+    await act(async () => search.previous());
+    assert.equal(scrolling.at(-1), "smooth");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 const readerSettings = {
   fontSize: 18,

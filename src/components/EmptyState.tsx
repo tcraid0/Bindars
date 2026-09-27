@@ -50,7 +50,7 @@ function EmptyStateComponent({
             <button
               type="button"
               onClick={() => onOpenRecent(topRecent!.path)}
-              className="px-5 py-2.5 rounded-lg bg-accent text-white font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm mb-5 max-w-[320px] truncate"
+              className="px-5 py-2.5 rounded-lg bg-accent text-on-accent font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm mb-5 max-w-[320px] truncate"
             >
               Resume: {topRecent!.name}
             </button>
@@ -79,7 +79,7 @@ function EmptyStateComponent({
             type="button"
             onClick={onTrySample}
             disabled={!canTrySample}
-            className="px-5 py-3 rounded-lg bg-accent text-white font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+            className="px-5 py-3 rounded-lg bg-accent text-on-accent font-medium text-sm hover:bg-accent-hover transition-colors duration-120 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
           >
             Try an example
           </button>

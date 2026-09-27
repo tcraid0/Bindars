@@ -45,12 +45,12 @@ test('recovery-copy cancellation and write failure leave choices usable; success
   const documents={'/a.md':{highlights:[{id:'h',note:'valuable',exact:'quote',prefix:'before',suffix:'after'}],bookmarks:[]}};
   mockIPC((cmd,args)=>{if(cmd==='plugin:dialog|save')return chosen;if(cmd==='export_annotation_recovery'){writes.push(args);if(fail)throw Error('full');return null;}throw Error(cmd);});
   await act(async()=>root.render(React.createElement(AnnotationExitDialog,{paths:['/a.md'],waiting:false,onKeepOpen(){},onRetry(){},onQuit(){},pendingRecords:()=>documents})));
-  const click=async()=>{await act(async()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Save recovery copy').click());};
+  const click=async()=>{await act(async()=>[...document.querySelectorAll('#dialog-root button')].find(b=>b.textContent==='Save recovery copy').click());};
   try{
     await click();assert.equal(writes.length,0);
-    chosen='/tmp/recovery.json';fail=true;await click();assert.match(host.textContent,/Couldn't save/);
-    fail=false;await click();assert.deepEqual(writes[1],{path:chosen,documents});assert.match(host.textContent,/saved and verified/);
-    assert.ok([...host.querySelectorAll('button')].every(b=>!b.disabled));
+    chosen='/tmp/recovery.json';fail=true;await click();assert.match(document.getElementById("dialog-root").textContent,/Couldn't save/);
+    fail=false;await click();assert.deepEqual(writes[1],{path:chosen,documents});assert.match(document.getElementById("dialog-root").textContent,/saved and verified/);
+    assert.ok([...document.querySelectorAll('#dialog-root button')].every(b=>!b.disabled));
   }finally{await act(async()=>root.unmount());host.remove();clearMocks();}
 });
 
@@ -77,3 +77,29 @@ for (const failure of ['wait', 'retry']) {
     assert.equal(allowed, true);
   });
 }
+
+test('a refused recovery destination explains where to save and keeps pending notes available', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const reason = "Choose a recovery destination outside Bindars' app data folder.";
+  const documents = { '/a.md': { highlights: [{ id: 'h', note: 'keep this note' }], bookmarks: [] } };
+  const before = structuredClone(documents);
+  let quit = false;
+  mockIPC(command => {
+    if (command === 'plugin:dialog|save') return '/synthetic/app/annotations.json';
+    if (command === 'export_annotation_recovery') throw { category: 'invalidInput', operation: 'saveRecoveryData', message: reason, detail: 'internal detail must not be shown' };
+    throw Error(command);
+  });
+  try {
+    await act(async () => root.render(React.createElement(AnnotationExitDialog, {
+      paths: ['/a.md'], waiting: false, onKeepOpen() {}, onRetry() {}, onQuit() { quit = true; }, pendingRecords: () => documents,
+    })));
+    const dialog = document.querySelector('#dialog-root [role="dialog"]');
+    await act(async () => [...dialog.querySelectorAll('button')].find(button => button.textContent === 'Save recovery copy').click());
+    assert.ok(dialog.textContent.includes(reason));
+    assert.match(dialog.textContent, /changes remain available while Bindars stays open/);
+    assert.doesNotMatch(dialog.textContent, /internal detail/);
+    assert.ok([...dialog.querySelectorAll('button')].every(button => !button.disabled));
+    assert.deepEqual(documents, before);
+    assert.equal(quit, false);
+  } finally { await act(async () => root.unmount()); host.remove(); clearMocks(); }
+});

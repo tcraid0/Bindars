@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { documentDir, homeDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
+import { getActiveDialog } from "./components/DialogFrame";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
@@ -48,6 +49,7 @@ import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useSearch } from "./hooks/useSearch";
+import { useReducedMotion } from "./hooks/useReducedMotion";
 import { useFileWatcher } from "./hooks/useFileWatcher";
 import type { WatcherUnavailableReason } from "./hooks/useFileWatcher";
 import { useAnnotations } from "./hooks/useAnnotations";
@@ -364,7 +366,15 @@ function App() {
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const progressTextRef = useRef<HTMLSpanElement | null>(null);
   const keyDownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
-  const motionScrollBehavior: ScrollBehavior = settings.reducedEffects ? "auto" : "smooth";
+  const osReducedMotion = useReducedMotion();
+  const reducedMotion = settings.reducedEffects || osReducedMotion;
+  const motionScrollBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("reduced-motion", reducedMotion);
+    root.classList.toggle("reduced-effects", settings.reducedEffects);
+    return () => root.classList.remove("reduced-motion", "reduced-effects");
+  }, [reducedMotion, settings.reducedEffects]);
   const editingRef = useRef(editing);
   const editorSessionKeyRef = useRef(0);
   const editTransitionRef = useRef<EditTransition | null>(null);
@@ -418,7 +428,7 @@ function App() {
   const getActiveHeadingId = useCallback(() => activeHeadingIdRef.current, []);
 
   // In-document search
-  const search = useSearch(contentRef);
+  const search = useSearch(contentRef, reducedMotion);
 
   const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
     const path = getPublishedDocument().filePath;
@@ -543,10 +553,14 @@ function App() {
     if (adoptsWrittenDestination(result)) {
       editingFilePathRef.current = result.file.canonicalPath;
       adoptSavedFile(result.file);
+      if (result.file.canonicalPath !== filePath && isSuccessfulSave(result.status)) {
+        const path = result.file.canonicalPath;
+        toast(`Saved in ${path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) || path}`, "success");
+      }
     }
 
     return result.status;
-  }, [adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath]);
+  }, [adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
@@ -2185,6 +2199,32 @@ function App() {
       case "new-file":
         createNewDocument();
         return;
+      case "copy-document": {
+        if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        // Prepare Save As's buffer without mounting an editor or enabling autosave.
+        // The admitted action owns the picker; cancellation leaves the reader intact.
+        const sourcePath = filePath;
+        const sourceName = fileName ?? "Untitled.md";
+        const dot = sourceName.lastIndexOf(".");
+        const extension = dot > 0 ? sourceName.slice(dot + 1).toLowerCase() : "md";
+        const name = `${dot > 0 ? sourceName.slice(0, dot) : sourceName} copy.${extension}`;
+        editor.enterEditMode(content, fileRevision);
+        let adopted = false;
+        try {
+          const result = await editor.saveAs(name, sourcePath, { copy: true, extension });
+          if (adoptsWrittenDestination(result)) {
+            adopted = true;
+            adoptSavedFile(result.file);
+            beginEditSession(result.file.content, result.file.revision, result.file.canonicalPath);
+            toast(`Copy saved to ${result.file.canonicalPath}`, "success");
+          } else if (result.status === "error") {
+            toast(result.message ?? "Couldn't create the copy. Choose another name or folder.", "error");
+          }
+        } finally {
+          if (!adopted) editor.exitEditMode();
+        }
+        return;
+      }
       case "open-file-dialog":
         await openFile();
         return;
@@ -2297,7 +2337,7 @@ function App() {
 
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent) => {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || getActiveDialog()?.dataset.appShortcuts === "blocked") return;
     // Native sheet events do not enter the webview. While pagination owns this
     // reader, skip app shortcuts but let system keys such as Cmd-Q through;
     // only a second Cmd/Ctrl-P must lose its default action.
@@ -2616,7 +2656,7 @@ function App() {
 
   return (
     <div
-      className={`app-shell h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${fileName ? "has-document" : ""} ${settings.reducedEffects ? "reduced-effects" : ""}`}
+      className={`app-shell h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${fileName ? "has-document" : ""}`}
       style={
         {
           "--header-row-height": `${HEADER_HEIGHT_PX}px`,
@@ -2664,6 +2704,7 @@ function App() {
           canToggleEdit={canToggleEdit}
           onToggleEdit={toggleEditMode}
           onSave={handleSave}
+          onMakeCopy={() => guardAction({ kind: "copy-document" })}
           statsSummary={statsSummary}
           progressTextRef={progressTextRef}
           onToggleAnnotations={toggleAnnotationsPanel}
@@ -2684,7 +2725,7 @@ function App() {
             className="h-full bg-accent origin-left"
             style={{
               transform: "scaleX(0)",
-              transition: settings.reducedEffects ? "none" : "transform 80ms linear",
+              transition: reducedMotion ? "none" : "transform 80ms linear",
             }}
           />
         </div>
@@ -2919,7 +2960,7 @@ function App() {
           onExit={exitFocusMode}
           statsSummary={statsSummary}
           progressTextRef={progressTextRef}
-          reducedEffects={settings.reducedEffects}
+          reducedEffects={reducedMotion}
           showMarkdownFormatting={editing && fileType === "markdown"}
           markdownFormattingEnabled={markdownFormattingEnabled}
           onToggleMarkdownFormatting={markdownFormatting.toggle}
@@ -2930,7 +2971,7 @@ function App() {
           role="status"
           className="print-hide fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
         >
-          <span className="text-sm text-accent font-medium truncate max-w-[200px]">
+          <span className="text-sm text-accent-text font-medium truncate max-w-[200px]">
             {focusedCharacter}
           </span>
           <button

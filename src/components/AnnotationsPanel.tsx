@@ -4,7 +4,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
-import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
@@ -74,7 +73,6 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   const exportBusy = useRef(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const reducedMotion = useReducedMotion();
   const { toast } = useToast();
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteBuffer, setNoteBuffer] = useState("");
@@ -208,7 +206,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     <aside
       ref={panelRef}
       className="print-hide w-[280px] shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
-      style={reducedMotion ? undefined : { animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
+      style={{ animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <h2 className="ui-section-label">
@@ -245,7 +243,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       </div>
 
       {filePath && onRestoreRecord && <button type="button" disabled={!annotationsReady || mutationsDisabled}
-        className="mx-4 mb-3 text-xs text-accent underline" onClick={() => void restoreRecovery()}>Restore recovery copy</button>}
+        className="mx-4 mb-3 text-xs text-accent-text underline" onClick={() => void restoreRecovery()}>Restore recovery copy</button>}
       <ConfirmDialog visible={recoveryRecord !== null} title="Restore highlights & notes?"
         message="Replace this document's current highlights, notes, and bookmarks with the recovery copy? The copy itself will be kept."
         confirmLabel="Restore highlights & notes" cancelLabel="Cancel" initialFocus="cancel"
@@ -254,7 +252,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving highlights and notes...</p>}
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
       {loadError && (
-        <div className="mx-4 mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+        <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{loadError}</p>
           <button
             type="button"
@@ -267,7 +265,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       )}
 
       {saveError && (
-        <div className="mx-4 mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+        <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{saveError}</p>
           <button
             type="button"
@@ -311,7 +309,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   onClick={() => onClickBookmark(bm.headingId)}
                   className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent-text shrink-0">
                     <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
                   </svg>
                   <span className="truncate">{bm.headingText}</span>
@@ -411,7 +409,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       disabled={mutationsDisabled}
                       onClick={() => startNote(hl.id, hl.note || "")}
                       data-note-action={hl.id}
-                      className="text-xs text-accent hover:underline"
+                      className="text-xs text-accent-text hover:underline"
                     >
                       Add note
                     </button>

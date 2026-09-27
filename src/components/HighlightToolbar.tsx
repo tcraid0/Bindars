@@ -22,19 +22,12 @@ const COLORS: { color: HighlightColor; bg: string; label: string }[] = [
   { color: "pink", bg: "var(--highlight-pink)", label: "Pink" },
 ];
 
-interface ToolbarPosition {
-  x: number;
-  y: number;
-  above: boolean;
-}
-
 interface ToolbarSelection {
   range: Range;
   container: HTMLElement;
   source: string;
   text: string;
   headingId: string | null;
-  position: ToolbarPosition;
 }
 
 function sameRange(left: Range, right: Range) {
@@ -82,12 +75,9 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     if (!container.contains(range.commonAncestorContainer) || !range.toString().trim()) return null;
     const current = selectionRef.current;
     if (current && ownsSelection(current) && sameRange(current.range, range)) return current;
-    const rect = range.getBoundingClientRect();
-    const above = rect.top > 80;
     return {
       range: range.cloneRange(), container, source, text: range.toString(),
       headingId: getActiveHeadingId(),
-      position: { x: rect.left + rect.width / 2, y: above ? rect.top - 8 : rect.bottom + 8, above },
     };
   }, [contentRef, getActiveHeadingId, isEditing, ownsSelection, source]);
 
@@ -107,16 +97,30 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     if (!selection || !toolbar) return;
     const placeToolbar = () => {
       const { width, height } = toolbar.getBoundingClientRect();
-      const { x, y, above } = selection.position;
+      const rect = selection.range.getBoundingClientRect();
+      const reader = selection.container.closest("main");
+      const readerRect = reader?.getBoundingClientRect();
+      const header = document.querySelector(".document-header")?.getBoundingClientRect();
       const inset = 8;
-      // Measure the actual controls so short selections at either viewport
-      // edge cannot hide a color, Note, or their focus outlines.
+      const top = Math.max(0, readerRect?.top ?? 0, header?.bottom ?? 0) + inset;
+      const bottom = Math.min(window.innerHeight, readerRect?.bottom || window.innerHeight) - inset;
+      const visible = toolbar.contains(document.activeElement)
+        || (rect.bottom >= top - inset && rect.top <= bottom + inset);
+      toolbar.style.visibility = visible ? "visible" : "hidden";
+      const above = rect.top - height - inset >= top;
+      const y = above ? rect.top - height - inset : rect.bottom + inset;
+      const x = rect.left + rect.width / 2;
       toolbar.style.left = `${Math.max(inset, Math.min(x - width / 2, window.innerWidth - width - inset))}px`;
-      toolbar.style.top = `${Math.max(inset, Math.min(above ? y - height : y, window.innerHeight - height - inset))}px`;
+      toolbar.style.top = `${Math.max(top, Math.min(y, bottom - height))}px`;
+
     };
     placeToolbar();
     window.addEventListener("resize", placeToolbar);
-    return () => window.removeEventListener("resize", placeToolbar);
+    document.addEventListener("scroll", placeToolbar, true);
+    return () => {
+      window.removeEventListener("resize", placeToolbar);
+      document.removeEventListener("scroll", placeToolbar, true);
+    };
   }, [selection]);
 
   const focusRequestedButton = useCallback(() => {
@@ -124,6 +128,9 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     const buttons = toolbarRef.current.querySelectorAll<HTMLButtonElement>("button");
     const button = requestedFocus.current === "first" ? buttons[0] : buttons[buttons.length - 1];
     requestedFocus.current = null;
+    // Tab may return to a selection that has scrolled offscreen. Its controls
+    // are already clamped to the reader; reveal them before attempting focus.
+    toolbarRef.current.style.visibility = "visible";
     button?.focus({ preventScroll: true });
   }, []);
   useLayoutEffect(focusRequestedButton, [focusRequestedButton, selection]);
@@ -222,7 +229,6 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
   );
 
   if (!selection || isEditing || selection.source !== source) return null;
-  const { position } = selection;
 
   return (
     <div
@@ -235,10 +241,6 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
           && !(pending.current && !event.relatedTarget)) clearOwnedSelection(current);
       }}
       className="print-hide fixed z-50 flex w-max items-center gap-1.5 px-2 py-1.5 rounded-lg bg-bg-secondary border border-border shadow-lg"
-      style={{
-        left: position.x,
-        top: position.y,
-      }}
     >
       {COLORS.map(({ color, bg, label }) => (
         <button
@@ -256,7 +258,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       <button
         type="button"
         disabled={saving}
-        className="ml-1 border-l border-border px-2 py-0.5 text-xs font-medium text-text-primary hover:text-accent focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent disabled:opacity-50"
+        className="ml-1 border-l border-border px-2 py-0.5 text-xs font-medium text-text-primary hover:text-accent-text focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent disabled:opacity-50"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => handleSelectionAction("note")}
       >

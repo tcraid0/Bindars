@@ -228,8 +228,8 @@ test('new queries remove old buttons and selection until settled; reset cancels 
   flushSync(() => view.value.setQuery('beta'));
   assert.equal(view.value.query, 'beta');
   assert.equal(view.value.selectedHit, null);
-  assert.equal(view.host.querySelectorAll('li button').length, 0);
-  assert.match(view.host.textContent, /Updating results/);
+  assert.equal(document.querySelectorAll('#dialog-root li button').length, 0);
+  assert.match(document.getElementById("dialog-root").textContent, /Updating results/);
   flushSync(() => t.mock.timers.tick(100));
   assert.equal(view.value.selectedHit.path, '/a/beta.md');
   flushSync(() => { view.value.setQuery('alpha'); view.value.setQuery('missing'); });

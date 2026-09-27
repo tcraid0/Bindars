@@ -485,3 +485,68 @@ test('viewport resize reclamps the toolbar without moving focus or changing the 
   assert.ok(document.activeElement === note);
   assert.equal(window.getSelection().toString(), anchor.exact);
 });
+
+for (const headerBottom of [52, 92]) {
+  test(`toolbar stays below a ${headerBottom}px header and follows reader scrolling`, async t => {
+    const header = document.createElement('header'); header.className = 'document-header'; document.body.append(header);
+    t.after(() => header.remove());
+    let rect = { left: 150, top: 100, width: 80, bottom: 120 };
+    t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => rect);
+    t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+      if (this === header) return { top: 0, bottom: headerBottom, height: headerBottom, width: 1000 };
+      return { width: this.getAttribute('role') === 'group' ? 200 : 0, height: 40 };
+    });
+    const view = await mountToolbar(t); await view.select();
+    const toolbar = view.host.querySelector('[role="group"]');
+    assert.ok(parseFloat(toolbar.style.top) >= headerBottom + 8);
+    const oldTop = toolbar.style.top;
+    rect = { ...rect, top: 240, bottom: 260 };
+    view.host.dispatchEvent(new Event('scroll', { bubbles: true }));
+    assert.notEqual(toolbar.style.top, oldTop);
+    assert.equal(window.getSelection().toString(), anchor.exact);
+  });
+}
+
+for (const edge of ['above', 'below']) {
+  test(`a focused toolbar remains visible when its passage scrolls ${edge} the reader`, async t => {
+    let rangeTop = 180;
+    t.mock.getter(window, 'innerHeight', () => 600);
+    t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => ({ left: 100, top: rangeTop, width: 100, bottom: rangeTop + 20 }));
+    t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+      return this.tagName === 'MAIN' ? { top: 92, bottom: 600, width: 1000, height: 508 } : { width: 200, height: 40 };
+    });
+    const view = await mountToolbar(t); await view.select();
+    const reader = view.host.querySelector('main'); reader.focus();
+    await pressKey(reader, 'Tab');
+    const button = findButton(view.host, 'Highlight Yellow');
+    const toolbar = view.host.querySelector('[role="group"]');
+    rangeTop = edge === 'above' ? -100 : 800;
+    await act(async () => reader.dispatchEvent(new Event('scroll')));
+    assert.equal(toolbar.style.visibility, 'visible');
+    assert.ok(document.activeElement === button);
+    assert.ok(parseFloat(toolbar.style.top) >= 100 && parseFloat(toolbar.style.top) <= 552);
+    assert.equal(window.getSelection().toString(), anchor.exact);
+    await pressKey(button, 'Escape');
+    assert.ok(document.activeElement === reader);
+    assert.ok(view.host.querySelector('[role="group"]') === null);
+  });
+}
+
+test('Tab can reveal an unfocused toolbar whose selected passage has scrolled out of view', async t => {
+  let rangeTop = 100;
+  t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => ({ left: 100, top: rangeTop, width: 100, bottom: rangeTop + 20 }));
+  const view = await mountToolbar(t); await view.select();
+  const reader = view.host.querySelector('main'); reader.focus();
+  const toolbar = view.host.querySelector('[role="group"]');
+  rangeTop = -100;
+  await act(async () => reader.dispatchEvent(new Event('scroll')));
+  assert.equal(toolbar.style.visibility, 'hidden');
+  assert.equal(window.getSelection().toString(), anchor.exact);
+  await pressKey(reader, 'Tab');
+  assert.equal(toolbar.style.visibility, 'visible');
+  assert.ok(document.activeElement === findButton(view.host, 'Highlight Yellow'));
+  const elsewhere = document.createElement('input'); view.host.append(elsewhere);
+  await act(async () => elsewhere.focus());
+  assert.ok(view.host.querySelector('[role="group"]') === null);
+  assert.equal(window.getSelection().rangeCount, 0);
+});

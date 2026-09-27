@@ -9,6 +9,7 @@ const LS_KEY = "bindars-workspace-root";
 export function useWorkspaceRoot() {
   const [rootPath, setRootPathState] = useState<string | null>(null);
   const userSetRef = useRef(false);
+  const pickerSequenceRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -34,6 +35,7 @@ export function useWorkspaceRoot() {
 
     return () => {
       active = false;
+      pickerSequenceRef.current += 1;
     };
   }, []);
 
@@ -51,15 +53,17 @@ export function useWorkspaceRoot() {
   }, []);
 
   const setRootPath = useCallback((path: string | null) => {
+    pickerSequenceRef.current += 1;
     userSetRef.current = true;
     setRootPathState(path);
     persist(path);
   }, [persist]);
 
   const chooseRoot = useCallback(async () => {
+    const sequence = ++pickerSequenceRef.current;
     try {
       const selected = await open({ directory: true, multiple: false });
-      if (!selected || Array.isArray(selected)) return null;
+      if (sequence !== pickerSequenceRef.current || !selected || Array.isArray(selected)) return null;
 
       setRootPath(selected);
       return selected;

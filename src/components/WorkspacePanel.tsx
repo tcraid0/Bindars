@@ -99,7 +99,7 @@ export function WorkspacePanel({
       )}
 
       {state.error && (
-        <p className="mt-1 text-[11px] text-red-500 line-clamp-2" title={state.error}>
+        <p className="mt-1 text-[11px] text-danger line-clamp-2" title={state.error}>
           {state.error}
         </p>
       )}

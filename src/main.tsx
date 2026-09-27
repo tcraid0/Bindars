@@ -33,7 +33,7 @@ function dismissLoadingScreen(): void {
   if (!el) return;
 
   const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (prefersReducedMotion) {
+  if (prefersReducedMotion || document.documentElement.classList.contains("reduced-motion")) {
     el.remove();
     return;
   }

@@ -90,6 +90,7 @@ const editorTheme = EditorView.theme({
     borderLeftColor: "var(--accent)",
   },
   ".cm-content ::selection": {
+    color: "var(--text-primary)",
     backgroundColor: "color-mix(in srgb, var(--accent) 28%, transparent)",
   },
   ".cm-panels": {
@@ -139,11 +140,14 @@ const editorTheme = EditorView.theme({
   ".cm-panel.cm-search [name=close]": {
     color: "var(--text-secondary)",
   },
+  ".cm-searchMatch, .cm-searchMatch .cm-md-marker, .cm-md-marker .cm-searchMatch": {
+    color: "var(--text-primary)",
+  },
   ".cm-searchMatch": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 32%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
   },
   ".cm-searchMatch.cm-searchMatch-selected": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 52%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
     outline: "1px solid var(--accent)",
   },
   ".cm-md-h1, .cm-md-h2, .cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6": {

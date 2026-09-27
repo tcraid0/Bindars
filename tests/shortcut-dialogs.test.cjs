@@ -46,7 +46,7 @@ function renderDialog(spec, overrides = {}) {
   trigger.onclick = () => render({ visible: true });
   render();
   return {
-    host, trigger, render,
+    get host() { return document.getElementById("dialog-root") ?? host; }, trigger, render,
     get dismissCount() { return dismissCount; },
     open() { trigger.focus(); flushSync(() => trigger.click()); },
     unmount() { flushSync(() => root.unmount()); },
@@ -67,7 +67,7 @@ for (const spec of dialogs) {
     try {
       assert.equal(view.host.childElementCount, 0);
       view.open();
-      const dialog = view.host.querySelector('[role="dialog"]');
+      const dialog = document.querySelector('[role="dialog"]');
       assert.ok(dialog);
       assert.equal(dialog.getAttribute("aria-modal"), "true");
       const heading = document.getElementById(dialog.getAttribute("aria-labelledby"));
@@ -313,21 +313,21 @@ test("stacked dialogs keep keyboard ownership across callback renders and restor
   }
   try {
     render();
-    const close = host.querySelector('button[aria-label="Close"]');
+    const close = document.querySelector('button[aria-label="Close"]');
     palette = true;
     render();
     render(); // New callbacks must not promote the underlying dialog.
-    const input = host.querySelector("input");
+    const input = document.querySelector("input");
     for (const shiftKey of [false, true]) {
       document.activeElement.blur();
       assert.equal(pressKey("Tab", { shiftKey }).defaultPrevented, true);
-      const expected = shiftKey ? host.querySelectorAll("li button")[1] : input;
+      const expected = shiftKey ? document.querySelectorAll("li button")[1] : input;
       assert.ok(document.activeElement === expected);
     }
     assert.equal(pressKey("Escape").defaultPrevented, true);
     assert.deepEqual(dismissals, ["palette"]);
     assert.ok(document.activeElement === close);
-    assert.equal(host.querySelectorAll('[role="dialog"]').length, 1);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
     pressKey("Escape");
     assert.deepEqual(dismissals, ["palette", "shortcuts"]);
     assert.ok(document.activeElement === opener);
@@ -358,11 +358,11 @@ test("closing a foreground dialog recovers focus inside the remaining dialog", a
     assert.equal(document.activeElement.tagName, "BODY");
     palette = true;
     render();
-    assert.ok(document.activeElement === host.querySelector("input"));
+    assert.ok(document.activeElement === document.querySelector("input"));
     pressKey("Escape");
-    const remainingDialog = host.querySelector('[role="dialog"]');
+    const remainingDialog = document.querySelector('[role="dialog"]');
     assert.ok(remainingDialog);
-    assert.equal(host.querySelectorAll('[role="dialog"]').length, 1);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
     assert.ok(remainingDialog.contains(document.activeElement));
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close");
   } finally { flushSync(() => root.unmount()); host.remove(); opener.remove(); }
@@ -384,7 +384,7 @@ test("unmounting a covered dialog preserves the foreground dialog's opener chain
   try {
     render(true, false);
     render(true, true);
-    const input = host.querySelector("input");
+    const input = document.querySelector("input");
     render(false, true);
     assert.ok(document.activeElement === input);
     render(false, false);
@@ -406,7 +406,7 @@ for (const spec of dialogs) {
           const event = pressKey(key, composition);
           assert.equal(event.defaultPrevented, false);
           assert.equal(view.dismissCount, 0);
-          assert.ok(view.host.querySelector('[role="dialog"]'));
+          assert.ok(document.querySelector('[role="dialog"]'));
           assert.ok(document.activeElement === last);
         }
         assert.equal(pressKey('Tab').defaultPrevented, true);

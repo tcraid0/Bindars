@@ -38,6 +38,7 @@ function CommandPaletteComponent({
 
   return (
     <DialogFrame
+      appShortcuts
       visible={visible}
       title="Quick switcher"
       initialFocusRef={inputRef}

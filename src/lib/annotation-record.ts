@@ -12,6 +12,9 @@ function object(value: unknown): value is Record<string, unknown> {
 
 export function readAnnotationRecord(value: unknown): AnnotationRecord {
   if (value == null) value = { highlights: [], bookmarks: [] };
+  if (object(value) && typeof value.version === "number" && Number.isInteger(value.version) && value.version > 3) {
+    throw new Error("These annotations were saved by a newer version of Bindars. Open them in that version or newer. The original records were preserved.");
+  }
   if (!object(value) || !Array.isArray(value.highlights) || !Array.isArray(value.bookmarks)
     || (value.version !== undefined && ![1, 2, 3].includes(value.version as number))) {
     throw new Error("Annotations have a damaged or unsupported format. The original records were preserved.");

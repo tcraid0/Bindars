@@ -55,7 +55,7 @@ type UnsuccessfulEditorSaveResult = Exclude<
   "saved" | "saved-with-newer-edits" | "saved-with-recovery"
 >;
 
-export type EditorSaveAsResult = EditorSaveOutcome;
+export type EditorSaveAsResult = EditorSaveOutcome & { message?: string };
 
 export type FlushPendingBuffer = () => boolean | null;
 export type AdoptExternalDocument = (
@@ -479,6 +479,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   const saveAs = useCallback(async (
     defaultPath: string,
     currentPath: string | null,
+    options?: { copy: boolean; extension: string },
   ): Promise<EditorSaveAsResult> => {
     const previousSaveError = state.saveError;
     const previousSaveErrorRecovery = state.saveErrorRecovery;
@@ -503,7 +504,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         return { status: "cancelled" };
       }
 
-      const normalizedPath = normalizeDocumentSavePath(selectedPath);
+      const normalizedPath = normalizeDocumentSavePath(selectedPath, options?.extension);
       if (normalizedPath.status === "error") {
         setState((prev) => ({
           ...prev,
@@ -511,9 +512,13 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
           saveError: normalizedPath.message,
           saveErrorRecovery: "save-as",
         }));
-        return { status: "error" };
+        return { status: "error", ...(options?.copy ? { message: normalizedPath.message } : {}) };
       }
 
+      if (options?.copy) {
+        normalizedPath.path = await invoke<string>("check_copy_destination", { path: normalizedPath.path });
+        if (!syncCurrentSession(editSession)) return { status: "stale" };
+      }
       const currentBuffer = bufferRef.current;
       if (currentBuffer === null) return { status: "stale" };
 
@@ -522,8 +527,8 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         path: normalizedPath.path,
         content: currentBuffer,
         expectedRevision: null,
-        force: !normalizedPath.appendedExtension,
-        createNew: normalizedPath.appendedExtension,
+        force: !options?.copy && !normalizedPath.appendedExtension,
+        createNew: options?.copy || normalizedPath.appendedExtension,
       });
       const status = completeWrite(editSession, currentBuffer, result, false);
       return outcomeForWrite(status, currentBuffer, result);
@@ -534,6 +539,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         status: completeFailure(
           editSession, err, false, attemptedPath === currentPath ? attemptedPath : undefined,
         ),
+        ...(options?.copy ? { message: actionableSaveError(err).message } : {}),
       };
     } finally {
       releaseSave(editSession);

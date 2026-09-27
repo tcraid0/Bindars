@@ -7,6 +7,7 @@ export type PendingAction =
   | { kind: "new-file" }
   | { kind: "open-file-dialog" }
   | { kind: "try-sample" }
+  | { kind: "copy-document" }
   | { kind: "open-file-path"; path: string }
   | { kind: "open-recent"; path: string }
   | { kind: "go-back" }

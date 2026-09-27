@@ -358,7 +358,7 @@ pub(crate) fn canonicalize_directory_path(
     Ok(canonical_path)
 }
 
-fn resolve_markdown_write_name(path: &Path) -> Result<PathBuf, NativeFileError> {
+pub(crate) fn resolve_markdown_write_name(path: &Path) -> Result<PathBuf, NativeFileError> {
     if !is_markdown_path(path) {
         return Err(NativeFileError::invalid(
             NativeFileOperation::ValidateDocument,

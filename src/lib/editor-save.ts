@@ -88,7 +88,7 @@ export type DocumentSavePathResult =
   | { status: "valid"; path: string; appendedExtension: boolean }
   | { status: "error"; message: string };
 
-export function normalizeDocumentSavePath(selectedPath: string): DocumentSavePathResult {
+export function normalizeDocumentSavePath(selectedPath: string, defaultExtension = "md"): DocumentSavePathResult {
   const lastSeparatorIndex = Math.max(
     selectedPath.lastIndexOf("/"),
     selectedPath.lastIndexOf("\\"),
@@ -99,13 +99,14 @@ export function normalizeDocumentSavePath(selectedPath: string): DocumentSavePat
   }
 
   const extensionSeparatorIndex = fileName.lastIndexOf(".");
-  // A bare name has no extension. Linux save dialogs do not add one, so use .md.
+  // Linux save dialogs do not add an extension to a bare name. Use the source
+  // extension for Copy and .md for other saves.
   // The caller must refuse when that file already exists: the dialog's replace
-  // check covered the typed name, not the name with .md added.
+  // check covered the typed name, not the name with the extension added.
   if (extensionSeparatorIndex <= 0) {
     return {
       status: "valid",
-      path: `${selectedPath}.md`,
+      path: `${selectedPath}.${isOpenableDocumentExtension(defaultExtension) ? defaultExtension : "md"}`,
       appendedExtension: true,
     };
   }
