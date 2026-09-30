@@ -1484,7 +1484,7 @@ function App() {
         cancelAnimationFrame(frame);
       }
     };
-  }, [content, editing, focusMode, presentationMode, updateReadingProgressNow]);
+  }, [content, editing, focusMode, presentationMode, printing, updateReadingProgressNow]);
 
   const scrollToHeading = useCallback(
     (

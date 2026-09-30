@@ -1471,13 +1471,6 @@ body[data-printing] .print-hide {
   .reading-surface {
     background: white !important;
     background-image: none !important;
-  }
-
-  /* Keep the printable surface neutral. */
-  #root,
-  #root > div,
-  .reading-surface {
-    background-color: white !important;
     color: black !important;
   }
 
@@ -1513,7 +1506,8 @@ body[data-printing] .print-hide {
     letter-spacing: -0.02em;
   }
 
-  .frontmatter-meta {
+  .frontmatter-meta,
+  .frontmatter-separator {
     font-size: 14pt !important;
     color: #444 !important;
   }
@@ -1547,6 +1541,11 @@ body[data-printing] .print-hide {
   .markdown-body p {
     widows: 3;
     orphans: 3;
+  }
+
+  .markdown-body del,
+  .markdown-body s {
+    color: black !important;
   }
 
   .markdown-body blockquote,
@@ -1627,11 +1626,11 @@ body[data-printing] .print-hide {
     border: 1px solid #ddd !important;
     border-left: 3px solid #888 !important;
     border-radius: 4px !important;
-    page-break-inside: avoid;
   }
 
   /* Keep syntax colors readable on white paper. */
-  .hljs {
+  .hljs,
+  .hljs-subst {
     color: #24292e !important;
   }
 
@@ -1678,7 +1677,6 @@ body[data-printing] .print-hide {
 
   /* ── Blockquotes ── */
   .markdown-body blockquote {
-    page-break-inside: avoid;
     background: none !important;
     border-left: 3pt solid #ccc !important;
     padding-left: 0.5cm !important;
@@ -1687,11 +1685,20 @@ body[data-printing] .print-hide {
   }
 
   /* ── Tables ── */
+  .markdown-table-wrapper {
+    overflow: visible !important;
+  }
+
   .markdown-body table {
-    page-break-inside: avoid;
-    break-inside: avoid;
+    table-layout: fixed;
     font-size: 10pt !important;
     border-collapse: collapse !important;
+  }
+
+  .markdown-body th,
+  .markdown-body td {
+    overflow-wrap: anywhere;
+    hyphens: none;
   }
 
   .markdown-body thead {
@@ -1713,7 +1720,6 @@ body[data-printing] .print-hide {
 
   /* ── Images ── */
   .markdown-body img {
-    page-break-inside: avoid;
     max-width: 100% !important;
     max-height: 150mm;
     display: block;
@@ -1809,7 +1815,6 @@ body[data-printing] .print-hide {
     background: var(--bg-secondary) !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-    page-break-inside: avoid;
   }
 
   .mermaid-diagram svg {
