@@ -44,23 +44,29 @@ test("Markdown sections and frontmatter remain continuous", () => {
 });
 
 test("print css resets viewport height and overflow on root containers", () => {
-  // Extract the @media print block
-  const printStart = css.indexOf("@media print");
-  const printBlock = css.slice(printStart);
+  for (const selector of ["#root > div", "#root > div > .flex"]) {
+    const declarations = printDeclarations(selector);
+    assert.match(declarations, /height:\s*auto !important;/, selector);
+    assert.match(declarations, /overflow:\s*visible !important;/, selector);
+    assert.match(declarations, /min-height:\s*0 !important;/, selector);
+  }
+  assert.match(printDeclarations("#root > div > .flex"), /display:\s*block !important;/);
+});
 
-  // #root > div must get height: auto and overflow: visible
-  assert.ok(
-    printBlock.includes("#root > div") &&
-      printBlock.includes("height: auto !important") &&
-      printBlock.includes("overflow: visible !important"),
-    "#root > div must reset height and overflow for print",
-  );
+test("print tables remove screen clipping and allow unbroken cell text to wrap", () => {
+  assert.match(printDeclarations(".markdown-table-wrapper"), /overflow:\s*visible !important;/);
+  assert.match(printDeclarations(".markdown-body table"), /table-layout:\s*fixed;/);
+  for (const selector of [".markdown-body th", ".markdown-body td"]) {
+    assert.match(printDeclarations(selector), /overflow-wrap:\s*anywhere;/, selector);
+    assert.match(printDeclarations(selector), /hyphens:\s*none;/, selector);
+  }
+});
 
-  // The inner flex wrapper must also be reset
-  assert.ok(
-    printBlock.includes("#root > div > .flex"),
-    "inner flex wrapper (#root > div > .flex) must be targeted in print CSS",
-  );
+test("print strikethrough and metadata separators stay dark independently of the screen theme", () => {
+  for (const selector of [".markdown-body del", ".markdown-body s"]) {
+    assert.match(printDeclarations(selector), /color:\s*black !important;/, selector);
+  }
+  assert.match(printDeclarations(".frontmatter-separator"), /color:\s*#444 !important;/);
 });
 
 test("print CSS hides chrome via data-printing attribute outside @media print", () => {
@@ -154,46 +160,21 @@ test("Mermaid artwork keeps its matching backdrop and colors on paper", () => {
 });
 
 test("print css forces black text on table headers and cells", () => {
-  const printStart = css.indexOf("@media print");
-  const printBlock = css.slice(printStart);
-
-  // Find the .markdown-body th rule and check it has color: black
-  const thRule = printBlock.match(/\.markdown-body th\s*\{[^}]+\}/);
-  assert.ok(thRule, ".markdown-body th rule must exist in print CSS");
-  assert.ok(
-    thRule[0].includes("color: black !important"),
-    "table header must force black text in print",
-  );
-
-  // Find the .markdown-body td rule and check it has color: black
-  const tdRule = printBlock.match(/\.markdown-body td\s*\{[^}]+\}/);
-  assert.ok(tdRule, ".markdown-body td rule must exist in print CSS");
-  assert.ok(
-    tdRule[0].includes("color: black !important"),
-    "table cell must force black text in print",
-  );
+  for (const selector of [".markdown-body th", ".markdown-body td"]) {
+    assert.match(printDeclarations(selector), /color:\s*black !important;/, selector);
+  }
 });
 
 test("print css resets hljs colors for non-themed output", () => {
-  const printStart = css.indexOf("@media print");
-  const printBlock = css.slice(printStart);
-
-  assert.ok(
-    printBlock.includes(".hljs"),
-    "non-themed hljs base color reset must exist in print CSS",
-  );
-  assert.ok(
-    printBlock.includes(".hljs-keyword"),
-    "non-themed hljs keyword color reset must exist in print CSS",
-  );
-  assert.ok(
-    printBlock.includes(".hljs-string"),
-    "non-themed hljs string color reset must exist in print CSS",
-  );
-  assert.ok(
-    printBlock.includes(".hljs-comment"),
-    "non-themed hljs comment color reset must exist in print CSS",
-  );
+  for (const [selector, color] of [
+    [".hljs", "#24292e"],
+    [".hljs-subst", "#24292e"],
+    [".hljs-keyword", "#d73a49"],
+    [".hljs-string", "#032f62"],
+    [".hljs-comment", "#6a737d"],
+  ]) {
+    assert.ok(printDeclarations(selector).includes(`color: ${color} !important;`), selector);
+  }
 });
 
 test("print css defines sizes for all heading levels h1-h6", () => {
@@ -239,15 +220,8 @@ test("print css keeps large printable blocks together where possible", () => {
   }
 });
 
-test("print css repeats table headers across page breaks", () => {
-  const printStart = css.indexOf("@media print");
-  const printBlock = css.slice(printStart);
-
-  assert.ok(
-    printBlock.includes(".markdown-body thead") &&
-      printBlock.includes("display: table-header-group;"),
-    "print CSS should promote table headers to repeat across pages",
-  );
+test("print css requests repeating table headers", () => {
+  assert.match(printDeclarations(".markdown-body thead"), /display:\s*table-header-group;/);
 });
 
 test("native and CSS print margins agree in physical units", () => {

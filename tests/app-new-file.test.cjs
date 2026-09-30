@@ -4889,6 +4889,38 @@ async function renderNativePrintApp(t, options) {
   return { ...view, operation, invoke, media };
 }
 
+for (const ending of ["preparation cancellation", "native completion", "browser afterprint"]) {
+  test(`print progress is repopulated after ${ending} without another scroll`, async (t) => {
+    const view = ending === "native completion" ? await renderNativePrintApp(t) : await renderPrintApp(t);
+    const main = view.host.querySelector("main");
+    const progressText = () => view.host.querySelector(".document-header-detail .text-right")?.textContent;
+    const progressBar = () => view.host.querySelector(".origin-left")?.style.transform;
+    main.scrollTop = 500;
+    main.dispatchEvent(new window.Event("scroll"));
+    await waitFor(() => assert.equal(progressText(), "31%"));
+    const beforeBar = progressBar();
+    assert.equal(beforeBar, "scaleX(0.3125)");
+
+    view.print.mock.mockImplementation(() => window.dispatchEvent(new window.Event("beforeprint")));
+    await act(async () => dispatchShortcut("p"));
+    assert.ok(view.host.querySelector("header") === null);
+    if (ending === "preparation cancellation") {
+      await act(async () => clickButton(view.host, "Cancel", view.host.querySelector(".print-status")));
+    } else {
+      await act(async () => view.pending[0].resolve());
+      await act(async () => {
+        if (ending === "native completion") view.operation.resolve();
+        else window.dispatchEvent(new window.Event("afterprint"));
+      });
+    }
+
+    await waitFor(() => assert.equal(progressText(), "31%"));
+    assert.equal(progressBar(), beforeBar);
+    assert.ok(view.host.querySelector("main") === main);
+    assert.equal(main.scrollTop, 500);
+  });
+}
+
 for (const browserEvents of [true, false]) {
   test(`native printing waits for both completion and media exit (browser events: ${browserEvents})`, async (t) => {
     const helpers = require("../.tmp/workspace-tests/src/lib/print-export.js");

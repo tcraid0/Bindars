@@ -291,7 +291,7 @@ const markdownComponents: Components = {
   },
 
   table: ({ node: _node, children, ...props }) => (
-    <div style={{ overflowX: "auto" }}>
+    <div className="markdown-table-wrapper" style={{ overflowX: "auto" }}>
       <table {...props}>{children}</table>
     </div>
   ),

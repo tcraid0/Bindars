@@ -5,6 +5,19 @@ and run the relevant platform checks on a release candidate. Record the app
 commit/build, OS version, architecture, and results separately. An unchecked
 entry is unverified; this checklist is not a record of passing tests.
 
+## Print behavior and known limits
+
+Print tables use equal-width columns and wrap long cell values to preserve
+content within the page margins. Very wide tables can break ordinary words,
+and short columns may have unused space. Screen tables retain horizontal
+scrolling.
+
+Strikethrough, code substitutions, and metadata separators use dark print colors
+in every theme. Reading progress is refreshed when the reader controls return.
+Some headings can still be separated from their following content, and table
+headers may not repeat on continuation pages in WKWebView. These fixes do not
+establish Linux or Windows native-printing support.
+
 ## Review follow-up — 2026-09-06
 
 Removed the remaining `body[data-printing]` conditions from the neutral surface
