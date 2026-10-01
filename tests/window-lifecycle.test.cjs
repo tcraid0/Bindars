@@ -1690,3 +1690,29 @@ for (const route of ["toc-button", "header-button", "reader-link", "nothing-focu
     } finally { await r.cleanup(); }
   });
 }
+
+
+test("unknown highlight colors render yellow while notes stay editable and removable", async () => {
+  const writes = [];
+  const rendered = await renderLifecycleApp({
+    highlights: [{ id: "unknown", exact: "Opening words.", prefix: "Lifecycle\n", suffix: "\nDeeper", color: "purple", note: "Remember this", createdAt: 1, nearestHeadingId: null }],
+    annotationWrite: async args => { writes.push(structuredClone(args)); },
+  });
+  try {
+    await rendered.openLifecycleDocument();
+    const mark = await waitFor(() => rendered.host.querySelector('mark[data-highlight-id="unknown"]') || assert.fail("highlight not painted"));
+    assert.ok(mark.classList.contains("annotation-highlight-yellow"));
+    assert.equal(writes.length, 0, "painting a fallback must not save a replacement color");
+    dispatchShortcut("m");
+    const panel = rendered.host.querySelector('[data-reader-panel="notes"]');
+    assert.match(panel.textContent, /Remember this/);
+    assert.equal(panel.querySelector('li span[style]').style.backgroundColor, "var(--highlight-yellow)");
+    flushSync(() => panel.querySelector('[aria-label="Edit note"]').click());
+    assert.equal(panel.querySelector('textarea[aria-label="Highlight note"]').value, "Remember this");
+    flushSync(() => panel.querySelector('[aria-label="Remove highlight"]').click());
+    await waitFor(() => assert.equal(writes.at(-1)?.annotations.highlights.length, 0));
+    assert.ok(!rendered.host.querySelector('mark[data-highlight-id="unknown"]'));
+  } finally {
+    await rendered.cleanup();
+  }
+});

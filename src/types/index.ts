@@ -51,7 +51,8 @@ export interface Highlight {
   prefix: string;
   exact: string;
   suffix: string;
-  color: HighlightColor;
+  // Stored records can contain colors this version cannot display.
+  color: string;
   createdAt: number;
   nearestHeadingId: string | null;
   note?: string;

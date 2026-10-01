@@ -3,7 +3,7 @@ import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from 
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { readAnnotationRecord } from "../lib/annotation-record";
+import { displayHighlightColor, readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
@@ -344,7 +344,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
-                    style={{ backgroundColor: COLOR_DOTS[hl.color] }}
+                    style={{ backgroundColor: COLOR_DOTS[displayHighlightColor(hl.color)] }}
                   />
                   <span className="line-clamp-2 flex-1">&ldquo;{hl.exact}&rdquo;</span>
                 </button>

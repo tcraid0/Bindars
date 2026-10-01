@@ -240,3 +240,17 @@ test("export renders punctuation and multiline notes as literal text", async () 
   assert.ok(host.textContent.includes("+ second `code` $math$"));
   assert.equal(host.querySelectorAll("br").length, 3);
 });
+
+
+test("unknown color names export literally without introducing Markdown or HTML", async () => {
+  await installDom();
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { default: Markdown } = await import("react-markdown");
+  const color = "purple* <tag>\n# heading";
+  const markdown = buildAnnotationMarkdown("notes.md", [{ ...highlights[0], color, note: undefined }], [], []);
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(React.createElement(Markdown, null, markdown));
+  assert.equal(host.querySelectorAll("h1").length, 1);
+  assert.equal(host.querySelectorAll("tag").length, 0);
+  assert.ok(host.textContent.includes("purple* <tag> # heading highlight"));
+});

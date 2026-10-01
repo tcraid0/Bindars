@@ -37,6 +37,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useReaderPanels } from "./hooks/useReaderPanels";
+import { displayHighlightColor } from "./lib/annotation-record";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
 import type { OpenFilePathResult } from "./hooks/useMarkdownFile";
 import { useDocumentReconciliation } from "./hooks/useDocumentReconciliation";
@@ -1878,7 +1879,7 @@ function App() {
           for (const hl of highlights) {
             const result = resolveAnchor(hl, container, evidence);
             locations[hl.id] = result.status;
-            if (result.range) wrapRange(result.range, `annotation-highlight-${hl.color}`, hl.id);
+            if (result.range) wrapRange(result.range, `annotation-highlight-${displayHighlightColor(hl.color)}`, hl.id);
           }
           setAnnotationLocations(locations);
           const pending = pendingNoteScrollRef.current;
