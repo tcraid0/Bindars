@@ -11,6 +11,114 @@ const { MermaidSvg } = require("../.tmp/workspace-tests/src/components/MermaidBl
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { useSearch, highlightSearchMatches, clearSearchHighlights } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
 
+test("dense search rebuilds a text node without per-match live splits or range walks", async t => {
+  await installDom();
+  const { createSmartypantsFixture } = await import("../scripts/generate-document-performance-fixtures.mjs");
+  const fixture = createSmartypantsFixture(2048, "punctuation");
+  const [heading, body] = fixture.content.split("\n\n");
+  const article = document.createElement("article");
+  for (const [tag, text] of [["h1", heading.slice(2)], ["p", body]]) {
+    const element = document.createElement(tag); element.textContent = text; article.append(element);
+  }
+  document.body.append(article);
+  const text = article.textContent;
+  const split = t.mock.method(window.Text.prototype, "splitText");
+  const intersects = t.mock.method(window.Range.prototype, "intersectsNode");
+  try {
+    const matches = highlightSearchMatches(article, "a");
+    assert.equal(matches.length, 995);
+    assert.ok(matches.every(mark => /^a$/i.test(mark.textContent)));
+    assert.equal(article.textContent, text);
+    assert.equal(split.mock.callCount(), 0, "dense search must not split the live node per match");
+    assert.equal(intersects.mock.callCount(), 0, "dense search must not rediscover each range's nodes");
+    clearSearchHighlights(article);
+    assert.equal(article.textContent, text);
+    assert.equal(highlightSearchMatches(article, "a").length, 995, "repeat searches preserve counts");
+  } finally { article.remove(); }
+});
+
+test("search preserves order, formatting, annotations and text across mixed match boundaries", async () => {
+  await installDom();
+  const article = document.createElement("article");
+  article.innerHTML = '<p>ab a<em>b</em> <strong>ab</strong> a<mark data-highlight-id="saved">b ab</mark> ab</p><p>ab</p>';
+  document.body.append(article);
+  const text = article.textContent;
+  const annotation = article.querySelector('[data-highlight-id="saved"]');
+  try {
+    for (const query of ["ab", "b", "ab"]) {
+      clearSearchHighlights(article);
+      const matches = highlightSearchMatches(article, query);
+      assert.equal(matches.length, 7);
+      assert.equal(article.textContent, text);
+      const allMarks = [...article.querySelectorAll("mark.search-highlight")];
+      assert.deepEqual(matches, allMarks.filter(mark => matches.includes(mark)), "match navigation stays in document order");
+      assert.ok(article.querySelector("em"));
+      assert.ok(article.querySelector("strong"));
+      assert.ok(annotation === article.querySelector('[data-highlight-id="saved"]'));
+      assert.equal(annotation.textContent, "b ab");
+    }
+    clearSearchHighlights(article);
+    assert.equal(article.textContent, text);
+    assert.equal(article.querySelectorAll("mark").length, 1, "clearing search keeps the annotation");
+  } finally { article.remove(); }
+});
+
+test("dense mixed-format search batches fragments and restores the original nodes", async t => {
+  await installDom();
+  const article = document.createElement("article");
+  article.innerHTML = `<p>${"ab ".repeat(1000)}a<em>b</em> a<mark data-highlight-id="saved">b ab</mark></p>`;
+  document.body.append(article);
+  const text = article.textContent;
+  const emphasis = article.querySelector("em");
+  const annotation = article.querySelector('[data-highlight-id="saved"]');
+  const originalNodes = [];
+  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    originalNodes.push({ node, parent: node.parentNode, text: node.data });
+  }
+  t.mock.method(window.Text.prototype, "splitText", () => {
+    assert.fail("dense mixed-format search must not split live nodes per match");
+  });
+  t.mock.method(window.Range.prototype, "intersectsNode", () => {
+    assert.fail("crossing matches must not cause per-match range walks");
+  });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const matches = highlightSearchMatches(article, "ab");
+      assert.equal(matches.length, 1003, "crossing fragments count as one logical match");
+      assert.deepEqual(matches.map(mark => mark.textContent), [...Array(1000).fill("ab"), "a", "a", "ab"]);
+      const marks = [...article.querySelectorAll("mark.search-highlight")];
+      assert.equal(marks.length, 1005);
+      assert.deepEqual(matches, marks.filter(mark => matches.includes(mark)), "navigation follows document order");
+      assert.ok(article.querySelector("em") === emphasis);
+      assert.ok(article.querySelector('[data-highlight-id="saved"]') === annotation);
+      assert.equal(emphasis.textContent, "b");
+      assert.equal(annotation.textContent, "b ab");
+      assert.equal(article.textContent, text);
+      clearSearchHighlights(article);
+      for (const { node, parent, text } of originalNodes) {
+        assert.ok(node.parentNode === parent, "clearing restores the original parent");
+        assert.equal(node.data, text);
+      }
+      assert.equal(article.querySelectorAll("mark").length, 1, "clearing retains the annotation");
+    }
+  } finally { article.remove(); }
+});
+
+test("rebuilt matches retain Unicode offsets and do not cross blocks or hidden text", async () => {
+  await installDom();
+  const article = document.createElement("article");
+  article.innerHTML = '<p>😀 İ K k <strong>K</strong> k</p><p>a<span class="sr-only">hidden</span>b</p><p>a</p><p>b</p>';
+  const text = article.textContent;
+  const matches = highlightSearchMatches(article, "k");
+  assert.deepEqual(matches.map(mark => mark.textContent), ["K", "k", "K", "k"]);
+  assert.equal(article.textContent, text);
+  clearSearchHighlights(article);
+  assert.deepEqual(highlightSearchMatches(article, "ab"), []);
+  assert.equal(highlightSearchMatches(article, "😀").length, 1);
+  assert.equal(article.textContent, text);
+});
+
 test("search uses the current motion preference for queued searches and navigation", async t => {
   await installDom();
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -81,6 +189,31 @@ async function renderReader(content) {
     },
   };
 }
+
+test("search keeps React's original text nodes attached and restores them when cleared", async () => {
+  const rendered = await renderReader("# Search\n\nneedle first and another needle.\n\nA needle inside **needle bold** and *last needle*.");
+  const originalNodes = [];
+  const walker = document.createTreeWalker(rendered.article, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    originalNodes.push({ node, parent: node.parentNode, text: node.data });
+  }
+  try {
+    for (const query of ["needle", "last", "needle"]) {
+      assert.ok(highlightSearchMatches(rendered.article, query).length > 0);
+      for (const { node } of originalNodes) {
+        assert.ok(rendered.article.contains(node), "search must retain React's text nodes");
+      }
+      clearSearchHighlights(rendered.article);
+      for (const { node, parent, text } of originalNodes) {
+        assert.ok(node.parentNode === parent, "clearing must restore the original parent");
+        assert.equal(node.data, text, "clearing must restore the original node's full text");
+      }
+      assert.equal(rendered.article.querySelectorAll("mark").length, 0);
+    }
+  } finally {
+    await rendered.cleanup();
+  }
+});
 
 test("search skips the visually hidden KaTeX MathML copy of a formula", async () => {
   const rendered = await renderReader("Energy is $$E = mc^2$$ here.\n\nPlain energy text.");

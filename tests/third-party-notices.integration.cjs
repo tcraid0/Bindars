@@ -50,5 +50,7 @@ test("runtime exceptions are classified and resolved conservatively", async () =
     byId.get("cargo:option-ext@0.2.0").sourceAvailability.sha256,
     "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d",
   );
-  assert.equal(byId.get("npm:dompurify@3.4.14").selectedLicense, "Apache-2.0");
+  const dompurify = inventory.packages.find((entry) => entry.kind === "npm" && entry.name === "dompurify");
+  assert.ok(dompurify, "DOMPurify must be included in the notice inventory");
+  assert.equal(dompurify.selectedLicense, "Apache-2.0");
 });

@@ -65,7 +65,7 @@ export function buildAnnotationMarkdown(
         const safeExact = literal(hl.exact).replace(/\r?\n/g, "\n> ");
         lines.push(`> "${safeExact}"`);
         lines.push(`>`);
-        lines.push(`> — *${hl.color} highlight*`);
+        lines.push(`> — *${literal(hl.color.replace(/[\r\n]+/g, " "))} highlight*`);
         lines.push("");
         if (hl.note) {
           const safeNote = literal(hl.note.trim()).replace(/\r?\n/g, "  \n");

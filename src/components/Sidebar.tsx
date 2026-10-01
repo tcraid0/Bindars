@@ -1,3 +1,4 @@
+import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { memo } from "react";
 import type { BacklinkItem, MentionItem, RecentFile, WorkspaceState } from "../types";
 import { RecentFiles } from "./RecentFiles";
@@ -44,8 +45,9 @@ function SidebarComponent({
 
   return (
     <aside
-      className="print-hide w-[260px] shrink-0 bg-bg-secondary border-r border-border overflow-y-auto flex flex-col"
-      style={{ animation: "sidebarIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
+      className="print-hide shrink-0 bg-bg-secondary border-r border-border overflow-y-auto flex flex-col"
+      data-reader-panel="sidebar"
+      style={{ width: READER_PANEL_WIDTHS.sidebar, animation: "sidebarIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <WorkspacePanel
         rootPath={workspaceRootPath}

@@ -82,9 +82,10 @@ function MarkdownImage({
   const resolved = resolveImageSrc(src, filePath);
   if (failed) {
     return (
-      <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
-        [image not shown: unavailable, outside the document's folder, or larger than 20 MiB: {alt || src}]
-      </span>
+      <ImageNotice
+        reason="unavailable, outside the document's folder, or larger than 20 MiB"
+        label={alt || src}
+      />
     );
   }
 
@@ -101,7 +102,7 @@ function MarkdownImage({
 
 function ImageNotice({ reason, label }: { reason: string; label?: string }) {
   return (
-    <span className="inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
+    <span className="image-notice inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
       [image not shown: {reason}{label ? `: ${label}` : ""}]
     </span>
   );
@@ -146,14 +147,18 @@ function useMarkdownContext(): MarkdownContextValue {
 const markdownComponents: Components = {
   img: function Image({ node: _node, src, alt, ...props }) {
     const { filePath, imagesAuthorized } = useMarkdownContext();
+    // Keep image replacement inside a stable parent when search or annotations
+    // have moved the paragraph's adjacent text into a mark.
     return (
-      <MarkdownImage
-        src={src}
-        alt={alt}
-        filePath={filePath}
-        imagesAuthorized={imagesAuthorized}
-        {...props}
-      />
+      <span>
+        <MarkdownImage
+          src={src}
+          alt={alt}
+          filePath={filePath}
+          imagesAuthorized={imagesAuthorized}
+          {...props}
+        />
+      </span>
     );
   },
   a: function Link({ node: _node, href, children, ...props }) {

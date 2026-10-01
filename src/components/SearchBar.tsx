@@ -50,7 +50,7 @@ function SearchBarComponent({
   };
 
   return (
-    <div className="search-bar print-hide absolute top-0 right-4 z-30 flex items-center gap-2 bg-bg-secondary border border-border rounded-b-lg px-3 py-2 shadow-sm"
+    <div className="search-bar print-hide absolute top-0 right-4 max-w-[calc(100%-2rem)] z-30 flex items-center gap-2 bg-bg-secondary border border-border rounded-b-lg px-3 py-2 shadow-sm"
       style={{ animation: "searchBarIn 150ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <input
@@ -63,7 +63,7 @@ function SearchBarComponent({
         onKeyDown={handleKeyDown}
         placeholder="Search in document..."
         aria-label="Search in document"
-        className="w-[200px] bg-transparent text-sm font-ui text-text-primary placeholder-text-muted outline-none"
+        className="w-[200px] min-w-0 bg-transparent text-sm font-ui text-text-primary placeholder-text-muted outline-none"
       />
 
       {query.trim() && (

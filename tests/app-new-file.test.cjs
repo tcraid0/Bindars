@@ -5641,7 +5641,8 @@ for (const retainedSearch of [false, true]) {
         let searchInput;
         if (retainedSearch) {
           dispatchShortcut('f');
-          searchInput = await waitFor(() => main.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+          searchInput = await waitFor(() => rendered.host.querySelector('input[aria-label="Search in document"]') || assert.fail('missing search'));
+          assert.ok(!main.contains(searchInput), 'search controls live outside the document scroller');
           const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
           flushSync(() => { setValue.call(searchInput, 'words'); searchInput.dispatchEvent(new Event('input', { bubbles: true })); });
           await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
@@ -5650,7 +5651,8 @@ for (const retainedSearch of [false, true]) {
         dispatchWindowKey('F5');
         const overlay = await waitFor(() => rendered.host.querySelector('.presentation-overlay') || assert.fail('missing presentation'));
         const exit = rendered.host.querySelector('button[title^="Exit presentation"]');
-        assert.ok(main.hasAttribute('inert'), 'covered reader and search must be excluded from interaction');
+        assert.ok(main.closest('[inert]'), 'covered reader must be excluded from interaction');
+        if (retainedSearch) assert.ok(searchInput.closest('[inert]'), 'stationary search must also be excluded');
         assert.ok(!main.contains(overlay) && !main.contains(exit));
         assert.ok(!overlay.closest('[inert]') && !exit.closest('[inert]'));
         assert.ok(document.activeElement === overlay);
@@ -5660,7 +5662,8 @@ for (const retainedSearch of [false, true]) {
         if (exitBy === 'button') { exit.focus(); flushSync(() => exit.click()); }
         else dispatchElementKey(overlay, 'Escape');
         assert.ok(!rendered.host.querySelector('.presentation-overlay'));
-        assert.ok(!main.hasAttribute('inert'));
+        assert.ok(!main.closest('[inert]'));
+        if (retainedSearch) assert.ok(!searchInput.closest('[inert]'));
         assert.ok(document.activeElement === main);
         assert.equal(main.scrollTop, 240);
         assert.deepEqual(calls, [{ options: { preventScroll: true }, scrollTop: 240 }]);
@@ -5751,7 +5754,7 @@ for (const outcome of ['success', 'failure']) {
         else pending.resolve({ ...rendered.openResult('# Other\n\nNew file.'), canonicalPath: '/tmp/other.md', name: 'other.md' });
       });
       await waitFor(() => assert.ok(!rendered.host.querySelector('.presentation-overlay')));
-      assert.ok(!main.hasAttribute('inert'));
+      assert.ok(!main.closest('[inert]'));
       assert.equal(calls.length, 0);
       assert.match(main.querySelector('article').textContent, outcome === 'failure' ? /First/ : /New file/);
       if (outcome === 'failure') {
@@ -6693,6 +6696,73 @@ test("saved heading restores when the reader mounts after the session document l
     await waitFor(() => assert.ok(rendered.scrolledIds.includes("second"), "restore waits for the startup-hidden reader to mount"));
   } finally {
     held.resolve([history.value, true]);
+    await rendered.cleanup();
+  }
+});
+
+test("startup restoration persists the same heading across two launches", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  let savedHeading = "second";
+  try {
+    for (let launch = 0; launch < 2; launch += 1) {
+      const held = deferred();
+      const history = { value: { version: 1, files: [] }, writes: [], read: () => held.promise };
+      const rendered = await renderContinuityApp({ restoreHeadingId: savedHeading, recentStorage: history, readySelector: null });
+      try {
+        await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
+        await act(async () => new Promise(setImmediate));
+        assert.ok(!rendered.host.querySelector("article"), "document is prepared before the reader mounts");
+        // Happy DOM has no layout: give the real App a scrollable reader and
+        // source-line positions, including scrollIntoView's CSS scroll margin.
+        const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.tagName === "MAIN") {
+            Object.defineProperties(this, {
+              clientHeight: { value: 400, configurable: true },
+              scrollHeight: { value: 2000, configurable: true },
+            });
+            return { x: 0, y: 50, top: 50, bottom: 450, left: 0, right: 800, width: 800, height: 400, toJSON() {} };
+          }
+          return originalBounds.call(this);
+        };
+        const { HEADING_SCROLL_MARGIN_PX } = require("../.tmp/workspace-tests/src/lib/scroll-constants.js");
+        window.HTMLElement.prototype.scrollIntoView = function () {
+          const main = rendered.host.querySelector("main");
+          if (main && this.id) {
+            main.scrollTop += this.getBoundingClientRect().top - main.getBoundingClientRect().top - HEADING_SCROLL_MARGIN_PX;
+          }
+        };
+        await act(async () => held.resolve([history.value, true]));
+        await waitFor(() => assert.ok(rendered.host.querySelector("#second")));
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2300)); });
+        const saved = history.writes.findLast(write => write.key === "session")?.value;
+        assert.ok(saved, "the session must actually be persisted");
+        assert.equal(saved.headingId, "second", `launch ${launch + 1} must not move the saved heading backward`);
+        assert.equal(history.value.files.find(file => file.path === "/tmp/continuity.md")?.lastHeadingId, "second");
+        savedHeading = saved.headingId;
+      } finally {
+        held.resolve([history.value, true]);
+        await rendered.cleanup();
+      }
+    }
+  } finally {
+    restoreLocalStorage();
+  }
+});
+
+
+test("Focus mode retains a focused selection-toolbar action that remains visible", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    await selectReaderParagraph(rendered);
+    const button = await waitFor(() => rendered.host.querySelector('[aria-label="Highlight Yellow"]') || assert.fail('selection action missing'));
+    button.focus();
+    flushSync(() => button.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+    assert.ok(!rendered.host.querySelector('header'));
+    assert.ok(button.isConnected);
+    assert.ok(document.activeElement === button, 'a surviving selection action must retain focus');
+  } finally {
+    window.getSelection().removeAllRanges();
     await rendered.cleanup();
   }
 });

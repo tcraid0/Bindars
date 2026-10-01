@@ -1,5 +1,4 @@
-import { collectText, rangeForOffsets, type TextSpan } from "../lib/dom-text";
-import { wrapRange } from "../lib/text-anchoring";
+import { collectText, type TextSpan } from "../lib/dom-text";
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   clearMarks,
@@ -51,13 +50,52 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Regex indices remain UTF-16 DOM offsets even when case folding expands a
   // character; indexing a lowercased copy did not provide that guarantee.
-  for (const run of runs.reverse()) {
+  for (const run of runs) {
     const found = [...run.text.matchAll(new RegExp(escaped, "giu"))];
-    for (const match of found.reverse()) {
-      const range = rangeForOffsets(run.spans, match.index!, match.index! + match[0].length);
-      if (!range) continue;
-      const marks = wrapRange(range, SEARCH_HIGHLIGHT_CLASS);
-      if (marks[0]) matches.unshift(marks[0]);
+    const byNode = new Map<TextSpan, { start: number; end: number; first: boolean }[]>();
+    let spanIndex = 0;
+    for (const match of found) {
+      const start = match.index!;
+      const end = start + match[0].length;
+      while (run.spans[spanIndex].end <= start) spanIndex++;
+      // A match can span several formatting nodes. Paint each fragment, but
+      // keep only its first mark for match counting and navigation.
+      for (let i = spanIndex; i < run.spans.length && run.spans[i].start < end; i++) {
+        const span = run.spans[i];
+        const ranges = byNode.get(span) ?? [];
+        ranges.push({
+          start: Math.max(start, span.start) - span.start,
+          end: Math.min(end, span.end) - span.start,
+          first: i === spanIndex,
+        });
+        byNode.set(span, ranges);
+      }
+    }
+
+    // Splitting a live text node for every match stalls on dense paragraphs.
+    // Build its text and marks off-DOM, then insert them once.
+    for (const [span, ranges] of byNode) {
+      const node = span.node;
+      const text = node.data;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const { start, end, first } of ranges) {
+        if (start > cursor) fragment.append(document.createTextNode(text.slice(cursor, start)));
+        const mark = document.createElement("mark");
+        mark.className = SEARCH_HIGHLIGHT_CLASS;
+        mark.textContent = text.slice(start, end);
+        fragment.append(mark);
+        if (first) matches.push(mark);
+        cursor = end;
+      }
+      if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)));
+      // React still owns this node. Keep it as the first piece, as splitText
+      // did, so clearing search puts the same node back with its full text.
+      const first = fragment.firstChild!;
+      node.after(fragment);
+      node.data = first.textContent!;
+      if (first.nodeType === Node.TEXT_NODE) first.remove();
+      else (first as Element).replaceChildren(node);
     }
   }
   return matches;

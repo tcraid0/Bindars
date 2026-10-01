@@ -1,4 +1,9 @@
-import type { Bookmark, FileAnnotations, Highlight } from "../types";
+import type { Bookmark, FileAnnotations, Highlight, HighlightColor } from "../types";
+
+// Fall back only when rendering; the stored color must survive unrelated edits.
+export function displayHighlightColor(color: string): HighlightColor {
+  return color === "green" || color === "blue" || color === "pink" ? color : "yellow";
+}
 
 export interface AnnotationRecord {
   annotations: FileAnnotations;
@@ -32,7 +37,7 @@ export function readAnnotationRecord(value: unknown): AnnotationRecord {
     }
     ids.add(item.id);
     highlights.push({ ...item,
-      color: ["yellow", "green", "blue", "pink"].includes(item.color as string) ? item.color : "yellow",
+      color: typeof item.color === "string" ? item.color : "yellow",
       createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
       nearestHeadingId: typeof item.nearestHeadingId === "string" ? item.nearestHeadingId : null,
     } as unknown as Highlight);

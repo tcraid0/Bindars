@@ -1,3 +1,4 @@
+import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { memo, useEffect, useRef } from "react";
 import type {
   HeadingItem,
@@ -159,8 +160,9 @@ function TableOfContentsComponent({
     <nav
       ref={navRef}
       aria-label="Table of contents"
-      className="print-hide w-[220px] shrink-0 border-l border-border overflow-y-auto py-4"
-      style={{ animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
+      className="print-hide shrink-0 border-l border-border overflow-y-auto py-4"
+      data-reader-panel="toc"
+      style={{ width: READER_PANEL_WIDTHS.toc, animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <h2 className="px-4 pb-3 ui-section-label">
         Contents
