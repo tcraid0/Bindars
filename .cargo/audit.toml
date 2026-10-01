@@ -8,10 +8,10 @@
 # than being hidden here. It is build-only through phf_generator/selectors and
 # Bindars does not install the custom logger required to trigger the advisory.
 #
-# Tauri 2.11.5 / tauri-utils 2.9.3 still carry the documented rand and glib
+# Tauri 2.11.6 / tauri-utils 2.9.3 still carry the documented rand and glib
 # paths below. Neither can be removed with a compatible direct override.
 #
-# Last reviewed: 2026-08-29
+# Last reviewed: 2026-09-30
 
 [advisories]
 ignore = [
@@ -32,7 +32,7 @@ ignore = [
 
     # Legacy build-time/parser dependencies
     "RUSTSEC-2024-0370", # proc-macro-error (unmaintained, build dep only)
-    "RUSTSEC-2024-0384", # instant (unmaintained, Tauri transitive)
+    "RUSTSEC-2024-0384", # instant (unmaintained, notify-types -> notify transitive)
     "RUSTSEC-2025-0057", # fxhash (unmaintained, wry/selectors transitive)
     "RUSTSEC-2025-0075", # unic-char-range
     "RUSTSEC-2025-0080", # unic-common
