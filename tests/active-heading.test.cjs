@@ -4,6 +4,29 @@ const assert = require("node:assert/strict");
 const {
   resolveActiveHeadingId,
 } = require("../.tmp/workspace-tests/src/lib/active-heading.js");
+const {
+  HEADING_SCROLL_MARGIN_PX,
+  ACTIVE_HEADING_TOP_PX,
+  ACTIVE_HEADING_HYSTERESIS_PX,
+} = require("../.tmp/workspace-tests/src/lib/scroll-constants.js");
+
+test("a restored heading is active before the observer has a previous heading", () => {
+  for (const fractionalOffset of [0, 0.5]) {
+    assert.equal(resolveActiveHeadingId({
+      headingOffsets: [
+        { id: "previous", offsetTop: 450 },
+        { id: "restored", offsetTop: 500 + fractionalOffset },
+        { id: "following", offsetTop: 525 },
+      ],
+      scrollTop: 500 - HEADING_SCROLL_MARGIN_PX,
+      clientHeight: 400,
+      scrollHeight: 2000,
+      topOffsetPx: ACTIVE_HEADING_TOP_PX,
+      hysteresisPx: ACTIVE_HEADING_HYSTERESIS_PX,
+      currentId: null,
+    }), "restored", "restoration must select its own heading, not either close neighbor");
+  }
+});
 
 const headings = [
   { id: "intro", offsetTop: 0 },

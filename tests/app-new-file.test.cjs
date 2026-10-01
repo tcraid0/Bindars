@@ -6696,3 +6696,54 @@ test("saved heading restores when the reader mounts after the session document l
     await rendered.cleanup();
   }
 });
+
+
+test("startup restoration persists the same heading across two launches", async () => {
+  const restoreLocalStorage = bindAppLocalStorage();
+  let savedHeading = "second";
+  try {
+    for (let launch = 0; launch < 2; launch += 1) {
+      const held = deferred();
+      const history = { value: { version: 1, files: [] }, writes: [], read: () => held.promise };
+      const rendered = await renderContinuityApp({ restoreHeadingId: savedHeading, recentStorage: history, readySelector: null });
+      try {
+        await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
+        await act(async () => new Promise(setImmediate));
+        assert.ok(!rendered.host.querySelector("article"), "document is prepared before the reader mounts");
+        // Happy DOM has no layout: give the real App a scrollable reader and
+        // source-line positions, including scrollIntoView's CSS scroll margin.
+        const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.tagName === "MAIN") {
+            Object.defineProperties(this, {
+              clientHeight: { value: 400, configurable: true },
+              scrollHeight: { value: 2000, configurable: true },
+            });
+            return { x: 0, y: 50, top: 50, bottom: 450, left: 0, right: 800, width: 800, height: 400, toJSON() {} };
+          }
+          return originalBounds.call(this);
+        };
+        const { HEADING_SCROLL_MARGIN_PX } = require("../.tmp/workspace-tests/src/lib/scroll-constants.js");
+        window.HTMLElement.prototype.scrollIntoView = function () {
+          const main = rendered.host.querySelector("main");
+          if (main && this.id) {
+            main.scrollTop += this.getBoundingClientRect().top - main.getBoundingClientRect().top - HEADING_SCROLL_MARGIN_PX;
+          }
+        };
+        await act(async () => held.resolve([history.value, true]));
+        await waitFor(() => assert.ok(rendered.host.querySelector("#second")));
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2300)); });
+        const saved = history.writes.findLast(write => write.key === "session")?.value;
+        assert.ok(saved, "the session must actually be persisted");
+        assert.equal(saved.headingId, "second", `launch ${launch + 1} must not move the saved heading backward`);
+        assert.equal(history.value.files.find(file => file.path === "/tmp/continuity.md")?.lastHeadingId, "second");
+        savedHeading = saved.headingId;
+      } finally {
+        held.resolve([history.value, true]);
+        await rendered.cleanup();
+      }
+    }
+  } finally {
+    restoreLocalStorage();
+  }
+});
