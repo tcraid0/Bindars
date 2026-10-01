@@ -2563,7 +2563,11 @@ function App() {
         else {
           // Transfer focus only from UI that Focus mode removes.
           const active = document.activeElement;
-          if (active?.closest("header, [data-reader-panel]")) requestReaderFocus(searchVisible);
+          if (
+            active?.closest("header, [data-reader-panel], [data-character-focus]")
+            || document.getElementById(readerControlsId)?.contains(active)
+          ) requestReaderFocus(searchVisible);
+          closeReaderControls();
           setFocusMode(true);
         }
       }
@@ -2989,6 +2993,7 @@ function App() {
       {focusedCharacter && parsedFountain && fileType === "fountain" && !focusMode && !presentationMode && (
         <div
           role="status"
+          data-character-focus
           className="print-hide fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
         >
           <span className="text-sm text-accent-text font-medium truncate max-w-[200px]">

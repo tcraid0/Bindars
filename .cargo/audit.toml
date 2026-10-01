@@ -32,7 +32,7 @@ ignore = [
 
     # Legacy build-time/parser dependencies
     "RUSTSEC-2024-0370", # proc-macro-error (unmaintained, build dep only)
-    "RUSTSEC-2024-0384", # instant (unmaintained, notify-types -> notify transitive)
+    "RUSTSEC-2024-0384", # instant (unmaintained, notify -> notify-types -> instant)
     "RUSTSEC-2025-0057", # fxhash (unmaintained, wry/selectors transitive)
     "RUSTSEC-2025-0075", # unic-char-range
     "RUSTSEC-2025-0080", # unic-common

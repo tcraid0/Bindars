@@ -1665,31 +1665,77 @@ test("a saved-open sidebar is fitted at 600px after delayed startup, without a t
   } finally { await r.cleanup(); restore(); globalThis.localStorage = oldStorage; }
 });
 
-for (const route of ["toc-button", "header-button", "reader-link", "nothing-focused"]) {
+for (const route of ["toc-button", "header-button", "notes-button", "settings-button", "reader-link", "nothing-focused"]) {
   test(`entering Focus mode from ${route}`, async () => {
     const r = await renderLifecycleApp({ content: "# Lifecycle\n\nSee [a link](https://example.com) here.\n\n## Deeper\n\nClosing words.\n" });
     try {
       await r.openLifecycleDocument();
       const main = r.host.querySelector("main");
+      if (route === "notes-button") dispatchShortcut("m");
+      if (route === "settings-button") {
+        flushSync(() => r.host.querySelector('[aria-label="Toggle reader settings"]').click());
+      }
       const target = {
         "toc-button": () => r.host.querySelector('nav[aria-label="Table of contents"] button'),
         "header-button": () => r.host.querySelector('header [aria-label="Toggle sidebar"]'),
+        "notes-button": () => r.host.querySelector('[data-reader-panel="notes"] button:not([disabled])'),
+        "settings-button": () => r.host.querySelector('[aria-label="Close reader settings"]'),
         "reader-link": () => main.querySelector("article a"),
         "nothing-focused": () => null,
       }[route]();
       if (route === "nothing-focused") document.activeElement?.blur?.(); else { assert.ok(target, route); target.focus(); }
       const before = document.activeElement;
+      if (target) assert.ok(before === target, `${route} must really have focus before the shortcut`);
       const key = new window.KeyboardEvent("keydown", { key: "f", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
       flushSync(() => (before && before !== document.body ? before : window).dispatchEvent(key));
       await act(async () => {});
       assert.ok(!r.host.querySelector("header"), "focus mode engaged");
       const after = document.activeElement;
-      if (route === "toc-button" || route === "header-button") assert.ok(after === main, "focus moves into the reader");
+      if (["toc-button", "header-button", "notes-button", "settings-button"].includes(route)) {
+        assert.ok(after === main, "focus moves into the reader");
+        assert.ok(!target.isConnected, "the focused control was removed by Focus mode");
+      }
       if (route === "reader-link") assert.ok(after === before, "a focused reader link keeps focus");
       if (route === "nothing-focused") assert.ok(after === before, "no focus is invented when nothing had it");
+      if (route === "settings-button") {
+        assert.ok(!r.host.querySelector('[aria-label="Close reader settings"]'));
+        dispatchWindowKey("Escape");
+        await act(async () => {});
+        assert.ok(r.host.querySelector("header"), "Focus mode has ended");
+        assert.ok(!r.host.querySelector('[aria-label="Close reader settings"]'), "settings must stay closed on exit");
+        assert.ok(document.activeElement === main, "settings must not take focus back on exit");
+        const trigger = r.host.querySelector('[aria-label="Toggle reader settings"]');
+        assert.equal(trigger.getAttribute("aria-expanded"), "false");
+        flushSync(() => trigger.click());
+        await waitFor(() => assert.ok(r.host.querySelector('[aria-label="Close reader settings"]')));
+      }
     } finally { await r.cleanup(); }
   });
 }
+
+test("entering Focus mode from the Fountain character-focus Exit button", async () => {
+  const r = await renderLifecycleApp({ content: "INT. ROOM - DAY\n\nNORA\nReady to read.\n\nSAM\nSo am I.\n" });
+  try {
+    await r.requestNativeOpen("/tmp/focus.fountain");
+    await waitFor(() => assert.ok(r.host.querySelector(".fountain-body")));
+    const character = await waitFor(() => [...r.host.querySelectorAll('nav[aria-label="Table of contents"] button[aria-pressed]')]
+      .find(button => button.textContent.includes("NORA")) || assert.fail("character control missing"));
+    flushSync(() => character.click());
+    const exit = await waitFor(() => r.host.querySelector('[aria-label="Exit character focus"]') || assert.fail("character chip missing"));
+    exit.focus();
+    assert.ok(document.activeElement === exit, "the character Exit button must have focus before the shortcut");
+    const main = r.host.querySelector("main");
+    flushSync(() => exit.dispatchEvent(keyboardEvent("f", { ctrlKey: true, shiftKey: true })));
+    await act(async () => {});
+    assert.ok(!r.host.querySelector("header"), "Focus mode engaged");
+    assert.ok(!r.host.querySelector('[aria-label="Exit character focus"]'), "the character chip is hidden");
+    assert.ok(document.activeElement === main, "focus moves from the removed chip into the reader");
+    dispatchWindowKey("Escape");
+    await act(async () => {});
+    assert.ok(r.host.querySelector('[aria-label="Exit character focus"]'), "the character filter survives Focus mode");
+    assert.ok(document.activeElement === main, "the returning chip does not steal focus");
+  } finally { await r.cleanup(); }
+});
 
 
 test("unknown highlight colors render yellow while notes stay editable and removable", async () => {
