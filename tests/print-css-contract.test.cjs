@@ -44,13 +44,15 @@ test("Markdown sections and frontmatter remain continuous", () => {
 });
 
 test("print css resets viewport height and overflow on root containers", () => {
-  for (const selector of ["#root > div", "#root > div > .flex"]) {
+  for (const selector of ["#root > div", "#root > div > .flex", ".reader-column"]) {
     const declarations = printDeclarations(selector);
     assert.match(declarations, /height:\s*auto !important;/, selector);
     assert.match(declarations, /overflow:\s*visible !important;/, selector);
     assert.match(declarations, /min-height:\s*0 !important;/, selector);
   }
-  assert.match(printDeclarations("#root > div > .flex"), /display:\s*block !important;/);
+  for (const selector of ["#root > div > .flex", ".reader-column"]) {
+    assert.match(printDeclarations(selector), /display:\s*block !important;/, selector);
+  }
 });
 
 test("print tables remove screen clipping and allow unbroken cell text to wrap", () => {

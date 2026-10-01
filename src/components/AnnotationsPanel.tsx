@@ -1,3 +1,4 @@
+import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -205,8 +206,9 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   return (
     <aside
       ref={panelRef}
-      className="print-hide w-[280px] shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
-      style={{ animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
+      className="print-hide shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
+      data-reader-panel="notes"
+      style={{ width: READER_PANEL_WIDTHS.notes, animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <h2 className="ui-section-label">

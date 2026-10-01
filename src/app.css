@@ -1460,7 +1460,8 @@ body[data-printing] .print-hide {
   }
 
   /* Reset flex wrapper that constrains content height */
-  #root > div > .flex {
+  #root > div > .flex,
+  .reader-column {
     height: auto !important;
     overflow: visible !important;
     min-height: 0 !important;

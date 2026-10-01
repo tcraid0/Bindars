@@ -109,10 +109,11 @@ async function requestQuit() {
   });
 }
 
-async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null } = {}) {
+async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null, sidebarInitiallyOpen = false } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
   window.localStorage.clear();
+  if (sidebarInitiallyOpen) window.localStorage.setItem("bindars-sidebar-visible", "true");
   const originalMatchMedia = window.matchMedia;
   window.matchMedia = (query) => ({
     matches: false,
@@ -1204,34 +1205,6 @@ test("a delayed image failure after searching keeps the reader open and shows th
   }
 });
 
-test("a delayed image failure preserves an adjacent saved annotation without search", async t => {
-  for (const gap of ["", " "]) {
-    await t.test(gap ? "separated text control" : "immediately adjacent annotation", async () => {
-      const rendered = await renderLifecycleApp({
-        content: `# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.`,
-        highlights: [{ id: "adjacent", exact: "afterword", prefix: `Before ${gap}`, suffix: " needle", color: "yellow", createdAt: 1, nearestHeadingId: null }],
-      });
-      mockConvertFileSrc("macos");
-      try {
-        await rendered.openLifecycleDocument();
-        const article = rendered.host.querySelector("article");
-        const img = await waitFor(() => article.querySelector("img[src]") || assert.fail("missing authorized image"));
-        const mark = await waitFor(() => article.querySelector('mark[data-highlight-id="adjacent"]') || assert.fail("annotation not painted"));
-        assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
-        await act(async () => { img.dispatchEvent(new window.Event("error")); });
-        assert.ok(rendered.host.querySelector("article") === article, "image replacement must retain the reader");
-        assert.ok(mark.isConnected, "the saved highlight must survive the replacement");
-        assert.equal(mark.textContent, "afterword");
-        assert.match(article.querySelector(".image-notice").textContent, /image not shown:.*Missing/);
-        assert.ok(article.textContent.endsWith(`${gap}afterword needle here.`));
-        assert.ok(!article.querySelector("img"));
-      } finally {
-        await rendered.cleanup();
-      }
-    });
-  }
-});
-
 test("reader keeps its focused link and skips the Markdown pipeline on unrelated App updates", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
   try {
@@ -1254,6 +1227,93 @@ test("reader keeps its focused link and skips the Markdown pipeline on unrelated
     delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__;
     delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__;
     await rendered.cleanup();
+  }
+});
+
+test("presentation parses only the slide, retains search isolation, and still exits on navigation", async () => {
+  const rendered = await renderLifecycleApp({ content: "# Lifecycle\n\n[Next](next.md) words for searching." });
+  const originalMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = query => window.matchMedia(query);
+  try {
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__ = true;
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    await rendered.openLifecycleDocument();
+    await searchReader(rendered.host, "words");
+    const reader = rendered.host.querySelector("main");
+    const article = reader.querySelector("article");
+    const input = rendered.host.querySelector('[aria-label="Search in document"]');
+    assert.ok(!reader.contains(input), "search must stay outside the document scroller");
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    dispatchWindowKey("F5");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".presentation-overlay")));
+    assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 1, "only the new slide should parse");
+    assert.ok(input.closest("[inert]"), "the stationary search bar is inert while presentation owns focus");
+    assert.ok(reader.querySelector("article") === article);
+    globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__ = [];
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".presentation-overlay")));
+    assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 0, "unchanged reader should not reparse on exit");
+    assert.ok(!input.closest("[inert]"));
+    assert.ok(document.activeElement === reader);
+    assert.equal(input.value, "words");
+
+    dispatchWindowKey("F5");
+    const link = await waitFor(() => rendered.host.querySelector('.presentation-overlay a[href="next.md"]') || assert.fail("missing slide link"));
+    flushSync(() => link.click());
+    await waitFor(() => assert.ok(rendered.openedPaths().includes("/tmp/next.md")));
+    assert.ok(!rendered.host.querySelector(".presentation-overlay"), "the stable navigation callback must see current presentation state");
+  } finally {
+    globalThis.matchMedia = originalMatchMedia;
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_PROBE__;
+    delete globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__;
+    await rendered.cleanup();
+  }
+});
+
+test("narrow panels preserve preferences, honor the latest opening, and restore focus before hiding", async t => {
+  let width = 1200;
+  const originalStorage = globalThis.localStorage;
+  globalThis.localStorage = window.localStorage;
+  const innerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, get: () => width });
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
+  const shown = () => [...rendered.host.querySelectorAll("[data-reader-panel]")].map(panel => panel.dataset.readerPanel);
+  const resize = (next) => {
+    width = next;
+    flushSync(() => { window.dispatchEvent(new window.Event("resize")); });
+  };
+  try {
+    await rendered.openLifecycleDocument();
+    dispatchShortcut("b");
+    dispatchShortcut("m");
+    assert.deepEqual(shown(), ["sidebar", "toc", "notes"]);
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true");
+    rendered.host.querySelector('[data-reader-panel="toc"] button').focus();
+    resize(600);
+    assert.deepEqual(shown(), ["notes"]);
+    assert.ok(document.activeElement === rendered.host.querySelector("main"));
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "a temporary hide cannot change the saved preference");
+
+    for (const nextWidth of [600, 599, 579, 539]) {
+      resize(nextWidth);
+      for (const [key, panel] of [["b", "sidebar"], ["j", "toc"], ["m", "notes"]]) {
+        dispatchShortcut(key);
+        assert.deepEqual(shown(), [panel], `opening ${panel} at ${nextWidth}px must reveal it`);
+      }
+      assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "temporary hides must preserve the sidebar preference");
+    }
+    resize(1200);
+    assert.deepEqual(shown(), ["sidebar", "toc", "notes"], "widening restores requested panels");
+
+    dispatchShortcut("b");
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), "false");
+    resize(600);
+    resize(1200);
+    assert.deepEqual(shown(), ["toc", "notes"], "an explicitly closed sidebar stays closed");
+  } finally {
+    await rendered.cleanup();
+    if (innerWidth) Object.defineProperty(window, "innerWidth", innerWidth); else delete window.innerWidth;
+    globalThis.localStorage = originalStorage;
   }
 });
 
@@ -1549,3 +1609,84 @@ test("a failed native close cannot leave discard consent for the next close requ
     clickButton(rendered.host, "Keep open");
   } finally { await rendered.cleanup(); }
 });
+
+test("a delayed image failure preserves an adjacent saved annotation without search", async t => {
+  for (const gap of ["", " "]) {
+    await t.test(gap ? "separated text control" : "immediately adjacent annotation", async () => {
+      const rendered = await renderLifecycleApp({
+        content: `# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.`,
+        highlights: [{ id: "adjacent", exact: "afterword", prefix: `Before ${gap}`, suffix: " needle", color: "yellow", createdAt: 1, nearestHeadingId: null }],
+      });
+      mockConvertFileSrc("macos");
+      try {
+        await rendered.openLifecycleDocument();
+        const article = rendered.host.querySelector("article");
+        const img = await waitFor(() => article.querySelector("img[src]") || assert.fail("missing authorized image"));
+        const mark = await waitFor(() => article.querySelector('mark[data-highlight-id="adjacent"]') || assert.fail("annotation not painted"));
+        assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
+        await act(async () => { img.dispatchEvent(new window.Event("error")); });
+        assert.ok(rendered.host.querySelector("article") === article, "image replacement must retain the reader");
+        assert.ok(mark.isConnected, "the saved highlight must survive the replacement");
+        assert.equal(mark.textContent, "afterword");
+        assert.match(article.querySelector(".image-notice").textContent, /image not shown:.*Missing/);
+        assert.ok(article.textContent.endsWith(`${gap}afterword needle here.`));
+        assert.ok(!article.querySelector("img"));
+      } finally {
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+
+function narrowWindow(t, width) {
+  const innerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, get: () => width });
+  const original = window.HTMLElement.prototype.getBoundingClientRect;
+  t.mock.method(window.HTMLElement.prototype, "getBoundingClientRect", function () {
+    return { ...original.call(this), width, height: 600, top: 0, left: 0, right: width, bottom: 600 };
+  });
+  return () => { if (innerWidth) Object.defineProperty(window, "innerWidth", innerWidth); else delete window.innerWidth; };
+}
+
+test("a saved-open sidebar is fitted at 600px after delayed startup, without a toggle", async t => {
+  await installDom();
+  const oldStorage = globalThis.localStorage; globalThis.localStorage = window.localStorage;
+  const restore = narrowWindow(t, 600);
+  const gate = deferred();
+  const r = await renderLifecycleApp({ sidebarInitiallyOpen: true, initialSessionOperation: gate });
+  try {
+    await act(async () => gate.resolve([null, false]));
+    await waitFor(() => assert.ok(r.host.querySelector(".empty-state-content")));
+    await r.openLifecycleDocument(); await act(async () => {});
+    const shown = [...r.host.querySelectorAll("[data-reader-panel]")].map(p => p.dataset.readerPanel);
+    assert.deepEqual(shown, ["toc"], "at 600px only the TOC fits beside a 320px reader");
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "fitting must not change the saved preference");
+  } finally { await r.cleanup(); restore(); globalThis.localStorage = oldStorage; }
+});
+
+for (const route of ["toc-button", "header-button", "reader-link", "nothing-focused"]) {
+  test(`entering Focus mode from ${route}`, async () => {
+    const r = await renderLifecycleApp({ content: "# Lifecycle\n\nSee [a link](https://example.com) here.\n\n## Deeper\n\nClosing words.\n" });
+    try {
+      await r.openLifecycleDocument();
+      const main = r.host.querySelector("main");
+      const target = {
+        "toc-button": () => r.host.querySelector('nav[aria-label="Table of contents"] button'),
+        "header-button": () => r.host.querySelector('header [aria-label="Toggle sidebar"]'),
+        "reader-link": () => main.querySelector("article a"),
+        "nothing-focused": () => null,
+      }[route]();
+      if (route === "nothing-focused") document.activeElement?.blur?.(); else { assert.ok(target, route); target.focus(); }
+      const before = document.activeElement;
+      const key = new window.KeyboardEvent("keydown", { key: "f", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      flushSync(() => (before && before !== document.body ? before : window).dispatchEvent(key));
+      await act(async () => {});
+      assert.ok(!r.host.querySelector("header"), "focus mode engaged");
+      const after = document.activeElement;
+      if (route === "toc-button" || route === "header-button") assert.ok(after === main, "focus moves into the reader");
+      if (route === "reader-link") assert.ok(after === before, "a focused reader link keeps focus");
+      if (route === "nothing-focused") assert.ok(after === before, "no focus is invented when nothing had it");
+    } finally { await r.cleanup(); }
+  });
+}
