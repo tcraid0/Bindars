@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
 const { createRoot } = require("react-dom/client");
-const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
+const { clearMocks, mockIPC, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
@@ -1168,6 +1168,69 @@ async function searchReader(host, query) {
   });
   assert.ok(host.querySelector("mark.search-highlight-active"), "search should paint matches");
 }
+
+test("a delayed image failure after searching keeps the reader open and shows the image notice", async t => {
+  for (const { name, gap, closeSearch } of [
+    { name: "while highlights are visible", gap: " ", closeSearch: false },
+    { name: "while an immediately adjacent match is highlighted", gap: "", closeSearch: false },
+    { name: "after closing search", gap: " ", closeSearch: true },
+    { name: "after clearing a match immediately adjacent to the image", gap: "", closeSearch: true },
+  ]) {
+    await t.test(name, async () => {
+      const rendered = await renderLifecycleApp({ content: `# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.` });
+      mockConvertFileSrc("macos");
+      try {
+        await rendered.openLifecycleDocument();
+        const article = rendered.host.querySelector("article");
+        const img = await waitFor(() => article.querySelector("img[src]") || assert.fail("missing authorized image"));
+        await searchReader(rendered.host, "afterword");
+        const match = article.querySelector("mark.search-highlight-active");
+        if (closeSearch) {
+          flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
+          assert.equal(article.querySelectorAll("mark").length, 0);
+        }
+        await act(async () => {
+          img.dispatchEvent(new window.Event("error"));
+        });
+        assert.ok(rendered.host.querySelector("article") === article, "an image failure must not crash or replace the reader");
+        assert.match(article.querySelector(".image-notice").textContent, /\[image not shown:.*Missing\]/);
+        assert.ok(article.textContent.endsWith(`${gap}afterword needle here.`));
+        assert.ok(!article.querySelector("img"));
+        if (!closeSearch) assert.ok(match.isConnected, "image failure must retain the search mark");
+      } finally {
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+test("a delayed image failure preserves an adjacent saved annotation without search", async t => {
+  for (const gap of ["", " "]) {
+    await t.test(gap ? "separated text control" : "immediately adjacent annotation", async () => {
+      const rendered = await renderLifecycleApp({
+        content: `# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.`,
+        highlights: [{ id: "adjacent", exact: "afterword", prefix: `Before ${gap}`, suffix: " needle", color: "yellow", createdAt: 1, nearestHeadingId: null }],
+      });
+      mockConvertFileSrc("macos");
+      try {
+        await rendered.openLifecycleDocument();
+        const article = rendered.host.querySelector("article");
+        const img = await waitFor(() => article.querySelector("img[src]") || assert.fail("missing authorized image"));
+        const mark = await waitFor(() => article.querySelector('mark[data-highlight-id="adjacent"]') || assert.fail("annotation not painted"));
+        assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
+        await act(async () => { img.dispatchEvent(new window.Event("error")); });
+        assert.ok(rendered.host.querySelector("article") === article, "image replacement must retain the reader");
+        assert.ok(mark.isConnected, "the saved highlight must survive the replacement");
+        assert.equal(mark.textContent, "afterword");
+        assert.match(article.querySelector(".image-notice").textContent, /image not shown:.*Missing/);
+        assert.ok(article.textContent.endsWith(`${gap}afterword needle here.`));
+        assert.ok(!article.querySelector("img"));
+      } finally {
+        await rendered.cleanup();
+      }
+    });
+  }
+});
 
 test("reader keeps its focused link and skips the Markdown pipeline on unrelated App updates", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });

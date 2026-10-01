@@ -1719,6 +1719,11 @@ body[data-printing] .print-hide {
   }
 
   /* ── Images ── */
+  .markdown-body .image-notice {
+    color: black !important;
+    background: transparent !important;
+  }
+
   .markdown-body img {
     max-width: 100% !important;
     max-height: 150mm;
