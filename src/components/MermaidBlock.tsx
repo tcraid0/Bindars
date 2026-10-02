@@ -204,7 +204,13 @@ function getMermaidThemeConfig(themeName: string) {
 export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }: MermaidBlockProps) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement | null>(null);
   const idRef = useRef(`mermaid-${++mermaidCounter}`);
+
+  // Error output replaces searchable SVG labels too; consumers must refresh it.
+  useEffect(() => {
+    errorRef.current?.dispatchEvent(new Event("bindars:diagram-rendered", { bubbles: true }));
+  }, [error, chart]);
 
   // Observe data-theme for Mermaid theme switching.
   const [themeName, setThemeName] = useState(getCurrentThemeName);
@@ -279,7 +285,7 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
 
   if (error) {
     return (
-      <div className="mermaid-error" {...sourcePosition}>
+      <div ref={errorRef} className="mermaid-error" {...sourcePosition}>
         <span className="mermaid-error-label">Diagram error</span>
         <p className="mermaid-error-message">{error}</p>
         <pre><code>{chart}</code></pre>
