@@ -831,6 +831,43 @@ test("a failed macOS hide reports the problem and leaves close retryable", async
 
 // --- macOS quit behavior ---
 
+for (const [platform, boundary, completedOperation] of [
+  ["mac", "quit", "exit"],
+  ["windows", "close", "close"],
+  ["mac", "close", "hide"],
+]) {
+  test(`${platform} ${boundary} flushes the pending reading position and awaits storage`, async context => {
+    const rendered = await renderLifecycleApp({ platform,
+      content: "# Lifecycle\n\n[Jump](#deeper)\n\n## Deeper\n\nClosing words.",
+    });
+    const persistence = deferred();
+    const sessions = [];
+    try {
+      await rendered.openLifecycleDocument();
+      const store = require("../.tmp/workspace-tests/src/lib/store.js");
+      const originalSet = store.storeSet;
+      context.mock.method(store, "storeSet", (key, value) => {
+        if (key !== "session") return originalSet(key, value);
+        sessions.push(value);
+        return persistence.promise;
+      });
+      await act(async () => rendered.host.querySelector('article a[href="#deeper"]').click());
+      assert.equal(sessions.length, 0, "the position debounce is still pending");
+      if (boundary === "quit") await rendered.requestQuit();
+      else await rendered.requestClose();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0].filePath, DOC_PATH);
+      assert.equal(sessions[0].headingId, "deeper");
+      assert.ok(!rendered.operationLog().includes(completedOperation), "exit must wait for persistence");
+      await act(async () => persistence.resolve(true));
+      assert.ok(rendered.operationLog().includes(completedOperation));
+    } finally {
+      persistence.resolve(true);
+      await rendered.cleanup();
+    }
+  });
+}
+
 test("macOS quit with a clean document exits only through the guarded command", async () => {
   const rendered = await renderLifecycleApp({ platform: "mac" });
   try {

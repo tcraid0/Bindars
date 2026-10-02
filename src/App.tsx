@@ -1657,6 +1657,7 @@ function App() {
   const {
     restored: sessionRestored,
     notifyPositionChanged: notifySessionPositionChanged,
+    flushCurrentSession,
   } = useSessionRestore({
     filePath,
     getActiveHeadingId,
@@ -2158,6 +2159,7 @@ function App() {
       case "close-window": {
         const appWindow = getCurrentWindow();
         try {
+          await flushCurrentSession();
           // Exiting for the original close leaves no active editor. If one
           // exists now, it is a newer session and wins over the stale close.
           if (editingRef.current) {
@@ -2182,13 +2184,14 @@ function App() {
         return;
       }
       case "quit-app": {
-        // Document and annotation decisions are complete. A newly entered
-        // edit session still wins over the stale quit.
-        if (editingRef.current) {
-          console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
-          return;
-        }
         try {
+          await flushCurrentSession();
+          // Recheck after persistence: a newly entered edit session still wins
+          // over the stale quit, including while the session write was pending.
+          if (editingRef.current) {
+            console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
+            return;
+          }
           await invoke("exit_after_guarded_quit");
         } catch (error) {
           console.error("[quit-guard] Failed to exit after the guard completed:", error);

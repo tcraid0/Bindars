@@ -530,6 +530,44 @@ test("manual Save waiting on the first draft autosave moves the adopted draft", 
   }
 });
 
+test("draft retirement keeps typing during Save As and immediate quit saves it to the destination", async () => {
+  const rendered = await renderContinuityApp({ requestedPath: DRAFT_PATH });
+  const write = deferred();
+  const destination = "/tmp/retired-draft.md";
+  const snapshot = "# Draft\n\nSaved snapshot.";
+  const latest = `${snapshot}\n\nTyped during the write.`;
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    rendered.setSaveDialogPath(destination);
+    rendered.deferNextWrite(write);
+    updateEditor(rendered.host, snapshot);
+    dispatchShortcut("s");
+    await waitFor(() => assert.equal(write.args?.path, destination));
+    assert.equal(write.args.content, snapshot);
+    updateEditor(rendered.host, latest);
+    rendered.setDiskContent(snapshot);
+    await act(async () => write.resolve({
+      conflict: false, canonicalPath: destination, name: "retired-draft.md",
+      currentRevision: { mtimeMs: 2, size: snapshot.length, contentHash: "saved-draft" },
+    }));
+    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: destination }]));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), latest);
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.equal(rendered.diskContent(), snapshot);
+
+    await act(async () => emit("bindars://quit-requested"));
+    await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+    assert.equal(rendered.diskContent(), latest);
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.fileWrites()[1].path, destination);
+    assert.equal(rendered.fileWrites()[1].content, latest);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
 test("manual Save waits for a reopened draft's pending classification", async () => {
   const classification = deferred();
   const rendered = await renderContinuityApp({
