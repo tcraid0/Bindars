@@ -19,8 +19,9 @@ filename already exists, Bindars leaves it untouched and asks for another name.
 Selecting an existing file with a supported extension allows replacement through
 the save dialog. After saving successfully elsewhere, Bindars removes the
 original draft only if it can confirm that the draft has no highlights, notes,
-or bookmarks. Otherwise it keeps the draft and its Recent entry; annotations
-stay with that original path. Canceling the
+or bookmarks, that the draft still holds the text Bindars last saved to it,
+and that the new file still holds the text just saved. Otherwise it keeps the
+draft and its Recent entry; annotations stay with that original path. Canceling the
 dialog, or a name that cannot be used, leaves the draft in place and autosave
 keeps running. Choosing the same file also leaves the draft in place. These
 files can also be opened and managed like other documents, and follow the

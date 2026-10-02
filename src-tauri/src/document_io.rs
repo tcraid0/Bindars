@@ -33,6 +33,15 @@ pub(crate) struct FileRevision {
     pub(crate) content_hash: String,
 }
 
+impl FileRevision {
+    /// True when `bytes` are the contents this revision described. The
+    /// timestamp is ignored: a touch that leaves the bytes intact is not a
+    /// competing edit.
+    pub(crate) fn matches_contents(&self, bytes: &[u8]) -> bool {
+        self.size == bytes.len() as u64 && self.content_hash == stable_hash_hex(bytes)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ConditionalWriteResult {

@@ -261,6 +261,12 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     return editSession;
   }, []);
 
+  // True while a write started by the current session still holds the save
+  // lock. Leaving then would abandon a write that cannot be cancelled.
+  const saveInFlight = useCallback((): boolean => (
+    savingSessionRef.current !== null && savingSessionRef.current === editSessionRef.current
+  ), []);
+
   const completeWrite = useCallback((
     editSession: number,
     savedBuffer: string,
@@ -604,6 +610,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     save,
     createDraft,
     saveAs,
+    saveInFlight,
     exitEditMode,
     dismissSaveError,
   };

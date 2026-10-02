@@ -44,6 +44,11 @@ function successfulDraftWrite(content) {
   };
 }
 
+// Retirement also carries the revisions it verifies; most tests care only about which files were involved.
+function retirementPaths(deletes) {
+  return deletes.map(({ path, savedPath }) => ({ path, savedPath }));
+}
+
 async function waitFor(assertion) {
   let lastError;
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -516,7 +521,15 @@ test("manual Save waiting on the first draft autosave moves the adopted draft", 
     await waitFor(() => assert.deepEqual(loads, [DRAFT_PATH]));
     await act(async () => new Promise(setImmediate));
     await act(async () => dialog.resolve("/tmp/recovered-r7.md"));
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
+    // Retirement carries the draft as its creation reported it and the
+    // destination as the Save As write acknowledged it, so the native check
+    // can refuse when either file no longer holds those bytes.
+    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{
+      path: DRAFT_PATH,
+      savedPath: "/tmp/recovered-r7.md",
+      draftRevision: { mtimeMs: 2, size: content.length, contentHash: "created-draft" },
+      savedRevision: { mtimeMs: 3, size: content.length, contentHash: "saved-file" },
+    }]));
     assert.equal(rendered.saveDialogs.length, 1);
     assert.equal(rendered.fileWrites.length, 1);
     assert.equal(rendered.fileWrites[0].content, content);
@@ -551,7 +564,10 @@ test("draft retirement keeps typing during Save As and immediate quit saves it t
       conflict: false, canonicalPath: destination, name: "retired-draft.md",
       currentRevision: { mtimeMs: 2, size: snapshot.length, contentHash: "saved-draft" },
     }));
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: destination }]));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: destination }]));
+    // The draft revision was captured before Save As moved the editor to the destination.
+    assert.equal(rendered.draftDeletes()[0].draftRevision.contentHash, "r1");
+    assert.deepEqual(rendered.draftDeletes()[0].savedRevision, { mtimeMs: 2, size: snapshot.length, contentHash: "saved-draft" });
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), latest);
     assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
     assert.equal(rendered.diskContent(), snapshot);
@@ -586,7 +602,7 @@ test("manual Save waits for a reopened draft's pending classification", async ()
     assert.deepEqual(rendered.saveDialogs(), []);
     assert.deepEqual(rendered.fileWrites(), []);
     await act(async () => classification.resolve(true));
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: "/tmp/virtual-continuity.md" }]));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: "/tmp/virtual-continuity.md" }]));
     assert.equal(rendered.saveDialogs().length, 1);
     assert.deepEqual(rendered.draftChecks(), [DRAFT_PATH, "/tmp/virtual-continuity.md"], "Save reuses the existing draft classification");
     assert.equal(rendered.fileWrites()[0].content, content);
@@ -621,11 +637,12 @@ for (const classificationFails of [false, true]) {
   });
 }
 
-test("a stale Save As dialog leaves the draft intact when a newer session starts", async () => {
+test("a New request during a draft's Save As dialog waits for the dialog, then runs", async () => {
   const dialog = deferred();
   const rendered = await renderEditorApp({ saveDialog: () => dialog.promise });
   try {
-    updateEditor(rendered.host, "Old draft retained after switching sessions");
+    const draftWords = "Old draft retained while its Save As dialog is open";
+    updateEditor(rendered.host, draftWords);
     dispatchShortcut("e");
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     dispatchShortcut("e");
@@ -633,15 +650,23 @@ test("a stale Save As dialog leaves the draft intact when a newer session starts
     dispatchShortcut("s");
     await waitFor(() => assert.equal(rendered.saveDialogs.length, 1));
     dispatchShortcut("n");
-    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
-    updateEditor(rendered.host, "New session words must not be saved by the old dialog");
-    await act(async () => dialog.resolve("/tmp/stale-save-as.md"));
+    // The pending Save As owns this session. New waits for it instead of
+    // abandoning the session around the dialog and its write.
+    await act(async () => new Promise((resolve) => realSetTimeout(resolve, 20)));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), draftWords);
     assert.deepEqual(rendered.fileWrites, []);
-    assert.deepEqual(rendered.draftDeletes, []);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => dialog.resolve("/tmp/recovered-r7.md"));
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    assert.equal(rendered.fileWrites.length, 1);
+    assert.equal(rendered.fileWrites[0].path, "/tmp/recovered-r7.md");
+    assert.equal(rendered.fileWrites[0].content, draftWords);
+    assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]);
     const recent = rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1);
-    assert.deepEqual(recent.value.files.map((file) => file.path), [DRAFT_PATH]);
-    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "New session words must not be saved by the old dialog");
+    assert.ok(!recent.value.files.some((file) => file.path === DRAFT_PATH), "the retired draft leaves Recent");
     assert.match(rendered.windowTitles.at(-1), /Untitled\.md/);
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.equal(rendered.host.querySelectorAll('[role="status"] [role="alert"]').length, 0);
   } finally {
     dialog.resolve(null);
@@ -651,6 +676,10 @@ test("a stale Save As dialog leaves the draft intact when a newer session starts
 
 for (const sameSession of [false, true]) {
   test(`a completed draft deletion cannot clear a ${sameSession ? "same" : "newer"} session's later autosave failure`, async (context) => {
+    // Retirement is part of the manual save, so a newer session can only start
+    // once the deletion has settled; its late completion then has nothing to
+    // clear. The same-session case checks the deletion itself cannot clear a
+    // later autosave failure.
     const deletion = deferred();
     let creationCount = 0;
     const rendered = await renderEditorApp({
@@ -668,12 +697,15 @@ for (const sameSession of [false, true]) {
       dispatchShortcut("e");
       await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
       dispatchShortcut("s");
-      await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
+      await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
 
       if (sameSession) {
         rendered.failNextFileWrite(new Error("Later autosave unavailable"));
       } else {
         dispatchShortcut("n");
+        await act(async () => {});
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), "First draft to move", "New waits for the pending retirement");
+        await act(async () => deletion.resolve(true));
         await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
       }
       updateEditor(rendered.host, "Later text must stay protected by its warning");
@@ -733,7 +765,7 @@ for (const result of ["move", "cancel", "same canonical path", "delete failure"]
         assert.equal(rendered.fileWrites[0].content, content);
         assert.equal(rendered.fileWrites[0].force, true);
         const savedPath = result === "same canonical path" ? DRAFT_PATH : "/tmp/Chosen draft.md";
-        await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath }]));
+        await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath }]));
         assert.deepEqual(rendered.operationLog, ["write", "delete"]);
         if (result === "same canonical path") {
           assert.deepEqual(rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1).value.files.map((file) => file.path), [DRAFT_PATH]);
@@ -891,7 +923,7 @@ test("Save As on a draft error removes the draft after the new file is written",
     dispatchShortcut("s");
     await waitFor(() => assert.match(rendered.host.textContent, /must end in/));
     clickButton(rendered.host, "Save As…");
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{
       path: DRAFT_PATH,
       savedPath: "/tmp/Chosen draft.md",
     }]));
@@ -2979,10 +3011,10 @@ test("file switching flushes the pending autosave before opening the next file",
   }
 });
 
-test("a manual Save that waited on an autosave is dropped once the editor session has changed", async () => {
-  // The wait can outlast the session: undo to clean, open another file from
-  // Finder, start editing it. The old closure's file path must never receive
-  // the new document's text.
+test("a native open during a pending autosave write waits for it, and the Save that waited on that autosave writes nothing stale", async () => {
+  // Undo to clean while an autosave write and a manual Save are both waiting,
+  // then open another file from Finder. The open must wait for the write, and
+  // the old session's Save must never write the new document's text.
   const rendered = await renderContinuityApp();
   const oldWrite = deferred();
   try {
@@ -2999,16 +3031,21 @@ test("a manual Save that waited on an autosave is dropped once the editor sessio
     updateEditor(rendered.host, initial);
     rendered.setPendingNativeOpenPath("/tmp/second-copy.md");
     await act(async () => emit("bindars://native-open-available"));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(!rendered.openedPaths().includes("/tmp/second-copy.md"), "the open must wait for the pending write");
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initial);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => oldWrite.reject(new Error("Temporary old-file save error")));
     await waitFor(() => assert.match(rendered.host.textContent, /second-copy\.md/));
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     const newWords = "New document words which must never reach continuity.md";
     updateEditor(rendered.host, newWords);
-
-    await act(async () => oldWrite.reject(new Error("Temporary old-file save error")));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     assert.equal(rendered.fileWrites().length, 1);
     assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(rendered.diskContent(), initial);
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
     assert.match(rendered.host.textContent, /second-copy\.md/);
     assert.ok(!document.querySelector('[role="dialog"]'));
@@ -3018,7 +3055,7 @@ test("a manual Save that waited on an autosave is dropped once the editor sessio
   }
 });
 
-test("a manual Save waiting on autosave is dropped after re-entering Edit on the same file", async (context) => {
+test("leaving Edit while an autosave write and a waiting Save are pending waits for both before re-entry starts a fresh session", async (context) => {
   const rendered = await renderContinuityApp();
   const oldWrite = deferred();
   try {
@@ -3034,10 +3071,15 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
     context.mock.timers.reset();
 
     dispatchShortcut("s");
-    // Return to clean so Edit can be left while Save still awaits the old
-    // autosave. Re-entering this same path defeats the separate path guard.
+    // Return to clean while Save still awaits the old autosave. Leaving Edit
+    // must wait for both rather than abandon the session around them.
     updateEditor(rendered.host, initial);
     dispatchShortcut("e");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(rendered.host.querySelector(".cm-editor"), "leaving must wait for the pending write");
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => oldWrite.reject(new Error("Temporary old-session save error")));
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
     dispatchShortcut("e");
@@ -3045,10 +3087,8 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
     assert.ok(findEditorView(rendered.host) !== oldEditor);
     const newWords = `${initial}\nNew session words which Save must leave unsaved`;
     updateEditor(rendered.host, newWords);
-
-    await act(async () => oldWrite.reject(new Error("Temporary old-session save error")));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-    assert.equal(rendered.fileWrites().length, 1, "the stale Save must not write the new session");
+    assert.equal(rendered.fileWrites().length, 1, "the earlier Save must not write the new session");
     assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
     assert.equal(rendered.diskContent(), initial);
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
@@ -3057,6 +3097,246 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
   } finally {
     oldWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
     context.mock.timers.reset();
+    await rendered.cleanup();
+  }
+});
+
+// A write that started before a clean-looking departure must land before the
+// buffer can be judged: its completion rebases the dirty comparison. Until
+// then the restored text would read as clean while the write replaces it.
+const RESTORED_TEXT = "# First\n\nThe only copy of this paragraph.\n\n## Second\n";
+const PENDING_DELETION = "# First\n\nParagraph deleted.\n\n## Second\n";
+const SWITCH_TARGET = "/tmp/switched-while-saving.md";
+
+async function startPendingWriteOf(rendered, trigger, write) {
+  dispatchShortcut("e");
+  await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+  rendered.deferNextWrite(write);
+  updateEditor(rendered.host, PENDING_DELETION);
+  if (trigger === "manual") {
+    dispatchShortcut("s");
+  } else {
+    await waitForEditorPublication();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2650)));
+  }
+  await waitFor(() => assert.ok(write.args));
+  assert.equal(write.args.content, PENDING_DELETION);
+}
+
+async function requestDeparture(rendered, boundary) {
+  if (boundary === "new") dispatchShortcut("n");
+  else if (boundary === "exit") dispatchShortcut("e");
+  else if (boundary === "open") {
+    rendered.setPendingNativeOpenPath(SWITCH_TARGET);
+    await act(async () => emit("bindars://native-open-available"));
+  } else await act(async () => emit("bindars://quit-requested"));
+}
+
+function departureCompleted(rendered, boundary) {
+  if (boundary === "new") return findEditorView(rendered.host).state.sliceDoc() === "";
+  if (boundary === "quit") return rendered.guardedExitCount() === 1;
+  if (boundary === "open") return rendered.openedPaths().includes(SWITCH_TARGET);
+  return !rendered.host.querySelector(".cm-editor");
+}
+
+function landPendingWrite(rendered, write, extra = {}) {
+  rendered.setDiskContent(write.args.content);
+  return act(async () => write.resolve({
+    conflict: false, canonicalPath: write.args.path, name: write.args.path.split("/").at(-1),
+    currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "landed" },
+    ...extra,
+  }));
+}
+
+// After the old write lands, the restored text is dirty again. The departure
+// either autosaves it silently or asks through the ordinary Save/Discard
+// decision; both must end with the restored text on disk.
+async function finishDepartureWithRestoredText(rendered, expectedDisk) {
+  let route = "silent";
+  await waitFor(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog) {
+      route = "dialog";
+      return;
+    }
+    assert.equal(rendered.diskContent(), expectedDisk);
+  });
+  if (route === "dialog") {
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /Unsaved changes/);
+    clickButton(rendered.host, "Save", dialog);
+  }
+  await waitFor(() => assert.equal(rendered.diskContent(), expectedDisk));
+  await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+}
+
+for (const trigger of ["manual", "autosave"]) {
+  for (const boundary of ["new", "quit", "exit", "open"]) {
+    test(`${trigger} save, restore to baseline, then ${boundary}: departure waits for the write and keeps the restored text`, async (context) => {
+      const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+      const write = deferred();
+      try {
+        await startPendingWriteOf(rendered, trigger, write);
+        updateEditor(rendered.host, RESTORED_TEXT);
+        await requestDeparture(rendered, boundary);
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+        assert.ok(rendered.host.querySelector(".cm-editor"), "the editor was abandoned around its write");
+        assert.ok(!departureCompleted(rendered, boundary), `${boundary} proceeded before the write landed`);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+        assert.ok(!document.querySelector('[role="dialog"]'), "no decision can be asked before the write lands");
+        assert.equal(rendered.fileWrites().length, 1);
+
+        await landPendingWrite(rendered, write);
+        await finishDepartureWithRestoredText(rendered, RESTORED_TEXT);
+        await waitFor(() => assert.ok(departureCompleted(rendered, boundary), `${boundary} did not complete after the write landed`));
+        assert.equal(rendered.fileWrites().length, 2, "exactly one follow-up write");
+        assert.equal(rendered.fileWrites()[1].content, RESTORED_TEXT);
+        assert.equal(rendered.diskContent(), RESTORED_TEXT);
+      } finally {
+        write.resolve(null);
+        context.mock.timers.reset();
+        await rendered.cleanup();
+      }
+    });
+  }
+}
+
+test("text typed while a departure waits for a pending save is saved before leaving", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const typedWhileWaiting = `${RESTORED_TEXT}\nTyped while the departure waited.\n`;
+    updateEditor(rendered.host, typedWhileWaiting);
+
+    await landPendingWrite(rendered, write);
+    await finishDepartureWithRestoredText(rendered, typedWhileWaiting);
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.equal(rendered.fileWrites().length, 2);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that fails without touching disk lets a genuinely clean buffer leave", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+
+    await act(async () => write.reject(new Error("Temporary write failure")));
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    assert.equal(rendered.fileWrites().length, 1, "nothing was unsaved, so nothing is rewritten");
+    assert.equal(rendered.diskContent(), RESTORED_TEXT);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that lands as a conflict stops the departure at the conflict decision", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+
+    await act(async () => write.resolve({
+      conflict: true, canonicalPath: write.args.path, name: "continuity.md",
+      currentRevision: { mtimeMs: 9, size: 5, contentHash: "outside" },
+    }));
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      return candidate;
+    });
+    assert.match(dialog.textContent, /File changed/);
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.equal(rendered.fileWrites().length, 1, "a conflict is not retried behind the person's back");
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.notEqual(findEditorView(rendered.host).state.sliceDoc(), "");
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that retained a competing version stops the departure at the Save decision with the notice visible", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "quit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(rendered.guardedExitCount(), 0);
+
+    await landPendingWrite(rendered, write, { recoveryPath: "/tmp/Bindars recovered competing.md" });
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      return candidate;
+    });
+    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.equal(rendered.guardedExitCount(), 0, "quit must not proceed over a recovery-required outcome");
+    assert.equal(rendered.fileWrites().length, 1, "autosave stays paused after a retained version");
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.match(rendered.host.textContent, /kept another version at \/tmp\/Bindars recovered competing\.md/);
+    assert.equal(rendered.guardedExitCount(), 0);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("cancelling the decision that follows a settled autosave keeps the editor, and autosave then restores the text", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "autosave", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(!departureCompleted(rendered, "new"));
+
+    await landPendingWrite(rendered, write);
+    // Joining the autosave reports newer edits, so the ordinary decision opens.
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate, "the restored text must be put to the person, not dropped");
+      return candidate;
+    });
+    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.equal(rendered.diskContent(), PENDING_DELETION);
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"), "Cancel keeps the editor");
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.ok(!departureCompleted(rendered, "new"), "Cancel cancels New");
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2700)));
+    await waitFor(() => assert.equal(rendered.diskContent(), RESTORED_TEXT));
+    assert.equal(rendered.fileWrites().length, 2);
+  } finally {
+    write.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -6184,7 +6464,7 @@ test("an incomplete Save As preserves the warning, current text and draft until 
     assert.ok(!rendered.draftChecks().includes("/tmp/partial-copy.md"));
     rendered.setSaveDialogPath("/tmp/complete-copy.md");
     clickButton(rendered.host, "Save As…");
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: "/tmp/complete-copy.md" }]));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: "/tmp/complete-copy.md" }]));
     assert.equal(rendered.fileWrites().at(-1).content, words);
     assert.doesNotMatch(rendered.host.textContent, /may be incomplete/);
   } finally { await rendered.cleanup(); }
@@ -6276,7 +6556,9 @@ for (const route of ["manual Save", "Save As after error"]) {
         conflict: false, canonicalPath: selectedPath, name: "draft-with-recovery.md",
         currentRevision: written, recoveryPath: "/tmp/Bindars recovered competing.md",
       }));
-      await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: selectedPath }]));
+      await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: selectedPath }]));
+      // The acknowledged destination revision travels with retirement even when a competing version was retained.
+      assert.deepEqual(rendered.draftDeletes()[0].savedRevision, written);
       assert.match(rendered.host.textContent, /kept another version at \/tmp\/Bindars recovered competing\.md/);
       assert.ok(rendered.host.querySelector('[aria-label^="Save warning: Autosave is paused"]'));
       assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
