@@ -1,8 +1,11 @@
 # Saving your work
 
-Bindars protects current work with autosave and ordinary document files. It
-keeps no hidden copies of your writing. This page describes where your work is
-saved and what older builds may have left behind.
+Bindars saves your writing to ordinary document files, with autosave while
+you edit. It keeps no separate hidden store of your writing, but every save
+passes through a temporary hidden file beside the document, and an interrupted
+save or a competing version can leave such a file behind. This page describes
+where your work is saved, what a save can leave in the document's folder, and
+what older builds may have left behind.
 
 ## Autosave and the Drafts folder
 
@@ -49,6 +52,34 @@ Bindars refuses an existing destination file or a name that still has saved
 highlights, notes, or bookmarks. It opens the new copy for editing only after
 creation succeeds. Canceling or a failed save leaves you reading the original.
 The copy contains the document text; annotations remain with the original path.
+
+## Temporary files beside the document
+
+Saving an existing file writes the complete new text to a hidden file in the
+same folder first, named `.bindars-save-` followed by a unique suffix, and then
+swaps it with the document (or, on volumes that cannot swap, renames it over
+the document). Exports write a hidden `.bindars-export-md-…` file the same way.
+These files are plain, unencrypted text and hold the whole document while the
+save runs. A save that completes removes them in the same operation.
+
+If Bindars quits, crashes, or the computer loses power during a save, one such
+file can remain. Depending on the moment, it holds either the text being saved
+while the document still shows the previous version, or the previous version
+while the document already holds the new text. Open it like any other text
+file to check which.
+
+When another program changed the document between Bindars's last check and
+the swap, Bindars keeps that displaced version instead of discarding it and
+renames it to `Bindars recovered …` with the document's extension, visible
+beside the document. The warning in the editor names the file. If that rename
+fails, the version stays under its hidden `.bindars-save-` name, and the
+warning names that file instead.
+
+Bindars never deletes these leftovers on its own: a leftover can hold the only
+remaining copy of some text. Review them and delete the ones you no longer
+need. Deleted text may still be recoverable from the storage medium; Bindars
+does not perform secure erasure. Neither autosave nor these files is a backup,
+and they do not replace a version history you manage yourself.
 
 ## Recovery copies from older builds
 
