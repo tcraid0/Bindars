@@ -3201,6 +3201,69 @@ for (const trigger of ["manual", "autosave"]) {
   }
 }
 
+// A second Save while the first is still writing finishes first: the buffer is
+// clean, or the write lock refuses it. That must not release the departure's
+// wait for the first write.
+for (const secondSave of ["before the departure", "while the departure waits"]) {
+  for (const boundary of ["new", "exit", "quit"]) {
+    test(`a repeated Save ${secondSave} does not let ${boundary} leave before the first write lands`, async () => {
+      const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+      const write = deferred();
+      try {
+        await startPendingWriteOf(rendered, "manual", write);
+        updateEditor(rendered.host, RESTORED_TEXT);
+        if (secondSave === "before the departure") dispatchShortcut("s");
+        await requestDeparture(rendered, boundary);
+        if (secondSave === "while the departure waits") {
+          await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+          dispatchShortcut("s");
+        }
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+        assert.ok(rendered.host.querySelector(".cm-editor"), "the editor was abandoned around its first write");
+        assert.ok(!departureCompleted(rendered, boundary), `${boundary} proceeded before the first write landed`);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+        assert.ok(!document.querySelector('[role="dialog"]'));
+        assert.equal(rendered.fileWrites().length, 1, "the second Save has nothing to write yet");
+
+        await landPendingWrite(rendered, write);
+        await finishDepartureWithRestoredText(rendered, RESTORED_TEXT);
+        await waitFor(() => assert.ok(departureCompleted(rendered, boundary), `${boundary} did not complete after the write landed`));
+        assert.equal(rendered.fileWrites().length, 2, "exactly one follow-up write");
+        assert.equal(rendered.fileWrites()[1].content, RESTORED_TEXT);
+        assert.equal(rendered.diskContent(), RESTORED_TEXT);
+      } finally {
+        write.resolve(null);
+        await rendered.cleanup();
+      }
+    });
+  }
+}
+
+test("a repeated Save on a dirty buffer is refused by the write lock and the departure still waits for the first write", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    const typedMore = `${PENDING_DELETION}\nTyped while the first save is writing.\n`;
+    updateEditor(rendered.host, typedMore);
+    dispatchShortcut("s");
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.ok(!document.querySelector('[role="dialog"]'), "no decision can be asked before the first write lands");
+    assert.equal(rendered.fileWrites().length, 1);
+
+    await landPendingWrite(rendered, write);
+    await finishDepartureWithRestoredText(rendered, typedMore);
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.diskContent(), typedMore);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
 test("text typed while a departure waits for a pending save is saved before leaving", async () => {
   const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
   const write = deferred();

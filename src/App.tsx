@@ -63,7 +63,7 @@ import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constan
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
-import type { EditorSaveOutcome, SavedFileSnapshot } from "./lib/editor-save";
+import type { EditorSaveOutcome, EditorSaveResult, SavedFileSnapshot } from "./lib/editor-save";
 import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
 import type {
@@ -823,17 +823,20 @@ function App() {
   }, [annotationRecordState, removeRecent, toast]);
 
   // Every manual save runs through here so a departure can wait until the save
-  // has recorded its outcome. Autosaves are joined through the coordinator.
+  // has recorded its outcome. Overlapping saves join rather than replace: a
+  // later Save that finishes first (clean buffer, or refused by the write lock)
+  // must not release the wait for an earlier save still writing. Autosaves are
+  // joined through the coordinator.
   const manualSaveRef = useRef<Promise<void> | null>(null);
   const runManualSave = useCallback(async (operation: () => Promise<void>) => {
     const run = operation();
-    const tracked = run.then(() => undefined, () => undefined);
-    manualSaveRef.current = tracked;
-    try {
-      await run;
-    } finally {
-      if (manualSaveRef.current === tracked) manualSaveRef.current = null;
-    }
+    const settled = Promise.all([manualSaveRef.current, run.then(() => undefined, () => undefined)])
+      .then(() => undefined);
+    manualSaveRef.current = settled;
+    void settled.then(() => {
+      if (manualSaveRef.current === settled) manualSaveRef.current = null;
+    });
+    await run;
   }, []);
 
   // Shared tail of Save and Save As: record the outcome, report it, then retire
@@ -1129,12 +1132,16 @@ function App() {
     boundaryFlushInFlightRef.current = true;
     const sessionKey = editorSessionKeyRef.current;
     try {
-      // A save that began before this departure must finish first: a manual
-      // save until it has recorded its outcome, an autosave by joining it in
-      // flushAutosave. Only after its write has rebased the dirty comparison can
-      // the live buffer say whether anything is still unsaved.
-      await manualSaveRef.current;
-      const result = await flushAutosave();
+      // Saves that began before or during this departure must finish first: a
+      // manual save until it has recorded its outcome, an autosave by joining
+      // it in flushAutosave. A Save pressed while the autosave is joined starts
+      // another round. Only after every write has rebased the dirty comparison
+      // can the live buffer say whether anything is still unsaved.
+      let result: EditorSaveResult | null;
+      do {
+        while (manualSaveRef.current) await manualSaveRef.current;
+        result = await flushAutosave();
+      } while (manualSaveRef.current);
       if (!editorSessionIsCurrent(sessionKey)) {
         // The session ended while waiting. A Save continuation may already have
         // run the pending action; one still pending must not run over a newer
