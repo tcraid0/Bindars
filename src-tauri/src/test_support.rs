@@ -38,6 +38,55 @@ pub(crate) fn cleanup_temp_path(path: &Path) {
     }
 }
 
+/// macOS access-metadata fixtures, applied and read back with the system tools
+/// so the tests do not depend on the code under test.
+#[cfg(target_os = "macos")]
+pub(crate) mod access_metadata {
+    use std::path::Path;
+    use std::process::Command;
+
+    pub(crate) const XATTR: &str = "com.bindars.test";
+
+    pub(crate) fn add_acl(path: &Path, entry: &str) {
+        let status = Command::new("/bin/chmod")
+            .args(["+a", entry])
+            .arg(path)
+            .status()
+            .expect("run chmod +a");
+        assert!(status.success(), "chmod +a {entry:?} failed");
+    }
+
+    pub(crate) fn acl_text(path: &Path) -> String {
+        let output = Command::new("/bin/ls")
+            .arg("-le")
+            .arg(path)
+            .output()
+            .expect("run ls -le");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    pub(crate) fn set_xattr(path: &Path, value: &str) {
+        let status = Command::new("/usr/bin/xattr")
+            .args(["-w", XATTR, value])
+            .arg(path)
+            .status()
+            .expect("run xattr -w");
+        assert!(status.success(), "xattr -w failed");
+    }
+
+    pub(crate) fn xattr(path: &Path) -> Option<String> {
+        let output = Command::new("/usr/bin/xattr")
+            .args(["-p", XATTR])
+            .arg(path)
+            .output()
+            .expect("run xattr -p");
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
 #[test]
 fn temp_paths_use_isolated_parent_directories() {
     let first = unique_temp_path("md");

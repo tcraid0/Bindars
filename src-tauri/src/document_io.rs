@@ -471,7 +471,7 @@ pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileEr
     let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::OpenDocument, path, error)
     })?;
-    let (buffer, _) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
+    let (buffer, _) = read_bounded_file(path, &file, NativeFileOperation::ReadDocument)?;
     decode_markdown_contents(buffer)
 }
 
@@ -479,7 +479,7 @@ fn read_open_document_snapshot(
     path: &Path,
     file: fs::File,
 ) -> Result<(String, FileRevision), NativeFileError> {
-    let (buffer, metadata) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
+    let (buffer, metadata) = read_bounded_file(path, &file, NativeFileOperation::ReadDocument)?;
     let parent = parent_metadata(path, NativeFileOperation::ReadDocument)?;
     let revision = revision_from_bytes(&metadata, &parent, &buffer);
     let content = decode_markdown_contents(buffer)?;
@@ -488,7 +488,7 @@ fn read_open_document_snapshot(
 
 pub(crate) fn read_bounded_file(
     path: &Path,
-    file: fs::File,
+    file: &fs::File,
     operation: NativeFileOperation,
 ) -> Result<(Vec<u8>, fs::Metadata), NativeFileError> {
     let metadata = file
@@ -553,7 +553,7 @@ fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
     let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
     })?;
-    let (bytes, metadata) = read_bounded_file(path, file, NativeFileOperation::CheckRevision)?;
+    let (bytes, metadata) = read_bounded_file(path, &file, NativeFileOperation::CheckRevision)?;
     let parent = parent_metadata(path, NativeFileOperation::CheckRevision)?;
 
     Ok(revision_from_bytes(&metadata, &parent, &bytes))

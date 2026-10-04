@@ -155,6 +155,16 @@ test("missing destination folders recommend Save As without claiming document de
   });
 });
 
+test("a save refused over access metadata keeps its native explanation and offers Save As", () => {
+  const message = "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.";
+  assert.deepEqual(actionableSaveError({
+    category: "unknown", operation: "preservePermissions", message, detail: "fcopyfile: EACCES",
+  }), { message, recovery: "save-as" });
+  assert.equal(saveErrorBlocksCurrentPath({
+    category: "unknown", operation: "preservePermissions", message, detail: "fcopyfile: EACCES",
+  }), false);
+});
+
 test("a folder change blocks another save of the same pathname", () => {
   const error = {
     category: "invalidInput",

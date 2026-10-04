@@ -139,6 +139,67 @@ mod tests {
         cleanup(&target);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_keeps_the_destinations_acl_extended_attributes_and_mode() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr, xattr};
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny write");
+        assert!(fs::File::options().write(true).open(&path).is_err());
+
+        export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+            .expect("export replaces the destination");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+        assert!(
+            acl_text(&path).contains("deny write"),
+            "{}",
+            acl_text(&path)
+        );
+        assert_eq!(xattr(&path).as_deref(), Some("kept"));
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert!(fs::File::options().write(true).open(&path).is_err());
+        cleanup(&path);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_refuses_a_destination_whose_access_metadata_cannot_be_carried_over() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny readextattr");
+
+        let error =
+            export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+                .expect_err("an export that would drop the restriction must fail");
+
+        assert_eq!(error.operation, NativeFileOperation::PreservePermissions);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old content");
+        assert!(acl_text(&path).contains("deny readextattr"));
+        let leftovers = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bindars-export-md")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+        cleanup(&path);
+    }
+
     #[test]
     fn export_markdown_rejects_html_extension() {
         let path = temp_path("html");

@@ -99,6 +99,16 @@ impl NativeFileError {
         }
     }
 
+    /// The staged copy could not take on the destination's access metadata
+    /// (ACL and extended attributes), so the destination was left unchanged.
+    pub(crate) fn metadata_not_preserved(path: &Path, error: std::io::Error) -> Self {
+        let cause = Self::from_io(NativeFileOperation::PreservePermissions, path, error);
+        Self {
+            message: "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.".to_string(),
+            ..cause
+        }
+    }
+
     pub(crate) fn invalid(operation: NativeFileOperation, message: impl Into<String>) -> Self {
         let message = message.into();
         Self {

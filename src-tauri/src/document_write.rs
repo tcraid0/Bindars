@@ -14,7 +14,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::atomic_write::sync_directory;
+use crate::atomic_write::{preserve_access_metadata, sync_directory};
 use crate::document_io::{
     conditional_write_result, is_markdown_path, read_bounded_file, revision_from_bytes,
     written_file_revision, ConditionalWriteResult, FileRevision, NewMarkdownFile,
@@ -356,7 +356,7 @@ fn write_document_using(
         .metadata()
         .map_err(|e| NativeFileError::from_io(Op::InspectWriteParent, path, e))?;
     let name = path.file_name().ok_or_else(changed_location)?;
-    let (checked, permissions) = match mode {
+    let (checked, source) = match mode {
         WriteMode::CreateNew => (None, None),
         WriteMode::Save { expected, force } => match open_document(&parent, path) {
             Ok(file) => {
@@ -367,7 +367,7 @@ fn write_document_using(
                 if expected.is_some_and(|expected| !expected.same_folder(&parent_metadata)) {
                     return Err(folder_replaced_since_open());
                 }
-                let (bytes, metadata) = read_bounded_file(path, file, Op::CheckRevision)?;
+                let (bytes, metadata) = read_bounded_file(path, &file, Op::CheckRevision)?;
                 let revision = revision_from_bytes(&metadata, &parent_metadata, &bytes);
                 if !force {
                     let expected = expected.ok_or_else(|| {
@@ -380,7 +380,8 @@ fn write_document_using(
                         return Ok(conditional_write_result(path, true, revision));
                     }
                 }
-                (Some(revision), Some(metadata.permissions()))
+                // The handle stays open: the staged file takes its metadata below.
+                (Some(revision), Some((file, metadata.permissions())))
             }
             Err(e)
                 if force && e.category == crate::file_errors::NativeFileErrorCategory::NotFound =>
@@ -402,9 +403,9 @@ fn write_document_using(
     );
     let temp_name = format!(".bindars-save-{unique}");
     let temp = OsStr::new(&temp_name);
-    let mode_bits = permissions
+    let mode_bits = source
         .as_ref()
-        .map(|p| p.mode() & 0o777)
+        .map(|(_, p)| p.mode() & 0o777)
         .unwrap_or(0o666);
     let mut staged = open_at(
         &parent,
@@ -417,10 +418,12 @@ fn write_document_using(
         staged
             .write_all(content.as_bytes())
             .map_err(|e| NativeFileError::from_io(Op::WriteTemporaryFile, path, e))?;
-        if let Some(p) = permissions {
+        if let Some((document, p)) = &source {
             staged
-                .set_permissions(p)
+                .set_permissions(p.clone())
                 .map_err(|e| NativeFileError::from_io(Op::PreservePermissions, path, e))?;
+            preserve_access_metadata(document, &staged)
+                .map_err(|e| NativeFileError::metadata_not_preserved(path, e))?;
         }
         staged
             .sync_all()
@@ -431,6 +434,7 @@ fn write_document_using(
         Ok::<_, NativeFileError>(written_file_revision(&metadata, &parent_metadata, content))
     })();
     drop(staged);
+    drop(source);
     let mut saved_revision = match prepare {
         Ok(revision) => revision,
         Err(e) => {
@@ -489,7 +493,7 @@ fn write_document_using(
     let mut result = conditional_write_result(path, false, saved_revision);
     if let Some(checked) = checked.filter(|_| exchanged) {
         let displaced = open_document(&parent, &path.with_file_name(temp))
-            .and_then(|file| read_bounded_file(path, file, Op::CheckRevision))
+            .and_then(|file| read_bounded_file(path, &file, Op::CheckRevision))
             .map(|(bytes, metadata)| revision_from_bytes(&metadata, &parent_metadata, &bytes));
         // Once exchanged, never roll back over a possible third writer. Retain
         // the displaced entry when the bytes observed here differ or cannot be
@@ -1402,6 +1406,68 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "original");
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(elsewhere).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saves_keep_the_documents_acl_extended_attributes_and_mode() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr, xattr};
+        let (root, path, _) = fixture("keep-access-metadata");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny write");
+        assert!(File::options().write(true).open(&path).is_err());
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        let saved = write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert!(!saved.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert!(
+            acl_text(&path).contains("deny write"),
+            "{}",
+            acl_text(&path)
+        );
+        assert_eq!(xattr(&path).as_deref(), Some("kept"));
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert!(
+            File::options().write(true).open(&path).is_err(),
+            "the ACL must still deny direct writes after the save"
+        );
+        assert_eq!(hidden_siblings(&root), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_save_that_cannot_carry_access_metadata_leaves_the_document_unchanged() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
+        let (root, path, _) = fixture("unreadable-access-metadata");
+        set_xattr(&path, "kept");
+        // Reading the attributes is denied, so they cannot be carried over.
+        add_acl(&path, "everyone deny readextattr");
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        let error = write_document(&path, "save", Some(&revision), false)
+            .expect_err("a save that would drop the restriction must fail");
+
+        assert_eq!(error.operation, Op::PreservePermissions);
+        assert!(
+            error.message.contains("left unchanged"),
+            "{}",
+            error.message
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        assert!(acl_text(&path).contains("deny readextattr"));
+        assert_eq!(hidden_siblings(&root), 0);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

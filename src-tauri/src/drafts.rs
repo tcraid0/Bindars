@@ -191,7 +191,7 @@ fn delete_draft_in(
     // not detected.
     let (draft_bytes, _) = read_bounded_file(
         &canonical_path,
-        draft_file,
+        &draft_file,
         NativeFileOperation::InspectSavedDocument,
     )?;
     if !draft_revision.matches_contents(&draft_bytes) {
@@ -199,7 +199,7 @@ fn delete_draft_in(
     }
     let (saved_bytes, _) = read_bounded_file(
         &canonical_saved_path,
-        saved_file,
+        &saved_file,
         NativeFileOperation::InspectSavedDocument,
     )?;
     if !saved_revision.matches_contents(&saved_bytes) {

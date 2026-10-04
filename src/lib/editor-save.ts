@@ -164,6 +164,10 @@ export function actionableSaveError(error: unknown): SaveErrorDescription {
         ? { message: normalized.message, recovery: "save-as" }
         : { message: normalized.message, recovery: null };
     default:
-      return { message: normalized.message, recovery: null };
+      // A save refused because the file's ACL or attributes could not be
+      // carried over left the file unchanged; a new file is the way forward.
+      return normalized.native?.operation === "preservePermissions"
+        ? { message: normalized.message, recovery: "save-as" }
+        : { message: normalized.message, recovery: null };
   }
 }
