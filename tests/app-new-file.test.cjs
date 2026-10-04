@@ -206,7 +206,7 @@ async function renderEditorApp({
   themeLocal,
   themeLocalLegacy,
   createDraft = (args) => successfulDraftWrite(args.content),
-  deleteDraft = (args) => args.path !== args.savedPath,
+  deleteDraft = (args) => (args.path !== args.savedPath ? "removed" : "nothing-to-remove"),
   loadAnnotations = () => null,
   saveDialogPath = "/tmp/recovered-r7.md",
   savedCanonicalPath = saveDialogPath,
@@ -663,8 +663,10 @@ test("a New request during a draft's Save As dialog waits for the dialog, then r
     assert.equal(rendered.fileWrites[0].path, "/tmp/recovered-r7.md");
     assert.equal(rendered.fileWrites[0].content, draftWords);
     assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]);
+    // The destination is recorded by the save itself, so New replacing the
+    // published path before the Recent effect runs cannot drop it.
     const recent = rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1);
-    assert.ok(!recent.value.files.some((file) => file.path === DRAFT_PATH), "the retired draft leaves Recent");
+    assert.deepEqual(recent.value.files.map((file) => file.path), ["/tmp/recovered-r7.md"]);
     assert.match(rendered.windowTitles.at(-1), /Untitled\.md/);
     assert.ok(!document.querySelector('[role="dialog"]'));
     assert.equal(rendered.host.querySelectorAll('[role="status"] [role="alert"]').length, 0);
@@ -705,7 +707,7 @@ for (const sameSession of [false, true]) {
         dispatchShortcut("n");
         await act(async () => {});
         assert.equal(findEditorView(rendered.host).state.sliceDoc(), "First draft to move", "New waits for the pending retirement");
-        await act(async () => deletion.resolve(true));
+        await act(async () => deletion.resolve("removed"));
         await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
       }
       updateEditor(rendered.host, "Later text must stay protected by its warning");
@@ -713,24 +715,26 @@ for (const sameSession of [false, true]) {
       await act(async () => context.mock.timers.tick(2500));
       assert.equal(sameSession ? rendered.fileWrites.length : rendered.draftCreates.length, 2);
       assert.match(rendered.host.textContent, /Autosave is paused/);
-      await act(async () => deletion.resolve(true));
+      await act(async () => deletion.resolve("removed"));
       assert.match(rendered.host.textContent, /Autosave is paused/);
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Later text must stay protected by its warning");
       assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
     } finally {
-      deletion.resolve(true);
+      deletion.resolve("removed");
       context.mock.timers.reset();
       await rendered.cleanup();
     }
   });
 }
 
-for (const result of ["move", "cancel", "same canonical path", "delete failure"]) {
+for (const result of ["move", "cancel", "same canonical path", "delete failure", "kept for changed bytes"]) {
   test(`manual Save on a clean draft handles ${result}`, async () => {
     const rendered = await renderEditorApp({
       saveDialogPath: result === "cancel" ? null : result === "same canonical path" ? "/tmp/draft-alias.md" : "/tmp/Chosen draft.md",
       savedCanonicalPath: result === "same canonical path" ? DRAFT_PATH : "/tmp/Chosen draft.md",
-      deleteDraft: result === "delete failure" ? () => { throw new Error("Synthetic draft cleanup failure"); } : undefined,
+      deleteDraft: result === "delete failure"
+        ? () => { throw new Error("Synthetic draft cleanup failure"); }
+        : result === "kept for changed bytes" ? () => "kept" : undefined,
     });
     try {
       const content = "# Draft ready for a permanent home";
@@ -772,10 +776,17 @@ for (const result of ["move", "cancel", "same canonical path", "delete failure"]
         } else {
           await waitFor(() => {
             const recent = rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1);
-            const expected = result === "delete failure" ? ["/tmp/Chosen draft.md", DRAFT_PATH] : ["/tmp/Chosen draft.md"];
+            const draftStays = result === "delete failure" || result === "kept for changed bytes";
+            const expected = draftStays ? ["/tmp/Chosen draft.md", DRAFT_PATH] : ["/tmp/Chosen draft.md"];
             assert.deepEqual(recent.value.files.map((file) => file.path), expected);
           });
           assert.match(rendered.windowTitles.at(-1), /Chosen draft\.md/);
+        }
+        if (result === "kept for changed bytes") {
+          // The person needs to know a second copy with other text still exists.
+          await waitFor(() => assert.match(rendered.host.textContent, /kept the draft Untitled 2\.md because it or the new file changed outside Bindars/));
+        } else {
+          assert.doesNotMatch(rendered.host.textContent, /kept the draft/);
         }
         assert.equal(rendered.host.querySelectorAll('[role="status"] [role="alert"]').length, 0, "draft cleanup must not show an error toast");
       }
@@ -2131,7 +2142,7 @@ async function renderContinuityApp({
       case "delete_draft_document":
         draftDeletes.push(args);
         assert.equal(args.path, DRAFT_PATH, "only Drafts-folder files can be deleted");
-        return args.path !== args.savedPath;
+        return args.path !== args.savedPath ? "removed" : "nothing-to-remove";
       case "write_markdown_file_if_unmodified":
         fileWrites.push(args);
         if (fileWriteError) {

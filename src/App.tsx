@@ -93,7 +93,7 @@ import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
 import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
@@ -560,14 +560,20 @@ function App() {
     if (adoptsWrittenDestination(result)) {
       editingFilePathRef.current = result.file.canonicalPath;
       adoptSavedFile(result.file);
-      if (result.file.canonicalPath !== filePath && isSuccessfulSave(result.status)) {
-        const path = result.file.canonicalPath;
-        toast(`Saved in ${path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) || path}`, "success");
+      if (result.file.canonicalPath !== filePath) {
+        // Record the destination here, not only from the effect on the
+        // published path: a departure waiting on this save may replace that
+        // path before the effect runs.
+        if (recentFilesStatus === "ready") addRecent(result.file.canonicalPath, result.file.name);
+        if (isSuccessfulSave(result.status)) {
+          const path = result.file.canonicalPath;
+          toast(`Saved in ${path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) || path}`, "success");
+        }
       }
     }
 
     return result;
-  }, [adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, toast]);
+  }, [addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
@@ -790,12 +796,12 @@ function App() {
 
   const retireDraft = useCallback(async (draft: RetiringDraft | null, saved: SavedFileSnapshot) => {
     if (!draft) return;
+    const name = draft.path.split(/[\\/]/).pop() || draft.path;
     // Annotations belong to the draft's path. Deleting an annotated draft would
     // hide its notes and let the next draft with that name inherit them.
     if (toPathIdentityKey(draft.path) !== toPathIdentityKey(saved.canonicalPath)) {
       const annotations = annotationRecordState(draft.path);
       if (annotations !== "empty") {
-        const name = draft.path.split(/[\\/]/).pop() || draft.path;
         toast(annotations === "annotated"
           ? `Your highlights, notes, and bookmarks remain in the kept draft ${name}.`
           : `Bindars kept the draft ${name} because it couldn't confirm whether it has highlights, notes, or bookmarks.`, "info");
@@ -810,13 +816,16 @@ function App() {
       // The native side retains the draft unless both files still hold the
       // bytes these revisions describe; a draft changed by another program may
       // be the only copy of that text.
-      const removed = await invoke<boolean>("delete_draft_document", {
+      const retirement = await invoke<DraftRetirement>("delete_draft_document", {
         path: draft.path,
         savedPath: saved.canonicalPath,
         draftRevision: draft.revision,
         savedRevision: saved.revision,
       });
-      if (removed) removeRecent(draft.path);
+      if (retirement === "removed") removeRecent(draft.path);
+      if (retirement === "kept") {
+        toast(`Bindars kept the draft ${name} because it or the new file changed outside Bindars during the save.`, "info");
+      }
     } catch (error) {
       console.warn("[drafts] Saved the document but could not remove its old draft:", error);
     }
@@ -1134,9 +1143,11 @@ function App() {
     try {
       // Saves that began before or during this departure must finish first: a
       // manual save until it has recorded its outcome, an autosave by joining
-      // it in flushAutosave. A Save pressed while the autosave is joined starts
-      // another round. Only after every write has rebased the dirty comparison
-      // can the live buffer say whether anything is still unsaved.
+      // it in flushAutosave. Leaving Edit takes no admission, so a Save pressed
+      // while the autosave is joined can register meanwhile and starts another
+      // round; admitted departures already refuse Save. Only after every write
+      // has rebased the dirty comparison can the live buffer say whether
+      // anything is still unsaved.
       let result: EditorSaveResult | null;
       do {
         while (manualSaveRef.current) await manualSaveRef.current;

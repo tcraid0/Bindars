@@ -150,6 +150,9 @@ export interface ConditionalWriteResult {
   name: string;
 }
 
+/// What the native side did with a draft retired after Save As.
+export type DraftRetirement = "removed" | "nothing-to-remove" | "kept";
+
 export interface FileWatcherPathEvent {
   path: string;
 }
