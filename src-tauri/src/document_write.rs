@@ -356,17 +356,23 @@ fn write_document_using(
         .metadata()
         .map_err(|e| NativeFileError::from_io(Op::InspectWriteParent, path, e))?;
     let name = path.file_name().ok_or_else(changed_location)?;
+    // The folder the document was opened from is part of its identity. A folder
+    // substituted since then is not it, whether it holds a matching file (never
+    // a conflict the editor could retry) or no file at all (never a forced
+    // creation there).
+    if let WriteMode::Save {
+        expected: Some(expected),
+        ..
+    } = &mode
+    {
+        if !expected.same_folder(&parent_metadata) {
+            return Err(folder_replaced_since_open());
+        }
+    }
     let (checked, source) = match mode {
         WriteMode::CreateNew => (None, None),
         WriteMode::Save { expected, force } => match open_document(&parent, path) {
             Ok(file) => {
-                // The folder the document was opened from is part of its identity.
-                // A matching file in a folder substituted since then is not it, even
-                // when its bytes and timestamp agree, so this is never a conflict the
-                // editor could retry.
-                if expected.is_some_and(|expected| !expected.same_folder(&parent_metadata)) {
-                    return Err(folder_replaced_since_open());
-                }
                 let (bytes, metadata) = read_bounded_file(path, &file, Op::CheckRevision)?;
                 let revision = revision_from_bytes(&metadata, &parent_metadata, &bytes);
                 if !force {
@@ -1323,6 +1329,31 @@ mod tests {
             fs::remove_dir_all(root).unwrap();
             fs::remove_dir_all(moved).unwrap();
         }
+    }
+
+    #[test]
+    fn a_forced_save_never_creates_the_document_in_a_substituted_folder() {
+        // Overwrite after a conflict, with the folder swapped for one that does
+        // not hold the file: the missing-file creation path must not run there.
+        let (root, path, revision) = fixture("folder-substituted-empty");
+        let moved = substitute_folder(&root, &path, true);
+        fs::remove_file(&path).unwrap();
+
+        let error = write_document(&path, "local edits", Some(&revision), true)
+            .expect_err("a substituted folder must not receive a forced creation");
+
+        assert_eq!(error.detail, "destination-changed");
+        assert!(
+            !path.exists(),
+            "nothing may be created in the replacement folder"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_to_string(moved.join("document.md")).unwrap(),
+            "original"
+        );
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(moved).unwrap();
     }
 
     #[test]
