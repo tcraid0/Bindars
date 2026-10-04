@@ -697,6 +697,29 @@ test("conditional save retries one equal-content metadata conflict", async () =>
   }
 });
 
+test("conditional save never retries an equal-content conflict from a different folder", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    const openedRevision = { mtimeMs: 1, size: 5, contentHash: "before", folderId: "1:100" };
+    const substitutedRevision = { mtimeMs: 2, size: 5, contentHash: "before", folderId: "1:200" };
+    enterEditMode(rendered, "Draft", openedRevision);
+    updateBuffer(rendered, "Local words");
+    const savePromise = startSave(rendered);
+
+    const result = await settleSave(writes[0], savePromise, conflictingWrite(substitutedRevision));
+
+    assert.equal(writes.length, 1, "no second write may carry the substituted folder's revision");
+    assert.equal(result.status, "conflict");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().buffer, "Local words");
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("read-only save failure exposes a working Save As recovery", async () => {
   await installDom();
   const operations = mockPendingSaveAsTransactions();

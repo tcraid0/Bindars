@@ -54,6 +54,12 @@ fn located_directory(dir: &File) -> Option<PathBuf> {
     }
 }
 
+fn folder_replaced_since_open() -> NativeFileError {
+    NativeFileError::destination_changed(
+        "A different folder now occupies this document's location. Reopen the document, or use Save As to keep your edits.",
+    )
+}
+
 fn folder_changed_before_replace() -> NativeFileError {
     NativeFileError::destination_changed(
         "The document's folder changed during saving, before the file was replaced. Reopen the document, or use Save As to keep your edits.",
@@ -346,13 +352,23 @@ fn write_document_using(
         ));
     }
     let parent = open_parent(path)?;
+    let parent_metadata = parent
+        .metadata()
+        .map_err(|e| NativeFileError::from_io(Op::InspectWriteParent, path, e))?;
     let name = path.file_name().ok_or_else(changed_location)?;
     let (checked, permissions) = match mode {
         WriteMode::CreateNew => (None, None),
         WriteMode::Save { expected, force } => match open_document(&parent, path) {
             Ok(file) => {
+                // The folder the document was opened from is part of its identity.
+                // A matching file in a folder substituted since then is not it, even
+                // when its bytes and timestamp agree, so this is never a conflict the
+                // editor could retry.
+                if expected.is_some_and(|expected| !expected.same_folder(&parent_metadata)) {
+                    return Err(folder_replaced_since_open());
+                }
                 let (bytes, metadata) = read_bounded_file(path, file, Op::CheckRevision)?;
-                let revision = revision_from_bytes(&metadata, &bytes);
+                let revision = revision_from_bytes(&metadata, &parent_metadata, &bytes);
                 if !force {
                     let expected = expected.ok_or_else(|| {
                         NativeFileError::invalid(
@@ -412,7 +428,7 @@ fn write_document_using(
         let metadata = staged
             .metadata()
             .map_err(|e| NativeFileError::from_io(Op::InspectSavedDocument, path, e))?;
-        Ok::<_, NativeFileError>(written_file_revision(&metadata, content))
+        Ok::<_, NativeFileError>(written_file_revision(&metadata, &parent_metadata, content))
     })();
     drop(staged);
     let mut saved_revision = match prepare {
@@ -446,7 +462,11 @@ fn write_document_using(
                     at_stage(SaveStage::Created);
                     created.write_all(content.as_bytes())?;
                     created.sync_all()?;
-                    Ok(written_file_revision(&created.metadata()?, content))
+                    Ok(written_file_revision(
+                        &created.metadata()?,
+                        &parent_metadata,
+                        content,
+                    ))
                 })
                 .map(|revision| {
                     saved_revision = revision;
@@ -470,7 +490,7 @@ fn write_document_using(
     if let Some(checked) = checked.filter(|_| exchanged) {
         let displaced = open_document(&parent, &path.with_file_name(temp))
             .and_then(|file| read_bounded_file(path, file, Op::CheckRevision))
-            .map(|(bytes, metadata)| revision_from_bytes(&metadata, &bytes));
+            .map(|(bytes, metadata)| revision_from_bytes(&metadata, &parent_metadata, &bytes));
         // Once exchanged, never roll back over a possible third writer. Retain
         // the displaced entry when the bytes observed here differ or cannot be
         // read. A write that completes after this read and before the unlink,
@@ -1235,6 +1255,153 @@ mod tests {
             fs::remove_dir_all(moved).unwrap();
             fs::remove_dir_all(other).unwrap();
         }
+    }
+
+    /// Moves the opened folder away and puts a real directory holding an
+    /// identical file at the old pathname. With `same_mtime` the replacement
+    /// also carries the original timestamp, so only folder identity differs.
+    fn substitute_folder(root: &Path, path: &Path, same_mtime: bool) -> PathBuf {
+        let modified = fs::metadata(path).unwrap().modified().unwrap();
+        let moved = root.with_extension("moved");
+        fs::rename(root, &moved).unwrap();
+        fs::create_dir(root).unwrap();
+        if !same_mtime {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        fs::write(path, "original").unwrap();
+        if same_mtime {
+            File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        }
+        moved
+    }
+
+    fn hidden_siblings(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bindars-save-")
+            })
+            .count()
+    }
+
+    #[test]
+    fn a_folder_substituted_since_opening_is_refused_even_with_matching_bytes_and_time() {
+        for (same_mtime, force) in [(true, false), (false, false), (true, true)] {
+            let (root, path, revision) = fixture("folder-substituted");
+            let moved = substitute_folder(&root, &path, same_mtime);
+
+            let error = write_document(&path, "local edits", Some(&revision), force)
+                .expect_err("a substituted folder must not receive the edits");
+
+            // Never a conflict: the editor retries equal-content conflicts.
+            assert_eq!(error.detail, "destination-changed");
+            assert!(
+                error.message.contains("different folder"),
+                "{}",
+                error.message
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+            assert_eq!(
+                fs::read_to_string(moved.join("document.md")).unwrap(),
+                "original"
+            );
+            assert_eq!(hidden_siblings(&root), 0);
+            fs::remove_dir_all(root).unwrap();
+            fs::remove_dir_all(moved).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_unchanged_folder_saves_normally_and_keeps_its_identity() {
+        let (root, path, revision) = fixture("folder-unchanged");
+        assert!(revision.folder_id.is_some());
+
+        let saved = write_document(&path, "local edits", Some(&revision), false).unwrap();
+        assert!(!saved.conflict);
+        assert_eq!(saved.current_revision.folder_id, revision.folder_id);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local edits");
+
+        // A touch that keeps the bytes is still the same document in the same
+        // folder, so the editor's equal-content retry remains possible.
+        fs::write(&path, "local edits").unwrap();
+        let retried =
+            write_document(&path, "more edits", Some(&saved.current_revision), false).unwrap();
+        assert_eq!(retried.current_revision.folder_id, revision.folder_id);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_real_directory_substituted_during_the_save_still_hits_the_during_save_checks() {
+        for stage in [SaveStage::Staged, SaveStage::Exchanged] {
+            let (root, path, revision) = fixture("folder-substituted-mid-save");
+            let mut moved = None;
+            let error = write_document_with(&path, "local", Some(&revision), false, |at| {
+                if at == stage {
+                    moved = Some(substitute_folder(&root, &path, true));
+                }
+            })
+            .expect_err("a folder replaced during saving must not be acknowledged");
+            let moved = moved.unwrap();
+
+            assert_eq!(error.detail, "destination-changed");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+            assert_eq!(
+                fs::read_to_string(moved.join("document.md")).unwrap(),
+                if stage == SaveStage::Exchanged {
+                    "local"
+                } else {
+                    "original"
+                }
+            );
+            assert_eq!(hidden_siblings(&root), 0);
+            assert_eq!(hidden_siblings(&moved), 0);
+            fs::remove_dir_all(root).unwrap();
+            fs::remove_dir_all(moved).unwrap();
+        }
+    }
+
+    #[test]
+    fn save_as_and_copy_establish_the_destination_folder_as_the_new_identity() {
+        let (root, path, revision) = fixture("folder-new-identity");
+        let elsewhere = root.with_extension("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let elsewhere_id = crate::document_io::folder_identity(&fs::metadata(&elsewhere).unwrap());
+        assert_ne!(elsewhere_id, revision.folder_id);
+
+        // Save As: no expected revision, force.
+        let saved_as = write_document(&elsewhere.join("saved-as.md"), "edits", None, true).unwrap();
+        assert_eq!(saved_as.current_revision.folder_id, elsewhere_id);
+        // Make a copy and draft creation: exclusive creation.
+        let NewMarkdownFile::Written(copied) =
+            create_document(&elsewhere.join("copy.md"), "edits").unwrap()
+        else {
+            panic!("copy destination was free");
+        };
+        assert_eq!(copied.current_revision.folder_id, elsewhere_id);
+
+        // The new identity then saves normally there, and the moved-away
+        // original folder is untouched by any of it.
+        let again = write_document(
+            &elsewhere.join("saved-as.md"),
+            "more edits",
+            Some(&saved_as.current_revision),
+            false,
+        )
+        .unwrap();
+        assert!(!again.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(elsewhere).unwrap();
     }
 
     #[test]

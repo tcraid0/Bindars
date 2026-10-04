@@ -31,6 +31,11 @@ pub(crate) struct FileRevision {
     mtime_ms: u64,
     pub(crate) size: u64,
     pub(crate) content_hash: String,
+    /// The folder this revision was read from or written into, so a save can
+    /// refuse a different folder that later occupies the same pathname. Absent
+    /// where the platform offers no stable directory identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) folder_id: Option<String>,
 }
 
 impl FileRevision {
@@ -40,6 +45,37 @@ impl FileRevision {
     pub(crate) fn matches_contents(&self, bytes: &[u8]) -> bool {
         self.size == bytes.len() as u64 && self.content_hash == stable_hash_hex(bytes)
     }
+
+    /// True when `parent` is the folder this revision came from. A revision
+    /// without a folder identity cannot be checked and is accepted.
+    pub(crate) fn same_folder(&self, parent: &fs::Metadata) -> bool {
+        self.folder_id.is_none() || self.folder_id == folder_identity(parent)
+    }
+}
+
+/// Device and inode of a directory, or `None` where unavailable.
+pub(crate) fn folder_identity(parent: &fs::Metadata) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some(format!("{:x}:{:x}", parent.dev(), parent.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = parent;
+        None
+    }
+}
+
+/// Metadata of the folder containing `path`, read through the pathname.
+pub(crate) fn parent_metadata(
+    path: &Path,
+    operation: NativeFileOperation,
+) -> Result<fs::Metadata, NativeFileError> {
+    let parent = path.parent().ok_or_else(|| {
+        NativeFileError::invalid(operation, "Cannot determine the destination folder.")
+    })?;
+    fs::metadata(parent).map_err(|error| NativeFileError::from_io(operation, parent, error))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -444,7 +480,8 @@ fn read_open_document_snapshot(
     file: fs::File,
 ) -> Result<(String, FileRevision), NativeFileError> {
     let (buffer, metadata) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
-    let revision = revision_from_bytes(&metadata, &buffer);
+    let parent = parent_metadata(path, NativeFileOperation::ReadDocument)?;
+    let revision = revision_from_bytes(&metadata, &parent, &buffer);
     let content = decode_markdown_contents(buffer)?;
     Ok((content, revision))
 }
@@ -517,15 +554,23 @@ fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
         NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
     })?;
     let (bytes, metadata) = read_bounded_file(path, file, NativeFileOperation::CheckRevision)?;
+    let parent = parent_metadata(path, NativeFileOperation::CheckRevision)?;
 
-    Ok(revision_from_bytes(&metadata, &bytes))
+    Ok(revision_from_bytes(&metadata, &parent, &bytes))
 }
 
-pub(crate) fn revision_from_bytes(metadata: &fs::Metadata, bytes: &[u8]) -> FileRevision {
+/// The revision of a file whose `bytes` were read from `metadata`'s file
+/// inside the folder described by `parent`.
+pub(crate) fn revision_from_bytes(
+    metadata: &fs::Metadata,
+    parent: &fs::Metadata,
+    bytes: &[u8],
+) -> FileRevision {
     FileRevision {
         mtime_ms: modified_time_ms(metadata),
         size: bytes.len() as u64,
         content_hash: stable_hash_hex(bytes),
+        folder_id: folder_identity(parent),
     }
 }
 
@@ -534,19 +579,22 @@ fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision
     let metadata = fs::metadata(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
     })?;
+    let parent = parent_metadata(path, NativeFileOperation::InspectSavedDocument)?;
 
     // The size and hash intentionally describe the exact contents Bindars wrote.
     // If another process replaces the file before this metadata read, the hybrid
     // revision will not bless those external bytes on the next conditional save.
-    Ok(written_file_revision(&metadata, content))
+    Ok(written_file_revision(&metadata, &parent, content))
 }
 
-pub(crate) fn written_file_revision(metadata: &fs::Metadata, content: &str) -> FileRevision {
-    FileRevision {
-        mtime_ms: modified_time_ms(metadata),
-        size: content.len() as u64,
-        content_hash: stable_hash_hex(content.as_bytes()),
-    }
+/// The revision Bindars holds for `content` it just wrote: the written file's
+/// timestamp paired with the size and hash of exactly those bytes.
+pub(crate) fn written_file_revision(
+    metadata: &fs::Metadata,
+    parent: &fs::Metadata,
+    content: &str,
+) -> FileRevision {
+    revision_from_bytes(metadata, parent, content.as_bytes())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]

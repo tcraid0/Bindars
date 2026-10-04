@@ -13,7 +13,7 @@ import type {
   EditorSaveResult,
   SaveErrorRecovery,
 } from "../lib/editor-save";
-import { sameFileRevision } from "../lib/document-reconciliation";
+import { sameFileRevision, sameFolderIdentity } from "../lib/document-reconciliation";
 import type { ConditionalWriteResult, FileRevision } from "../types";
 
 export type EditorExternalChange = "changed";
@@ -437,6 +437,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         && result.conflict
         && result.currentRevision.size === expectedRevision.size
         && result.currentRevision.contentHash === expectedRevision.contentHash
+        && sameFolderIdentity(result.currentRevision, expectedRevision)
       ) {
         result = await invoke<ConditionalWriteResult>("write_markdown_file_if_unmodified", {
           path: filePath,

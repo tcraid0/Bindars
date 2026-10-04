@@ -133,6 +133,25 @@ test("dirty editor compares disk bytes with its saved revision instead of its li
   });
 });
 
+test("a dirty editor is protected from an equal-content file in a substituted folder", () => {
+  const openedRevision = { ...originalRevision, folderId: "1:100" };
+  const substitutedRevision = { ...touchedRevision, folderId: "1:200" };
+  const sameFolderTouched = { ...touchedRevision, folderId: "1:100" };
+  const dirty = editorSnapshot({
+    content: "Local unsaved words",
+    dirty: true,
+    expectedRevision: openedRevision,
+  });
+
+  assert.equal(sameFileRevision(openedRevision, { ...originalRevision, folderId: "1:200" }), false);
+  assert.deepEqual(decide(dirty, available("Original", substitutedRevision)), {
+    kind: "protect-dirty-editor",
+    sessionId: 1,
+  });
+  // The same folder with a newer timestamp still refreshes as before.
+  assert.equal(decide(dirty, available("Original", sameFolderTouched)).kind, "refresh-equal-revision");
+});
+
 test("typing during a clean-editor probe changes the outcome to dirty protection", () => {
   const captured = editorSnapshot();
   const current = editorSnapshot({ content: "Original plus local typing", dirty: true });

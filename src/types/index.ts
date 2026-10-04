@@ -133,6 +133,8 @@ export interface FileRevision {
   mtimeMs: number;
   size: number;
   contentHash: string;
+  /** Identity of the folder the file was read from or written into, when the platform provides one. */
+  folderId?: string;
 }
 
 export interface OpenFileResult {

@@ -91,7 +91,14 @@ export function sameFileRevision(
   if (left === null || right === null) return left === right;
   return left.mtimeMs === right.mtimeMs
     && left.size === right.size
-    && left.contentHash === right.contentHash;
+    && left.contentHash === right.contentHash
+    && sameFolderIdentity(left, right);
+}
+
+/// A file in a different folder at the same pathname is a different document,
+/// however closely its bytes and timestamp match.
+export function sameFolderIdentity(left: FileRevision, right: FileRevision): boolean {
+  return left.folderId === right.folderId;
 }
 
 export function staleReconciliation(
@@ -195,7 +202,14 @@ export function decideDocumentReconciliation({
   const contentChanged = current.content !== probe.document.content;
 
   if (current.mode === "editor" && current.dirty) {
-    if (revision === null || revision.contentHash !== probe.document.revision.contentHash) {
+    // Unsaved edits must not follow a folder substituted at this pathname: an
+    // equal-revision refresh would otherwise carry the new folder identity
+    // into the next save.
+    if (
+      revision === null
+      || revision.contentHash !== probe.document.revision.contentHash
+      || !sameFolderIdentity(revision, probe.document.revision)
+    ) {
       return {
         kind: "protect-dirty-editor",
         sessionId: current.sessionId,

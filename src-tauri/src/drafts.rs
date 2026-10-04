@@ -295,10 +295,8 @@ mod tests {
     /// A revision describing bytes no test file holds, for calls that must stop
     /// before any content comparison.
     fn unrelated_revision() -> FileRevision {
-        revision_from_bytes(
-            &fs::metadata(std::env::temp_dir()).unwrap(),
-            b"unrelated bytes",
-        )
+        let temp = fs::metadata(std::env::temp_dir()).unwrap();
+        revision_from_bytes(&temp, &temp, b"unrelated bytes")
     }
 
     fn retire(dir: &Path, draft: &Path, saved: &Path) -> Result<DraftRetirement, NativeFileError> {
