@@ -56,6 +56,15 @@ pub(crate) mod access_metadata {
         assert!(status.success(), "chmod +a {entry:?} failed");
     }
 
+    pub(crate) fn remove_acl(path: &Path, entry: &str) {
+        let status = Command::new("/bin/chmod")
+            .args(["-a", entry])
+            .arg(path)
+            .status()
+            .expect("run chmod -a");
+        assert!(status.success(), "chmod -a {entry:?} failed");
+    }
+
     pub(crate) fn acl_text(path: &Path) -> String {
         let output = Command::new("/bin/ls")
             .arg("-le")

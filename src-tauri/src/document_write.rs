@@ -1367,11 +1367,18 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "local edits");
 
         // A touch that keeps the bytes is still the same document in the same
-        // folder, so the editor's equal-content retry remains possible.
+        // folder: the timestamp conflict carries the same folder identity, so
+        // the editor's equal-content retry with that revision goes through.
+        std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(&path, "local edits").unwrap();
-        let retried =
+        let touched =
             write_document(&path, "more edits", Some(&saved.current_revision), false).unwrap();
-        assert_eq!(retried.current_revision.folder_id, revision.folder_id);
+        assert!(touched.conflict);
+        assert_eq!(touched.current_revision.folder_id, revision.folder_id);
+        let retried =
+            write_document(&path, "more edits", Some(&touched.current_revision), false).unwrap();
+        assert!(!retried.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "more edits");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1471,6 +1478,37 @@ mod tests {
             "the ACL must still deny direct writes after the save"
         );
         assert_eq!(hidden_siblings(&root), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saves_keep_acl_entries_the_document_inherited_from_a_folder_rule_since_removed() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, remove_acl};
+        let (root, _, _) = fixture("keep-inherited-acl");
+        // An inheritable deny that still lets the file be created and written.
+        add_acl(&root, "everyone deny append,file_inherit");
+        let path = root.join("inherited.md");
+        fs::write(&path, "original").unwrap();
+        remove_acl(&root, "everyone deny append,file_inherit");
+        assert!(
+            acl_text(&path).contains("inherited deny append"),
+            "{}",
+            acl_text(&path)
+        );
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert!(
+            acl_text(&path).contains("inherited deny append"),
+            "{}",
+            acl_text(&path)
+        );
+        assert!(File::options().append(true).open(&path).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

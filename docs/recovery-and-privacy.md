@@ -58,15 +58,17 @@ The copy contains the document text; annotations remain with the original path.
 Saving an existing file writes the complete new text to a hidden file in the
 same folder first, named `.bindars-save-` followed by a unique suffix, and then
 swaps it with the document (or, on volumes that cannot swap, renames it over
-the document). Exports write a hidden `.bindars-export-md-…` file the same way.
-These files are plain, unencrypted text and hold the whole document while the
-save runs. A save that completes removes them in the same operation.
+the document). Exports write a hidden `.bindars-export-md-…` file first and
+rename it over the destination; on Windows the hidden file for saves is named
+`.bindars-tmp-…`. These files are plain, unencrypted text and hold the whole
+document while the save runs. A save that completes removes them in the same
+operation, except for a competing version, described below.
 
 If Bindars quits, crashes, or the computer loses power during a save, one such
-file can remain. Depending on the moment, it holds either the text being saved
-while the document still shows the previous version, or the previous version
-while the document already holds the new text. Open it like any other text
-file to check which.
+file can remain. Depending on the moment, it holds the text being saved while
+the document still shows the previous version, or, on volumes where Bindars
+swaps the two files, the previous version while the document already holds the
+new text. Open it like any other text file to check which.
 
 When another program changed the document between Bindars's last check and
 the swap, Bindars keeps that displaced version instead of discarding it and

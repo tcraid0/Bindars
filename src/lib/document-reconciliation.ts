@@ -222,6 +222,17 @@ export function decideDocumentReconciliation({
   if (!revisionChanged && !contentChanged) return { kind: "no-change" };
 
   if (!contentChanged) {
+    // A clean editor keeps the folder identity it opened with. A substituted
+    // folder holding the same bytes is then refused at the next save instead
+    // of quietly becoming the destination. A reader has nothing to protect
+    // and follows the pathname.
+    if (
+      current.mode === "editor"
+      && revision !== null
+      && !sameFolderIdentity(revision, probe.document.revision)
+    ) {
+      return { kind: "no-change" };
+    }
     return equalRevisionRefresh(current, probe.document.revision);
   }
 

@@ -152,6 +152,23 @@ test("a dirty editor is protected from an equal-content file in a substituted fo
   assert.equal(decide(dirty, available("Original", sameFolderTouched)).kind, "refresh-equal-revision");
 });
 
+test("a clean editor keeps its opened folder identity while a reader follows the pathname", () => {
+  const openedRevision = { ...originalRevision, folderId: "1:100" };
+  const substitutedRevision = { ...originalRevision, folderId: "1:200" };
+
+  const cleanEditor = editorSnapshot({ expectedRevision: openedRevision });
+  assert.deepEqual(decide(cleanEditor, available("Original", substitutedRevision)), {
+    kind: "no-change",
+  });
+  assert.equal(
+    decide(cleanEditor, available("Original", { ...touchedRevision, folderId: "1:100" })).kind,
+    "refresh-equal-revision",
+  );
+
+  const reader = snapshot({ publishedRevision: openedRevision });
+  assert.equal(decide(reader, available("Original", substitutedRevision)).kind, "refresh-equal-revision");
+});
+
 test("typing during a clean-editor probe changes the outcome to dirty protection", () => {
   const captured = editorSnapshot();
   const current = editorSnapshot({ content: "Original plus local typing", dirty: true });

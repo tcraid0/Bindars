@@ -27,29 +27,60 @@ pub(crate) fn write_contents_atomic(
 }
 
 /// Copies the access metadata of `source` onto `staged` before `staged` is
-/// published over it. Preserved on macOS: the ACL and every extended
-/// attribute (Finder tags and comments, quarantine, resource fork, custom
-/// attributes). Callers copy the mode bits separately. Not preserved: owner
-/// and group, BSD flags such as locked or hidden, and timestamps. On other
-/// platforms nothing beyond the mode bits is carried over.
+/// published over it. Preserved on macOS: the whole ACL, inherited entries
+/// included, and every extended attribute (Finder tags and comments,
+/// quarantine, resource fork, custom attributes). Callers copy the mode bits
+/// separately. Not preserved: owner and group, BSD flags such as locked or
+/// hidden, and timestamps. On other platforms nothing beyond the mode bits is
+/// carried over.
 #[cfg(target_os = "macos")]
 pub(crate) fn preserve_access_metadata(source: &fs::File, staged: &fs::File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     // SAFETY: both descriptors are open for the whole call. A null state
-    // selects copyfile's defaults; the flags limit the copy to ACL and xattrs.
+    // selects copyfile's defaults; the flag limits the copy to xattrs. The ACL
+    // is copied separately below because COPYFILE_ACL silently skips entries a
+    // file inherited from its folder.
     let result = unsafe {
         libc::fcopyfile(
             source.as_raw_fd(),
             staged.as_raw_fd(),
             std::ptr::null_mut(),
-            libc::COPYFILE_ACL | libc::COPYFILE_XATTR,
+            libc::COPYFILE_XATTR,
         )
     };
     if result < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+        return Err(io::Error::last_os_error());
     }
+    copy_acl(source.as_raw_fd(), staged.as_raw_fd())
+}
+
+#[cfg(target_os = "macos")]
+fn copy_acl(source: libc::c_int, staged: libc::c_int) -> io::Result<()> {
+    // sys/acl.h; libc 0.2 has no bindings for these.
+    type AclT = *mut libc::c_void;
+    const ACL_TYPE_EXTENDED: u32 = 0x0000_0100;
+    extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: u32) -> AclT;
+        fn acl_set_fd_np(fd: libc::c_int, acl: AclT, acl_type: u32) -> libc::c_int;
+        fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
+    }
+    // SAFETY: the descriptor is open; a null result with ENOENT means the file
+    // has no ACL, and any other null is an error.
+    let acl = unsafe { acl_get_fd_np(source, ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ENOENT) {
+            Ok(())
+        } else {
+            Err(error)
+        };
+    }
+    // SAFETY: `acl` was returned by acl_get_fd_np and is freed exactly once
+    // after the set, whatever the set returned.
+    let set = unsafe { acl_set_fd_np(staged, acl, ACL_TYPE_EXTENDED) };
+    let set_error = (set != 0).then(io::Error::last_os_error);
+    unsafe { acl_free(acl) };
+    set_error.map_or(Ok(()), Err)
 }
 
 #[cfg(not(target_os = "macos"))]
