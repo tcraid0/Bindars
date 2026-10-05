@@ -59,9 +59,9 @@ Saving an existing file writes the complete new text to a hidden file in the
 same folder first, named `.bindars-save-` followed by a unique suffix, and then
 swaps it with the document (or, on volumes that cannot swap, renames it over
 the document). Exports write a hidden `.bindars-export-md-…` file first and
-rename it over the destination; on Windows the hidden file for saves is named
-`.bindars-tmp-…`. These files are plain, unencrypted text and hold the whole
-document while the save runs. A save that completes removes them in the same
+rename it over the destination. On Windows the temporary file for saves is
+named `.bindars-tmp-…` and is not hidden. These files are plain, unencrypted
+text and hold the whole document while the save runs. A save that completes removes them in the same
 operation, except for a competing version, described below.
 
 If Bindars quits, crashes, or the computer loses power during a save, one such
