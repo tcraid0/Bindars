@@ -6,6 +6,7 @@ import { readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
+import { normalizeFileError } from "../lib/native-file-error";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -207,8 +208,8 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       if (!savePath) return;
       await invoke("export_markdown_file", { path: savePath, content: markdown });
       toast("Highlights and notes exported");
-    } catch {
-      toast("Export failed", "error");
+    } catch (error) {
+      toast(normalizeFileError(error, "Export failed").message, "error");
     } finally {
       exportBusy.current = false;
       if (alive.current) setExporting(false);

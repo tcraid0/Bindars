@@ -191,7 +191,15 @@ test("a failed annotation write can be retried with feedback and usable controls
   const writes = [];
   mockIPC((command, args = {}) => {
     writes.push({ command, args });
-    if (writes.length === 1) throw new Error("disk full");
+    if (writes.length === 1) {
+      // A native refusal carries its own explanation; the toast must keep it.
+      throw {
+        category: "unknown",
+        operation: "preservePermissions",
+        message: "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.",
+        detail: "fcopyfile: EACCES",
+      };
+    }
   });
   t.mock.method(require("@tauri-apps/plugin-dialog"), "save", async () => "/tmp/notes-annotations.md");
   const view = renderComponent(ExportPanel);
@@ -199,7 +207,9 @@ test("a failed annotation write can be retried with feedback and usable controls
     click(exportButton(view.host));
     await flushExport();
     assert.equal(writes.length, 1);
-    assert.deepEqual(toastMessages(view.host), ["Export failed"]);
+    assert.deepEqual(toastMessages(view.host), [
+      "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.",
+    ]);
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.equal(exportButton(view.host).disabled, false);
 
