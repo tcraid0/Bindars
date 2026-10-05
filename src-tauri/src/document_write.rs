@@ -1514,6 +1514,34 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn saves_do_not_give_the_document_a_folder_grant_it_never_had() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        let (root, path, _) = fixture("no-acl-stays-no-acl");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        // The rule arrives after the document exists, so the document has no
+        // ACL while the staged file would inherit a read grant.
+        add_acl(&root, "everyone allow read,file_inherit");
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&path).contains("allow read"),
+            "{}",
+            acl_text(&path)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn a_save_that_cannot_carry_access_metadata_leaves_the_document_unchanged() {
         use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
         let (root, path, _) = fixture("unreadable-access-metadata");

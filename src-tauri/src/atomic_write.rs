@@ -54,33 +54,75 @@ pub(crate) fn preserve_access_metadata(source: &fs::File, staged: &fs::File) -> 
     copy_acl(source.as_raw_fd(), staged.as_raw_fd())
 }
 
+// sys/acl.h; libc 0.2 has no bindings for these.
+#[cfg(target_os = "macos")]
+type AclT = *mut libc::c_void;
+#[cfg(target_os = "macos")]
+const ACL_TYPE_EXTENDED: u32 = 0x0000_0100;
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn acl_init(count: libc::c_int) -> AclT;
+    fn acl_get_fd_np(fd: libc::c_int, acl_type: u32) -> AclT;
+    fn acl_set_fd_np(fd: libc::c_int, acl: AclT, acl_type: u32) -> libc::c_int;
+    fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
+}
+
+/// Gives `staged` exactly the ACL of `source`. A source without an ACL yields
+/// a staged file without one: the staged file was created inside the folder
+/// and may have inherited entries the source never had.
 #[cfg(target_os = "macos")]
 fn copy_acl(source: libc::c_int, staged: libc::c_int) -> io::Result<()> {
-    // sys/acl.h; libc 0.2 has no bindings for these.
-    type AclT = *mut libc::c_void;
-    const ACL_TYPE_EXTENDED: u32 = 0x0000_0100;
-    extern "C" {
-        fn acl_get_fd_np(fd: libc::c_int, acl_type: u32) -> AclT;
-        fn acl_set_fd_np(fd: libc::c_int, acl: AclT, acl_type: u32) -> libc::c_int;
-        fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
-    }
     // SAFETY: the descriptor is open; a null result with ENOENT means the file
     // has no ACL, and any other null is an error.
     let acl = unsafe { acl_get_fd_np(source, ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = io::Error::last_os_error();
         return if error.raw_os_error() == Some(libc::ENOENT) {
-            Ok(())
+            clear_acl(staged)
         } else {
             Err(error)
         };
     }
-    // SAFETY: `acl` was returned by acl_get_fd_np and is freed exactly once
-    // after the set, whatever the set returned.
-    let set = unsafe { acl_set_fd_np(staged, acl, ACL_TYPE_EXTENDED) };
+    set_acl(staged, acl)
+}
+
+/// Removes every ACL entry from the file, including entries inherited from
+/// its folder at creation.
+#[cfg(target_os = "macos")]
+fn clear_acl(fd: libc::c_int) -> io::Result<()> {
+    // SAFETY: acl_init returns a fresh, empty ACL or null on allocation failure.
+    let empty = unsafe { acl_init(0) };
+    if empty.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    set_acl(fd, empty)
+}
+
+/// Applies `acl` to `fd` and frees it.
+#[cfg(target_os = "macos")]
+fn set_acl(fd: libc::c_int, acl: AclT) -> io::Result<()> {
+    // SAFETY: `acl` came from acl_get_fd_np or acl_init and is freed exactly
+    // once here, whatever the set returned.
+    let set = unsafe { acl_set_fd_np(fd, acl, ACL_TYPE_EXTENDED) };
     let set_error = (set != 0).then(io::Error::last_os_error);
     unsafe { acl_free(acl) };
     set_error.map_or(Ok(()), Err)
+}
+
+/// Makes a freshly created private file readable by its owner alone: mode
+/// 0600, and on macOS no ACL entries inherited from the folder.
+#[cfg(unix)]
+fn make_owner_only(file: &fs::File) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    // The creation mode is filtered by the umask, which can only remove
+    // bits; this normalizes stragglers like 0o400 back to exactly 0o600.
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        clear_acl(file.as_raw_fd())?;
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -88,11 +130,12 @@ pub(crate) fn preserve_access_metadata(_source: &fs::File, _staged: &fs::File) -
     Ok(())
 }
 
-/// Atomic write for private app data. The temporary file is created owner-only on
-/// Unix so its contents are never group/world readable, even
-/// briefly, and inherits nothing from an existing destination. Ordinary
-/// documents and exports keep an existing destination's Unix permissions and
-/// access metadata through `write_contents_atomic`.
+/// Atomic write for private app data. The temporary file is created owner-only
+/// on Unix (mode 0600, and on macOS without ACL entries inherited from the
+/// folder) so its contents are never group/world readable, even briefly, and
+/// it inherits nothing from an existing destination. Ordinary documents and
+/// exports keep an existing destination's Unix permissions and access metadata
+/// through `write_contents_atomic`.
 pub(crate) fn write_contents_atomic_private(
     path: &Path,
     content: &str,
@@ -240,10 +283,7 @@ fn write_contents_atomic_impl(
 
     #[cfg(unix)]
     if owner_only {
-        use std::os::unix::fs::PermissionsExt;
-        // The creation mode is filtered by the umask, which can only remove
-        // bits; this normalizes stragglers like 0o400 back to exactly 0o600.
-        if let Err(e) = tmp_file.set_permissions(fs::Permissions::from_mode(0o600)) {
+        if let Err(e) = make_owner_only(&tmp_file) {
             let _ = fs::remove_file(&tmp_path);
             return Err(NativeFileError::from_io(
                 NativeFileOperation::PreservePermissions,
@@ -332,6 +372,30 @@ mod tests {
 
         assert_eq!(temporary_mode, 0o600);
         drop(temporary_file);
+        cleanup_dir(&root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn private_writes_drop_acl_entries_inherited_from_the_folder() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        let root = temp_dir("atomic-private-inherited");
+        fs::create_dir(&root).expect("create fixture root");
+        add_acl(&root, "everyone allow read,file_inherit");
+        let destination = root.join("annotations.json");
+
+        write_contents_atomic_private(&destination, "{}", ".bindars-private-test")
+            .expect("private write creates the destination");
+
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&destination).contains("allow read"),
+            "{}",
+            acl_text(&destination)
+        );
         cleanup_dir(&root);
     }
 

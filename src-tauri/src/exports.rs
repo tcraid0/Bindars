@@ -171,6 +171,32 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn export_does_not_give_the_destination_a_folder_grant_it_never_had() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        add_acl(path.parent().unwrap(), "everyone allow read,file_inherit");
+
+        export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+            .expect("export replaces the destination");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&path).contains("allow read"),
+            "{}",
+            acl_text(&path)
+        );
+        cleanup(&path);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn export_refuses_a_destination_whose_access_metadata_cannot_be_carried_over() {
         use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
         let path = temp_path("md");
