@@ -23,6 +23,21 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
     std::env::temp_dir().join(unique_temp_name(prefix))
 }
 
+/// Every `.bindars-*` temporary or recovery sibling left in `dir`. Fails on a
+/// directory that cannot be listed rather than reporting it as clean.
+pub(crate) fn temp_leftovers(dir: &Path) -> Vec<PathBuf> {
+    let mut leftovers: Vec<PathBuf> = std::fs::read_dir(dir)
+        .expect("list fixture directory")
+        .map(|entry| entry.expect("read fixture entry").path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".bindars-"))
+        })
+        .collect();
+    leftovers.sort();
+    leftovers
+}
+
 pub(crate) fn cleanup_temp_path(path: &Path) {
     let _ = std::fs::remove_file(path);
 
@@ -71,6 +86,11 @@ pub(crate) mod access_metadata {
             .arg(path)
             .output()
             .expect("run ls -le");
+        assert!(
+            output.status.success(),
+            "ls -le failed for {}",
+            path.display()
+        );
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
@@ -89,10 +109,17 @@ pub(crate) mod access_metadata {
             .arg(path)
             .output()
             .expect("run xattr -p");
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        }
+        // Only a missing attribute counts as absent; any other failure is a
+        // broken fixture, not a passing negative assertion.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("No such xattr"),
+            "xattr -p failed: {stderr}"
+        );
+        None
     }
 }
 

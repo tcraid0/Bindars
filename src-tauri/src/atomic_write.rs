@@ -26,32 +26,42 @@ pub(crate) fn write_contents_atomic(
     write_contents_atomic_impl(path, content, tmp_prefix, false, read_only_operation)
 }
 
-/// Copies the access metadata of `source` onto `staged` before `staged` is
-/// published over it. Preserved on macOS: the whole ACL, inherited entries
-/// included, and every extended attribute (Finder tags and comments,
-/// quarantine, resource fork, custom attributes). Callers copy the mode bits
-/// separately. Not preserved: owner and group, BSD flags such as locked or
-/// hidden, and timestamps. On other platforms nothing beyond the mode bits is
-/// carried over.
-#[cfg(target_os = "macos")]
-pub(crate) fn preserve_access_metadata(source: &fs::File, staged: &fs::File) -> io::Result<()> {
-    use std::os::fd::AsRawFd;
-    // SAFETY: both descriptors are open for the whole call. A null state
-    // selects copyfile's defaults; the flag limits the copy to xattrs. The ACL
-    // is copied separately below because COPYFILE_ACL silently skips entries a
-    // file inherited from its folder.
-    let result = unsafe {
-        libc::fcopyfile(
-            source.as_raw_fd(),
-            staged.as_raw_fd(),
-            std::ptr::null_mut(),
-            libc::COPYFILE_XATTR,
-        )
-    };
-    if result < 0 {
-        return Err(io::Error::last_os_error());
+/// Gives `staged` the access metadata of `source`, whose mode bits the caller
+/// already captured as `permissions`, before `staged` is published over it.
+/// Preserved everywhere: the mode bits. Preserved on macOS: the whole ACL,
+/// inherited entries included (and its absence), and every extended attribute
+/// (Finder tags and comments, quarantine, resource fork, custom attributes).
+/// Not preserved: owner and group, BSD flags such as locked or hidden, and
+/// timestamps.
+pub(crate) fn preserve_access_metadata(
+    source: &fs::File,
+    permissions: &fs::Permissions,
+    staged: &fs::File,
+) -> io::Result<()> {
+    staged.set_permissions(permissions.clone())?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: both descriptors are open for the whole call. A null state
+        // selects copyfile's defaults; the flag limits the copy to xattrs. The
+        // ACL is copied separately because COPYFILE_ACL silently skips entries
+        // a file inherited from its folder.
+        let result = unsafe {
+            libc::fcopyfile(
+                source.as_raw_fd(),
+                staged.as_raw_fd(),
+                std::ptr::null_mut(),
+                libc::COPYFILE_XATTR,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        copy_acl(source.as_raw_fd(), staged.as_raw_fd())?;
     }
-    copy_acl(source.as_raw_fd(), staged.as_raw_fd())
+    #[cfg(not(target_os = "macos"))]
+    let _ = source;
+    Ok(())
 }
 
 // sys/acl.h; libc 0.2 has no bindings for these.
@@ -122,11 +132,6 @@ fn make_owner_only(file: &fs::File) -> io::Result<()> {
         use std::os::fd::AsRawFd;
         clear_acl(file.as_raw_fd())?;
     }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn preserve_access_metadata(_source: &fs::File, _staged: &fs::File) -> io::Result<()> {
     Ok(())
 }
 
@@ -298,16 +303,7 @@ fn write_contents_atomic_impl(
             NativeFileError::from_io(NativeFileOperation::WriteTemporaryFile, &tmp_path, error)
         })?;
         if let Some((source, permissions)) = &existing {
-            tmp_file
-                .set_permissions(permissions.clone())
-                .map_err(|error| {
-                    NativeFileError::from_io(
-                        NativeFileOperation::PreservePermissions,
-                        &tmp_path,
-                        error,
-                    )
-                })?;
-            preserve_access_metadata(source, &tmp_file)
+            preserve_access_metadata(source, permissions, &tmp_file)
                 .map_err(|error| NativeFileError::metadata_not_preserved(path, error))?;
         }
         tmp_file.sync_all().map_err(|error| {
@@ -345,7 +341,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
-    use crate::test_support::unique_temp_dir;
+    use crate::test_support::{temp_leftovers, unique_temp_dir};
 
     #[cfg(unix)]
     #[test]
@@ -440,17 +436,7 @@ mod tests {
         .expect_err("a file cannot replace an existing directory");
 
         assert_eq!(error.operation, NativeFileOperation::ReplaceFile);
-        let leftovers = fs::read_dir(&root)
-            .expect("list fixture root")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-cleanup-test")
-            })
-            .count();
-        assert_eq!(leftovers, 0);
+        assert!(temp_leftovers(&root).is_empty());
 
         cleanup_dir(&root);
     }

@@ -62,11 +62,13 @@ mod tests {
     use super::export_markdown_file_impl;
     use crate::document_io::MAX_MARKDOWN_BYTES;
     use crate::file_errors::{NativeFileErrorCategory, NativeFileOperation};
-    use crate::test_support::{cleanup_temp_path, unique_temp_path};
+    use crate::test_support::{
+        cleanup_temp_path as cleanup, temp_leftovers, unique_temp_path as temp_path,
+    };
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[test]
     fn export_markdown_accepts_md_extension() {
@@ -211,18 +213,7 @@ mod tests {
         assert_eq!(error.operation, NativeFileOperation::PreservePermissions);
         assert_eq!(fs::read_to_string(&path).unwrap(), "old content");
         assert!(acl_text(&path).contains("deny readextattr"));
-        let leftovers = fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-export-md")
-            })
-            .count();
-        assert_eq!(leftovers, 0);
+        assert!(temp_leftovers(path.parent().unwrap()).is_empty());
         cleanup(&path);
     }
 
@@ -278,13 +269,5 @@ mod tests {
         let error = result.expect_err("missing parent should error");
         assert_eq!(error.category, NativeFileErrorCategory::NotFound);
         assert_eq!(error.operation, NativeFileOperation::ResolveWriteParent);
-    }
-
-    fn temp_path(ext: &str) -> PathBuf {
-        unique_temp_path(ext)
-    }
-
-    fn cleanup(path: &Path) {
-        cleanup_temp_path(path);
     }
 }

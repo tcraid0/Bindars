@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::atomic_write::{preserve_access_metadata, sync_directory};
 use crate::document_io::{
     conditional_write_result, is_markdown_path, read_bounded_file, revision_from_bytes,
-    written_file_revision, ConditionalWriteResult, FileRevision, NewMarkdownFile,
+    ConditionalWriteResult, FileRevision, NewMarkdownFile,
 };
 use crate::file_errors::{
     NativeFileError, NativeFileErrorCategory as Category, NativeFileOperation as Op,
@@ -54,15 +54,11 @@ fn located_directory(dir: &File) -> Option<PathBuf> {
     }
 }
 
-fn folder_replaced_since_open() -> NativeFileError {
-    NativeFileError::destination_changed(
-        "A different folder now occupies this document's location. Reopen the document, or use Save As to keep your edits.",
-    )
-}
-
+/// Before publication, a folder that is not the one the document was opened
+/// from, or not the one this save started in, leaves the file untouched.
 fn folder_changed_before_replace() -> NativeFileError {
     NativeFileError::destination_changed(
-        "The document's folder changed during saving, before the file was replaced. Reopen the document, or use Save As to keep your edits.",
+        "The document's folder changed, so the file was not replaced. Reopen the document, or use Save As to keep your edits.",
     )
 }
 
@@ -366,7 +362,7 @@ fn write_document_using(
     } = &mode
     {
         if !expected.same_folder(&parent_metadata) {
-            return Err(folder_replaced_since_open());
+            return Err(folder_changed_before_replace());
         }
     }
     let (checked, source) = match mode {
@@ -424,11 +420,8 @@ fn write_document_using(
         staged
             .write_all(content.as_bytes())
             .map_err(|e| NativeFileError::from_io(Op::WriteTemporaryFile, path, e))?;
-        if let Some((document, p)) = &source {
-            staged
-                .set_permissions(p.clone())
-                .map_err(|e| NativeFileError::from_io(Op::PreservePermissions, path, e))?;
-            preserve_access_metadata(document, &staged)
+        if let Some((document, permissions)) = &source {
+            preserve_access_metadata(document, permissions, &staged)
                 .map_err(|e| NativeFileError::metadata_not_preserved(path, e))?;
         }
         staged
@@ -437,7 +430,13 @@ fn write_document_using(
         let metadata = staged
             .metadata()
             .map_err(|e| NativeFileError::from_io(Op::InspectSavedDocument, path, e))?;
-        Ok::<_, NativeFileError>(written_file_revision(&metadata, &parent_metadata, content))
+        // Size and hash describe exactly the bytes Bindars wrote, never bytes
+        // another writer may put at this name before the next save checks it.
+        Ok::<_, NativeFileError>(revision_from_bytes(
+            &metadata,
+            &parent_metadata,
+            content.as_bytes(),
+        ))
     })();
     drop(staged);
     drop(source);
@@ -472,10 +471,10 @@ fn write_document_using(
                     at_stage(SaveStage::Created);
                     created.write_all(content.as_bytes())?;
                     created.sync_all()?;
-                    Ok(written_file_revision(
+                    Ok(revision_from_bytes(
                         &created.metadata()?,
                         &parent_metadata,
-                        content,
+                        content.as_bytes(),
                     ))
                 })
                 .map(|revision| {
@@ -545,6 +544,7 @@ fn write_document_using(
 mod tests {
     use super::*;
     use crate::document_io::open_markdown_file_impl;
+    use crate::test_support::temp_leftovers;
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::sync::{Arc, Barrier};
@@ -1275,33 +1275,23 @@ mod tests {
         let moved = root.with_extension("moved");
         fs::rename(root, &moved).unwrap();
         fs::create_dir(root).unwrap();
-        if !same_mtime {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
         fs::write(path, "original").unwrap();
-        if same_mtime {
-            File::options()
-                .write(true)
-                .open(path)
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(modified))
-                .unwrap();
-        }
+        let replacement_modified = if same_mtime {
+            modified
+        } else {
+            modified + std::time::Duration::from_secs(5)
+        };
+        set_modified(path, replacement_modified);
         moved
     }
 
-    fn hidden_siblings(dir: &Path) -> usize {
-        fs::read_dir(dir)
+    fn set_modified(path: &Path, modified: SystemTime) {
+        File::options()
+            .write(true)
+            .open(path)
             .unwrap()
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-save-")
-            })
-            .count()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
     }
 
     #[test]
@@ -1315,17 +1305,12 @@ mod tests {
 
             // Never a conflict: the editor retries equal-content conflicts.
             assert_eq!(error.detail, "destination-changed");
-            assert!(
-                error.message.contains("different folder"),
-                "{}",
-                error.message
-            );
             assert_eq!(fs::read_to_string(&path).unwrap(), "original");
             assert_eq!(
                 fs::read_to_string(moved.join("document.md")).unwrap(),
                 "original"
             );
-            assert_eq!(hidden_siblings(&root), 0);
+            assert!(temp_leftovers(&root).is_empty());
             fs::remove_dir_all(root).unwrap();
             fs::remove_dir_all(moved).unwrap();
         }
@@ -1369,8 +1354,8 @@ mod tests {
         // A touch that keeps the bytes is still the same document in the same
         // folder: the timestamp conflict carries the same folder identity, so
         // the editor's equal-content retry with that revision goes through.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        fs::write(&path, "local edits").unwrap();
+        let saved_at = fs::metadata(&path).unwrap().modified().unwrap();
+        set_modified(&path, saved_at + std::time::Duration::from_secs(5));
         let touched =
             write_document(&path, "more edits", Some(&saved.current_revision), false).unwrap();
         assert!(touched.conflict);
@@ -1405,8 +1390,8 @@ mod tests {
                     "original"
                 }
             );
-            assert_eq!(hidden_siblings(&root), 0);
-            assert_eq!(hidden_siblings(&moved), 0);
+            assert!(temp_leftovers(&root).is_empty());
+            assert!(temp_leftovers(&moved).is_empty());
             fs::remove_dir_all(root).unwrap();
             fs::remove_dir_all(moved).unwrap();
         }
@@ -1477,7 +1462,7 @@ mod tests {
             File::options().write(true).open(&path).is_err(),
             "the ACL must still deny direct writes after the save"
         );
-        assert_eq!(hidden_siblings(&root), 0);
+        assert!(temp_leftovers(&root).is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1563,7 +1548,7 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "original");
         assert!(acl_text(&path).contains("deny readextattr"));
-        assert_eq!(hidden_siblings(&root), 0);
+        assert!(temp_leftovers(&root).is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 

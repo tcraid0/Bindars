@@ -188,6 +188,7 @@ test("cancelled annotation export does not write and leaves the control usable",
 
 test("a failed annotation write can be retried with feedback and usable controls", async (t) => {
   await installDom();
+  const nativeMessage = "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.";
   const writes = [];
   mockIPC((command, args = {}) => {
     writes.push({ command, args });
@@ -196,7 +197,7 @@ test("a failed annotation write can be retried with feedback and usable controls
       throw {
         category: "unknown",
         operation: "preservePermissions",
-        message: "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.",
+        message: nativeMessage,
         detail: "fcopyfile: EACCES",
       };
     }
@@ -207,9 +208,7 @@ test("a failed annotation write can be retried with feedback and usable controls
     click(exportButton(view.host));
     await flushExport();
     assert.equal(writes.length, 1);
-    assert.deepEqual(toastMessages(view.host), [
-      "Bindars could not carry this file's access permissions and attributes over to the new version, so the file was left unchanged. Save to a different file instead.",
-    ]);
+    assert.deepEqual(toastMessages(view.host), [nativeMessage]);
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.equal(exportButton(view.host).disabled, false);
 

@@ -68,7 +68,7 @@ pub(crate) fn folder_identity(parent: &fs::Metadata) -> Option<String> {
 }
 
 /// Metadata of the folder containing `path`, read through the pathname.
-pub(crate) fn parent_metadata(
+fn parent_metadata(
     path: &Path,
     operation: NativeFileOperation,
 ) -> Result<fs::Metadata, NativeFileError> {
@@ -584,17 +584,7 @@ fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision
     // The size and hash intentionally describe the exact contents Bindars wrote.
     // If another process replaces the file before this metadata read, the hybrid
     // revision will not bless those external bytes on the next conditional save.
-    Ok(written_file_revision(&metadata, &parent, content))
-}
-
-/// The revision Bindars holds for `content` it just wrote: the written file's
-/// timestamp paired with the size and hash of exactly those bytes.
-pub(crate) fn written_file_revision(
-    metadata: &fs::Metadata,
-    parent: &fs::Metadata,
-    content: &str,
-) -> FileRevision {
-    revision_from_bytes(metadata, parent, content.as_bytes())
+    Ok(revision_from_bytes(&metadata, &parent, content.as_bytes()))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -633,7 +623,9 @@ pub(crate) fn is_markdown_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
+    use crate::test_support::{
+        cleanup_temp_path, temp_leftovers, unique_temp_dir, unique_temp_path,
+    };
     use std::fs::File;
     #[cfg(unix)]
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1162,17 +1154,7 @@ mod tests {
             fs::read_to_string(&path).expect("read unchanged file"),
             "# Original"
         );
-        let temporary_files = fs::read_dir(path.parent().expect("fixture parent"))
-            .expect("list fixture parent")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-tmp")
-            })
-            .count();
-        assert_eq!(temporary_files, 0);
+        assert!(temp_leftovers(path.parent().expect("fixture parent")).is_empty());
 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
             .expect("restore fixture permissions");
@@ -1211,17 +1193,7 @@ mod tests {
                 format!("updated-{index}")
             );
         }
-        assert_eq!(
-            fs::read_dir(&root)
-                .expect("list fixture root")
-                .filter_map(Result::ok)
-                .filter(|entry| entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-tmp"))
-                .count(),
-            0
-        );
+        assert!(temp_leftovers(&root).is_empty());
 
         cleanup_dir(&root);
     }

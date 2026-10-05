@@ -90,9 +90,13 @@ export function sameFileRevision(
 ): boolean {
   if (left === null || right === null) return left === right;
   return left.mtimeMs === right.mtimeMs
-    && left.size === right.size
-    && left.contentHash === right.contentHash
+    && sameContent(left, right)
     && sameFolderIdentity(left, right);
+}
+
+/// The same bytes, whatever the timestamp or folder.
+export function sameContent(left: FileRevision, right: FileRevision): boolean {
+  return left.size === right.size && left.contentHash === right.contentHash;
 }
 
 /// A file in a different folder at the same pathname is a different document,
@@ -180,7 +184,6 @@ export function decideDocumentReconciliation({
   if (current.mode === "editor" && !current.dirty) {
     const cleanEditorChanged = captured.content !== current.content
       || captured.dirty !== current.dirty
-      || !sameFileRevision(captured.expectedRevision, current.expectedRevision)
       || !sameFileRevision(captured.publishedRevision, current.publishedRevision);
     if (cleanEditorChanged) return staleReconciliation("clean-editor-changed");
   }
@@ -207,7 +210,7 @@ export function decideDocumentReconciliation({
     // into the next save.
     if (
       revision === null
-      || revision.contentHash !== probe.document.revision.contentHash
+      || !sameContent(revision, probe.document.revision)
       || !sameFolderIdentity(revision, probe.document.revision)
     ) {
       return {
