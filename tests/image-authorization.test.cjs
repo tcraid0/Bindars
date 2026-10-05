@@ -132,18 +132,15 @@ async function renderImageApp(t, { workspaceFiles = [] } = {}) {
         return false;
       case "load_annotations":
       case "save_annotations":
-      case "plugin:store|save":
-      case "plugin:store|set":
+      case "set_setting":
       case "plugin:window|set_title":
       case "watch_file":
       case "unwatch_file":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "workspace:root" && workspaceFiles.length) return ["/tmp/ws", true];
-        return [null, false];
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        if (args.key === "workspace:root" && workspaceFiles.length) return "/tmp/ws";
+        return null;
       case "list_workspace_markdown_files":
         return { files: workspaceFiles, skippedCount: 0, limitHit: false };
       case "read_markdown_file":

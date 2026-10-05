@@ -64,7 +64,7 @@ function themeStoreWrites(writes) {
 
 // Installs a store mock whose "theme" read is controlled by `themeRead`
 // (a value or a deferred promise) and records every store write.
-function mockThemeStore({ themeRead = [null, false], failThemeRead = false } = {}) {
+function mockThemeStore({ themeRead = null, failThemeRead = false } = {}) {
   const storeWrites = [];
   mockIPC((cmd, args = {}) => {
     switch (cmd) {
@@ -73,17 +73,14 @@ function mockThemeStore({ themeRead = [null, false], failThemeRead = false } = {
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "theme") {
           if (failThemeRead) throw new Error("store get failed");
           return themeRead;
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         storeWrites.push(args);
         return null;
       default:
@@ -104,19 +101,16 @@ function mockStrictModeThemeStore() {
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "theme") {
           const read = reads[themeReadCount];
           themeReadCount += 1;
           assert.ok(read, "expected at most two StrictMode theme reads");
           return read.promise;
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         storeWrites.push(args);
         return null;
       default:
@@ -204,7 +198,7 @@ test("stored theme applies after startup when no user action occurs", async () =
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
     await act(async () => {
-      storedTheme.resolve(["sepia", true]);
+      storedTheme.resolve("sepia");
     });
     await waitFor(() => assert.equal(rendered.latest().theme, "sepia"));
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
@@ -238,7 +232,7 @@ test("a user cycle before the stored load resolves keeps the user theme", async 
     });
 
     await act(async () => {
-      storedTheme.resolve(["dark", true]);
+      storedTheme.resolve("dark");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -299,7 +293,7 @@ test("multiple user cycles in one batch advance from the latest user intent", as
     assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
 
     await act(async () => {
-      storedTheme.resolve(["sepia", true]);
+      storedTheme.resolve("sepia");
     });
     assert.equal(rendered.latest().theme, "dark");
     assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
@@ -336,7 +330,7 @@ test("multiple user changes before resolution keep the latest theme", async () =
     });
 
     await act(async () => {
-      storedTheme.resolve(["sepia", true]);
+      storedTheme.resolve("sepia");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -372,7 +366,7 @@ test("explicitly selecting the already-visible theme before resolution wins over
     });
 
     await act(async () => {
-      storedTheme.resolve(["dark", true]);
+      storedTheme.resolve("dark");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -402,7 +396,7 @@ test("a direct setTheme before resolution keeps the user theme", async () => {
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
 
     await act(async () => {
-      storedTheme.resolve(["sepia", true]);
+      storedTheme.resolve("sepia");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -430,7 +424,7 @@ test("a legacy localStorage theme seeds startup and the stored value overrides i
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
     await act(async () => {
-      storedTheme.resolve(["sepia", true]);
+      storedTheme.resolve("sepia");
     });
     await waitFor(() => assert.equal(rendered.latest().theme, "sepia"));
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
@@ -456,7 +450,7 @@ test("a primary localStorage theme is kept when the store has no value", async (
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
     await act(async () => {
-      storedTheme.resolve([null, false]);
+      storedTheme.resolve(null);
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -486,7 +480,7 @@ test("the system-dark fallback is not persisted until the stored read settles", 
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
     await act(async () => {
-      storedTheme.resolve([null, false]);
+      storedTheme.resolve(null);
     });
     await waitFor(() => {
       assert.deepEqual(themeStoreWrites(storeWrites), [{ key: "theme", value: "dark" }]);
@@ -508,7 +502,7 @@ test("an invalid stored value preserves the current fallback", async () => {
 
   try {
     await act(async () => {
-      storedTheme.resolve(["neon", true]);
+      storedTheme.resolve("neon");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -592,11 +586,11 @@ test("StrictMode ignores the stale read when the active read resolves first", as
 
     // Resolve the second (active) load first, then the stale first load.
     await act(async () => {
-      secondRead.resolve(["dark", true]);
+      secondRead.resolve("dark");
     });
     await waitFor(() => assert.equal(rendered.latest().theme, "dark"));
     await act(async () => {
-      firstRead.resolve(["sepia", true]);
+      firstRead.resolve("sepia");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -625,7 +619,7 @@ test("StrictMode stale read cannot enable persistence before the active read set
     // The first effect has already been cleaned up, so its result must not
     // apply a theme or unlock persistence while the active read is pending.
     await act(async () => {
-      firstRead.resolve(["sepia", true]);
+      firstRead.resolve("sepia");
       await firstRead.promise;
       await Promise.resolve();
     });
@@ -634,7 +628,7 @@ test("StrictMode stale read cannot enable persistence before the active read set
     assert.deepEqual(themeStoreWrites(storeWrites), []);
 
     await act(async () => {
-      secondRead.resolve(["dark", true]);
+      secondRead.resolve("dark");
     });
     await waitFor(() => assert.equal(rendered.latest().theme, "dark"));
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
@@ -661,7 +655,7 @@ test("a stored value resolving after unmount changes nothing and persists nothin
 
     await rendered.unmount();
     await act(async () => {
-      storedTheme.resolve(["dark", true]);
+      storedTheme.resolve("dark");
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));

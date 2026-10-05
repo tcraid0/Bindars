@@ -29,13 +29,10 @@ test("session persistence reads the latest heading from a getter without parent 
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        return null;
+      case "set_setting":
         writes.push(args);
         return null;
       default:
@@ -128,15 +125,12 @@ test("stored session restore waits for the initial native source decision", asyn
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "session") {
-          return [{ filePath: "/tmp/stored.md", headingId: "stored-heading" }, true];
+          return { filePath: "/tmp/stored.md", headingId: "stored-heading" };
         }
-        return [null, false];
+        return null;
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }

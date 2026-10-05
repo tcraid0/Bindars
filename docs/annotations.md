@@ -85,7 +85,8 @@ text.
 
 Annotations use `annotations.json` in the app's data directory, separately from
 preferences in `settings.json`. The native boundary serializes reads and writes
-and uses the existing atomic file writer. It syncs the temporary file before
+of both files and uses the same atomic file writer for each: a failed write
+leaves the previous file intact. It syncs the temporary file before
 replacement; this is not a guarantee against every power failure, filesystem,
 or storage-device failure. Multiple concurrent app processes and synchronizing
 the app-data directory between machines are not supported merge workflows.
@@ -98,8 +99,8 @@ current collection. Older app versions do not see subsequent annotation edits.
 
 Malformed JSON, unsupported collection versions, or a missing collection after
 completed migration stop loading and saving rather than creating an empty
-replacement. The settings plugin cannot open until migration preservation has
-succeeded. Unrecognized individual records and extra fields are retained when
+replacement. Settings cannot be read or written until migration preservation
+has succeeded. Unrecognized individual records and extra fields are retained when
 other annotations are edited.
 
 ## If annotations cannot be loaded

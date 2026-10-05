@@ -120,7 +120,8 @@ export type NativeFileOperation =
   | "watchDocument"
   | "revealInFolder"
   | "saveRecoveryData"
-  | "accessRecoveryData";
+  | "accessRecoveryData"
+  | "accessSettings";
 
 export interface NativeFileError {
   category: NativeFileErrorCategory;

@@ -168,21 +168,17 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         return args.path === DOC_PATH ? { highlights, bookmarks: [], version: 2 } : null;
       case "save_annotations":
         return annotationWrite(args);
-      case "plugin:store|save":
-        return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
         if (args.key === "session" && initialSessionOperation) {
           initialSessionOperation.args = args;
           return initialSessionOperation.promise;
         }
         if (args.key === `annotations:${DOC_PATH}`) {
-          return [{ highlights, bookmarks: [], version: 2 }, true];
+          return { highlights, bookmarks: [], version: 2 };
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         return null;
       case "plugin:window|set_title":
         return null;
@@ -608,7 +604,7 @@ test("hiding the macOS window during startup still allows stored session restora
     await rendered.requestClose();
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     await act(async () => {
-      settings.resolve([{ filePath: DOC_PATH, headingId: null }, true]);
+      settings.resolve({ filePath: DOC_PATH, headingId: null });
       await settings.promise;
     });
     await waitFor(() => assert.ok(rendered.host.textContent.includes(DOC_NAME)));
@@ -616,7 +612,7 @@ test("hiding the macOS window during startup still allows stored session restora
     assert.equal(rendered.hideCount(), 1);
     assert.equal(rendered.exitCalls().length, 0);
   } finally {
-    settings.resolve([null, false]);
+    settings.resolve(null);
     await rendered.cleanup();
   }
 });

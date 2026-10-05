@@ -267,23 +267,20 @@ async function renderEditorApp({
       case "load_annotations":
         return loadAnnotations(args);
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "theme" && themeGet !== undefined) {
           return themeGet;
         }
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
+        if (args.key === "recent-files") return { version: 1, files: [] };
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
           return markdownFormattingRead;
         }
         if (args.key === "markdown-formatting-enabled" && typeof markdownFormattingStored === "boolean") {
-          return [markdownFormattingStored, true];
+          return markdownFormattingStored;
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         storeWrites.push(args);
         if (args.key === "markdown-formatting-enabled" && markdownFormattingWriteError) {
           throw markdownFormattingWriteError;
@@ -1110,7 +1107,7 @@ test("a stored theme applies over a seeded localStorage theme when no user actio
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeWritesOf(rendered), []);
 
-    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    await resolveStoredTheme(storedTheme, "sepia");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
@@ -1138,7 +1135,7 @@ test("a stored theme arriving after the Ctrl+Shift+T cycle keeps the user's them
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["deep-dark", true]);
+    await resolveStoredTheme(storedTheme, "deep-dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
@@ -1162,7 +1159,7 @@ test("a stored theme arriving after the toolbar theme button keeps the user's th
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["dark", true]);
+    await resolveStoredTheme(storedTheme, "dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
   } finally {
@@ -1190,7 +1187,7 @@ test("a stored theme arriving after a settings swatch selection keeps the user's
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     await waitForThemeWrites(rendered, ["dark"]);
 
-    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    await resolveStoredTheme(storedTheme, "sepia");
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeWritesOf(rendered), ["dark"]);
   } finally {
@@ -1227,7 +1224,7 @@ test("a stored theme arriving after settings swatch arrow navigation keeps the u
     assert.ok(document.activeElement === sepiaSwatch);
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["dark", true]);
+    await resolveStoredTheme(storedTheme, "dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
   } finally {
@@ -1429,7 +1426,7 @@ test("a delayed stored-off preference never paints an enabled editor state", asy
     assert.ok(formattingButton);
     assert.equal(formattingButton.getAttribute("aria-pressed"), "false");
 
-    preferenceRead.resolve([false, true]);
+    preferenceRead.resolve(false);
     await waitFor(() => {
       assert.equal(view.state.field(markdownFormattingEnabled), false);
       assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), "false");
@@ -1475,7 +1472,7 @@ test("a resolved default is seeded locally for the next synchronous mount", asyn
   });
   try {
     assert.equal(findEditorView(second.host).state.field(markdownFormattingEnabled), true);
-    delayedRead.resolve([false, true]);
+    delayedRead.resolve(false);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -1495,7 +1492,7 @@ test("a user toggle wins over a stale delayed formatting preference", async () =
     assert.equal(toggle.defaultPrevented, true);
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
-    preferenceRead.resolve([true, true]);
+    preferenceRead.resolve(true);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -1579,15 +1576,12 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") { welcomeReads.push(args.key); return [false, true]; }
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        if (args.key === "hasSeenWelcome") { welcomeReads.push(args.key); return false; }
+        return null;
+      case "set_setting":
         return null;
       case "plugin:window|set_title":
         return null;
@@ -1722,14 +1716,11 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        return null;
+      case "set_setting":
       case "plugin:window|set_title":
         return null;
       case "create_draft_document":
@@ -1845,14 +1836,11 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        return null;
+      case "set_setting":
       case "plugin:window|set_title":
         return null;
       case "plugin:dialog|save": {
@@ -2028,46 +2016,42 @@ async function renderContinuityApp({
       case "save_annotations":
         annotationWrites.push(structuredClone(args));
         return annotationWrite ? annotationWrite(args) : null;
-      case "plugin:store|save":
-        if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
-        return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "sidebar-visible" && sidebarRead) return sidebarRead;
         if (sampleFlow) sampleFlow.reads.push(args.key);
-        if (sampleFlow && args.key === "hasSeenWelcome") return [sampleFlow.seen, true];
-        if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
+        if (sampleFlow && args.key === "hasSeenWelcome") return sampleFlow.seen;
+        if (recentStorage && args.key === "config-version") return recentStorage.version ?? 3;
         if (args.key === "recent-files") {
-          if (!recentStorage) return [{ version: 1, files: [] }, true];
+          if (!recentStorage) return { version: 1, files: [] };
           recentStorage.reads = (recentStorage.reads ?? 0) + 1;
-          return recentStorage.read ? recentStorage.read() : [structuredClone(recentStorage.value), true];
+          return recentStorage.read ? recentStorage.read() : structuredClone(recentStorage.value);
         }
         if (args.key === "theme" && themeRead) return themeRead;
         if (args.key === "reader-settings" && settingsRead) return settingsRead;
-        if (args.key === "reader-settings" && storedReaderSettings) return [storedReaderSettings, true];
-        if (args.key === "workspace:root" && workspaceFiles.length) return ["/tmp", true];
+        if (args.key === "reader-settings" && storedReaderSettings) return storedReaderSettings;
+        if (args.key === "workspace:root" && workspaceFiles.length) return "/tmp";
         if (args.key === `annotations:${canonicalPath}`) {
-          return [{ highlights: storedHighlights, bookmarks: [], version: 2 }, true];
+          return { highlights: storedHighlights, bookmarks: [], version: 2 };
         }
         if (args.key === "session" && initialSessionOperation) {
           initialSessionOperation.args = args;
           return initialSessionOperation.promise;
         }
         if (args.key === "session" && restoreHeadingId !== undefined) {
-          return [{ filePath: requestedPath, headingId: restoreHeadingId }, true];
+          return { filePath: requestedPath, headingId: restoreHeadingId };
         }
-        return [null, false];
+        return null;
       case "list_workspace_markdown_files":
         return { files: workspaceFiles, skippedCount: 0, limitHit: false };
       case "read_markdown_file":
         return workspaceContent ?? `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
-      case "plugin:store|set":
+      case "set_setting":
         if (recentStorage) {
           recentStorage.writes.push(structuredClone(args));
           if (args.key === "recent-files") {
             if (recentStorage.writeError) throw recentStorage.writeError;
             recentStorage.value = structuredClone(args.value);
+            recentStorage.durable = structuredClone(recentStorage.value);
           }
         }
         return null;
@@ -3488,7 +3472,7 @@ test("a newer Finder request wins over delayed startup settings", async (context
         }
 
         await act(async () => {
-          settings.resolve([{ filePath: "/tmp/older-session.md", headingId: "old-heading" }, true]);
+          settings.resolve({ filePath: "/tmp/older-session.md", headingId: "old-heading" });
           await settings.promise;
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("main")));
@@ -3504,7 +3488,7 @@ test("a newer Finder request wins over delayed startup settings", async (context
         }
         assert.doesNotMatch(rendered.host.textContent, /older-session\.md/);
       } finally {
-        settings.resolve([null, false]);
+        settings.resolve(null);
         finderRead.resolve(rendered.openResult());
         await rendered.cleanup();
       }
@@ -3530,14 +3514,14 @@ test("cancelling a newer file-open dialog does not revive delayed startup restor
       await openDialog.promise;
     });
     await act(async () => {
-      settings.resolve([{ filePath: "/tmp/older-session.md", headingId: null }, true]);
+      settings.resolve({ filePath: "/tmp/older-session.md", headingId: null });
       await settings.promise;
     });
     await waitFor(() => assert.ok(rendered.host.querySelector("main")));
     assert.deepEqual(rendered.openedPaths(), []);
   } finally {
     openDialog.resolve(null);
-    settings.resolve([null, false]);
+    settings.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -5399,8 +5383,8 @@ test("late theme and settings hydration wait until printing ends", async (t) => 
   await act(async () => dispatchShortcut("p"));
   await act(async () => view.pending[0].resolve());
   await act(async () => {
-    theme.resolve(["dark", true]);
-    settings.resolve([{ fontSize: 24 }, true]);
+    theme.resolve("dark");
+    settings.resolve({ fontSize: 24 });
   });
   assert.equal(document.documentElement.getAttribute("data-theme"), originalTheme);
   assert.equal(view.host.querySelector("main").getAttribute("style"), originalStyle);
@@ -5549,7 +5533,7 @@ for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
     const old = { path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: startup === 'legacy migration' ? 'user-content-intro' : 'intro' };
     const stored = format === 'versioned' ? { version: 1, files: [old] } : [old];
     let released = false;
-    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
+    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? structuredClone(history.value) : held.promise };
     const rendered = await renderContinuityApp({
       requestedPath: '/tmp/new.md',
       ...(startup === 'session' ? { restoreHeadingId: 'second' } : {}),
@@ -5568,7 +5552,7 @@ for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
       assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
       assert.deepEqual(history.value, stored);
       released = true;
-      await act(async () => { held.resolve([stored, true]); });
+      await act(async () => { held.resolve(stored); });
       const current = startup === 'A then B' ? '/tmp/newer.md' : '/tmp/new.md';
       await waitFor(() => assert.deepEqual(history.durable.files.map(f => f.path), [current, '/tmp/old.md']));
       assert.equal(history.durable.files[1].lastHeadingId, 'intro');
@@ -5584,7 +5568,7 @@ for (const failure of ['history read', 'conversion write', 'unknown format']) {
     const history = { version: failure === 'conversion write' ? 2 : 3, value: original, durable: structuredClone(original), writes: [],
       writeError: failure === 'conversion write' ? Error('conversion write rejected') : null, read: () => {
       if (failure === 'history read') throw Error('history unavailable');
-      return [original, true];
+      return original;
     } };
     const expectedWrites = failure === 'conversion write'
       ? [{ key: 'recent-files', value: { version: 1, files: [{ ...original[0], lastHeadingId: 'intro' }] } }]
@@ -6899,8 +6883,8 @@ for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
       await act(async () => {
         held.resolve(heldStage === "bootstrap" ? { settingsReady: true, settingsError: null }
           : heldStage === "native drain" ? null
-          : heldStage === "history" ? [oldHistory, true]
-          : [{ filePath: "/tmp/stale-session.md", headingId: null }, true]);
+          : heldStage === "history" ? oldHistory
+          : { filePath: "/tmp/stale-session.md", headingId: null });
       });
       await waitFor(() => assert.ok(history.value.files.some(file => file.path === "/tmp/user-selected.md")));
       assert.equal(history.value.files.find(file => file.path === "/tmp/kept.md").lastHeadingId, "kept-position");
@@ -6909,7 +6893,7 @@ for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
       await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     } finally {
       context.mock.timers.reset();
-      held.resolve([null, false]);
+      held.resolve(null);
       await rendered.cleanup();
       restoreLocalStorage();
     }
@@ -6926,14 +6910,14 @@ for (const stored of [false, "true", { unexpected: true }]) {
       const toggle = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
       assert.ok(!rendered.host.querySelector("aside"));
       if (stored === false) flushSync(() => toggle.click());
-      await act(async () => held.resolve([stored, true]));
+      await act(async () => held.resolve(stored));
       assert.equal(Boolean(rendered.host.querySelector("aside")), stored === false);
       if (stored === false) {
         assert.equal(window.localStorage.getItem("bindars-sidebar-visible"), "true");
         assert.equal(storage.writes.findLast(write => write.key === "sidebar-visible").value, true);
       }
     } finally {
-      held.resolve([null, false]);
+      held.resolve(null);
       await rendered.cleanup();
       restoreLocalStorage();
     }
@@ -6943,7 +6927,7 @@ for (const stored of [false, "true", { unexpected: true }]) {
 test("a malformed saved heading still opens a usable document", async () => {
   const restoreLocalStorage = bindAppLocalStorage();
   const session = deferred();
-  session.resolve([{ filePath: "/tmp/continuity.md", headingId: { toString: null } }, true]);
+  session.resolve({ filePath: "/tmp/continuity.md", headingId: { toString: null } });
   const rendered = await renderContinuityApp({ initialNativePath: null, initialSessionOperation: session, freshStorage: true });
   try {
     assert.ok(rendered.host.querySelector("#second"));

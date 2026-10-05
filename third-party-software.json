@@ -5,9 +5,9 @@
     "cargo": "src-tauri/Cargo.lock third-party packages"
   },
   "summary": {
-    "npmPackages": 305,
-    "cargoPackages": 573,
-    "documents": 401,
+    "npmPackages": 304,
+    "cargoPackages": 571,
+    "documents": 400,
     "reviewRequired": 0,
     "inventoryWarnings": 16,
     "standardLicenseOverrides": 10
@@ -11204,34 +11204,6 @@
       ]
     },
     {
-      "id": "cargo:tauri-plugin-store@2.4.2",
-      "kind": "cargo",
-      "name": "tauri-plugin-store",
-      "version": "2.4.2",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "5ca1a8ff83c269b115e98726ffc13f9e548a10161544a92ad121d6d0a96e16ea",
-      "declaredLicense": "Apache-2.0 OR MIT",
-      "authors": [
-        "Tauri Programme within The Commons Conservancy"
-      ],
-      "repository": "https://github.com/tauri-apps/plugins-workspace",
-      "attribution": null,
-      "distributionClass": "runtime-linked",
-      "selectedLicense": "MIT",
-      "standardLicenseOverride": null,
-      "sourceAvailability": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe",
-        "sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607",
-        "sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
-      ]
-    },
-    {
       "id": "cargo:tauri-plugin-window-state@2.4.1",
       "kind": "cargo",
       "name": "tauri-plugin-window-state",
@@ -11781,32 +11753,6 @@
         "sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
         "sha256:943f36fd309fb5ea67a82f577433f4ed3bc877e5b00f9b874e2f8b7f72bf0bdc",
         "sha256:bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3"
-      ]
-    },
-    {
-      "id": "cargo:tokio-macros@2.6.0",
-      "kind": "cargo",
-      "name": "tokio-macros",
-      "version": "2.6.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5",
-      "declaredLicense": "MIT",
-      "authors": [
-        "Tokio Contributors <team@tokio.rs>"
-      ],
-      "repository": "https://github.com/tokio-rs/tokio",
-      "attribution": null,
-      "distributionClass": "inventory-only",
-      "selectedLicense": null,
-      "standardLicenseOverride": null,
-      "sourceAvailability": null,
-      "disposition": "packaged-license-document",
-      "evidence": null,
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:c0fdcda1a4ffc5fd63c452e40ce25e54f2098669e3415033b228773eea24a871"
       ]
     },
     {
@@ -16173,29 +16119,6 @@
       "name": "@tauri-apps/plugin-opener",
       "version": "2.5.3",
       "lockPath": "node_modules/@tauri-apps/plugin-opener",
-      "distributionClass": "runtime-dependency",
-      "declaredLicense": "MIT OR Apache-2.0",
-      "authors": [],
-      "repository": "https://github.com/tauri-apps/plugins-workspace",
-      "attribution": null,
-      "selectedLicense": "MIT",
-      "disposition": "packaged-license-document",
-      "evidence": "Packaged Tauri project license texts from @tauri-apps/api",
-      "licenseTextAvailable": true,
-      "reviewRequired": false,
-      "inventoryWarning": false,
-      "documentRefs": [
-        "sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe",
-        "sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607",
-        "sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
-      ]
-    },
-    {
-      "id": "npm:@tauri-apps/plugin-store@2.4.2",
-      "kind": "npm",
-      "name": "@tauri-apps/plugin-store",
-      "version": "2.4.2",
-      "lockPath": "node_modules/@tauri-apps/plugin-store",
       "distributionClass": "runtime-dependency",
       "declaredLicense": "MIT OR Apache-2.0",
       "authors": [],
@@ -24040,7 +23963,6 @@
         "cargo:tauri-plugin-fs@2.4.5",
         "cargo:tauri-plugin-log@2.8.0",
         "cargo:tauri-plugin-opener@2.5.3",
-        "cargo:tauri-plugin-store@2.4.2",
         "cargo:tauri-plugin-window-state@2.4.1",
         "cargo:tauri-plugin@2.5.3",
         "cargo:tauri-runtime-wry@2.11.4",
@@ -24052,8 +23974,7 @@
         "cargo:time@0.3.47",
         "npm:@tauri-apps/api@2.11.1",
         "npm:@tauri-apps/plugin-dialog@2.6.0",
-        "npm:@tauri-apps/plugin-opener@2.5.3",
-        "npm:@tauri-apps/plugin-store@2.4.2"
+        "npm:@tauri-apps/plugin-opener@2.5.3"
       ],
       "sources": [
         "LICENSE",
@@ -25182,7 +25103,6 @@
         "cargo:tauri-plugin-fs@2.4.5",
         "cargo:tauri-plugin-log@2.8.0",
         "cargo:tauri-plugin-opener@2.5.3",
-        "cargo:tauri-plugin-store@2.4.2",
         "cargo:tauri-plugin-window-state@2.4.1",
         "cargo:tauri-plugin@2.5.3",
         "cargo:tauri-runtime-wry@2.11.4",
@@ -25191,8 +25111,7 @@
         "cargo:tauri@2.11.5",
         "npm:@tauri-apps/api@2.11.1",
         "npm:@tauri-apps/plugin-dialog@2.6.0",
-        "npm:@tauri-apps/plugin-opener@2.5.3",
-        "npm:@tauri-apps/plugin-store@2.4.2"
+        "npm:@tauri-apps/plugin-opener@2.5.3"
       ],
       "sources": [
         "LICENSE_MIT",
@@ -26078,15 +25997,6 @@
       ]
     },
     {
-      "id": "sha256:c0fdcda1a4ffc5fd63c452e40ce25e54f2098669e3415033b228773eea24a871",
-      "packages": [
-        "cargo:tokio-macros@2.6.0"
-      ],
-      "sources": [
-        "LICENSE"
-      ]
-    },
-    {
       "id": "sha256:c193d216d646a101f91edd7c786f856d105b58d87bb7b3f97ac6837a2da56045",
       "packages": [
         "cargo:unic-char-property@0.9.0",
@@ -26892,11 +26802,9 @@
         "cargo:tauri-plugin-fs@2.4.5",
         "cargo:tauri-plugin-log@2.8.0",
         "cargo:tauri-plugin-opener@2.5.3",
-        "cargo:tauri-plugin-store@2.4.2",
         "cargo:tauri-plugin-window-state@2.4.1",
         "npm:@tauri-apps/plugin-dialog@2.6.0",
-        "npm:@tauri-apps/plugin-opener@2.5.3",
-        "npm:@tauri-apps/plugin-store@2.4.2"
+        "npm:@tauri-apps/plugin-opener@2.5.3"
       ],
       "sources": [
         "LICENSE.spdx"

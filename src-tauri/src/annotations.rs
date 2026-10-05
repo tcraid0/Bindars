@@ -1,12 +1,13 @@
-//! Annotation storage is separate from the settings plugin: a successful command
-//! acknowledges an atomic file replacement, not an update to an autosave cache.
+//! Annotation storage is separate from settings (settings.rs); both acknowledge
+//! an atomic file replacement, and the settings cache is seeded only here, after
+//! migration has preserved the legacy bytes.
 use crate::atomic_write::write_contents_atomic_private;
 use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
+use crate::settings::Settings;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 use std::{collections::HashSet, fs, io::Read, path::Path, sync::Mutex};
 use tauri::Manager;
-use tauri_plugin_store::StoreExt;
 
 static STORAGE_LOCK: Mutex<()> = Mutex::new(());
 const DATA: &str = "annotations.json";
@@ -56,7 +57,7 @@ pub(crate) async fn initialize_annotation_storage(
     run(app, move |root| {
         initialize_at(root)?;
         // Annotation data remains readable when only settings are unavailable.
-        let settings_error = prepare_settings_store(&settings_app, root).err();
+        let settings_error = prepare_settings(&settings_app.state::<Settings>(), root).err();
         Ok(StorageStatus {
             settings_ready: settings_error.is_none(),
             settings_error,
@@ -65,28 +66,24 @@ pub(crate) async fn initialize_annotation_storage(
     .await
 }
 
-fn prepare_settings_store<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    root: &Path,
-) -> Result<(), String> {
-    let path = root.join("settings.json");
-    // Bootstrap runs under STORAGE_LOCK. Once prepared, the plugin cache owns
-    // newer changes, including a set whose save failed; do not reload over it.
-    if app.get_store(&path).is_some() {
+fn prepare_settings(settings: &Settings, root: &Path) -> Result<(), String> {
+    // Bootstrap runs under STORAGE_LOCK. Once loaded, the cache owns newer
+    // changes, including a value whose write failed; do not reload over it.
+    if settings.is_loaded() {
         return Ok(());
     }
-    let settings = match read_optional(&path)? {
+    let path = root.join("settings.json");
+    // Seed the cache from this checked read only: a damaged or unreadable file
+    // must leave settings unavailable rather than load an empty cache that the
+    // next write would persist over the original bytes.
+    let values = match read_optional(&path)? {
         Some(bytes) => parse_object(&bytes)?,
         None => json!({}),
     };
-    // The plugin's ordinary load ignores disk-read errors. Seed its cache from
-    // this checked read instead: failure must register no store for later writes
-    // or the plugin's unconditional Exit save to flush.
-    app.store_builder(&path)
-        .defaults(serde_json::from_value(settings).map_err(|e| e.to_string())?)
-        .create_new()
-        .build()
-        .map_err(|e| e.to_string())?;
+    settings.load(
+        &path,
+        values.as_object().cloned().expect("validated object"),
+    );
     Ok(())
 }
 
@@ -492,13 +489,6 @@ mod tests {
         bytes
     }
 
-    fn settings_app() -> tauri::App<tauri::test::MockRuntime> {
-        tauri::test::mock_builder()
-            .plugin(tauri_plugin_store::Builder::default().build())
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap()
-    }
-
     fn duplicate_documents() -> [&'static str; 6] {
         [
             r#""/a.md":{"note":"first"},"/a.md":{"note":"second"}"#,
@@ -645,52 +635,47 @@ mod tests {
     }
 
     #[test]
-    fn settings_bootstrap_registers_checked_bytes_and_keeps_newer_cache() {
+    fn settings_bootstrap_loads_checked_bytes_and_keeps_newer_cache() {
         let root = fixture();
         let bytes = legacy(&root);
         initialize_at(&root).unwrap();
-        let app = settings_app();
-        prepare_settings_store(app.handle(), &root).unwrap();
+        let settings = Settings::default();
+        prepare_settings(&settings, &root).unwrap();
         let path = root.join("settings.json");
-        let store = app.store(&path).unwrap();
-        assert_eq!(store.get("theme"), Some(json!("dark")));
+        assert_eq!(settings.get("theme").unwrap(), Some(json!("dark")));
         assert_eq!(fs::read(&path).unwrap(), bytes);
 
-        // A failed explicit save still leaves a newer plugin cache. Repeated
-        // bootstrap must not discard that value or migrate its heading twice.
+        // A failed write still leaves a newer cache. Repeated bootstrap must
+        // not discard that value or migrate its heading twice.
         fs::remove_file(&path).unwrap();
         fs::create_dir(&path).unwrap();
         let history =
             json!({"version":1,"files":[{"path":"/a.md","lastHeadingId":"user-content-intro"}]});
-        store.set("recent-files", history.clone());
-        assert!(store.save().is_err());
-        prepare_settings_store(app.handle(), &root).unwrap();
-        assert_eq!(
-            app.store(&path).unwrap().get("recent-files"),
-            Some(history.clone())
-        );
+        assert!(settings
+            .set("recent-files".into(), history.clone())
+            .is_err());
+        prepare_settings(&settings, &root).unwrap();
+        assert_eq!(settings.get("recent-files").unwrap(), Some(history.clone()));
         fs::remove_dir(&path).unwrap();
-        store.set("sidebar-open", json!(true));
-        store.save().unwrap();
+        settings.set("sidebar-open".into(), json!(true)).unwrap();
         let saved = parse_object(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["theme"], "dark");
         assert_eq!(saved["recent-files"], history);
         assert_eq!(saved["annotations:/a.md"]["unknown"], 5);
-        // The successful explicit save above cancels pending autosave.
-        store.close_resource();
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn damaged_settings_register_no_cache_for_later_or_exit_saves() {
+    fn damaged_settings_load_no_cache_for_later_writes() {
         for bytes in [b"".as_slice(), b"{broken", b"[]", b"null"] {
             let root = fixture();
             initialize_at(&root).unwrap();
             let path = root.join("settings.json");
             fs::write(&path, bytes).unwrap();
-            let app = settings_app();
-            assert!(prepare_settings_store(app.handle(), &root).is_err());
-            assert!(app.get_store(&path).is_none());
+            let settings = Settings::default();
+            assert!(prepare_settings(&settings, &root).is_err());
+            assert!(!settings.is_loaded());
+            assert!(settings.set("theme".into(), json!("dark")).is_err());
             assert_eq!(fs::read(&path).unwrap(), bytes);
             assert!(
                 initialize_at(&root).is_ok(),
@@ -702,55 +687,53 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unreadable_settings_can_retry_without_registering_an_empty_store() {
+    fn unreadable_settings_can_retry_without_loading_an_empty_cache() {
         use std::os::unix::fs::PermissionsExt;
         let root = fixture();
         let bytes = legacy(&root);
         initialize_at(&root).unwrap();
         let path = root.join("settings.json");
-        let app = settings_app();
+        let settings = Settings::default();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let result = prepare_settings_store(app.handle(), &root);
+        let result = prepare_settings(&settings, &root);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(result.is_err());
-        assert!(app.get_store(&path).is_none());
+        if result.is_ok() {
+            // Root can bypass mode bits; the damaged-bytes test covers the refusal.
+            assert_eq!(std::env::var("USER").unwrap_or_default(), "root");
+        } else {
+            assert!(!settings.is_loaded());
+        }
         assert_eq!(fs::read(&path).unwrap(), bytes);
 
-        prepare_settings_store(app.handle(), &root).unwrap();
-        // The frontend load reuses the checked cache even if disk access fails
-        // afterward; there is no second fallible load that becomes empty.
+        prepare_settings(&settings, &root).unwrap();
+        // Reads come from the checked cache even if disk access fails afterward.
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let store = app.store(&path).unwrap();
-        let theme = store.get("theme");
+        let theme = settings.get("theme");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(theme, Some(json!("dark")));
-        store.set("sidebar-open", json!(true));
-        store.save().unwrap();
+        assert_eq!(theme.unwrap(), Some(json!("dark")));
+        settings.set("sidebar-open".into(), json!(true)).unwrap();
         assert_eq!(
             parse_object(&fs::read(&path).unwrap()).unwrap()["theme"],
             "dark"
         );
-        store.close_resource();
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn missing_settings_register_a_fresh_store() {
+    fn missing_settings_load_an_empty_cache_and_create_the_file_on_first_write() {
         let root = fixture();
         initialize_at(&root).unwrap();
-        let app = settings_app();
-        prepare_settings_store(app.handle(), &root).unwrap();
+        let settings = Settings::default();
+        prepare_settings(&settings, &root).unwrap();
         let path = root.join("settings.json");
-        let store = app.get_store(&path).unwrap();
-        assert!(store.is_empty());
+        assert!(settings.is_loaded());
+        assert_eq!(settings.get("theme").unwrap(), None);
         assert!(!path.exists());
-        store.set("theme", json!("dark"));
-        store.save().unwrap();
+        settings.set("theme".into(), json!("dark")).unwrap();
         assert_eq!(
-            parse_object(&fs::read(&path).unwrap()).unwrap()["theme"],
-            "dark"
+            parse_object(&fs::read(&path).unwrap()).unwrap(),
+            json!({"theme": "dark"})
         );
-        store.close_resource();
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

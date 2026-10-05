@@ -43,6 +43,7 @@ pub(crate) enum NativeFileOperation {
     RevealInFolder,
     SaveRecoveryData,
     AccessRecoveryData,
+    AccessSettings,
 }
 
 impl NativeFileOperation {
@@ -73,6 +74,7 @@ impl NativeFileOperation {
             Self::RevealInFolder => "show the document in its folder",
             Self::SaveRecoveryData => "save recovery data",
             Self::AccessRecoveryData => "access recovery data",
+            Self::AccessSettings => "access settings",
         }
     }
 }
