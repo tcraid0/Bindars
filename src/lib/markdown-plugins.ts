@@ -16,12 +16,11 @@ import {
   HIGHLIGHT_MAX_NODE_CHARS,
   HIGHLIGHT_MAX_TOTAL_CHARS,
   MATH_MAX_EXPAND,
-  MATH_MAX_NODE_CHARS,
   MATH_MAX_SIZE,
-  MATH_MAX_TOTAL_CHARS,
   SMARTYPANTS_MAX_CHARS,
   SMARTYPANTS_MAX_WORDS,
 } from "./document-complexity";
+import { createMathBudget } from "./math-safety";
 import { countWords } from "./word-count";
 
 declare const __BINDARS_DOCUMENT_PERFORMANCE_PROBE__: boolean | undefined;
@@ -220,25 +219,6 @@ export interface ExpensiveNodeLimits {
 
 const MATH_CLASS_NAMES = new Set(["language-math", "math-display", "math-inline"]);
 
-/**
- * KaTeX macro expansion decouples output size from input size, so math that
- * can define or invoke a macro body is degraded to plain text. Two routes were
- * measured, both far outside the character budget's expansion ratio:
- *
- * - explicit definitions: 2,468 chars expanded to 240,006 spans;
- * - KaTeX internal control sequences: `\tag{…}` compiles to
- *   `\gdef\df@tag{\text{#1}}` (katex/src/macros.ts), so invoking `\df@tag`
- *   directly replays a caller-supplied body that may re-enter math mode with
- *   `$…$`. 4,526 accepted chars expanded to 994,972 spans and 41.5 MB.
- *
- * Internal sequences are matched by their `@`, which ordinary math never uses
- * in a control sequence (TeX gives `@` a non-letter catcode outside package
- * internals). Ordinary `\tag{…}` keeps working; only direct use of the
- * internals is rejected. A false positive costs styling on that one node.
- */
-const MATH_UNSAFE_COMMAND_RE =
-  /\\(?:[gex]?def|let|futurelet|global|newcommand|renewcommand|providecommand|newenvironment|renewenvironment)\b|\\[a-zA-Z]*@/i;
-
 type HastElement = Extract<RootContent, { type: "element" }>;
 
 function elementClassNames(element: HastElement): string[] {
@@ -271,21 +251,22 @@ function nodeTextLength(node: Root | RootContent): number {
 /**
  * Runs before rehype-highlight and rehype-katex. Adds `no-highlight` (which
  * rehype-highlight honors) to oversized or over-budget code blocks and strips
- * the math classes rehype-katex looks for from oversized, over-budget, or
- * unsafe math nodes — those defining a macro explicitly or using a KaTeX
- * internal control sequence — so both passes skip them. The budgets bound
- * input; see the policy constants in document-complexity.ts for the measured
- * expansion ratios behind them.
+ * the math classes rehype-katex looks for from math nodes the shared policy in
+ * math-safety.ts rejects (oversized, over-budget, or defining a macro or using
+ * a KaTeX internal control sequence) so both passes skip them. The budgets
+ * bound input; see the policy constants in document-complexity.ts for the
+ * measured expansion ratios behind them.
  */
 export function rehypeLimitExpensiveNodes(options: ExpensiveNodeLimits = {}) {
   const highlightMaxNode = clampToProductionLimit(HIGHLIGHT_MAX_NODE_CHARS, options.highlightMaxNodeChars);
   const highlightMaxTotal = clampToProductionLimit(HIGHLIGHT_MAX_TOTAL_CHARS, options.highlightMaxTotalChars);
-  const mathMaxNode = clampToProductionLimit(MATH_MAX_NODE_CHARS, options.mathMaxNodeChars);
-  const mathMaxTotal = clampToProductionLimit(MATH_MAX_TOTAL_CHARS, options.mathMaxTotalChars);
 
   return (tree: Root): void => {
     let highlightBudget = highlightMaxTotal;
-    let mathBudget = mathMaxTotal;
+    const math = createMathBudget({
+      maxNodeChars: options.mathMaxNodeChars,
+      maxTotalChars: options.mathMaxTotalChars,
+    });
 
     const visit = (node: Root | RootContent, parent: Root | RootContent | null): void => {
       if (node.type === "element") {
@@ -301,18 +282,11 @@ export function rehypeLimitExpensiveNodes(options: ExpensiveNodeLimits = {}) {
           classes.some((name) => name.startsWith("language-"));
 
         if (isMath) {
-          const text = nodeText(node);
-          if (
-            text.length > mathMaxNode ||
-            text.length > mathBudget ||
-            MATH_UNSAFE_COMMAND_RE.test(text)
-          ) {
+          if (!math.accept(nodeText(node))) {
             node.properties = {
               ...node.properties,
               className: classes.filter((name) => !MATH_CLASS_NAMES.has(name)),
             };
-          } else {
-            mathBudget -= text.length;
           }
         } else if (isHighlightable) {
           const length = nodeTextLength(node);

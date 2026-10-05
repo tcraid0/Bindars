@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SourcePositionAttributes } from "../lib/markdown-source-position";
+import { createMathBudget } from "../lib/math-safety";
 
 interface MermaidBlockProps {
   chart: string;
@@ -12,6 +13,37 @@ const MAX_MERMAID_CHARS = 50_000;
 export const MERMAID_RENDER_TIMEOUT_MS = 5_000;
 const MERMAID_FONT_SIZE = "14px";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+/** Mermaid's own `katexRegex`: each `$$…$$` pair on a line goes to KaTeX. */
+const DIAGRAM_MATH_RE = /\$\$(.*?)\$\$/g;
+export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
+  "Math in this diagram is too long or uses unsupported commands.";
+
+/**
+ * Applies the shared math policy (math-safety.ts) to the math Mermaid would
+ * render, before Mermaid is even loaded. Mermaid hands each `$$…$$` segment of
+ * a label to KaTeX with KaTeX's defaults (no expansion or size limit, and no
+ * way to pass any) after turning its `#92;`-style entity codes into HTML
+ * entities, HTML-sanitizing the label (an HTML parse, which decodes entities
+ * and drops unknown tags), and collapsing `\\` to `\`. The same parse here
+ * yields two views of each segment, its text and its markup, so a command
+ * hidden behind an entity, a dropped tag, or an attribute value is still
+ * seen; a DOMParser document runs no scripts and loads nothing. Lengths are
+ * charged from the raw segment, which is never shorter than what KaTeX
+ * receives. Returns the reason the diagram must not be rendered, or null.
+ */
+export function unsupportedDiagramMath(chart: string): string | null {
+  const budget = createMathBudget();
+  for (const [, segment] of chart.matchAll(DIAGRAM_MATH_RE)) {
+    const asMermaidSeesIt = segment
+      .replace(/#(\w+);/g, (_, code: string) => (/^\+?\d+$/.test(code) ? `&#${code};` : `&${code};`))
+      .replace(/\\\\/g, "\\");
+    const parsed = new DOMParser().parseFromString(asMermaidSeesIt, "text/html").documentElement;
+    if (!budget.accept(segment, [parsed.textContent ?? "", parsed.innerHTML])) {
+      return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
+    }
+  }
+  return null;
+}
 
 let mermaidCounter = 0;
 let lastInitializedConfig: string | null = null;
@@ -218,6 +250,18 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
   }, []);
 
   useEffect(() => {
+    // Reject before any rendering work. The source limit bounds Mermaid's own
+    // parsing; the math policy bounds KaTeX, which Mermaid calls synchronously
+    // on this thread. Neither can be stopped once started.
+    const rejection = chart.length > MAX_MERMAID_CHARS
+      ? `Diagram too large (${chart.length} chars, max ${MAX_MERMAID_CHARS})`
+      : unsupportedDiagramMath(chart);
+    if (rejection) {
+      setError(rejection);
+      setSvg("");
+      return;
+    }
+
     let cancelled = false;
 
     // Generate a fresh ID per render to avoid mermaid ID collisions
@@ -235,12 +279,8 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
           lastInitializedConfig = configKey;
         }
 
-        // Size guard — reject before rendering
-        if (chart.length > MAX_MERMAID_CHARS) {
-          throw new Error(`Diagram too large (${chart.length} chars, max ${MAX_MERMAID_CHARS})`);
-        }
-
-        // Timeout guard — stop waiting if Mermaid hangs.
+        // Timeout: error handling for a render that never settles, not a
+        // resource budget. It cannot interrupt work already on this thread.
         const renderPromise = mermaid.render(id, chart);
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<never>((_, reject) => {
