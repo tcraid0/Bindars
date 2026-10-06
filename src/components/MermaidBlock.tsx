@@ -19,8 +19,12 @@ const DIAGRAM_MATH_RE = /\$\$(.*?)\$\$/g;
 const CODED_DOLLAR_RE = /#0*36;|#x0*24;|&#0*36|&#x0*24|&dollar/i;
 /** A dollar sign against a tag or comment; removing what follows can join two into `$$`. */
 const DOLLAR_AT_TAG_RE = /\$<|>\$/;
-/** A tag start, a possible character reference, or a Mermaid entity code. */
-const REWRITABLE_RE = /<[a-z!\/?]|&[#a-z]|#\w+;/i;
+/**
+ * A tag start, a possible character reference (named references are never
+ * shorter than two letters, so `\&D` and `a&b` stay legal), or a Mermaid
+ * entity code.
+ */
+const REWRITABLE_RE = /<[a-z!\/?]|&(?:#|[a-z]{2})|#\w+;/i;
 export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
   "Math in this diagram is too long or uses unsupported commands.";
 
@@ -30,14 +34,17 @@ export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
  * is even loaded. On the way from the source to KaTeX, Mermaid decodes its
  * `#…;` entity codes, HTML-sanitizes each label (decoding character
  * references and removing tags, comments and the contents of elements such
- * as script, which can join the text around them) and collapses `\\` to `\`.
- * Rather than predict that output, this refuses the only inputs that can
- * create or alter a `$$…$$` segment on the way, so every remaining segment
- * reaches KaTeX verbatim and can be checked as written. Honest diagrams
- * rarely hit a rule; when one does it shows its source instead.
+ * as script, which can join the text around them), collapses `\\` to `\`,
+ * and in markdown-string labels applies Markdown escapes, so `\$` becomes
+ * `$`. Rather than predict that output, this refuses the only inputs that
+ * can create or alter a `$$…$$` segment on the way, so every remaining
+ * segment reaches KaTeX verbatim and can be checked as written. The
+ * collapses run on this detection copy only, everywhere rather than inside
+ * the label grammar, so they can only make the check stricter. Honest
+ * diagrams rarely hit a rule; when one does it shows its source instead.
  */
 export function unsupportedDiagramMath(chart: string): string | null {
-  const source = chart.replace(/\\\\/g, "\\");
+  const source = chart.replace(/\\\\/g, "\\").replace(/\\\$/g, "$");
   if (CODED_DOLLAR_RE.test(source) || DOLLAR_AT_TAG_RE.test(source)) {
     return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
   }

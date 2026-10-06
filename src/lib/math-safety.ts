@@ -31,10 +31,11 @@ export interface MathBudgetLimits {
 
 export interface MathBudget {
   /**
-   * Whether `source`, the exact text KaTeX would receive, may be handed to
-   * it: within the per-node and aggregate input budgets and free of macro
-   * definitions and KaTeX internal control sequences. Accepting consumes
-   * the aggregate budget.
+   * Whether `source` may be handed to KaTeX: within the per-node and
+   * aggregate input budgets and free of macro definitions and KaTeX internal
+   * control sequences. The caller is responsible for passing the text KaTeX
+   * will see; the policy does not know the caller's pipeline. Accepting
+   * consumes the aggregate budget.
    */
   accept(source: string): boolean;
 }

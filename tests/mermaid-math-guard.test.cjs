@@ -54,9 +54,11 @@ function macroMath(total) {
 
 test("math that Mermaid's rewriting could create or alter is refused, so only verbatim segments reach KaTeX", () => {
   const rejected = {
-    // Reconstructions of the two bypasses the packaged-app review reproduced.
+    // Reconstructions of the three bypasses the packaged-app reviews reproduced.
     "coded dollar signs become delimiters after the guard ran": node(`<i></i>#36;#36;${macro}#36;#36;`),
     "sanitizing drops a script's contents and joins the text around it": node(`$$\\de<script>x</script>f\\x{a+a}\\x\\x$$`),
+    "Markdown escapes in a markdown-string label become delimiters": 'flowchart LR\n  A["`\\$\\$\\def\\x{\\zzzUndefined}\\x\\$\\$`"]',
+    "a half-escaped closing pair": node(`$$${macro}\\$\\$`),
     // Every other route to a coded dollar sign.
     "Mermaid dollar code without a tag": node(`#36;#36;${macro}#36;#36;`),
     "named dollar reference": node(`&dollar;&dollar;${macro}&dollar;&dollar;`),
@@ -90,12 +92,16 @@ test("math that Mermaid's rewriting could create or alter is refused, so only ve
 test("supported diagram math and ordinary diagrams pass the guard", () => {
   const accepted = {
     "fraction and root": 'flowchart LR\n  A["$$\\frac{a}{b} + \\sqrt{x^2}$$"] --> B',
+    // The guard allows this; Mermaid's own sanitizer then hands KaTeX `a &lt; b` in HTML labels, which fails there regardless.
     "less-than with a space": node("$$a < b$$"),
     "matrix columns and rows": node("$$\\begin{matrix} a & b \\\\ c & d \\end{matrix}$$"),
+    "escaped ampersand before one letter": node("$$\\text{R\\&D}$$"),
     "ordinary tag command": "sequenceDiagram\n  A->>B: $$x + y = z \\tag{1}$$",
     "at sign in text": node("$$\\text{write to a@b.example}$$"),
     "literal hash": node("$$\\#5 + \\$5$$"),
     "prices with single dollar signs": 'flowchart LR\n  A["Cost $5"] --> B["Total $12"]',
+    "an escaped price": 'flowchart LR\n  A["Cost \\$5"] --> B',
+    "an escaped pair around benign text": node("\\$\\$x + y\\$\\$"),
     "arrows containing angle brackets": "flowchart LR\n  A <--> B\n  C <-- \"$$x$$\" --> D",
     "class relations containing angle brackets": "classDiagram\n  A <|-- B\n  B --|> C",
     "no math": "flowchart LR\n  A --> B",
@@ -113,6 +119,10 @@ test("the documented false positives show the source rather than render", () => 
     "a coded dollar sign used only as text": node("Cost #36;5"),
     "less-than without a space, which Mermaid's HTML labels also mangle": node("$$a<b$$"),
     "unpaired markers in two labels on one line pair up": 'flowchart LR\n  A["$$"] --> B["x \\def y $$"]',
+    // Mermaid shows these two literally (no KaTeX call); the detection copy's
+    // `\$` collapse pairs them, which is the cost of not parsing label grammar.
+    "escaped pair around refused content in a plain label": node(`\\$\\$${macro}\\$\\$`),
+    "mixed escaped pair around refused content": node(`$\\$${macro}$\\$`),
   };
   for (const [label, chart] of Object.entries(falsePositives)) {
     assert.equal(unsupportedDiagramMath(chart), UNSUPPORTED_DIAGRAM_MATH_MESSAGE, label);
