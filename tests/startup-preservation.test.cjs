@@ -21,7 +21,7 @@ function fresh() {
     recents: require('../.tmp/workspace-tests/src/hooks/useRecentFiles.js').useRecentFiles,
   };
 }
-function storage(t, values, { bootstrap, get, set, save } = {}) {
+function storage(t, values, { bootstrap, get, save } = {}) {
   const cache = structuredClone(values);
   let durable = structuredClone(values);
   const writes = [], reads = [];
@@ -33,7 +33,7 @@ function storage(t, values, { bootstrap, get, set, save } = {}) {
       return structuredClone(cache[args.key] ?? null);
     }
     // One native write per change: the cache keeps the value even when the disk write (`save`) fails.
-    if (cmd === 'set_setting') { writes.push(structuredClone(args)); if (set) await set(args); cache[args.key] = structuredClone(args.value); if (save) await save(); durable = structuredClone(cache); return; }
+    if (cmd === 'set_setting') { writes.push(structuredClone(args)); cache[args.key] = structuredClone(args.value); if (save) await save(); durable = structuredClone(cache); return; }
     throw Error(`Unexpected IPC ${cmd}`);
   });
   t.after(() => { clearMocks(); window.localStorage.clear(); });
@@ -261,12 +261,13 @@ test('D1 legacy upgrade stores headings and their version together without chang
   assert.equal(disk.writes.length, 1, 'restart must neither re-strip headings nor rewrite modern history');
 });
 
-for (const failure of ['set rejected', 'save rejected before flush', 'save rejected after flush', 'later unrelated flush']) {
+// A native write that fails keeps the value in the cache (the insert precedes
+// the disk write), so every rejection here happens after the cache update.
+for (const failure of ['save rejected before flush', 'save rejected after flush', 'later unrelated flush']) {
   test(`D1 restart after ${failure} never strips the legitimate second prefix`, async t => {
     const original = { 'config-version': 2, 'recent-files': [recent('/old.md', 'user-content-user-content-intro')] };
     let failing = true;
     const disk = storage(t, original, {
-      set: () => { if (failing && failure === 'set rejected') throw Error('set rejected'); },
       save: () => {
         if (!failing) return;
         if (failure === 'save rejected after flush') disk.flush();
@@ -275,8 +276,7 @@ for (const failure of ['set rejected', 'save rejected before flush', 'save rejec
     });
     const hooks = fresh(), first = await mount(t, hooks.recents, true); await settle();
     assert.equal(first.current.status, 'unavailable');
-    if (failure === 'set rejected') assert.deepEqual(disk.cache, original);
-    else assert.deepEqual(disk.cache['recent-files'], { version: 1, files: [recent('/old.md', 'user-content-intro')] });
+    assert.deepEqual(disk.cache['recent-files'], { version: 1, files: [recent('/old.md', 'user-content-intro')] });
     if (failure === 'save rejected after flush') assert.equal(disk.durable()['recent-files'].version, 1);
     else assert.deepEqual(disk.durable(), original);
     const attempts = disk.writes.length;

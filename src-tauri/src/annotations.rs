@@ -78,12 +78,9 @@ fn prepare_settings(settings: &Settings, root: &Path) -> Result<(), String> {
     // next write would persist over the original bytes.
     let values = match read_optional(&path)? {
         Some(bytes) => parse_object(&bytes)?,
-        None => json!({}),
+        None => Map::new(),
     };
-    settings.load(
-        &path,
-        values.as_object().cloned().expect("validated object"),
-    );
+    settings.load(&path, values);
     Ok(())
 }
 
@@ -200,7 +197,7 @@ fn read_recovery_at(path: &Path) -> Result<Value, String> {
     if data.get("kind") != Some(&json!("bindars-annotation-recovery")) {
         return Err("This is not an annotation recovery copy".into());
     }
-    Ok(data)
+    Ok(Value::Object(data))
 }
 
 fn ensure_directory(root: &Path) -> Result<(), String> {
@@ -290,16 +287,16 @@ impl<'de> Deserialize<'de> for UniqueValue {
     }
 }
 
-fn parse_object(bytes: &[u8]) -> Result<Value, String> {
+fn parse_object(bytes: &[u8]) -> Result<Map<String, Value>, String> {
     let UniqueValue(value) =
         serde_json::from_slice(bytes).map_err(|_| "Stored JSON is damaged".to_string())?;
-    if !value.is_object() {
-        return Err("Stored JSON is not an object".into());
+    match value {
+        Value::Object(members) => Ok(members),
+        _ => Err("Stored JSON is not an object".into()),
     }
-    Ok(value)
 }
 
-fn validate_collection(value: &Value) -> Result<(), String> {
+fn validate_collection(value: &Map<String, Value>) -> Result<(), String> {
     if value.get("version") != Some(&json!(1))
         || !value.get("documents").is_some_and(Value::is_object)
     {
@@ -344,7 +341,7 @@ fn initialize_with(
             // The new file is authoritative; never reapply the legacy snapshot.
             write(&root.join(RECEIPT), "{\"version\":1}")?;
         }
-        return Ok(data);
+        return Ok(Value::Object(data));
     }
     if receipt.is_some() {
         return Err("Annotation storage is missing after migration; recovery is required".into());
@@ -373,7 +370,7 @@ fn initialize_with(
             None => 0,
             Some(value) => value.as_u64().ok_or("Settings version is damaged")?,
         };
-        for (key, record) in settings.as_object().expect("validated object") {
+        for (key, record) in &settings {
             if let Some(path) = key.strip_prefix("annotations:") {
                 let mut record = record.clone();
                 if version < 3 {
@@ -386,7 +383,7 @@ fn initialize_with(
     let data = json!({"version":1,"documents":documents});
     write(&root.join(DATA), &serialize_json(&data)?)?;
     let readback = read_optional(&root.join(DATA))?.ok_or("New annotations were not written")?;
-    if parse_object(&readback)? != data {
+    if Value::Object(parse_object(&readback)?) != data {
         return Err("Couldn't verify migrated annotation data".into());
     }
     write(&root.join(RECEIPT), "{\"version\":1}")?;
@@ -599,7 +596,7 @@ mod tests {
     fn checked_json_keeps_valid_values_and_distinct_object_scopes() {
         let bytes = br#"{"null":null,"bools":[true,false],"numbers":[-1,0,1.25,1e30,18446744073709551615,-9223372036854775808],"\u006eote":"escaped\ntext","objects":[{"note":"first"},{"note":"second"}],"empty":[{},[]]}"#;
         assert_eq!(
-            parse_object(bytes).unwrap(),
+            Value::Object(parse_object(bytes).unwrap()),
             serde_json::from_slice::<Value>(bytes).unwrap()
         );
         for invalid in [
@@ -731,7 +728,7 @@ mod tests {
         assert!(!path.exists());
         settings.set("theme".into(), json!("dark")).unwrap();
         assert_eq!(
-            parse_object(&fs::read(&path).unwrap()).unwrap(),
+            Value::Object(parse_object(&fs::read(&path).unwrap()).unwrap()),
             json!({"theme": "dark"})
         );
         fs::remove_dir_all(root).unwrap();
