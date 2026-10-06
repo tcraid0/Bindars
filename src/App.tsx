@@ -36,6 +36,8 @@ import type { Slide } from "./lib/slide-parser";
 import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
+import { useReaderPanels } from "./hooks/useReaderPanels";
+import { displayHighlightColor } from "./lib/annotation-record";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
 import type { OpenFilePathResult } from "./hooks/useMarkdownFile";
 import { useDocumentReconciliation } from "./hooks/useDocumentReconciliation";
@@ -350,6 +352,11 @@ function App() {
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mainScrollRef = useRef<HTMLElement | null>(null);
+  const { visible: visiblePanels, preparePanelChange } = useReaderPanels({
+    sidebar: sidebarVisible && !focusMode && !presentationMode,
+    toc: tocVisible && !focusMode && !editing && !presentationMode,
+    notes: annotationsPanelVisible && !focusMode && !editing && !presentationMode,
+  }, mainScrollRef);
   const readerFocusRequestRef = useRef<{
     documentKey: string | null;
     editorSessionKey: number;
@@ -1567,11 +1574,7 @@ function App() {
         cancelAnimationFrame(frame);
       }
     };
-  }, [content, editing, focusMode, presentationMode, updateReadingProgressNow]);
-
-  // Extract headings after the reader DOM renders. Active tracking is colocated
-  // with the TOC so heading changes do not rerender the full App tree.
-  const headings = useHeadings(contentRef, content, !editing && readerDocumentReady, filePath);
+  }, [content, editing, focusMode, presentationMode, printing, updateReadingProgressNow]);
 
   const scrollToHeading = useCallback(
     (
@@ -1661,33 +1664,6 @@ function App() {
     setFocusedCharacter((prev) => prev === name ? null : name);
   }, []);
 
-  const sceneItems = useMemo(() => {
-    if (!settings.sceneLensEnabled || !readerDocumentReady) return [];
-    if (workspaceInsights.scenes.length > 0) return workspaceInsights.scenes;
-
-    if (parsedFountain) {
-      return parsedFountain.scenes.map((s) => ({
-        id: s.id,
-        label: s.text,
-        line: s.index,
-        headingId: s.id,
-      }));
-    }
-
-    const fallbackScenes: SceneItem[] = [];
-    for (let i = 0; i < headings.length; i += 1) {
-      const heading = headings[i];
-      if (!isMarkdownSceneHeadingText(heading.text)) continue;
-      fallbackScenes.push({
-        id: `scene-fallback-${heading.id}`,
-        label: heading.text,
-        line: i + 1,
-        headingId: heading.id,
-      });
-    }
-    return fallbackScenes;
-  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain, readerDocumentReady]);
-
   // Pending reader target: set before navigation or reader restoration and
   // consumed once by the newly mounted, correctly scoped reader DOM.
   const openAttemptIdRef = useRef(0);
@@ -1748,8 +1724,43 @@ function App() {
     waitForInitialNativeOpen,
   });
 
+  // The deadline permits interaction, not storage writes. History and preference
+  // hooks keep their own authority/user-intent guards while reads are pending.
+  const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
+
+  // Preparation can finish while startup still hides the reader. Wait for
+  // the same readiness gate as the JSX so this effect sees its committed DOM.
+  const headings = useHeadings(contentRef, content, appReady && !editing && readerDocumentReady, filePath);
+
+  const sceneItems = useMemo(() => {
+    if (!settings.sceneLensEnabled || !readerDocumentReady) return [];
+    if (workspaceInsights.scenes.length > 0) return workspaceInsights.scenes;
+
+    if (parsedFountain) {
+      return parsedFountain.scenes.map((s) => ({
+        id: s.id,
+        label: s.text,
+        line: s.index,
+        headingId: s.id,
+      }));
+    }
+
+    const fallbackScenes: SceneItem[] = [];
+    for (let i = 0; i < headings.length; i += 1) {
+      const heading = headings[i];
+      if (!isMarkdownSceneHeadingText(heading.text)) continue;
+      fallbackScenes.push({
+        id: `scene-fallback-${heading.id}`,
+        label: heading.text,
+        line: i + 1,
+        headingId: heading.id,
+      });
+    }
+    return fallbackScenes;
+  }, [settings.sceneLensEnabled, workspaceInsights.scenes, headings, parsedFountain, readerDocumentReady]);
+
   useLayoutEffect(() => {
-    if (editing || !pendingReaderTarget) return;
+    if (!appReady || editing || !pendingReaderTarget) return;
     const root = contentRef.current;
     const scrollRoot = mainScrollRef.current;
     if (!root || !scrollRoot) return;
@@ -1779,7 +1790,7 @@ function App() {
       toast(`"${pendingReaderTarget.headingId}" was not found in this document — it may have been renamed or removed.`, "error");
     }
     setPendingReaderTarget(null);
-  }, [content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
+  }, [appReady, content, editing, filePath, pendingReaderTarget, scrollToFragment, toast, updateReadingProgressNow]);
 
   // Deliberate returns already cause a render. Complete once, after the layout
   // restoration and child dialog cleanup; a blocked request must never linger.
@@ -1920,9 +1931,10 @@ function App() {
     if (!id) return;
     pendingNoteScrollRef.current = { id, path: filePath, content };
     startNoteRef.current?.(id);
+    preparePanelChange("notes", true);
     setAnnotationsPanelVisible(true);
     setFocusMode(false);
-  }, [addHighlight, filePath, content]);
+  }, [addHighlight, filePath, content, preparePanelChange]);
 
   // Repaint for document identity changes, even when another file has identical text.
   useEffect(() => {
@@ -1951,7 +1963,7 @@ function App() {
           for (const hl of highlights) {
             const result = resolveAnchor(hl, container, evidence);
             locations[hl.id] = result.status;
-            if (result.range) wrapRange(result.range, `annotation-highlight-${hl.color}`, hl.id);
+            if (result.range) wrapRange(result.range, `annotation-highlight-${displayHighlightColor(hl.color)}`, hl.id);
           }
           setAnnotationLocations(locations);
           const pending = pendingNoteScrollRef.current;
@@ -2110,26 +2122,28 @@ function App() {
     guardAction({ kind: "go-forward" });
   }, [guardAction]);
 
+  // Stable across presentation transitions so the reader is not reparsed.
   const guardedNavigateToFile = useCallback(
     (path: string, anchor: string | null) => {
-      guardAction({ kind: "navigate", path, anchor });
+      guardActionRef.current({ kind: "navigate", path, anchor });
     },
-    [guardAction],
+    [],
   );
 
   const toggleSidebar = useCallback(() => {
     sidebarUpdatedRef.current = true;
-    setSidebarVisible((v) => {
-      const next = !v;
-      try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
-      void storeSet("sidebar-visible", next);
-      return next;
-    });
-  }, []);
+    const next = !visiblePanels.sidebar;
+    preparePanelChange("sidebar", next);
+    setSidebarVisible(next);
+    try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
+    void storeSet("sidebar-visible", next);
+  }, [visiblePanels.sidebar, preparePanelChange]);
 
   const toggleToc = useCallback(() => {
-    setTocVisible((v) => !v);
-  }, []);
+    const next = !visiblePanels.toc;
+    preparePanelChange("toc", next);
+    setTocVisible(next);
+  }, [visiblePanels.toc, preparePanelChange]);
 
   const toggleReaderControls = useCallback(() => {
     setReaderControlsVisible((v) => !v);
@@ -2141,13 +2155,16 @@ function App() {
 
   const toggleAnnotationsPanel = useCallback(() => {
     pendingNoteScrollRef.current = null;
-    setAnnotationsPanelVisible((v) => !v);
-  }, []);
+    const next = !visiblePanels.notes;
+    preparePanelChange("notes", next);
+    setAnnotationsPanelVisible(next);
+  }, [visiblePanels.notes, preparePanelChange]);
 
   const closeAnnotationsPanel = useCallback(() => {
     pendingNoteScrollRef.current = null;
+    preparePanelChange("notes", false);
     setAnnotationsPanelVisible(false);
-  }, []);
+  }, [preparePanelChange]);
 
   const closeShortcuts = useCallback(() => {
     setShortcutsVisible(false);
@@ -2629,7 +2646,16 @@ function App() {
       e.preventDefault();
       if (!editing) {
         if (focusMode) exitFocusMode();
-        else setFocusMode(true);
+        else {
+          // Transfer focus only from UI that Focus mode removes.
+          const active = document.activeElement;
+          if (
+            active?.closest("header, [data-reader-panel], [data-character-focus]")
+            || document.getElementById(readerControlsId)?.contains(active)
+          ) requestReaderFocus(searchVisible);
+          closeReaderControls();
+          setFocusMode(true);
+        }
       }
     } else if (key === "escape" && !ctrl && !e.altKey && !e.shiftKey) {
       if (focusMode) {
@@ -2725,9 +2751,6 @@ function App() {
     };
   }, [armPrintCleanup, clearPrintSession]);
 
-  // The deadline permits interaction, not storage writes. History and preference
-  // hooks keep their own authority/user-intent guards while reads are pending.
-  const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
   useEffect(() => {
     if (appReady) {
       signalAppReady();
@@ -2819,7 +2842,7 @@ function App() {
 
       <div className="flex flex-1 min-h-0 relative">
         <Sidebar
-          visible={sidebarVisible && !focusMode && !presentationMode}
+          visible={visiblePanels.sidebar}
           recentFiles={recentFiles}
           recentHistoryUnavailable={recentFilesStatus !== "ready"}
           currentFilePath={filePath}
@@ -2837,14 +2860,8 @@ function App() {
           onOpenCommandPalette={openCommandPalette}
         />
 
-        {/* Reading surface */}
-        <main
-          ref={mainScrollRef}
-          tabIndex={-1}
-          aria-label="Document"
-          inert={presentationMode}
-          className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-        >
+        {/* Search stays above the scroller so navigating a match cannot hide it. */}
+        <div className="reader-column flex flex-col flex-1 min-w-0 min-h-0 relative" inert={presentationMode}>
           {!editing && (
             <SearchBar
               visible={searchVisible}
@@ -2858,116 +2875,123 @@ function App() {
             />
           )}
 
-          {loading && (
-            <div
-              className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
-            >
-              <span role="status" aria-live="polite" aria-atomic="true">
-                {openingSlow
-                  ? "Still opening. Cloud and external files can take longer to become available."
-                  : "Opening file..."}
-              </span>
-              {openingSlow && (
-                <button
-                  type="button"
-                  onClick={handleCancelPendingOpen}
-                  className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          )}
+          <main
+            ref={mainScrollRef}
+            tabIndex={-1}
+            aria-label="Document"
+            className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          >
+            {loading && (
+              <div
+                className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+              >
+                <span role="status" aria-live="polite" aria-atomic="true">
+                  {openingSlow
+                    ? "Still opening. Cloud and external files can take longer to become available."
+                    : "Opening file..."}
+                </span>
+                {openingSlow && (
+                  <button
+                    type="button"
+                    onClick={handleCancelPendingOpen}
+                    className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            )}
 
-          {error && (
-            <ErrorBanner
-              error={error}
-              onDismiss={dismissDocumentError}
-              onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
-              actionLabel={documentError?.retryAction ? "Retry" : undefined}
-              actionDisabled={
-                documentError?.retryAvailability !== "ready"
-                || actionAdmissionInFlight
-              }
-            />
-          )}
+            {error && (
+              <ErrorBanner
+                error={error}
+                onDismiss={dismissDocumentError}
+                onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
+                actionLabel={documentError?.retryAction ? "Retry" : undefined}
+                actionDisabled={
+                  documentError?.retryAvailability !== "ready"
+                  || actionAdmissionInFlight
+                }
+              />
+            )}
 
-          {fileWatcher.unavailable && (
-            <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
-              Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
-              <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
-            </div>
-          )}
+            {fileWatcher.unavailable && (
+              <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
+                Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
+                <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
+              </div>
+            )}
 
-          {isDocumentOpen(content) && editing && editor.buffer !== null ? (
-            <MarkdownEditor
-              key={`${editorSessionKey}:${fileType}`}
-              ref={editorSurfaceRef}
-              buffer={editor.buffer}
-              initialPosition={editorInitialPosition}
-              scrollRootRef={mainScrollRef}
-              fileType={fileType}
-              markdownFormattingEnabled={markdownFormattingEnabled}
-              settings={settings}
-              saveError={editor.saveError}
-              canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
-              canDismissSaveError={!editor.savePathBlocked}
-              recoveryPath={editor.recoveryPath}
-              onBufferChange={publishEditorBuffer}
-              onSaveAsAfterError={handleSaveAsAfterError}
-              onDismissSaveError={editor.dismissSaveError}
-            />
-          ) : preparedDocument?.status === "too-complex" ? (
-            <DocumentNotice
-              contentRef={contentRef}
-              title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
-              message={preparedDocument.message}
-            />
-          ) : preparedDocument?.status === "parse-failed" ? (
-            <DocumentNotice
-              contentRef={contentRef}
-              title="Screenplay could not be displayed"
-              message={preparedDocument.message}
-            />
-          ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
-            <FountainRenderer
-              // As with Markdown, discard marked DOM as a unit on source changes.
-              key={content}
-              parsed={preparedDocument.parsedFountain}
-              settings={settings}
-              contentRef={contentRef}
-              focusedCharacter={focusedCharacter}
-            />
-          ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
-            <MarkdownRenderer
-              content={content}
-              filePath={filePath || ""}
-              imagesAuthorized={imagesAuthorized}
-              settings={settings}
-              contentRef={contentRef}
-              onOpenFragment={openMarkdownFragment}
-              onNavigateToFile={guardedNavigateToFile}
-            />
-          ) : (
-            <EmptyState
-              onNewFile={guardedNewFile}
-              onOpenFile={guardedOpenFile}
-              onTrySample={() => { guardAction({ kind: "try-sample" }); }}
-              canTrySample={!actionAdmissionInFlight}
-              recentFiles={recentFiles}
-              recentHistoryUnavailable={recentFilesStatus !== "ready"}
-              onOpenRecent={guardedOpenRecent}
-            />
-          )}
-        </main>
+            {isDocumentOpen(content) && editing && editor.buffer !== null ? (
+              <MarkdownEditor
+                key={`${editorSessionKey}:${fileType}`}
+                ref={editorSurfaceRef}
+                buffer={editor.buffer}
+                initialPosition={editorInitialPosition}
+                scrollRootRef={mainScrollRef}
+                fileType={fileType}
+                markdownFormattingEnabled={markdownFormattingEnabled}
+                settings={settings}
+                saveError={editor.saveError}
+                canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
+                canDismissSaveError={!editor.savePathBlocked}
+                recoveryPath={editor.recoveryPath}
+                onBufferChange={publishEditorBuffer}
+                onSaveAsAfterError={handleSaveAsAfterError}
+                onDismissSaveError={editor.dismissSaveError}
+              />
+            ) : preparedDocument?.status === "too-complex" ? (
+              <DocumentNotice
+                contentRef={contentRef}
+                title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
+                message={preparedDocument.message}
+              />
+            ) : preparedDocument?.status === "parse-failed" ? (
+              <DocumentNotice
+                contentRef={contentRef}
+                title="Screenplay could not be displayed"
+                message={preparedDocument.message}
+              />
+            ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
+              <FountainRenderer
+                // As with Markdown, discard marked DOM as a unit on source changes.
+                key={content}
+                parsed={preparedDocument.parsedFountain}
+                settings={settings}
+                contentRef={contentRef}
+                focusedCharacter={focusedCharacter}
+              />
+            ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
+              <MarkdownRenderer
+                content={content}
+                filePath={filePath || ""}
+                imagesAuthorized={imagesAuthorized}
+                settings={settings}
+                contentRef={contentRef}
+                onOpenFragment={openMarkdownFragment}
+                onNavigateToFile={guardedNavigateToFile}
+              />
+            ) : (
+              <EmptyState
+                onNewFile={guardedNewFile}
+                onOpenFile={guardedOpenFile}
+                onTrySample={() => { guardAction({ kind: "try-sample" }); }}
+                canTrySample={!actionAdmissionInFlight}
+                recentFiles={recentFiles}
+                recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                onOpenRecent={guardedOpenRecent}
+              />
+            )}
+          </main>
+        </div>
 
         <ReaderNavigation
           ref={readerNavigationRef}
-          visible={tocVisible && !focusMode && !editing && !presentationMode}
+          visible={visiblePanels.toc}
           headings={headings}
           scrollRootRef={mainScrollRef}
-          syncIntervalMs={tocVisible && !focusMode ? 100 : 250}
-          useIntersectionObserver={tocVisible && !focusMode}
+          syncIntervalMs={visiblePanels.toc ? 100 : 250}
+          useIntersectionObserver={visiblePanels.toc}
           onActiveHeadingChange={handleActiveHeadingChange}
           scenes={sceneItems}
           sceneStatsByHeadingId={sceneStatsByHeadingId}
@@ -2984,7 +3008,7 @@ function App() {
           key={filePath}
           flushNoteRef={flushAnnotationNoteRef}
           startNoteRef={startNoteRef}
-          visible={annotationsPanelVisible && !focusMode && !editing && !presentationMode}
+          visible={visiblePanels.notes}
           annotationStatus={annotationStatus}
           annotationsReady={annotationsReady}
           saving={annotationsSaving}
@@ -3055,6 +3079,7 @@ function App() {
       {focusedCharacter && parsedFountain && fileType === "fountain" && !focusMode && !presentationMode && (
         <div
           role="status"
+          data-character-focus
           className="print-hide fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full bg-bg-secondary border border-border shadow-lg select-none"
         >
           <span className="text-sm text-accent-text font-medium truncate max-w-[200px]">

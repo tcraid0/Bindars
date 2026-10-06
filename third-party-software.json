@@ -11367,12 +11367,12 @@
       ]
     },
     {
-      "id": "cargo:tauri@2.11.5",
+      "id": "cargo:tauri@2.11.6",
       "kind": "cargo",
       "name": "tauri",
-      "version": "2.11.5",
+      "version": "2.11.6",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "667b20e2726d572dea2de7370da16e188eb06008faf9a92fab7cdc46791190b5",
+      "checksum": "6fa5bacdb9bbad5954af3d1bd6cf6ae9192cab1b2e270f4a07f904610b9e85f4",
       "declaredLicense": "Apache-2.0 OR MIT",
       "authors": [
         "Tauri Programme within The Commons Conservancy"
@@ -18784,10 +18784,10 @@
       ]
     },
     {
-      "id": "npm:dompurify@3.4.14",
+      "id": "npm:dompurify@3.4.16",
       "kind": "npm",
       "name": "dompurify",
-      "version": "3.4.14",
+      "version": "3.4.16",
       "lockPath": "node_modules/dompurify",
       "distributionClass": "runtime-dependency",
       "declaredLicense": "(MPL-2.0 OR Apache-2.0)",
@@ -23296,7 +23296,7 @@
         "cargo:tinyvec@1.10.0",
         "cargo:utf8_iter@1.0.4",
         "npm:@chevrotain/types@11.1.2",
-        "npm:dompurify@3.4.14"
+        "npm:dompurify@3.4.16"
       ],
       "sources": [
         "LICENSE",
@@ -23917,7 +23917,7 @@
         "cargo:cssparser@0.29.6",
         "cargo:cssparser@0.36.0",
         "cargo:dtoa-short@0.3.5",
-        "npm:dompurify@3.4.14"
+        "npm:dompurify@3.4.16"
       ],
       "sources": [
         "LICENSE",
@@ -23968,7 +23968,7 @@
         "cargo:tauri-runtime-wry@2.11.4",
         "cargo:tauri-runtime@2.11.3",
         "cargo:tauri-utils@2.9.3",
-        "cargo:tauri@2.11.5",
+        "cargo:tauri@2.11.6",
         "cargo:time-core@0.1.8",
         "cargo:time-macros@0.2.27",
         "cargo:time@0.3.47",
@@ -25108,7 +25108,7 @@
         "cargo:tauri-runtime-wry@2.11.4",
         "cargo:tauri-runtime@2.11.3",
         "cargo:tauri-utils@2.9.3",
-        "cargo:tauri@2.11.5",
+        "cargo:tauri@2.11.6",
         "npm:@tauri-apps/api@2.11.1",
         "npm:@tauri-apps/plugin-dialog@2.6.0",
         "npm:@tauri-apps/plugin-opener@2.5.3"

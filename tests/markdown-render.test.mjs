@@ -152,11 +152,12 @@ test("GFM render includes tables, task lists, strikethrough, footnotes, and auto
 });
 
 test("syntax highlighting emits highlight.js classes for fenced code", () => {
-  const html = renderMarkdown("```js\nconst answer = 42;\n```");
+  const html = renderMarkdown("```js\nconst answer = 42;\nconsole.log(`Answer: ${answer}`);\n```");
 
   assert.match(html, /class="hljs language-js"/);
   assert.match(html, /hljs-keyword/);
   assert.match(html, /hljs-number/);
+  assert.match(html, /hljs-subst/);
 });
 
 test("KaTeX renders inline math with double-dollar delimiters", () => {
@@ -380,7 +381,7 @@ test("MarkdownRenderer does not serialize react-markdown node props", () => {
 
   assert.match(html, /<img[^>]+src="document-image:\/\/localhost\/[^" ]+"[^>]+alt="Alt text"/);
   assert.match(html, /<a href="\.\/target\.md">Target<\/a>/);
-  assert.match(html, /<table(?:\s|>)/);
+  assert.match(html, /<div class="markdown-table-wrapper"[^>]*><table(?:\s|>)/);
   assert.doesNotMatch(html, /\snode="/);
   assert.doesNotMatch(html, /\[object Object\]/);
 });

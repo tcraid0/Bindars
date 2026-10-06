@@ -101,6 +101,19 @@ themes. These are harness results; the packaged app and native sheet were not
 rerun for this CSS-only follow-up. The earlier packaged-app results above remain
 scoped to their tested source. Rust was unchanged and its tests were not rerun.
 
+## Print behavior and known limits
+
+Print tables use equal-width columns and wrap long cell values to preserve
+content within the page margins. Very wide tables can break ordinary words,
+and short columns may have unused space. Screen tables retain horizontal
+scrolling.
+
+Strikethrough, code substitutions, and metadata separators use dark print colors
+in every theme. Reading progress is refreshed when the reader controls return.
+Some headings can still be separated from their following content, and table
+headers may not repeat on continuation pages in WKWebView. These fixes do not
+establish Linux or Windows native-printing support.
+
 ## Review follow-up — 2026-09-06
 
 Removed the remaining `body[data-printing]` conditions from the neutral surface

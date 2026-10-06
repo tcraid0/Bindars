@@ -660,3 +660,25 @@ for (const fail of [false, true]) {
     assert.doesNotMatch(document.body.textContent, /Couldn't read annotation recovery/);
   });
 }
+
+test('unknown highlight colors survive unrelated saves, note edits, recovery and explicit changes', async t => {
+  const unknown = { ...record().highlights[0], color: 'purple', futureField: { value: 1 } };
+  const { disk, writes } = backingStore(t, new Map([['/a.md', { version: 3, highlights: [unknown], bookmarks: [] }]]));
+  const view = await mount(t);
+  await settle();
+  assert.equal(writes.length, 0);
+  assert.equal(view.api().dataWarning, null, 'a usable note must not be hidden as an unreadable record');
+  await view.change(api => api.toggleBookmark('heading', 'Heading'));
+  assert.equal(disk.get('/a.md').highlights[0].color, 'purple');
+  await view.change(api => api.updateHighlight('h', { note: 'edited note' }));
+  assert.deepEqual(disk.get('/a.md').highlights[0], { ...unknown, note: 'edited note' });
+  await view.render('/b.md');
+  await view.render('/a.md');
+  assert.equal(view.api().highlights[0].color, 'purple');
+  await view.change(api => api.restoreRecord({ version: 3, highlights: [unknown], bookmarks: [] }));
+  assert.equal(disk.get('/a.md').highlights[0].color, 'purple', 'recovery restoration preserves the raw color');
+  await view.change(api => api.updateHighlight('h', { color: 'green' }));
+  assert.equal(disk.get('/a.md').highlights[0].color, 'green', 'an explicit color choice replaces the unknown value');
+  await view.change(api => api.removeHighlight('h'));
+  assert.deepEqual(disk.get('/a.md').highlights, [], 'unknown-color notes remain ordinary removable notes');
+});

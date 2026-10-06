@@ -1,5 +1,4 @@
-import { collectText, rangeForOffsets, type TextSpan } from "../lib/dom-text";
-import { wrapRange } from "../lib/text-anchoring";
+import { collectText, type TextSpan } from "../lib/dom-text";
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   clearMarks,
@@ -51,26 +50,69 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Regex indices remain UTF-16 DOM offsets even when case folding expands a
   // character; indexing a lowercased copy did not provide that guarantee.
-  for (const run of runs.reverse()) {
+  for (const run of runs) {
     const found = [...run.text.matchAll(new RegExp(escaped, "giu"))];
-    for (const match of found.reverse()) {
-      const range = rangeForOffsets(run.spans, match.index!, match.index! + match[0].length);
-      if (!range) continue;
-      const marks = wrapRange(range, SEARCH_HIGHLIGHT_CLASS);
-      if (marks[0]) matches.unshift(marks[0]);
+    const byNode = new Map<TextSpan, { start: number; end: number; first: boolean }[]>();
+    let spanIndex = 0;
+    for (const match of found) {
+      const start = match.index!;
+      const end = start + match[0].length;
+      while (run.spans[spanIndex].end <= start) spanIndex++;
+      // A match can span several formatting nodes. Paint each fragment, but
+      // keep only its first mark for match counting and navigation.
+      for (let i = spanIndex; i < run.spans.length && run.spans[i].start < end; i++) {
+        const span = run.spans[i];
+        const ranges = byNode.get(span) ?? [];
+        ranges.push({
+          start: Math.max(start, span.start) - span.start,
+          end: Math.min(end, span.end) - span.start,
+          first: i === spanIndex,
+        });
+        byNode.set(span, ranges);
+      }
+    }
+
+    // Splitting a live text node for every match stalls on dense paragraphs.
+    // Build its text and marks off-DOM, then insert them once.
+    for (const [span, ranges] of byNode) {
+      const node = span.node;
+      const text = node.data;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const { start, end, first } of ranges) {
+        if (start > cursor) fragment.append(document.createTextNode(text.slice(cursor, start)));
+        const mark = document.createElement("mark");
+        mark.className = SEARCH_HIGHLIGHT_CLASS;
+        mark.textContent = text.slice(start, end);
+        fragment.append(mark);
+        if (first) matches.push(mark);
+        cursor = end;
+      }
+      if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)));
+      // React still owns this node. Keep it as the first piece, as splitText
+      // did, so clearing search puts the same node back with its full text.
+      const first = fragment.firstChild!;
+      node.after(fragment);
+      node.data = first.textContent!;
+      if (first.nodeType === Node.TEXT_NODE) first.remove();
+      else (first as Element).replaceChildren(node);
     }
   }
   return matches;
 }
 
-function setActiveMatch(matches: HTMLElement[], index: number, prevIndex: number, reducedMotion: boolean) {
-  if (prevIndex >= 0 && prevIndex < matches.length && matches[prevIndex].isConnected) {
+function setActiveMatch(matches: HTMLElement[], index: number, prevIndex: number, reducedMotion: boolean, scroll = true) {
+  // Class updates must stick on detached marks. A diagram refresh reads the
+  // active class, and Next/Previous can run after a redraw removes that mark.
+  if (prevIndex >= 0 && prevIndex < matches.length && prevIndex !== index) {
     matches[prevIndex].className = SEARCH_HIGHLIGHT_CLASS;
   }
 
-  if (index >= 0 && index < matches.length && matches[index].isConnected) {
+  if (index >= 0 && index < matches.length) {
     matches[index].className = SEARCH_ACTIVE_CLASS;
-    matches[index].scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+    if (scroll && matches[index].isConnected) {
+      matches[index].scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+    }
   }
 }
 
@@ -83,11 +125,19 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
 
   const matchesRef = useRef<HTMLElement[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshFrameRef = useRef<number | null>(null);
   const reducedMotionRef = useRef(reducedMotion);
   reducedMotionRef.current = reducedMotion;
 
+  const cancelPendingWork = useCallback(() => {
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    if (refreshFrameRef.current !== null) cancelAnimationFrame(refreshFrameRef.current);
+    debounceRef.current = null;
+    refreshFrameRef.current = null;
+  }, []);
+
   const performSearch = useCallback(
-    (query: string) => {
+    (query: string, refresh = false) => {
       const container = contentRef.current;
       if (!container) {
         matchesRef.current = [];
@@ -95,19 +145,22 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
         return;
       }
 
+      const oldMatches = matchesRef.current;
+      const oldIndex = refresh ? oldMatches.findIndex(mark => mark.classList.contains(SEARCH_ACTIVE_CLASS)) : 0;
+      const oldActive = oldMatches[oldIndex];
+      // Keep a surviving result in its parent when a late diagram adds earlier
+      // matches. Replaced labels have no surviving identity: retain their ordinal.
+      const parent = refresh && oldActive?.isConnected ? oldActive.parentElement : null;
+      const localIndex = parent ? oldMatches.filter(mark => parent.contains(mark)).indexOf(oldActive) : -1;
+
       clearSearchHighlights(container);
-
-      if (!query.trim()) {
-        matchesRef.current = [];
-        setState({ query, matchCount: 0, currentIndex: -1 });
-        return;
-      }
-
       const matches = highlightSearchMatches(container, query);
       matchesRef.current = matches;
-      const currentIndex = matches.length > 0 ? 0 : -1;
+      const surviving = parent ? matches.filter(mark => parent.contains(mark))[localIndex] : undefined;
+      const currentIndex = surviving ? matches.indexOf(surviving)
+        : matches.length ? Math.min(Math.max(oldIndex, 0), matches.length - 1) : -1;
       if (currentIndex >= 0) {
-        setActiveMatch(matches, currentIndex, -1, reducedMotionRef.current);
+        setActiveMatch(matches, currentIndex, -1, reducedMotionRef.current, !refresh);
       }
       setState({ query, matchCount: matches.length, currentIndex });
     },
@@ -116,14 +169,16 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
 
   const setQuery = useCallback(
     (q: string) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      cancelPendingWork();
       setState((prev) => ({ ...prev, query: q }));
 
+      const container = contentRef.current;
       debounceRef.current = setTimeout(() => {
-        performSearch(q);
+        debounceRef.current = null;
+        if (contentRef.current === container) performSearch(q);
       }, DEBOUNCE_MS);
     },
-    [performSearch],
+    [cancelPendingWork, contentRef, performSearch],
   );
 
   const next = useCallback(() => {
@@ -147,25 +202,43 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
   }, [reducedMotion]);
 
   const clear = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const container = contentRef.current;
-    if (container) {
-      clearSearchHighlights(container);
-    }
-    matchesRef.current = [];
-    setState({ query: "", matchCount: 0, currentIndex: -1 });
-  }, [contentRef]);
+    cancelPendingWork();
+    performSearch("");
+  }, [cancelPendingWork, performSearch]);
+
+  useEffect(() => {
+    if (!state.query.trim()) return;
+    const repaint = (event: Event) => {
+      const container = contentRef.current;
+      if (debounceRef.current !== null || !container || !(event.target instanceof Node)
+        || !container.contains(event.target) || refreshFrameRef.current !== null) return;
+      refreshFrameRef.current = requestAnimationFrame(() => {
+        refreshFrameRef.current = null;
+        if (debounceRef.current === null && contentRef.current === container && container.isConnected) {
+          performSearch(state.query, true);
+        }
+      });
+    };
+    // The reader may not exist yet and can remount without changing the ref object.
+    document.addEventListener("bindars:diagram-rendered", repaint);
+    return () => {
+      document.removeEventListener("bindars:diagram-rendered", repaint);
+      if (refreshFrameRef.current !== null) cancelAnimationFrame(refreshFrameRef.current);
+      refreshFrameRef.current = null;
+    };
+  }, [contentRef, performSearch, state.query]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      cancelPendingWork();
       const container = contentRef.current;
       if (container) {
         clearSearchHighlights(container);
       }
+      matchesRef.current = [];
     };
-  }, [contentRef]);
+  }, [cancelPendingWork, contentRef]);
 
   return {
     query: state.query,

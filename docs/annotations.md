@@ -101,7 +101,9 @@ Malformed JSON, unsupported collection versions, or a missing collection after
 completed migration stop loading and saving rather than creating an empty
 replacement. Settings cannot be read or written until migration preservation
 has succeeded. Unrecognized individual records and extra fields are retained when
-other annotations are edited.
+other annotations are edited. Unrecognized color names are displayed as yellow,
+but their stored values survive note edits, unrelated saves, and recovery-copy
+restoration. Choosing a supported color explicitly replaces the stored value.
 
 ## If annotations cannot be loaded
 

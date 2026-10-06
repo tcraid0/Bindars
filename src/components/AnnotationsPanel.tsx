@@ -1,8 +1,9 @@
+import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { readAnnotationRecord } from "../lib/annotation-record";
+import { displayHighlightColor, readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
@@ -223,8 +224,9 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   return (
     <aside
       ref={panelRef}
-      className="print-hide w-[280px] shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
-      style={{ animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
+      className="print-hide shrink-0 border-l border-border overflow-y-auto bg-bg-primary"
+      data-reader-panel="notes"
+      style={{ width: READER_PANEL_WIDTHS.notes, animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <h2 className="ui-section-label">
@@ -363,7 +365,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
-                    style={{ backgroundColor: COLOR_DOTS[hl.color] }}
+                    style={{ backgroundColor: COLOR_DOTS[displayHighlightColor(hl.color)] }}
                   />
                   <span className="line-clamp-2 flex-1">&ldquo;{hl.exact}&rdquo;</span>
                 </button>

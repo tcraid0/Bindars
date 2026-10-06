@@ -30,31 +30,27 @@ export function useHeadings(
       return;
     }
 
-    // Small delay to ensure DOM is rendered after markdown processing
-    const timer = requestAnimationFrame(() => {
-      const el = contentRef.current;
-      if (!el) return;
+    // The caller enables extraction only when the reader is mounted. React
+    // has committed its synchronous Markdown/Fountain children before effects.
+    const el = contentRef.current;
 
-      const nodes = el.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]");
-      const items: HeadingItem[] = [];
+    const nodes = el.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]");
+    const items: HeadingItem[] = [];
 
-      nodes.forEach((node) => {
-        // Skip footnotes section heading (has sr-only class)
-        if (node.classList.contains("sr-only")) return;
+    nodes.forEach((node) => {
+      // Skip footnotes section heading (has sr-only class)
+      if (node.classList.contains("sr-only")) return;
 
-        const id = node.getAttribute("id");
-        const text = getCleanHeadingText(node);
-        const level = parseInt(node.tagName.charAt(1), 10);
+      const id = node.getAttribute("id");
+      const text = getCleanHeadingText(node);
+      const level = parseInt(node.tagName.charAt(1), 10);
 
-        if (id && text) {
-          items.push({ id, text, level });
-        }
-      });
-
-      setHeadings(items);
+      if (id && text) {
+        items.push({ id, text, level });
+      }
     });
 
-    return () => cancelAnimationFrame(timer);
+    setHeadings(items);
   }, [content, enabled, filePath]);
 
   return headings;
