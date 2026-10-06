@@ -15,30 +15,35 @@ const MERMAID_FONT_SIZE = "14px";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
 /** Mermaid's own `katexRegex`: each `$$…$$` pair on a line goes to KaTeX. */
 const DIAGRAM_MATH_RE = /\$\$(.*?)\$\$/g;
+/** A dollar sign written as a Mermaid entity code or an HTML character reference. */
+const CODED_DOLLAR_RE = /#0*36;|#x0*24;|&#0*36|&#x0*24|&dollar/i;
+/** A dollar sign against a tag or comment; removing what follows can join two into `$$`. */
+const DOLLAR_AT_TAG_RE = /\$<|>\$/;
+/** A tag start, a possible character reference, or a Mermaid entity code. */
+const REWRITABLE_RE = /<[a-z!\/?]|&[#a-z]|#\w+;/i;
 export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
   "Math in this diagram is too long or uses unsupported commands.";
 
 /**
  * Applies the shared math policy (math-safety.ts) to the math Mermaid would
- * render, before Mermaid is even loaded. Mermaid hands each `$$…$$` segment of
- * a label to KaTeX with KaTeX's defaults (no expansion or size limit, and no
- * way to pass any) after turning its `#92;`-style entity codes into HTML
- * entities, HTML-sanitizing the label (an HTML parse, which decodes entities
- * and drops unknown tags), and collapsing `\\` to `\`. The same parse here
- * yields two views of each segment, its text and its markup, so a command
- * hidden behind an entity, a dropped tag, or an attribute value is still
- * seen; a DOMParser document runs no scripts and loads nothing. Lengths are
- * charged from the raw segment, which is never shorter than what KaTeX
- * receives. Returns the reason the diagram must not be rendered, or null.
+ * hand its bundled KaTeX, which has no expansion or size limit, before Mermaid
+ * is even loaded. On the way from the source to KaTeX, Mermaid decodes its
+ * `#…;` entity codes, HTML-sanitizes each label (decoding character
+ * references and removing tags, comments and the contents of elements such
+ * as script, which can join the text around them) and collapses `\\` to `\`.
+ * Rather than predict that output, this refuses the only inputs that can
+ * create or alter a `$$…$$` segment on the way, so every remaining segment
+ * reaches KaTeX verbatim and can be checked as written. Honest diagrams
+ * rarely hit a rule; when one does it shows its source instead.
  */
 export function unsupportedDiagramMath(chart: string): string | null {
+  const source = chart.replace(/\\\\/g, "\\");
+  if (CODED_DOLLAR_RE.test(source) || DOLLAR_AT_TAG_RE.test(source)) {
+    return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
+  }
   const budget = createMathBudget();
-  for (const [, segment] of chart.matchAll(DIAGRAM_MATH_RE)) {
-    const asMermaidSeesIt = segment
-      .replace(/#(\w+);/g, (_, code: string) => (/^\+?\d+$/.test(code) ? `&#${code};` : `&${code};`))
-      .replace(/\\\\/g, "\\");
-    const parsed = new DOMParser().parseFromString(asMermaidSeesIt, "text/html").documentElement;
-    if (!budget.accept(segment, [parsed.textContent ?? "", parsed.innerHTML])) {
+  for (const [, segment] of source.matchAll(DIAGRAM_MATH_RE)) {
+    if (REWRITABLE_RE.test(segment) || !budget.accept(segment)) {
       return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
     }
   }

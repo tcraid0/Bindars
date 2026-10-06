@@ -31,13 +31,12 @@ export interface MathBudgetLimits {
 
 export interface MathBudget {
   /**
-   * Whether `source` may be handed to KaTeX. Its length is charged against
-   * the per-node and aggregate input budgets. `views` are the texts KaTeX
-   * would actually receive after the caller's own pipeline (`source` itself
-   * by default); every one must be free of macro definitions and KaTeX
-   * internal control sequences. Accepting consumes the aggregate budget.
+   * Whether `source`, the exact text KaTeX would receive, may be handed to
+   * it: within the per-node and aggregate input budgets and free of macro
+   * definitions and KaTeX internal control sequences. Accepting consumes
+   * the aggregate budget.
    */
-  accept(source: string, views?: readonly string[]): boolean;
+  accept(source: string): boolean;
 }
 
 /**
@@ -53,9 +52,9 @@ export function createMathBudget(limits: MathBudgetLimits = {}): MathBudget {
   let remaining = clampToProductionLimit(MATH_MAX_TOTAL_CHARS, limits.maxTotalChars);
 
   return {
-    accept(source, views = [source]) {
+    accept(source) {
       if (source.length > maxNode || source.length > remaining) return false;
-      if (views.some((view) => MATH_UNSAFE_COMMAND_RE.test(view))) return false;
+      if (MATH_UNSAFE_COMMAND_RE.test(source)) return false;
       remaining -= source.length;
       return true;
     },

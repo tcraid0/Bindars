@@ -1,8 +1,11 @@
-// Mermaid hands `$$…$$` label math to KaTeX with no expansion limit of its own
-// (SEC-01). These tests prove the shared math policy rejects such math before
-// Mermaid is loaded or asked to render, with controls for supported diagram
-// math. The Mermaid module is faked for the whole file so a render call is
-// observable; the real-Mermaid error path stays in mermaid-block.test.cjs.
+// Mermaid hands `$$…$$` label math to its bundled KaTeX with no expansion
+// limit (SEC-01). The guard refuses the inputs that let Mermaid's own text
+// rewriting (entity decoding, HTML sanitizing, `\\` collapse) create or alter
+// a math segment, and applies the shared math policy to the segments that
+// reach KaTeX verbatim. The fixtures are plain strings checked without a DOM:
+// the browser stand-in's sanitizer is not faithful, and predicting its output
+// is how two bypasses slipped past the first version. The packaged WebKit app
+// remains the authority for the sanitizer path.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
@@ -36,12 +39,8 @@ const {
 } = require("../.tmp/workspace-tests/src/components/MermaidBlock.js");
 const { MATH_MAX_NODE_CHARS, MATH_MAX_TOTAL_CHARS } = require("../.tmp/workspace-tests/src/lib/document-complexity.js");
 
-test.before(async () => {
-  await installDom();
-  globalThis.Element = window.Element;
-  globalThis.DOMParser = window.DOMParser;
-  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
-});
+const node = (label) => `flowchart LR\n  A["${label}"]`;
+const macro = "\\def\\x{a+a}\\x\\x";
 
 // The interrupted reviewer's shape: one macro definition inside diagram math,
 // then invocations. At 846 source characters the bundled KaTeX produced
@@ -53,102 +52,71 @@ function macroMath(total) {
   return head + "\\x ".repeat(Math.floor((total - head.length) / 3));
 }
 
-async function waitFor(assertion) {
-  let lastError;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      return assertion();
-    } catch (error) {
-      lastError = error;
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      });
-    }
-  }
-  throw lastError;
-}
-
-async function renderBlock(chart) {
-  await installDom();
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(React.createElement(MermaidBlock, { chart }));
-  });
-  return {
-    host,
-    async cleanup() {
-      await act(async () => {
-        root.unmount();
-      });
-      host.remove();
-    },
+test("math that Mermaid's rewriting could create or alter is refused, so only verbatim segments reach KaTeX", () => {
+  const rejected = {
+    // Reconstructions of the two bypasses the packaged-app review reproduced.
+    "coded dollar signs become delimiters after the guard ran": node(`<i></i>#36;#36;${macro}#36;#36;`),
+    "sanitizing drops a script's contents and joins the text around it": node(`$$\\de<script>x</script>f\\x{a+a}\\x\\x$$`),
+    // Every other route to a coded dollar sign.
+    "Mermaid dollar code without a tag": node(`#36;#36;${macro}#36;#36;`),
+    "named dollar reference": node(`&dollar;&dollar;${macro}&dollar;&dollar;`),
+    "decimal dollar reference": node(`&#36;&#36;${macro}&#36;&#36;`),
+    "decimal dollar reference without semicolons": node(`&#36&#36${macro}&#36&#36`),
+    "hex dollar reference with leading zeros": node(`&#x0024;&#x0024;${macro}&#x0024;&#x0024;`),
+    // A dollar sign against something sanitizing may remove.
+    "comment between two dollar signs": node(`$<!-- -->$${macro}$<!-- -->$`),
+    "tag between two dollar signs": node(`$<i></i>$${macro}$<i></i>$`),
+    // Rewritable material inside a verbatim segment.
+    "macro split by a tag sanitizing drops": node(`$$\\d<foo>ef</foo>\\x{a}\\x$$`),
+    "macro inside an attribute value": node(`$$<b title='${macro}'>b</b>$$`),
+    "backslash as a decimal reference": node(`$$&#92;def&#92;x{a}&#92;x$$`),
+    "backslash reference without a semicolon": node(`$$&#92def&#92x{a}&#92x$$`),
+    "backslash as a Mermaid entity code": node(`$$#92;def#92;x{a}#92;x$$`),
+    "end tag inside math": node(`$$a</b>\\def\\x{a}\\x$$`),
+    // Verbatim segments the shared policy rejects.
+    "reviewer shape": node(`$$${macroMath(846)}$$`),
+    "double backslash, which Mermaid collapses": node(`$$\\\\def\\\\x{a+a+a}\\\\x\\\\x$$`),
+    "KaTeX internal sequence": `sequenceDiagram\n  A->>B: $$\\tag{x}\\df@tag$$`,
+    "one segment over the node budget": node(`$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2 + 1)}$$`),
+    "segments over the diagram budget": `flowchart LR\n${["N0", "N1", "N2", "N3", "N4", "N5"].map((id) => `  ${id}["$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2 - 1)}$$"]`).join("\n")}`,
   };
-}
+  assert.ok(Math.ceil(MATH_MAX_TOTAL_CHARS / MATH_MAX_NODE_CHARS) < 6, "the budget fixture must exceed the diagram budget");
 
-test("macro math inside a diagram label is rejected before Mermaid is loaded or rendered", async () => {
-  const fixtures = {
-    "reviewer shape": `flowchart LR\n  A["$$${macroMath(846)}$$"]`,
-    "double backslash, which Mermaid collapses": 'flowchart LR\n  A["$$\\\\def\\\\x{a+a+a}\\\\x\\\\x$$"]',
-    "entity-encoded backslash beside a tag, which the sanitizer decodes": 'flowchart LR\n  A["$$<i></i>&#92;def&#92;x{a}&#92;x$$"]',
-    "Mermaid entity code beside a tag": 'flowchart LR\n  A["$$<i></i>#92;def#92;x{a}#92;x$$"]',
-    "macro split by a dropped tag": 'flowchart LR\n  A["$$\\d<foo>ef</foo>\\x{a}\\x$$"]',
-    "macro inside an attribute value": 'flowchart LR\n  A["$$<b title=\'\\def\\x{a}\\x\'>b</b>$$"]',
-    "KaTeX internal sequence": 'sequenceDiagram\n  A->>B: $$\\tag{x}\\df@tag$$',
-    "one segment over the node budget": `flowchart LR\n  A["$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2 + 1)}$$"]`,
-    "segments over the diagram budget": `flowchart LR\n${"ab".repeat(3).split("").map((_, i) => `  N${i}["$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2 - 1)}$$"]`).join("\n")}`,
-  };
-  const budgetedSegments = Math.ceil(MATH_MAX_TOTAL_CHARS / MATH_MAX_NODE_CHARS);
-  assert.ok(budgetedSegments < 6, "fixture must hold more budgeted segments than the diagram budget allows");
-
-  for (const [label, chart] of Object.entries(fixtures)) {
+  for (const [label, chart] of Object.entries(rejected)) {
     assert.equal(unsupportedDiagramMath(chart), UNSUPPORTED_DIAGRAM_MATH_MESSAGE, label);
-
-    renders.length = 0;
-    const rendered = await renderBlock(chart);
-    try {
-      await waitFor(() => {
-        assert.ok(rendered.host.querySelector(".mermaid-error"), label);
-      });
-      assert.equal(rendered.host.querySelector(".mermaid-error-message").textContent, UNSUPPORTED_DIAGRAM_MATH_MESSAGE, label);
-      assert.equal(rendered.host.querySelector(".mermaid-error pre code").textContent, chart, `${label}: source preserved`);
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      });
-      assert.deepEqual(renders, [], `${label}: Mermaid must not render`);
-      assert.deepEqual(mermaidLoads, [], `${label}: Mermaid must not even load`);
-    } finally {
-      await rendered.cleanup();
-    }
   }
 });
 
-test("supported diagram math and plain diagrams still reach Mermaid's render", async () => {
-  const controls = {
-    "flowchart fraction": 'flowchart LR\n  A["$$\\frac{a}{b} + \\sqrt{x^2}$$"] --> B',
-    "sequence message with ordinary tag": "sequenceDiagram\n  A->>B: $$x + y = z \\tag{1}$$",
-    "less-than and matrix columns": 'flowchart LR\n  A["$$a < b, \\begin{matrix} a & b \\end{matrix}$$"]',
-    "entity-encoded backslash without a tag stays literal for KaTeX, so it is harmless": 'flowchart LR\n  A["$$&#92;frac{a}{b}$$"]',
+test("supported diagram math and ordinary diagrams pass the guard", () => {
+  const accepted = {
+    "fraction and root": 'flowchart LR\n  A["$$\\frac{a}{b} + \\sqrt{x^2}$$"] --> B',
+    "less-than with a space": node("$$a < b$$"),
+    "matrix columns and rows": node("$$\\begin{matrix} a & b \\\\ c & d \\end{matrix}$$"),
+    "ordinary tag command": "sequenceDiagram\n  A->>B: $$x + y = z \\tag{1}$$",
+    "at sign in text": node("$$\\text{write to a@b.example}$$"),
+    "literal hash": node("$$\\#5 + \\$5$$"),
+    "prices with single dollar signs": 'flowchart LR\n  A["Cost $5"] --> B["Total $12"]',
+    "arrows containing angle brackets": "flowchart LR\n  A <--> B\n  C <-- \"$$x$$\" --> D",
+    "class relations containing angle brackets": "classDiagram\n  A <|-- B\n  B --|> C",
     "no math": "flowchart LR\n  A --> B",
-    "a segment exactly at the node budget": `flowchart LR\n  A["$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2)}$$"]`,
+    "a segment exactly at the node budget": node(`$$${"a+".repeat(MATH_MAX_NODE_CHARS / 2)}$$`),
   };
 
-  for (const [label, chart] of Object.entries(controls)) {
+  for (const [label, chart] of Object.entries(accepted)) {
     assert.equal(unsupportedDiagramMath(chart), null, label);
-
-    renders.length = 0;
-    const rendered = await renderBlock(chart);
-    try {
-      await waitFor(() => {
-        assert.deepEqual(renders, [chart], label);
-      });
-      assert.ok(!rendered.host.querySelector(".mermaid-error"), label);
-    } finally {
-      await rendered.cleanup();
-    }
   }
-  assert.deepEqual(mermaidLoads, ["mermaid"]);
+});
+
+test("the documented false positives show the source rather than render", () => {
+  const falsePositives = {
+    "a price touching a tag": node("<b>$5</b>"),
+    "a coded dollar sign used only as text": node("Cost #36;5"),
+    "less-than without a space, which Mermaid's HTML labels also mangle": node("$$a<b$$"),
+    "unpaired markers in two labels on one line pair up": 'flowchart LR\n  A["$$"] --> B["x \\def y $$"]',
+  };
+  for (const [label, chart] of Object.entries(falsePositives)) {
+    assert.equal(unsupportedDiagramMath(chart), UNSUPPORTED_DIAGRAM_MATH_MESSAGE, label);
+  }
 });
 
 test("the guard is cheap on a diagram at the source limit", () => {
@@ -174,9 +142,74 @@ test("the shared policy, not a second list, is what the diagram guard applies", 
   for (const definition of ["\\def\\a{x}\\a", "\\newcommand{\\a}{x}\\a", "\\let\\a\\alpha", "\\df@tag x"]) {
     assert.ok(MATH_UNSAFE_COMMAND_RE.test(definition), definition);
     assert.equal(createMathBudget().accept(definition), false, definition);
-    assert.equal(unsupportedDiagramMath(`flowchart LR\n  A["$$${definition}$$"]`), UNSUPPORTED_DIAGRAM_MATH_MESSAGE, definition);
+    assert.equal(unsupportedDiagramMath(node(`$$${definition}$$`)), UNSUPPORTED_DIAGRAM_MATH_MESSAGE, definition);
   }
-  // A view KaTeX would see is checked even when the source itself looks safe.
-  assert.equal(createMathBudget().accept("&#92;def", ["\\def"]), false);
-  assert.equal(createMathBudget().accept("\\frac{a}{b}", ["\\frac{a}{b}", "<b>\\frac{a}{b}</b>"]), true);
+  assert.equal(createMathBudget().accept("\\frac{a}{b}"), true);
+});
+
+async function waitFor(assertion) {
+  let lastError;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      return assertion();
+    } catch (error) {
+      lastError = error;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+  }
+  throw lastError;
+}
+
+async function renderBlock(chart) {
+  await installDom();
+  globalThis.Element = window.Element;
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(React.createElement(MermaidBlock, { chart }));
+  });
+  return {
+    host,
+    async cleanup() {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    },
+  };
+}
+
+test("a refused diagram shows its source and never loads or renders Mermaid; a supported one renders", async () => {
+  const refused = node(`$$\\de<script>x</script>f\\x{a+a}\\x\\x$$`);
+  const rendered = await renderBlock(refused);
+  try {
+    await waitFor(() => {
+      assert.ok(rendered.host.querySelector(".mermaid-error"));
+    });
+    assert.equal(rendered.host.querySelector(".mermaid-error-message").textContent, UNSUPPORTED_DIAGRAM_MATH_MESSAGE);
+    assert.equal(rendered.host.querySelector(".mermaid-error pre code").textContent, refused, "source preserved");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.deepEqual(renders, [], "Mermaid must not render");
+    assert.deepEqual(mermaidLoads, [], "Mermaid must not even load");
+  } finally {
+    await rendered.cleanup();
+  }
+
+  const supported = 'flowchart LR\n  A["$$\\frac{a}{b}$$"] --> B';
+  const control = await renderBlock(supported);
+  try {
+    await waitFor(() => {
+      assert.deepEqual(renders, [supported]);
+    });
+    assert.ok(!control.host.querySelector(".mermaid-error"));
+    assert.deepEqual(mermaidLoads, ["mermaid"]);
+  } finally {
+    await control.cleanup();
+  }
 });
