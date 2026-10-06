@@ -2,8 +2,104 @@
 
 Use this checklist when validating Bindars printing and PDF export changes,
 and run the relevant platform checks on a release candidate. Record the app
-commit/build, OS version, architecture, and results separately. An unchecked
-entry is unverified; this checklist is not a record of passing tests.
+commit/build, OS version, architecture, and results in a dated validation record.
+The records below apply only to their stated builds and cases. An unchecked
+checklist entry is unverified.
+
+## Review fixes and native verification — 2026-09-29
+
+The uncommitted changes tested in this session were later merged on `main` as
+PR #3 (print readability and progress) and PR #4 (reader panels and search);
+this record describes the build they were tested in.
+
+Tested version 1.5.2 with the uncommitted reader changes on top of
+`882f2df00edf69b537215b1aadfead305b7f1b8b`, on macOS 26.6.2 (25G83), arm64,
+WebKit 21624.5.1.11.3. Built the actual source with locked/offline dependencies
+in a temporary copy, with a separate app identifier and no file associations.
+Only synthetic fixtures were opened; no physical print job was submitted.
+
+The review fixes are intentionally small:
+
+- Give the existing horizontally scrolling table wrapper a print override.
+  Print tables use equal-width columns and wrapping cells with automatic
+  hyphenation disabled. This can waste space in short columns and break ordinary
+  words in very wide tables; it preserves content within the printable width.
+  Visible overflow and wrapping alone still clipped the last cell in
+  the native PDF; fixed columns alone did not eliminate that clipping either.
+- Force `del` and `s` text to black on paper, including Midnight.
+- Rerun the existing progress effect when printing changes so the remounted
+  header receives the current percentage and progress-bar value. The reproduced
+  defect was stale progress, not a proven loss of the reader's scroll offset.
+- Remove duplicate break-inside declarations already covered by the shared
+  print rule. Keep the native command, cleanup guards, header unmount, and
+  deferred settings handling.
+
+| Native check | Observed result |
+| --- | --- |
+| Wide table on Letter paper | All six columns and complete cell strings are painted inside the margins. The large header-to-row gap is gone. All 75 rows of the following table, the long code ending, and the final marker survive across four pages. |
+| Midnight, Light, Dark, and Sepia strikethrough | Readable black glyphs in all four PDFs; extracted fill color is RGB 0, 0, 0. |
+| Long Dark and Sepia documents | Twelve pages each, all 24 sections in order, final image and marker, footnote, readable diagram, white paper, and no toolbar. The tail image was not scrolled into view before printing. |
+| Long Sepia with delayed save | Passed after holding the native operation for 60 seconds. Controls returned after saving. The Dark save was held only 27 seconds and does not count as a timeout-boundary check. |
+| Native cancellation after scrolling | Final build returned to the same visible passage with 36% still displayed. An earlier candidate with the same progress code also retained 20% after both cancellation and saving. |
+| Normal three-column table, code, math, image notices | Remained readable in the short fixtures. Inline math uses the app's supported double-dollar form there; the long fixture's single-dollar example remains literal text. |
+
+Extracted text and rendered every page of the five final PDFs (34 pages).
+The table check also compares each cell's complete text and checks rendered
+output: extracted text alone failed to reveal clipping in an earlier candidate.
+This validates the cases above, not every checklist item or platform.
+
+**Remaining limitations:** sections 06, 11, 16, and 21 still leave their headings
+at the bottom of pages 4, 6, 8, and 10. A bounded native experiment adding
+`break-before: avoid` and `page-break-before: avoid` to each heading's following
+element did not help, so it was discarded. Continuation table pages still omit
+the header despite `table-header-group`. No heading wrapper, header cloning,
+anchor restoration, or custom pagination renderer was added.
+The retained-offset observations were mid-document. Native behavior very near
+the document end remains unverified; the DOM tests do not model WebKit clamping.
+
+One validation launch left the native Save and New Folder controls disabled,
+including after destination reselection. Cancellation recovered the reader.
+A clean launch of the same binary outside the shell sandbox restored saving;
+the later Sepia, Midnight, and Light saves succeeded. The cause was not isolated,
+so the blocked attempts are recorded rather than counted as passing exports.
+
+Automated validation: **1,320 passed, one skipped** in the workspace suite;
+**169 passed, two ignored** in Rust. Type checking, the release app build, and
+`git diff --check` passed. Three focused progress regressions cover preparation
+cancellation, native completion, and browser `afterprint` without another
+scroll. CSS checks verify declarations on the affected selectors; they do not
+claim to prove native pagination or repeating headers.
+
+The isolated test app was quit.
+Linux, Windows, other macOS versions, physical printers, and unexercised
+checklist cases remain unverified. No Linux runtime was available; Linux
+printing is not signed off.
+
+## Independent-review follow-up — 2026-09-29
+
+The review found a pre-existing print-color omission: highlight.js substitution
+spans retained pale theme colors inside JavaScript template strings, Python
+f-strings, and shell command substitutions. Added `.hljs-subst` to the existing
+print base-color rule. The author/date separator now shares the metadata's dark
+print color. Consolidated the duplicate neutral-surface declarations and relaxed
+the table markup test so it does not depend on exact inline-style serialization.
+The stronger root-container test remains: it checks declarations on each
+required selector, rather than accepting a reset somewhere in the stylesheet.
+
+Validation: `npm run build` passed, including the app TypeScript check, with the
+existing large-chunk warning. The workspace suite passed **1,320 tests, with one
+skipped**; `git diff --check` passed. Existing tests now cover substitution markup
+and the specific print-color declarations.
+
+Built and ran a focused WKWebView/NSPrintOperation harness using the current
+built stylesheet, the real Markdown renderer, and 2 cm native margins. Four
+single-page PDFs, one per theme, were extracted, rendered, and visually checked.
+JavaScript `${name}`, Python `{x + 1}`, and shell `$(date)` substitution text uses
+RGB 36, 41, 46; nested syntax tokens retain their print colors. The author/date
+separator uses RGB 68, 68, 68. The code and metadata are readable in all four
+themes. These are harness results; the packaged app and native sheet were not
+rerun for this CSS-only follow-up. The earlier packaged-app results above remain
+scoped to their tested source. Rust was unchanged and its tests were not rerun.
 
 ## Review follow-up — 2026-09-06
 
