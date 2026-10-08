@@ -111,7 +111,7 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
   try {
     click(buttonWithText(rendered.host, "New"));
     const saveButton = buttonWithText(rendered.host, "Save");
-    assert.equal(saveButton.classList.contains("text-text-muted"), true);
+    assert.equal(saveButton.classList.contains("text-text-secondary"), true);
     assert.equal(saveButton.classList.contains("text-accent-text"), false);
     click(saveButton);
     click(buttonWithText(rendered.host, "Styled"));
