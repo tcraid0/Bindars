@@ -29,7 +29,7 @@ export function clearSearchHighlights(container: HTMLElement) {
   clearMarks(container, isSearchMark);
 }
 
-export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[] {
+export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[][] {
   if (!query.trim()) return [];
   const { spans } = collectText(container);
   // Search across inline formatting and marks, but not across block boundaries
@@ -46,27 +46,28 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
     previous = span;
     previousBlock = block;
   }
-  const matches: HTMLElement[] = [];
+  const matches: HTMLElement[][] = [];
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Regex indices remain UTF-16 DOM offsets even when case folding expands a
   // character; indexing a lowercased copy did not provide that guarantee.
   for (const run of runs) {
     const found = [...run.text.matchAll(new RegExp(escaped, "giu"))];
-    const byNode = new Map<TextSpan, { start: number; end: number; first: boolean }[]>();
+    const byNode = new Map<TextSpan, { start: number; end: number; fragments: HTMLElement[] }[]>();
     let spanIndex = 0;
     for (const match of found) {
       const start = match.index!;
       const end = start + match[0].length;
       while (run.spans[spanIndex].end <= start) spanIndex++;
-      // A match can span several formatting nodes. Paint each fragment, but
-      // keep only its first mark for match counting and navigation.
+      // One logical match can span several formatting or annotation nodes.
+      const fragments: HTMLElement[] = [];
+      matches.push(fragments);
       for (let i = spanIndex; i < run.spans.length && run.spans[i].start < end; i++) {
         const span = run.spans[i];
         const ranges = byNode.get(span) ?? [];
         ranges.push({
           start: Math.max(start, span.start) - span.start,
           end: Math.min(end, span.end) - span.start,
-          first: i === spanIndex,
+          fragments,
         });
         byNode.set(span, ranges);
       }
@@ -79,13 +80,13 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
       const text = node.data;
       const fragment = document.createDocumentFragment();
       let cursor = 0;
-      for (const { start, end, first } of ranges) {
+      for (const { start, end, fragments } of ranges) {
         if (start > cursor) fragment.append(document.createTextNode(text.slice(cursor, start)));
         const mark = document.createElement("mark");
         mark.className = SEARCH_HIGHLIGHT_CLASS;
         mark.textContent = text.slice(start, end);
         fragment.append(mark);
-        if (first) matches.push(mark);
+        fragments.push(mark);
         cursor = end;
       }
       if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)));
@@ -101,17 +102,18 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
   return matches;
 }
 
-function setActiveMatch(matches: HTMLElement[], index: number, prevIndex: number, reducedMotion: boolean, scroll = true) {
+function setActiveMatch(matches: HTMLElement[][], index: number, prevIndex: number, reducedMotion: boolean, scroll = true) {
   // Class updates must stick on detached marks. A diagram refresh reads the
   // active class, and Next/Previous can run after a redraw removes that mark.
   if (prevIndex >= 0 && prevIndex < matches.length && prevIndex !== index) {
-    matches[prevIndex].className = SEARCH_HIGHLIGHT_CLASS;
+    for (const mark of matches[prevIndex]) mark.className = SEARCH_HIGHLIGHT_CLASS;
   }
 
   if (index >= 0 && index < matches.length) {
-    matches[index].className = SEARCH_ACTIVE_CLASS;
-    if (scroll && matches[index].isConnected) {
-      matches[index].scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+    for (const mark of matches[index]) mark.className = SEARCH_ACTIVE_CLASS;
+    const first = matches[index][0];
+    if (scroll && first.isConnected) {
+      first.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
     }
   }
 }
@@ -123,7 +125,7 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
     currentIndex: -1,
   });
 
-  const matchesRef = useRef<HTMLElement[]>([]);
+  const matchesRef = useRef<HTMLElement[][]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshFrameRef = useRef<number | null>(null);
   const reducedMotionRef = useRef(reducedMotion);
@@ -146,17 +148,17 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
       }
 
       const oldMatches = matchesRef.current;
-      const oldIndex = refresh ? oldMatches.findIndex(mark => mark.classList.contains(SEARCH_ACTIVE_CLASS)) : 0;
+      const oldIndex = refresh ? oldMatches.findIndex(([first]) => first.classList.contains(SEARCH_ACTIVE_CLASS)) : 0;
       const oldActive = oldMatches[oldIndex];
       // Keep a surviving result in its parent when a late diagram adds earlier
       // matches. Replaced labels have no surviving identity: retain their ordinal.
-      const parent = refresh && oldActive?.isConnected ? oldActive.parentElement : null;
-      const localIndex = parent ? oldMatches.filter(mark => parent.contains(mark)).indexOf(oldActive) : -1;
+      const parent = refresh && oldActive?.[0].isConnected ? oldActive[0].parentElement : null;
+      const localIndex = parent ? oldMatches.filter(([first]) => parent.contains(first)).indexOf(oldActive) : -1;
 
       clearSearchHighlights(container);
       const matches = highlightSearchMatches(container, query);
       matchesRef.current = matches;
-      const surviving = parent ? matches.filter(mark => parent.contains(mark))[localIndex] : undefined;
+      const surviving = parent ? matches.filter(([first]) => parent.contains(first))[localIndex] : undefined;
       const currentIndex = surviving ? matches.indexOf(surviving)
         : matches.length ? Math.min(Math.max(oldIndex, 0), matches.length - 1) : -1;
       if (currentIndex >= 0) {

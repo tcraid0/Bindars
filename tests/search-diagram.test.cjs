@@ -83,6 +83,37 @@ test('diagram redraw keeps ordered marks, active result, focus and scroll throug
   }
 });
 
+test('every fragment of a logical match activates together through navigation and redraw', async t => {
+  const label = 'Amber <strong>bravo</strong> <mark data-highlight-id="saved">cobalt</mark>';
+  const v = await mount(t, { before: 'Amber bravo cobalt', after: 'after', diagrams: [svg([label, label])] });
+  await v.find('Amber bravo cobalt');
+  assert.equal(v.search.matchCount, 3);
+  await v.next();
+  const assertActive = () => {
+    const activeMarks = [...v.article.querySelectorAll('mark.search-highlight-active')];
+    assert.equal(activeMarks.length, 4);
+    assert.equal(activeMarks.map(mark => mark.textContent).join(''), 'Amber bravo cobalt');
+    assert.ok(activeMarks.every(mark => mark.closest('p') === activeMarks[0].closest('p')));
+    assert.equal(marks(v.article).length, 9);
+  };
+  assertActive();
+  const scrolls = v.scrolls.length;
+  await v.update({ diagrams: [svg([label, label], 1)] });
+  await v.frame();
+  assertActive();
+  assert.equal(v.search.currentIndex, 1);
+  assert.equal(v.scrolls.length, scrolls, 'redraw does not navigate');
+  await v.next(); assertActive();
+  assert.equal(v.search.currentIndex, 2);
+  assert.ok(v.scrolls.at(-1).node === active(v.article), 'scroll only the first fragment');
+  await v.previous(); assertActive();
+  await v.previous();
+  assert.equal(v.article.querySelectorAll('mark.search-highlight-active').length, 1);
+  await v.clear();
+  assert.equal(marks(v.article).length, 0);
+  assert.equal(v.article.querySelectorAll('[data-highlight-id="saved"]').length, 2);
+});
+
 test('navigation onto connected prose during a pending redraw survives the refresh', async t => {
   const v = await mount(t, { diagrams: [svg(['needle diagram'])] });
   await v.find(); await v.next();

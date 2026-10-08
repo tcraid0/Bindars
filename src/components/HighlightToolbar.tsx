@@ -249,7 +249,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
           disabled={saving}
           aria-label={`Highlight ${label}`}
           title={label}
-          className="w-6 h-6 rounded-full border-2 border-transparent hover:border-text-muted focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent transition-colors duration-100 cursor-pointer"
+          className="w-6 h-6 rounded-full border-2 border-transparent hover:border-text-muted focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent-indicator transition-colors duration-100 cursor-pointer"
           style={{ backgroundColor: bg }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => handleSelectionAction(color)}
@@ -258,7 +258,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       <button
         type="button"
         disabled={saving}
-        className="ml-1 border-l border-border px-2 py-0.5 text-xs font-medium text-text-primary hover:text-accent-text focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent disabled:opacity-50"
+        className="ml-1 border-l border-border px-2 py-0.5 text-xs font-medium text-text-primary hover:text-accent-text focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-accent-indicator disabled:opacity-50"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => handleSelectionAction("note")}
       >

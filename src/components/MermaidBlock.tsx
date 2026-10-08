@@ -135,10 +135,6 @@ function getCurrentThemeName() {
   return document.documentElement.getAttribute("data-theme") || "light";
 }
 
-function readThemeToken(styles: CSSStyleDeclaration, name: string, fallback: string) {
-  return styles.getPropertyValue(name).trim() || fallback;
-}
-
 function parseHexColor(color: string): [number, number, number] | null {
   const match = color.trim().match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
   const hex = match?.groups?.hex;
@@ -175,11 +171,11 @@ function mixHexColor(baseColor: string, overlayColor: string, overlayRatio: numb
 function getMermaidThemeConfig(themeName: string) {
   const rootStyles = getComputedStyle(document.documentElement);
   const isDark = themeName === "dark" || themeName === "deep-dark";
-  const bgPrimary = readThemeToken(rootStyles, "--bg-primary", isDark ? "#1A1816" : "#FAFAF8");
-  const bgSecondary = readThemeToken(rootStyles, "--bg-secondary", isDark ? "#231F1C" : "#F5F4F2");
-  const bgTertiary = readThemeToken(rootStyles, "--bg-tertiary", isDark ? "#2C2724" : "#EDECEB");
-  const textPrimary = readThemeToken(rootStyles, "--text-primary", isDark ? "#EEEBE6" : "#1C1917");
-  const textSecondary = readThemeToken(rootStyles, "--text-secondary", isDark ? "#A39E98" : "#57534E");
+  const bgPrimary = rootStyles.getPropertyValue("--bg-primary").trim();
+  const bgSecondary = rootStyles.getPropertyValue("--bg-secondary").trim();
+  const bgTertiary = rootStyles.getPropertyValue("--bg-tertiary").trim();
+  const textPrimary = rootStyles.getPropertyValue("--text-primary").trim();
+  const textSecondary = rootStyles.getPropertyValue("--text-secondary").trim();
   const fontFamily = getComputedStyle(document.body).fontFamily || "sans-serif";
 
   const themeVariables = {

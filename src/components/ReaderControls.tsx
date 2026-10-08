@@ -18,11 +18,11 @@ const SPACING_OPTIONS: { value: ParagraphSpacing; label: string }[] = [
   { value: "spacious", label: "Spacious" },
 ];
 
-const THEME_SWATCHES: { value: Theme; label: string; bg: string; border: string; checkDark: boolean }[] = [
-  { value: "light",     label: "Light",    bg: "#FAFAF8", border: "#E8E7E6", checkDark: true },
-  { value: "sepia",     label: "Sepia",    bg: "#F3EACE", border: "#D9CEBC", checkDark: true },
-  { value: "dark",      label: "Dark",     bg: "#1A1816", border: "#352F2B", checkDark: false },
-  { value: "deep-dark", label: "Midnight", bg: "#0C0A09", border: "#292524", checkDark: false },
+const THEME_SWATCHES: { value: Theme; label: string; bg: string }[] = [
+  { value: "light",     label: "Light",    bg: "#FAFAF8" },
+  { value: "sepia",     label: "Sepia",    bg: "#F3EACE" },
+  { value: "dark",      label: "Dark",     bg: "#17181A" },
+  { value: "deep-dark", label: "Midnight", bg: "#0A0A0C" },
 ];
 
 interface ReaderControlsProps {
@@ -172,7 +172,7 @@ function ReaderControlsComponent({
               aria-pressed={settings.fontFamily === opt.value}
               className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left leading-tight ${
                 settings.fontFamily === opt.value
-                  ? "bg-accent text-on-accent font-medium"
+                  ? "bg-accent-fill text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
               }`}
               style={{ fontFamily: resolveFontCss(opt.value) }}
@@ -196,7 +196,7 @@ function ReaderControlsComponent({
               aria-pressed={settings.paragraphSpacing === opt.value}
               className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
                 settings.paragraphSpacing === opt.value
-                  ? "bg-accent text-on-accent font-medium"
+                  ? "bg-accent-fill text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
               }`}
             >
@@ -250,11 +250,11 @@ function ReaderControlsComponent({
                 tabIndex={selected ? 0 : -1}
                 onClick={() => onSetTheme(swatch.value)}
                 onKeyDown={handleSwatchKeyDown}
-                className="w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent cursor-pointer"
+                className="w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator cursor-pointer"
                 style={{
                   backgroundColor: swatch.bg,
-                  borderColor: swatch.border,
-                  boxShadow: selected ? "0 0 0 2px var(--color-accent)" : "none",
+                  borderColor: "var(--text-muted)",
+                  boxShadow: selected ? "0 0 0 2px var(--accent-indicator)" : "none",
                 }}
               >
                 {selected && (
@@ -263,7 +263,7 @@ function ReaderControlsComponent({
                     height="12"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={swatch.checkDark ? "#1C1917" : "#E7E5E4"}
+                    stroke="var(--text-primary)"
                     strokeWidth="3"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -300,12 +300,12 @@ function ToggleRow({
         aria-checked={checked}
         onClick={onToggle}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-150 ${
-          checked ? "bg-accent" : "bg-bg-tertiary"
+          checked ? "bg-accent-fill" : "bg-bg-tertiary"
         }`}
       >
         <span
-          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg-primary transition-transform duration-150 ${
-            checked ? "translate-x-5" : "translate-x-1"
+          className={`inline-block h-3.5 w-3.5 transform rounded-full transition-transform duration-150 ${
+            checked ? "translate-x-5 bg-on-accent" : "translate-x-1 bg-text-primary"
           }`}
         />
       </button>

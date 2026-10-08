@@ -42,13 +42,6 @@ interface AnnotationsPanelProps {
   headings: HeadingItem[];
 }
 
-const COLOR_DOTS: Record<string, string> = {
-  yellow: "var(--highlight-yellow)",
-  green: "var(--highlight-green)",
-  blue: "var(--highlight-blue)",
-  pink: "var(--highlight-pink)",
-};
-
 export const AnnotationsPanel = memo(function AnnotationsPanel({
   visible,
   saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, startNoteRef, filePath, onRestoreRecord,
@@ -365,7 +358,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
-                    style={{ backgroundColor: COLOR_DOTS[displayHighlightColor(hl.color)] }}
+                    style={{ backgroundColor: `var(--highlight-${displayHighlightColor(hl.color)})` }}
                   />
                   <span className="line-clamp-2 flex-1">&ldquo;{hl.exact}&rdquo;</span>
                 </button>
@@ -404,7 +397,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       onKeyDown={handleNoteKeyDown}
                       aria-label="Highlight note"
                       rows={3}
-                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent-indicator"
                       placeholder="Add a note..."
                     />
                   </div>

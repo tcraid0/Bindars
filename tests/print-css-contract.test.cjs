@@ -167,15 +167,10 @@ test("print css forces black text on table headers and cells", () => {
   }
 });
 
-test("print css resets hljs colors for non-themed output", () => {
-  for (const [selector, color] of [
-    [".hljs", "#24292e"],
-    [".hljs-subst", "#24292e"],
-    [".hljs-keyword", "#d73a49"],
-    [".hljs-string", "#032f62"],
-    [".hljs-comment", "#6a737d"],
-  ]) {
-    assert.ok(printDeclarations(selector).includes(`color: ${color} !important;`), selector);
+test("print defines a complete paper syntax palette", () => {
+  const declarations = printDeclarations(":root");
+  for (const name of ["base", "comment", "keyword", "string", "number", "builtin", "attr", "variable", "deletion"]) {
+    assert.match(declarations, new RegExp(`--syntax-${name}:\\s*#[a-f0-9]{6};`));
   }
 });
 

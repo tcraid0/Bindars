@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release verification: prove the packaged CSP lets CodeMirror style headings.
+"""Verify rendered theme styles and that packaged CSP permits CodeMirror styles.
 
 Loads the built frontend (dist/) in real WebKit2GTK 4.1 -- the same engine the
 Linux AppImage uses -- with the production CSP applied the way packaged Tauri
@@ -146,6 +146,7 @@ DIAG_JS = """
 """
 
 STEPS = [
+    (3000, "theme-styles", (PROJECT_ROOT / "scripts/theme-style-probe.js").read_text()),
     (3000, "new-file", """
 (function(){
   var btns = document.querySelectorAll('button');
@@ -239,6 +240,11 @@ def run_browser(url: str) -> dict:
 
 def check(results: dict) -> list[str]:
     failures = []
+    theme = results.get("theme-styles") or {}
+    if not theme.get("checks") or "probe-error" in theme:
+        failures.append(f"theme styles: probe did not complete ({theme})")
+    else:
+        failures.extend(theme.get("failures", []))
     styled = results.get("styled") or {}
     plain = results.get("plain") or {}
     restyled = results.get("restyled") or {}
@@ -305,11 +311,11 @@ def main() -> int:
             f"body: {styled['body']['fontSize']}px/{styled['body']['fontWeight']}"
         )
     if failures:
-        print("FAIL: packaged CSP breaks editor styling")
+        print("FAIL: rendered theme or packaged editor styles")
         for failure in failures:
             print(f"  - {failure}")
         return 1
-    print("PASS: headings style, toggle round-trips, no style-src CSP violations")
+    print(f"PASS: {results['theme-styles']['checks']} theme checks; headings style, toggle round-trips, no style-src CSP violations")
     return 0
 
 

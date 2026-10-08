@@ -42,7 +42,7 @@ export function RecentFiles({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <div ref={containerRef} tabIndex={-1} role="group" aria-label="Recent files" className="flex-1 focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2">
+    <div ref={containerRef} tabIndex={-1} role="group" aria-label="Recent files" className="flex-1 focus-visible:outline-2 focus-visible:outline-accent-indicator focus-visible:-outline-offset-2">
       {files.length === 0 && (
         <div className="px-4 py-8 text-center text-text-muted text-sm">{unavailable ? "Recent history is unavailable." : "No recent files"}</div>
       )}
@@ -53,7 +53,7 @@ export function RecentFiles({
           <div
             key={file.path}
             className={`w-full text-left px-4 py-2.5 hover:bg-bg-tertiary transition-colors duration-120 group relative ${
-              isActive ? "border-l-[3px] border-l-accent sidebar-active-item" : "border-l-[3px] border-l-transparent"
+              isActive ? "border-l-[3px] border-l-accent-indicator sidebar-active-item" : "border-l-[3px] border-l-transparent"
             }`}
           >
             <button

@@ -27,7 +27,7 @@ test("dense search rebuilds a text node without per-match live splits or range w
   try {
     const matches = highlightSearchMatches(article, "a");
     assert.equal(matches.length, 995);
-    assert.ok(matches.every(mark => /^a$/i.test(mark.textContent)));
+    assert.ok(matches.every(([mark]) => /^a$/i.test(mark.textContent)));
     assert.equal(article.textContent, text);
     assert.equal(split.mock.callCount(), 0, "dense search must not split the live node per match");
     assert.equal(intersects.mock.callCount(), 0, "dense search must not rediscover each range's nodes");
@@ -51,7 +51,7 @@ test("search preserves order, formatting, annotations and text across mixed matc
       assert.equal(matches.length, 7);
       assert.equal(article.textContent, text);
       const allMarks = [...article.querySelectorAll("mark.search-highlight")];
-      assert.deepEqual(matches, allMarks.filter(mark => matches.includes(mark)), "match navigation stays in document order");
+      assert.deepEqual(matches.flat(), allMarks, "match navigation stays in document order");
       assert.ok(article.querySelector("em"));
       assert.ok(article.querySelector("strong"));
       assert.ok(annotation === article.querySelector('[data-highlight-id="saved"]'));
@@ -86,10 +86,10 @@ test("dense mixed-format search batches fragments and restores the original node
     for (let attempt = 0; attempt < 2; attempt++) {
       const matches = highlightSearchMatches(article, "ab");
       assert.equal(matches.length, 1003, "crossing fragments count as one logical match");
-      assert.deepEqual(matches.map(mark => mark.textContent), [...Array(1000).fill("ab"), "a", "a", "ab"]);
+      assert.deepEqual(matches.map(parts => parts.map(mark => mark.textContent).join("")), Array(1003).fill("ab"));
       const marks = [...article.querySelectorAll("mark.search-highlight")];
       assert.equal(marks.length, 1005);
-      assert.deepEqual(matches, marks.filter(mark => matches.includes(mark)), "navigation follows document order");
+      assert.deepEqual(matches.flat(), marks, "navigation follows document order");
       assert.ok(article.querySelector("em") === emphasis);
       assert.ok(article.querySelector('[data-highlight-id="saved"]') === annotation);
       assert.equal(emphasis.textContent, "b");
@@ -111,7 +111,7 @@ test("rebuilt matches retain Unicode offsets and do not cross blocks or hidden t
   article.innerHTML = '<p>😀 İ K k <strong>K</strong> k</p><p>a<span class="sr-only">hidden</span>b</p><p>a</p><p>b</p>';
   const text = article.textContent;
   const matches = highlightSearchMatches(article, "k");
-  assert.deepEqual(matches.map(mark => mark.textContent), ["K", "k", "K", "k"]);
+  assert.deepEqual(matches.map(([mark]) => mark.textContent), ["K", "k", "K", "k"]);
   assert.equal(article.textContent, text);
   clearSearchHighlights(article);
   assert.deepEqual(highlightSearchMatches(article, "ab"), []);
@@ -222,12 +222,12 @@ test("search skips the visually hidden KaTeX MathML copy of a formula", async ()
     // as a match the reader can never show.
     const formulaMatches = highlightSearchMatches(rendered.article, "mc");
     assert.equal(formulaMatches.length, 1);
-    assert.ok(formulaMatches.every((mark) => !mark.closest(".katex-mathml")));
+    assert.ok(formulaMatches.flat().every((mark) => !mark.closest(".katex-mathml")));
     clearSearchHighlights(rendered.article);
 
     const matches = highlightSearchMatches(rendered.article, "energy");
     assert.equal(matches.length, 2);
-    assert.ok(matches.every((mark) => !mark.closest(".katex")));
+    assert.ok(matches.flat().every((mark) => !mark.closest(".katex")));
     assert.ok(rendered.article.querySelector(".katex-mathml"), "the formula itself stays intact");
   } finally {
     await rendered.cleanup();
@@ -249,8 +249,8 @@ test("search leaves SVG diagram text alone but still highlights HTML diagram lab
 
     const matches = highlightSearchMatches(rendered.article, "alice");
     assert.equal(matches.length, 2);
-    assert.ok(matches.every((mark) => !mark.closest("text")), "no mark inside SVG <text>");
-    assert.equal(matches.filter((mark) => mark.closest("foreignObject")).length, 1);
+    assert.ok(matches.flat().every((mark) => !mark.closest("text")), "no mark inside SVG <text>");
+    assert.equal(matches.flat().filter((mark) => mark.closest("foreignObject")).length, 1);
     assert.equal(rendered.article.querySelector("svg text").textContent, "Alice");
 
     clearSearchHighlights(rendered.article);

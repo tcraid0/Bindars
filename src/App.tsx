@@ -2879,7 +2879,7 @@ function App() {
             ref={mainScrollRef}
             tabIndex={-1}
             aria-label="Document"
-            className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent-indicator"
           >
             {loading && (
               <div
@@ -2894,7 +2894,7 @@ function App() {
                   <button
                     type="button"
                     onClick={handleCancelPendingOpen}
-                    className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
                   >
                     Cancel
                   </button>
