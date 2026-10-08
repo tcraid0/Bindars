@@ -2875,114 +2875,116 @@ function App() {
             />
           )}
 
-          <main
-            ref={mainScrollRef}
-            tabIndex={-1}
-            aria-label="Document"
-            className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent-indicator"
-          >
-            {loading && (
-              <div
-                className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
-              >
-                <span role="status" aria-live="polite" aria-atomic="true">
-                  {openingSlow
-                    ? "Still opening. Cloud and external files can take longer to become available."
-                    : "Opening file..."}
-                </span>
-                {openingSlow && (
-                  <button
-                    type="button"
-                    onClick={handleCancelPendingOpen}
-                    className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            )}
+          <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
+            <main
+              ref={mainScrollRef}
+              tabIndex={-1}
+              aria-label="Document"
+              className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
+            >
+              {loading && (
+                <div
+                  className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+                >
+                  <span role="status" aria-live="polite" aria-atomic="true">
+                    {openingSlow
+                      ? "Still opening. Cloud and external files can take longer to become available."
+                      : "Opening file..."}
+                  </span>
+                  {openingSlow && (
+                    <button
+                      type="button"
+                      onClick={handleCancelPendingOpen}
+                      className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )}
 
-            {error && (
-              <ErrorBanner
-                error={error}
-                onDismiss={dismissDocumentError}
-                onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
-                actionLabel={documentError?.retryAction ? "Retry" : undefined}
-                actionDisabled={
-                  documentError?.retryAvailability !== "ready"
-                  || actionAdmissionInFlight
-                }
-              />
-            )}
+              {error && (
+                <ErrorBanner
+                  error={error}
+                  onDismiss={dismissDocumentError}
+                  onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
+                  actionLabel={documentError?.retryAction ? "Retry" : undefined}
+                  actionDisabled={
+                    documentError?.retryAvailability !== "ready"
+                    || actionAdmissionInFlight
+                  }
+                />
+              )}
 
-            {fileWatcher.unavailable && (
-              <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
-                Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
-                <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
-              </div>
-            )}
+              {fileWatcher.unavailable && (
+                <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
+                  Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
+                  <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
+                </div>
+              )}
 
-            {isDocumentOpen(content) && editing && editor.buffer !== null ? (
-              <MarkdownEditor
-                key={`${editorSessionKey}:${fileType}`}
-                ref={editorSurfaceRef}
-                buffer={editor.buffer}
-                initialPosition={editorInitialPosition}
-                scrollRootRef={mainScrollRef}
-                fileType={fileType}
-                markdownFormattingEnabled={markdownFormattingEnabled}
-                settings={settings}
-                saveError={editor.saveError}
-                canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
-                canDismissSaveError={!editor.savePathBlocked}
-                recoveryPath={editor.recoveryPath}
-                onBufferChange={publishEditorBuffer}
-                onSaveAsAfterError={handleSaveAsAfterError}
-                onDismissSaveError={editor.dismissSaveError}
-              />
-            ) : preparedDocument?.status === "too-complex" ? (
-              <DocumentNotice
-                contentRef={contentRef}
-                title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
-                message={preparedDocument.message}
-              />
-            ) : preparedDocument?.status === "parse-failed" ? (
-              <DocumentNotice
-                contentRef={contentRef}
-                title="Screenplay could not be displayed"
-                message={preparedDocument.message}
-              />
-            ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
-              <FountainRenderer
-                // As with Markdown, discard marked DOM as a unit on source changes.
-                key={content}
-                parsed={preparedDocument.parsedFountain}
-                settings={settings}
-                contentRef={contentRef}
-                focusedCharacter={focusedCharacter}
-              />
-            ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
-              <MarkdownRenderer
-                content={content}
-                filePath={filePath || ""}
-                imagesAuthorized={imagesAuthorized}
-                settings={settings}
-                contentRef={contentRef}
-                onOpenFragment={openMarkdownFragment}
-                onNavigateToFile={guardedNavigateToFile}
-              />
-            ) : (
-              <EmptyState
-                onNewFile={guardedNewFile}
-                onOpenFile={guardedOpenFile}
-                onTrySample={() => { guardAction({ kind: "try-sample" }); }}
-                canTrySample={!actionAdmissionInFlight}
-                recentFiles={recentFiles}
-                recentHistoryUnavailable={recentFilesStatus !== "ready"}
-                onOpenRecent={guardedOpenRecent}
-              />
-            )}
-          </main>
+              {isDocumentOpen(content) && editing && editor.buffer !== null ? (
+                <MarkdownEditor
+                  key={`${editorSessionKey}:${fileType}`}
+                  ref={editorSurfaceRef}
+                  buffer={editor.buffer}
+                  initialPosition={editorInitialPosition}
+                  scrollRootRef={mainScrollRef}
+                  fileType={fileType}
+                  markdownFormattingEnabled={markdownFormattingEnabled}
+                  settings={settings}
+                  saveError={editor.saveError}
+                  canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
+                  canDismissSaveError={!editor.savePathBlocked}
+                  recoveryPath={editor.recoveryPath}
+                  onBufferChange={publishEditorBuffer}
+                  onSaveAsAfterError={handleSaveAsAfterError}
+                  onDismissSaveError={editor.dismissSaveError}
+                />
+              ) : preparedDocument?.status === "too-complex" ? (
+                <DocumentNotice
+                  contentRef={contentRef}
+                  title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
+                  message={preparedDocument.message}
+                />
+              ) : preparedDocument?.status === "parse-failed" ? (
+                <DocumentNotice
+                  contentRef={contentRef}
+                  title="Screenplay could not be displayed"
+                  message={preparedDocument.message}
+                />
+              ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
+                <FountainRenderer
+                  // As with Markdown, discard marked DOM as a unit on source changes.
+                  key={content}
+                  parsed={preparedDocument.parsedFountain}
+                  settings={settings}
+                  contentRef={contentRef}
+                  focusedCharacter={focusedCharacter}
+                />
+              ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
+                <MarkdownRenderer
+                  content={content}
+                  filePath={filePath || ""}
+                  imagesAuthorized={imagesAuthorized}
+                  settings={settings}
+                  contentRef={contentRef}
+                  onOpenFragment={openMarkdownFragment}
+                  onNavigateToFile={guardedNavigateToFile}
+                />
+              ) : (
+                <EmptyState
+                  onNewFile={guardedNewFile}
+                  onOpenFile={guardedOpenFile}
+                  onTrySample={() => { guardAction({ kind: "try-sample" }); }}
+                  canTrySample={!actionAdmissionInFlight}
+                  recentFiles={recentFiles}
+                  recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                  onOpenRecent={guardedOpenRecent}
+                />
+              )}
+            </main>
+          </div>
         </div>
 
         <ReaderNavigation

@@ -379,6 +379,29 @@ body {
 
 /* ── Focus-visible styles for keyboard accessibility ── */
 
+/* Keep the document's ring stationary and clear of its scrollbar. The frame
+   adds no padding or tab stop, and child focus never activates the ring. */
+.reading-pane {
+  --reader-scrollbar-width: 8px;
+}
+
+.reading-surface::-webkit-scrollbar {
+  width: var(--reader-scrollbar-width);
+}
+
+.reading-surface:focus-visible {
+  outline: none;
+}
+
+.reading-pane:has(> .reading-surface:focus-visible)::after {
+  content: "";
+  position: absolute;
+  inset: 0 calc(var(--reader-scrollbar-width) + 2px) 0 0;
+  border: 2px solid var(--accent-indicator);
+  pointer-events: none;
+  z-index: 1;
+}
+
 @layer base {
   button:focus-visible,
   a:focus-visible,
@@ -1516,11 +1539,16 @@ body[data-printing] .print-hide {
 
   /* Reset flex wrapper that constrains content height */
   #root > div > .flex,
-  .reader-column {
+  .reader-column,
+  .reading-pane {
     height: auto !important;
     overflow: visible !important;
     min-height: 0 !important;
     display: block !important;
+  }
+
+  .reading-pane::after {
+    display: none !important;
   }
 
   /* Print colors must survive cleanup of the temporary print session. */
