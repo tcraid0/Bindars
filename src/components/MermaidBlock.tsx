@@ -26,7 +26,7 @@ const DOLLAR_AT_TAG_RE = /\$<|>\$/;
  */
 const REWRITABLE_RE = /<[a-z!\/?]|&(?:#|[a-z]{2})|#\w+;/i;
 export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
-  "Math in this diagram is too long or uses unsupported commands.";
+  "This diagram has math or dollar signs that Bindars can't check safely.";
 
 /**
  * Applies the shared math policy (math-safety.ts) to the math Mermaid would
