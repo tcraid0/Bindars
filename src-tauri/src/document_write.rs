@@ -505,10 +505,15 @@ fn write_document_using(
         // read. A write that completes after this read and before the unlink,
         // or through an old descriptor after the unlink, is not retained.
         // Metadata-only changes do not require a competing-content copy.
+        // macOS FAT reports an exchange but performs a plain replace: no entry
+        // was displaced, so there is nothing to retain.
+        let replaced = displaced
+            .as_ref()
+            .is_err_and(|error| error.category == Category::NotFound);
         let matches = displaced.as_ref().is_ok_and(|revision| {
             revision.size == checked.size && revision.content_hash == checked.content_hash
         });
-        if !matches || remove_at(&parent, temp).is_err() {
+        if !replaced && (!matches || remove_at(&parent, temp).is_err()) {
             let recovery_name = format!(
                 "Bindars recovered {unique}.{}",
                 path.extension()
@@ -849,6 +854,34 @@ mod tests {
             unsupported_rename,
         )
         .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+        assert!(result.recovery_path.is_none());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exchange_that_replaced_in_place_reports_no_recovery_copy() {
+        // macOS FAT accepts the exchange flag but performs a plain replace.
+        let (root, path, revision) = fixture("fat-exchange");
+        let result = write_document_using(
+            &path,
+            "local",
+            WriteMode::Save {
+                expected: Some(&revision),
+                force: false,
+            },
+            |_| {},
+            |parent, from, to, exchange| {
+                if exchange {
+                    replace_at(parent, from, to)
+                } else {
+                    rename_at(parent, from, to, false)
+                }
+            },
+        )
+        .unwrap();
+        assert!(!result.conflict);
         assert_eq!(fs::read_to_string(&path).unwrap(), "local");
         assert!(result.recovery_path.is_none());
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
