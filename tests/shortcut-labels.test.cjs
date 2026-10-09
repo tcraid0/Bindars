@@ -172,7 +172,7 @@ test("shortcut formatting covers modifiers, arrows, symbols, and modifier-free k
   assert.equal(formatShortcutLabel("increaseFontSize", "windows-linux"), "Ctrl++");
   assert.equal(formatShortcutLabel("decreaseFontSize", "windows-linux"), "Ctrl+−");
   assert.equal(formatShortcutLabel("toggleBothPanels", "windows-linux"), "Ctrl+\\");
-  assert.equal(formatShortcutLabel("showShortcuts", "windows-linux"), "?");
+  assert.equal(formatShortcutLabel("showShortcuts", "windows-linux"), "Ctrl+?");
 });
 
 test("default formatting reads the navigator at call time instead of import time", () => {

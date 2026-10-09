@@ -220,7 +220,7 @@ for (const [name, native, local, expected] of [
   });
 }
 
-async function renderSessionProbe(context, { native = null, write = async () => true, now = Date.now() } = {}) {
+async function renderSessionProbe(context, { native = null, write = async () => true, now = Date.now(), initialFilePath = "/tmp/a.md" } = {}) {
   await installDom();
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now });
   const originalLocalStorage = globalThis.localStorage;
@@ -248,13 +248,16 @@ async function renderSessionProbe(context, { native = null, write = async () => 
       waitForInitialNativeOpen: async () => "none", onRestore: value => restored.push(value) });
     return null;
   }
-  await act(async () => root.render(React.createElement(Probe, { filePath: "/tmp/a.md" })));
+  await act(async () => root.render(React.createElement(Probe, { filePath: initialFilePath })));
   return {
     api: () => api,
     writes,
     restored,
     native: () => native,
     setHeading(value) { heading = value; api.notifyPositionChanged(); },
+    async setFilePath(filePath) {
+      await act(async () => root.render(React.createElement(Probe, { filePath })));
+    },
     async relaunch() {
       await act(async () => root.unmount());
       restored.length = 0;
@@ -367,3 +370,148 @@ for (const synchronous of [true, false]) {
     }
   });
 }
+
+test("a confirmed missing session survives relaunch as recovery and a successful open re-enables restore", async context => {
+  await installDom();
+  const original = globalThis.localStorage;
+  globalThis.localStorage = window.localStorage;
+  localStorage.clear();
+  let native = { filePath: "/tmp/moved.md", headingId: "chapter", savedAt: 100 };
+  const writes = [];
+  const opens = [];
+  const store = require("../.tmp/workspace-tests/src/lib/store.js");
+  context.mock.method(store, "storeGet", async () => native);
+  context.mock.method(store, "storeSet", async (_, value) => { writes.push(value); native = value; return true; });
+  const { useSessionRestore } = require("../.tmp/workspace-tests/src/hooks/useSessionRestore.js");
+  const host = document.createElement("div");
+  let root = createRoot(host);
+  let api;
+  function Probe({ filePath = null, result = "not-found" }) {
+    api = useSessionRestore({ filePath, getActiveHeadingId: () => "chapter",
+      waitForInitialNativeOpen: async () => "none",
+      onRestore: (session, knownMissing) => { opens.push({ ...session, knownMissing }); return knownMissing ? undefined : result; } });
+    return null;
+  }
+  const relaunch = async () => {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(React.createElement(Probe)));
+  };
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    assert.deepEqual(opens, [{ filePath: "/tmp/moved.md", headingId: "chapter", knownMissing: false }]);
+    assert.equal(native.restoreDisabled, true);
+    assert.equal(JSON.parse(localStorage.getItem("bindars-session")).restoreDisabled, true);
+    await relaunch();
+    assert.deepEqual(opens.at(-1), { filePath: "/tmp/moved.md", headingId: "chapter", knownMissing: true },
+      "relaunch reports the missing file for recovery without repeating the read");
+    assert.equal(opens.length, 2);
+
+    await act(async () => api.forgetUnavailableSession("/tmp/other.md"));
+    assert.equal(native.restoreDisabled, true, "forgetting is keyed to the missing file's own path");
+    await relaunch();
+    assert.equal(opens.length, 3);
+    await act(async () => api.forgetUnavailableSession("/tmp/moved.md"));
+    assert.equal(native, null);
+    assert.equal(localStorage.getItem("bindars-session"), null);
+    await relaunch();
+    assert.equal(opens.length, 3, "a forgotten missing session does not return at the next launch");
+
+    native = { filePath: "/tmp/moved.md", headingId: "chapter", savedAt: 200, restoreDisabled: true };
+    await relaunch();
+    assert.equal(opens.length, 4);
+    await act(async () => root.render(React.createElement(Probe, { filePath: "/tmp/moved.md" })));
+    await act(async () => api.flushCurrentSession());
+    assert.equal(native.restoreDisabled, undefined);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(React.createElement(Probe, { result: undefined, filePath: "/tmp/moved.md" })));
+    assert.deepEqual(opens.at(-1), { filePath: "/tmp/moved.md", headingId: "chapter", knownMissing: false },
+      "a later successful open resumes ordinary restoration");
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.localStorage = original;
+  }
+});
+
+test("a late failed restore cannot disable a newer current document", async context => {
+  await installDom();
+  const pending = deferred();
+  const writes = [];
+  const original = globalThis.localStorage;
+  globalThis.localStorage = window.localStorage;
+  localStorage.clear();
+  const store = require("../.tmp/workspace-tests/src/lib/store.js");
+  context.mock.method(store, "storeGet", async () => ({ filePath: "/tmp/old.md", headingId: null }));
+  context.mock.method(store, "storeSet", async (_, value) => { writes.push(value); return true; });
+  const { useSessionRestore } = require("../.tmp/workspace-tests/src/hooks/useSessionRestore.js");
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let api;
+  function Probe({ filePath }) {
+    api = useSessionRestore({ filePath, getActiveHeadingId: () => null,
+      waitForInitialNativeOpen: async () => "none", onRestore: () => pending.promise });
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(Probe, { filePath: null })));
+    await act(async () => root.render(React.createElement(Probe, { filePath: "/tmp/new.md" })));
+    await act(async () => pending.resolve("not-found"));
+    assert.equal(writes.length, 0);
+    await act(async () => api.forgetUnavailableSession("/tmp/old.md"));
+    assert.equal(writes.length, 0, "nothing was marked unavailable, so there is nothing to forget");
+    await act(async () => api.flushCurrentSession());
+    assert.equal(writes[0].filePath, "/tmp/new.md");
+    assert.equal(writes[0].restoreDisabled, undefined);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.localStorage = original;
+  }
+});
+
+for (const exit of ["beforeunload", "failed native flush"]) {
+  test(`forgetting an unavailable session preserves a newer ${exit} fallback`, async context => {
+    const cleared = deferred();
+    const missing = { filePath: "/tmp/missing.md", headingId: "old", savedAt: 100, restoreDisabled: true };
+    const view = await renderSessionProbe(context, {
+      native: missing, initialFilePath: null, now: 101,
+      write: value => value === null ? cleared.promise : Promise.resolve(false),
+    });
+    try {
+      localStorage.setItem("bindars-session", JSON.stringify(missing));
+      const forgetting = view.api().forgetUnavailableSession(missing.filePath);
+      await act(async () => Promise.resolve());
+      assert.deepEqual(view.writes, [null]);
+      await view.setFilePath("/tmp/new.md");
+      view.setHeading("latest");
+      let flush;
+      if (exit === "beforeunload") window.dispatchEvent(new Event("beforeunload"));
+      else flush = view.api().flushCurrentSession();
+      await act(async () => { cleared.resolve(true); await forgetting; await flush; });
+      assert.equal(JSON.parse(localStorage.getItem("bindars-session"))?.filePath, "/tmp/new.md");
+      await view.relaunch();
+      assert.deepEqual(view.restored, [{ filePath: "/tmp/new.md", headingId: "latest" }]);
+    } finally {
+      cleared.resolve(true);
+      await view.cleanup();
+    }
+  });
+}
+
+test("a failed unavailable-session deletion can be retried", async context => {
+  const missing = { filePath: "/tmp/missing.md", headingId: null, savedAt: 100, restoreDisabled: true };
+  let canWrite = false;
+  const view = await renderSessionProbe(context, {
+    native: missing, initialFilePath: null, write: async () => canWrite,
+  });
+  try {
+    localStorage.setItem("bindars-session", JSON.stringify(missing));
+    await act(async () => view.api().forgetUnavailableSession(missing.filePath));
+    assert.deepEqual(view.native(), missing);
+    assert.deepEqual(JSON.parse(localStorage.getItem("bindars-session")), missing);
+    canWrite = true;
+    await act(async () => view.api().forgetUnavailableSession(missing.filePath));
+    assert.equal(view.native(), null);
+    assert.equal(localStorage.getItem("bindars-session"), null);
+  } finally { await view.cleanup(); }
+});

@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
+import { ReadingHint } from "./components/ReadingHint";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { DocumentNotice } from "./components/DocumentNotice";
 import { DOCUMENT_COMPLEXITY_REASON } from "./lib/document-complexity";
@@ -47,6 +48,8 @@ import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSessionRestore } from "./hooks/useSessionRestore";
+import { useReadingHint } from "./hooks/useReadingHint";
+import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
@@ -179,6 +182,7 @@ function App() {
     openFile,
     openFilePath,
     openFilePathWithStatus,
+    reportMissingFile,
     setVirtualContent,
     adoptSavedFile,
     adoptReconciledDocument,
@@ -247,6 +251,7 @@ function App() {
   } = useAnnotations(filePath);
 
   const annotationExit = useAnnotationExit(pendingAnnotationRecords, waitForAnnotationSaves, retryAnnotationSave);
+  const { visible: readingHintVisible, dismiss: dismissReadingHint } = useReadingHint();
 
   useEffect(() => {
     let active = true;
@@ -354,8 +359,8 @@ function App() {
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const { visible: visiblePanels, preparePanelChange } = useReaderPanels({
     sidebar: sidebarVisible && !focusMode && !presentationMode,
-    toc: tocVisible && !focusMode && !editing && !presentationMode,
-    notes: annotationsPanelVisible && !focusMode && !editing && !presentationMode,
+    toc: documentOpen && tocVisible && !focusMode && !editing && !presentationMode,
+    notes: documentOpen && annotationsPanelVisible && !focusMode && !editing && !presentationMode,
   }, mainScrollRef);
   const readerFocusRequestRef = useRef<{
     documentKey: string | null;
@@ -1708,25 +1713,27 @@ function App() {
 
   // Session restore: reopen last file + scroll position on startup
   const handleSessionRestore = useCallback(
-    async (session: { filePath: string; headingId: string | null }) => {
+    async (session: { filePath: string; headingId: string | null }, knownMissing: boolean) => {
       // Settings can arrive after a newer document action has already finished or
       // been cancelled. Startup restoration only owns the untouched launch;
       // the open hook handles supersession once the restoration read starts.
       if (startupRestoreSupersededRef.current) return;
-      const result = await openPathAndScroll(
-        session.filePath,
-        session.headingId,
-        { kind: "restore-session", path: session.filePath, headingId: session.headingId },
-      );
-      if (result.status === "failed" && result.error.category !== "resource-unavailable") {
-        dismissError(result.errorOwnerToken);
+      const retryAction = { kind: "restore-session", path: session.filePath, headingId: session.headingId } as const;
+      if (knownMissing) {
+        reportMissingFile(session.filePath, retryAction);
+        return;
+      }
+      const result = await openPathAndScroll(session.filePath, session.headingId, retryAction);
+      if (result.status === "failed" && result.error.category === "not-found") {
+        return "not-found" as const;
       }
     },
-    [openPathAndScroll, dismissError],
+    [openPathAndScroll, reportMissingFile],
   );
 
   const {
     restored: sessionRestored,
+    forgetUnavailableSession,
     notifyPositionChanged: notifySessionPositionChanged,
     flushCurrentSession,
   } = useSessionRestore({
@@ -1935,18 +1942,19 @@ function App() {
 
   // Annotations: highlight handler
   const handleHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, headingId: string | null) => {
-    addHighlight(anchor, color, headingId);
-  }, [addHighlight]);
+    if (addHighlight(anchor, color, headingId)) dismissReadingHint();
+  }, [addHighlight, dismissReadingHint]);
 
   const handleNote = useCallback((anchor: TextAnchor, headingId: string | null) => {
     const id = addHighlight(anchor, "yellow", headingId);
     if (!id) return;
+    dismissReadingHint();
     pendingNoteScrollRef.current = { id, path: filePath, content };
     startNoteRef.current?.(id);
     preparePanelChange("notes", true);
     setAnnotationsPanelVisible(true);
     setFocusMode(false);
-  }, [addHighlight, filePath, content, preparePanelChange]);
+  }, [addHighlight, filePath, content, preparePanelChange, dismissReadingHint]);
 
   // Repaint for document identity changes, even when another file has identical text.
   useEffect(() => {
@@ -2152,10 +2160,11 @@ function App() {
   }, [visiblePanels.sidebar, preparePanelChange]);
 
   const toggleToc = useCallback(() => {
+    if (!documentOpen) return;
     const next = !visiblePanels.toc;
     preparePanelChange("toc", next);
     setTocVisible(next);
-  }, [visiblePanels.toc, preparePanelChange]);
+  }, [documentOpen, visiblePanels.toc, preparePanelChange]);
 
   const toggleReaderControls = useCallback(() => {
     setReaderControlsVisible((v) => !v);
@@ -2166,11 +2175,12 @@ function App() {
   }, []);
 
   const toggleAnnotationsPanel = useCallback(() => {
+    if (!documentOpen) return;
     pendingNoteScrollRef.current = null;
     const next = !visiblePanels.notes;
     preparePanelChange("notes", next);
     setAnnotationsPanelVisible(next);
-  }, [visiblePanels.notes, preparePanelChange]);
+  }, [documentOpen, visiblePanels.notes, preparePanelChange]);
 
   const closeAnnotationsPanel = useCallback(() => {
     pendingNoteScrollRef.current = null;
@@ -2180,6 +2190,10 @@ function App() {
 
   const closeShortcuts = useCallback(() => {
     setShortcutsVisible(false);
+  }, []);
+
+  const showShortcuts = useCallback(() => {
+    setShortcutsVisible(true);
   }, []);
 
   const openCommandPalette = useCallback(() => {
@@ -2373,6 +2387,8 @@ function App() {
           const result = await openPathAndScroll(path, null, { kind: "open-file-path", path });
           if (result.status === "failed") {
             toast(`The example was saved to ${path}, but couldn't be opened. Open that file to try again.`, "error");
+          } else if (result.status === "opened") {
+            toast(`Example saved to ${result.canonicalPath}`, "success");
           }
         } catch (error) {
           if (isCurrent()) {
@@ -2614,7 +2630,7 @@ function App() {
     if (inInput) return;
 
     if (shortcutsVisible) {
-      if (e.key === "?" && !ctrl && !e.altKey) {
+      if (e.key === "?" && ctrl && !e.altKey) {
         e.preventDefault();
         closeShortcuts();
       }
@@ -2632,7 +2648,7 @@ function App() {
       }
     } else if (ctrl && key === "m") {
       e.preventDefault();
-      if (!editing) toggleAnnotationsPanel();
+      if (documentOpen && !editing) toggleAnnotationsPanel();
     } else if (ctrl && key === "f" && !e.shiftKey) {
       e.preventDefault();
       openSearch();
@@ -2649,14 +2665,14 @@ function App() {
       toggleSidebar();
     } else if (ctrl && key === "j") {
       e.preventDefault();
-      if (!editing) toggleToc();
+      if (documentOpen && !editing) toggleToc();
     } else if (ctrl && e.key === "\\") {
       e.preventDefault();
       toggleSidebar();
-      if (!editing) toggleToc();
+      if (documentOpen && !editing) toggleToc();
     } else if (ctrl && e.shiftKey && key === "f") {
       e.preventDefault();
-      if (!editing) {
+      if (documentOpen && !editing) {
         if (focusMode) exitFocusMode();
         else {
           // Transfer focus only from UI that Focus mode removes.
@@ -2701,7 +2717,7 @@ function App() {
     } else if (e.altKey && key === "arrowdown" && !ctrl && !e.shiftKey) {
       e.preventDefault();
       navigateScene(1);
-    } else if (e.key === "?" && !ctrl && !e.altKey) {
+    } else if (e.key === "?" && ctrl && !e.altKey) {
       e.preventDefault();
       setShortcutsVisible((v) => !v);
     } else if (key === "f5") {
@@ -2775,6 +2791,26 @@ function App() {
   // Suppress render while startup state is settling — loading screen covers #root
   if (!appReady) return null;
 
+  // The open error is the single source for file recovery; a persisted missing
+  // session is reported into it at startup (handleSessionRestore).
+  const recoveryAction = documentError?.source === "open" ? documentError.retryAction : null;
+  const retryDisabled = documentError?.retryAvailability !== "ready" || loading || actionAdmissionInFlight;
+  const recentRecovery: WelcomeRecovery | null = error && recoveryAction && "path" in recoveryAction
+    ? { path: recoveryAction.path, error, retryDisabled }
+    : null;
+  const welcomeRecovery = !documentOpen ? recentRecovery : null;
+  const dismissRecentRecovery = () => {
+    if (!recentRecovery) return;
+    dismissDocumentError();
+    void forgetUnavailableSession(recentRecovery.path);
+  };
+  // Removing the unavailable entry also dismisses its recovery; Dismiss alone
+  // keeps the entry in recent files.
+  const removeRecentFile = (path: string) => {
+    if (path === recentRecovery?.path) dismissRecentRecovery();
+    removeRecent(path);
+  };
+
   return (
     <div
       className={`app-shell h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${fileName ? "has-document" : ""}`}
@@ -2805,6 +2841,7 @@ function App() {
           onCycleTheme={cycleTheme}
           onNewFile={guardedNewFile}
           onOpenFile={guardedOpenFile}
+          onShowShortcuts={showShortcuts}
           onToggleSidebar={toggleSidebar}
           onToggleToc={toggleToc}
           onToggleReaderControls={toggleReaderControls}
@@ -2864,7 +2901,9 @@ function App() {
           backlinks={workspaceInsights.backlinks}
           mentions={workspaceInsights.mentions}
           onOpenRecent={guardedOpenRecent}
-          onRemoveRecent={removeRecent}
+          onRemoveRecent={removeRecentFile}
+          recovery={recentRecovery}
+          onRetry={retryDocumentOpen}
           onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
@@ -2888,6 +2927,10 @@ function App() {
           )}
 
           <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
+            {readingHintVisible && readerDocumentReady && !editing && filePath
+              && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
+              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} />
+            )}
             <main
               ref={mainScrollRef}
               tabIndex={-1}
@@ -2915,16 +2958,13 @@ function App() {
                 </div>
               )}
 
-              {error && (
+              {error && !welcomeRecovery && (
                 <ErrorBanner
                   error={error}
                   onDismiss={dismissDocumentError}
                   onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
                   actionLabel={documentError?.retryAction ? "Retry" : undefined}
-                  actionDisabled={
-                    documentError?.retryAvailability !== "ready"
-                    || actionAdmissionInFlight
-                  }
+                  actionDisabled={retryDisabled}
                 />
               )}
 
@@ -2986,13 +3026,20 @@ function App() {
                 />
               ) : (
                 <EmptyState
-                  onNewFile={guardedNewFile}
                   onOpenFile={guardedOpenFile}
                   onTrySample={() => { guardAction({ kind: "try-sample" }); }}
+                  onShowShortcuts={showShortcuts}
                   canTrySample={!actionAdmissionInFlight}
+                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight
+                    && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
                   onOpenRecent={guardedOpenRecent}
+                  onRemoveRecent={removeRecentFile}
+                  openingPath={openingPath}
+                  recovery={welcomeRecovery}
+                  onRetry={retryDocumentOpen}
+                  onDismiss={dismissRecentRecovery}
                 />
               )}
             </main>

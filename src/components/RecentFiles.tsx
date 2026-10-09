@@ -1,6 +1,7 @@
 import type { RecentFile } from "../types";
 import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
+import type { WelcomeRecovery } from "../lib/welcome-recovery";
 
 interface RecentFilesProps {
   files: RecentFile[];
@@ -9,6 +10,9 @@ interface RecentFilesProps {
   openingPath: string | null;
   onOpen: (path: string) => void;
   onRemove: (path: string) => void;
+  recovery?: WelcomeRecovery | null;
+  onRetry?: () => void;
+  welcome?: boolean;
 }
 
 function timeAgo(timestamp: number): string {
@@ -24,11 +28,11 @@ function timeAgo(timestamp: number): string {
 }
 
 function dirName(path: string): string {
-  const parts = path.split("/");
-  parts.pop();
-  const dir = parts.join("/");
-  const home = dir.replace(/^\/home\/[^/]+/, "~");
-  return home;
+  const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (separator < 0) return "";
+  // Keep the separator for filesystem roots, including Windows drive roots.
+  const isRoot = separator === 0 || (separator === 2 && path[1] === ":");
+  return path.slice(0, separator + (isRoot ? 1 : 0));
 }
 
 export function RecentFiles({
@@ -38,6 +42,9 @@ export function RecentFiles({
   openingPath,
   onOpen,
   onRemove,
+  recovery,
+  onRetry,
+  welcome = false,
 }: RecentFilesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -49,31 +56,38 @@ export function RecentFiles({
       {files.map((file) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
+        const isUnavailable = file.path === recovery?.path;
         return (
           <div
             key={file.path}
-            className={`w-full text-left px-4 py-2.5 hover:bg-bg-tertiary transition-colors duration-120 group relative ${
+            className={`w-full flex items-center gap-2 text-left px-3 py-2.5 hover:bg-bg-tertiary transition-colors duration-120 group relative ${welcome ? "border-t border-border" : ""} ${
               isActive ? "border-l-[3px] border-l-accent-indicator sidebar-active-item" : "border-l-[3px] border-l-transparent"
             }`}
           >
             <button
               type="button"
               onClick={() => onOpen(file.path)}
-              className="w-full text-left"
+              className="flex-1 min-w-0 text-left"
               aria-label={`Open ${file.name}`}
               aria-busy={isOpening}
-              disabled={isOpening}
+              // The explicit Retry control is the one action for an unavailable file.
+              disabled={isOpening || isUnavailable}
             >
-              <div className="text-sm font-medium text-text-primary truncate pr-6">
+              <div className="text-sm font-medium text-text-primary truncate" title={file.name}>
                 {file.name}
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-text-muted truncate">{dirName(file.path)}</span>
+                <span className="text-xs text-text-muted truncate" title={file.path}>{dirName(file.path)}</span>
                 <span className="text-xs text-text-muted shrink-0">
-                  {isOpening ? "opening..." : timeAgo(file.openedAt)}
+                  {isOpening ? "Opening…" : isUnavailable ? "Unavailable" : welcome ? null : timeAgo(file.openedAt)}
                 </span>
               </div>
             </button>
+            {isUnavailable && onRetry && (
+              <button type="button" onClick={onRetry} disabled={isOpening || recovery.retryDisabled}
+                className="text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                aria-label={`Retry opening ${file.name}`}>Retry</button>
+            )}
             <button
               type="button"
               onClick={(e) => {
@@ -83,7 +97,7 @@ export function RecentFiles({
               }}
               aria-label={`Remove ${file.name} from recent files`}
               disabled={isOpening}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120"
+              className={`shrink-0 p-1.5 rounded ${welcome || isUnavailable ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
               title="Remove from recent"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

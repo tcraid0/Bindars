@@ -3,6 +3,7 @@ import { memo } from "react";
 import type { BacklinkItem, MentionItem, RecentFile, WorkspaceState } from "../types";
 import { RecentFiles } from "./RecentFiles";
 import { WorkspacePanel } from "./WorkspacePanel";
+import type { WelcomeRecovery } from "../lib/welcome-recovery";
 
 interface SidebarProps {
   visible: boolean;
@@ -10,6 +11,8 @@ interface SidebarProps {
   recentHistoryUnavailable?: boolean;
   currentFilePath: string | null;
   openingPath: string | null;
+  recovery?: WelcomeRecovery | null;
+  onRetry?: () => void;
   workspaceRootPath: string | null;
   workspaceState: WorkspaceState;
   backlinks: BacklinkItem[];
@@ -29,6 +32,8 @@ function SidebarComponent({
   recentHistoryUnavailable = false,
   currentFilePath,
   openingPath,
+  recovery,
+  onRetry,
   workspaceRootPath,
   workspaceState,
   backlinks,
@@ -70,6 +75,8 @@ function SidebarComponent({
         openingPath={openingPath}
         onOpen={onOpenRecent}
         onRemove={onRemoveRecent}
+        recovery={recovery}
+        onRetry={onRetry}
       />
     </aside>
   );

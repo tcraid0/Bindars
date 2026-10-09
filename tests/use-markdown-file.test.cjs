@@ -575,7 +575,7 @@ test("timeout copy does not promise a Retry action when none was supplied", asyn
   }
 });
 
-test("reconciliation cannot erase a Retry-bearing open error", async () => {
+test("reconciliation preserves a Retry-bearing resource-unavailable open error", async () => {
   await installDom();
   const opens = mockPendingOpens();
   const rendered = renderUseMarkdownFile();
@@ -625,6 +625,47 @@ test("reconciliation cannot erase a Retry-bearing open error", async () => {
     rendered.cleanup();
   }
 });
+
+for (const category of ["notFound", "permissionDenied", "readOnly", "generic"]) {
+  for (const reconciliation of ["reload", "same-content revision", "probe error"]) {
+    test(`reconciliation ${reconciliation} replaces another file's ${category} retry error`, async () => {
+      await installDom();
+      const opens = mockPendingOpens();
+      const rendered = renderUseMarkdownFile();
+      const current = { content: "Current A", canonicalPath: "/tmp/A.md", name: "A.md", revision: savedRevision };
+      const retryAction = { kind: "open-recent", path: "/tmp/B.md" };
+      try {
+        flushSync(() => rendered.api().adoptReconciledDocument(current));
+        const pending = startOpen(rendered, retryAction.path, retryAction);
+        await act(async () => {
+          opens[0].reject(category === "generic" ? new Error("Read B failed") : {
+            category, operation: "readDocument", message: "Read B failed", detail: "fixture",
+          });
+          await pending;
+        });
+        assert.deepEqual(rendered.api().documentError.retryAction, retryAction);
+        assert.equal(rendered.api().documentError.retryAvailability, "ready");
+        flushSync(() => {
+          if (reconciliation === "reload") {
+            rendered.api().adoptReconciledDocument({ ...current, content: "Refreshed A" });
+          } else if (reconciliation === "same-content revision") {
+            rendered.api().refreshReconciledRevision({ ...savedRevision, mtimeMs: 3 });
+          } else {
+            rendered.api().reportReconciliationError({ category: "not-found", message: "A is missing now" });
+          }
+        });
+        assert.equal(rendered.api().filePath, current.canonicalPath);
+        if (reconciliation === "probe error") {
+          assert.equal(rendered.api().documentError.source, "reconciliation");
+          assert.equal(rendered.api().error.message, "A is missing now");
+        } else {
+          assert.equal(rendered.api().documentError, null);
+          assert.equal(rendered.api().content, reconciliation === "reload" ? "Refreshed A" : "Current A");
+        }
+      } finally { rendered.cleanup(); }
+    });
+  }
+}
 
 test("reconciliation still replaces non-retry open errors", async () => {
   await installDom();

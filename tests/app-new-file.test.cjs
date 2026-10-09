@@ -1947,6 +1947,7 @@ async function renderContinuityApp({
   annotationWrite = null,
   initialOpenOperation = null,
   initialSessionOperation = null,
+  readingHintRead = null,
   bootstrapRead = null,
   sidebarRead = null,
   freshStorage = false,
@@ -2017,6 +2018,7 @@ async function renderContinuityApp({
         annotationWrites.push(structuredClone(args));
         return annotationWrite ? annotationWrite(args) : null;
       case "get_setting":
+        if (args.key === "reading-hint-dismissed" && readingHintRead) return readingHintRead;
         if (args.key === "sidebar-visible" && sidebarRead) return sidebarRead;
         if (sampleFlow) sampleFlow.reads.push(args.key);
         if (sampleFlow && args.key === "hasSeenWelcome") return sampleFlow.seen;
@@ -5317,7 +5319,7 @@ test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", 
   try {
     const opener = rendered.host.querySelector("button");
     opener.focus();
-    dispatchWindowKey("?");
+    dispatchShortcut("?");
     const close = document.querySelector('[role="dialog"] button');
     assert.ok(document.activeElement === close);
     dispatchShortcut("k");
@@ -6263,15 +6265,15 @@ for (const seen of [undefined, false, true]) {
     const history = { version: 3, value: { version: 1, files: [] }, writes: [] };
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
     try {
-      assert.ok([...rendered.host.querySelectorAll('button')].some(b => b.textContent === 'Try an example'));
+      assert.ok([...rendered.host.querySelectorAll('button')].some(b => b.textContent === 'Try an Example…'));
       assert.equal(flow.reads.includes('hasSeenWelcome'), false);
       assert.deepEqual(flow.dialogs, []);
       assert.deepEqual(flow.exports, []);
       assert.ok(!rendered.host.querySelector('article'));
       rendered.setSaveDialogPath(null);
-      clickButton(rendered.host, 'Try an example');
+      clickButton(rendered.host, 'Try an Example…');
       await waitFor(() => assert.equal(flow.dialogs.length, 1));
-      await waitFor(() => assert.equal([...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example').disabled, false));
+      await waitFor(() => assert.equal([...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…').disabled, false));
       assert.equal(flow.dialogs[0].options.defaultPath, '/tmp/Documents/Welcome to Bindars.md');
       assert.deepEqual(flow.exports, []);
       assert.deepEqual(history.writes.filter(w => /sample|welcome/i.test(w.key)), []);
@@ -6289,7 +6291,7 @@ for (const [name, directory, expected] of [
     const flow = sampleFixture({ directory, dialog: () => null });
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
     try {
-      clickButton(rendered.host, 'Try an example');
+      clickButton(rendered.host, 'Try an Example…');
       await waitFor(() => assert.equal(flow.dialogs.length, 1));
       assert.equal(flow.dialogs[0].options.defaultPath, expected);
       assert.deepEqual(flow.directories, [6, 21]);
@@ -6303,7 +6305,7 @@ test('sample admission owns repeated activation and quit until cancel releases i
   const flow = sampleFixture({ dialog: () => held.promise });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
-    const button = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    const button = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     flushSync(() => { button.click(); button.click(); });
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => emit('bindars://quit-requested'));
@@ -6314,7 +6316,7 @@ test('sample admission owns repeated activation and quit until cancel releases i
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     assert.doesNotMatch(rendered.host.textContent, /Couldn't save the example|example was saved/);
     flow.dialog = () => '/tmp/sample.md';
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.dialogs.length, 2);
     assert.deepEqual(flow.exports, [{ path: '/tmp/sample.md', content: '# Welcome fixture\n\nSave with Ctrl+S.' }]);
@@ -6326,12 +6328,12 @@ test('sample write failure preserves the entrance and supports a deliberate retr
   const flow = sampleFixture({ write: () => { throw { category: 'permissionDenied', operation: 'exportDocument', message: 'Choose a writable folder.', detail: 'fixture' }; } });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.match(rendered.host.textContent, /Choose a writable folder/));
     assert.deepEqual(rendered.openedPaths(), []);
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     flow.write = null;
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 2);
   } finally { await rendered.cleanup(); }
@@ -6344,14 +6346,14 @@ test('sample saved but open failed reports the destination and ordinary Open doe
   try {
     rendered.setSaveDialogPath('/tmp/saved-sample.md');
     rendered.deferNextOpen(open);
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(open.args));
     await act(async () => open.reject(Error('Synthetic read failure')));
     await waitFor(() => assert.match(rendered.host.textContent, /example was saved to \/tmp\/saved-sample.md, but couldn't be opened/));
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     assert.match(rendered.host.textContent, /Synthetic read failure/);
     rendered.setOpenDialogPath('/tmp/saved-sample.md');
-    clickButton(rendered.host, 'Open File');
+    clickButton(rendered.host, 'Open File…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 1);
     assert.equal(rendered.diskContent(), flow.exports[0].content);
@@ -6365,7 +6367,7 @@ test('sample cancel supersedes an in-flight session restore without exporting', 
   const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(session.args));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => dialog.resolve(null));
     await act(async () => session.resolve(rendered.openResult('# Late session')));
@@ -6383,7 +6385,7 @@ test('sample cancels an already pending session open before showing its Save dia
   const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(startup.args));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => startup.resolve(rendered.openResult('# Stale startup')));
     assert.ok(!rendered.host.querySelector('article'));
@@ -6397,7 +6399,7 @@ test('sample completion after unmount does not open or publish stale feedback', 
   const write = deferred();
   const flow = sampleFixture({ write: () => write.promise });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
-  clickButton(rendered.host, 'Try an example');
+  clickButton(rendered.host, 'Try an Example…');
   await waitFor(() => assert.equal(flow.exports.length, 1));
   await rendered.cleanup();
   await act(async () => write.resolve(null));
@@ -6411,13 +6413,13 @@ test('sample keeps the existing native-open busy guard and accepts a later retry
   const rendered = await renderContinuityApp({ initialNativePath: '/tmp/startup.md', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(startup.args));
-    const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     assert.equal(sample.disabled, true);
     flushSync(() => sample.click());
     assert.deepEqual(flow.dialogs, []);
     await act(async () => startup.reject(Error('Synthetic open failure')));
     await waitFor(() => assert.equal(sample.disabled, false));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 1);
   } finally { await rendered.cleanup(); }
@@ -6508,7 +6510,7 @@ test('sample canonical opening supports notes and ordinary reopening preserves e
   const rendered = await renderContinuityApp({ initialNativePath: null, requestedPath: selectedPath, canonicalPath: actualPath, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
   try {
     rendered.setSaveDialogPath(selectedPath);
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     await waitFor(() => assert.equal(history.value.files[0].path, actualPath));
     await selectReaderParagraph(rendered);
@@ -7230,4 +7232,254 @@ test("Focus mode retains a focused selection-toolbar action that remains visible
     window.getSelection().removeAllRanges();
     await rendered.cleanup();
   }
+});
+
+test("welcome keeps reader controls dormant until a document opens and offers accessible help", async () => {
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state", sampleFlow: sampleFixture() });
+  try {
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="notes"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label="Toggle table of contents"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]'));
+    assert.equal(dispatchWindowKey("?").defaultPrevented, false);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    dispatchShortcut("j");
+    dispatchShortcut("m");
+    dispatchShortcut("f", { shiftKey: true });
+    assert.ok(rendered.host.querySelector("header"), "Focus mode must not hide the welcome controls");
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
+    const shortcutButton = [...rendered.host.querySelectorAll(".empty-state button")]
+      .find(button => button.textContent === "Keyboard Shortcuts");
+    shortcutButton.focus();
+    flushSync(() => shortcutButton.click());
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Keyboard Shortcuts/);
+    dispatchElementKey(document.activeElement, "Escape");
+    assert.ok(document.activeElement === shortcutButton);
+    dispatchShortcut("?");
+    assert.ok(document.querySelector('[role="dialog"]'));
+    dispatchShortcut("?");
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    rendered.setOpenDialogPath("/tmp/ready.md");
+    clickButton(rendered.host, "Open File…");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.ok(rendered.host.querySelector('nav[aria-label="Table of contents"]'),
+      "hidden panel shortcuts must not change the preference");
+    assert.ok(!rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) {
+  test("startup recovery preserves recent files and reports " + category, async () => {
+    const failed = deferred();
+    const path = "/tmp/continuity.md";
+    const history = { value: { version: 1, files: [
+      { path, name: "continuity.md", openedAt: 100, lastHeadingId: "second" },
+    ] }, writes: [] };
+    const rendered = await renderContinuityApp({
+      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: ".empty-state", recentStorage: history,
+    });
+    try {
+      await waitFor(() => assert.ok(failed.args));
+      await act(async () => failed.reject({
+        category, operation: "readDocument", message: "The storage request is unavailable.", detail: "fixture",
+      }));
+      await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state-recovery")));
+      assert.match(rendered.host.textContent, category === "notFound" ? /Couldn’t find continuity.md/ :
+        category === "permissionDenied" ? /Couldn’t access continuity.md/ : /The storage request is unavailable/);
+      assert.doesNotMatch(rendered.host.textContent, /Resume:/);
+      assert.equal(history.value.files.length, 1);
+      const blocked = history.writes.find(write => write.key === "session" && write.value.restoreDisabled);
+      assert.equal(Boolean(blocked), category === "notFound", "only a confirmed missing file stops automatic reopen");
+      assert.equal(rendered.annotationWrites.length, 0);
+      const retry = rendered.host.querySelector('[aria-label="Retry opening continuity.md"]');
+      assert.ok(retry && !retry.disabled);
+      flushSync(() => retry.click());
+      await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+      assert.ok(rendered.scrolledIds.includes("second"), "Retry retains the saved reading position");
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const action of ["Open File…", "Try an Example…"]) {
+  test("persisted missing-file recovery survives a cancelled " + action, async () => {
+    const path = "/tmp/missing.md";
+    const dialog = deferred();
+    const flow = sampleFixture({ dialog: () => dialog.promise });
+    const history = { version: 3, value: { version: 1, files: [
+      { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
+    ] }, writes: [] };
+    const rendered = await renderContinuityApp({
+      initialNativePath: null,
+      initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
+      readySelector: ".empty-state-recovery", recentStorage: history, sampleFlow: flow,
+    });
+    try {
+      if (action === "Open File…") rendered.deferNextOpenDialog(dialog);
+      clickButton(rendered.host, action);
+      await waitFor(() => assert.ok(action === "Open File…" ? dialog.args : flow.dialogs.length));
+      assert.ok(rendered.host.querySelector(".empty-state-recovery"));
+      assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+      await act(async () => dialog.resolve(null));
+      await waitFor(() => assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, false));
+      assert.ok(!rendered.host.querySelector("article"));
+      assert.deepEqual(rendered.openedPaths(), []);
+      assert.match(rendered.host.textContent, /Couldn’t find missing.md/);
+      flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+      await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+      assert.deepEqual(rendered.openedPaths(), [path]);
+      assert.ok(rendered.scrolledIds.includes("second"));
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("a newer open error takes precedence over persisted missing-file recovery", async () => {
+  const rendered = await renderContinuityApp({
+    initialNativePath: null,
+    initialSessionOperation: { promise: Promise.resolve({ filePath: "/tmp/old-missing.md", headingId: null, savedAt: 1, restoreDisabled: true }) },
+    readySelector: ".empty-state-recovery",
+  });
+  try {
+    const failed = deferred();
+    rendered.deferNextOpen(failed);
+    rendered.setOpenDialogPath("/tmp/new-missing.md");
+    clickButton(rendered.host, "Open File…");
+    await waitFor(() => assert.ok(failed.args));
+    await act(async () => failed.reject({ category: "notFound", operation: "readDocument", message: "File missing", detail: "fixture" }));
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn’t find new-missing.md/));
+    assert.doesNotMatch(rendered.host.querySelector(".empty-state-recovery").textContent, /old-missing.md/);
+
+    // Retrying that newer file, and cancelling its slow read, keep naming it.
+    const recovery = () => rendered.host.querySelector(".empty-state-recovery-message");
+    const retry = () => [...recovery().querySelectorAll("button")].find(button => button.textContent === "Retry");
+    const stalled = deferred();
+    rendered.deferNextOpen(stalled);
+    flushSync(() => retry().click());
+    await waitFor(() => assert.equal(stalled.args?.path, "/tmp/new-missing.md"));
+    assert.match(recovery().textContent, /Couldn’t find new-missing.md/);
+    assert.doesNotMatch(rendered.host.textContent, /old-missing.md/);
+    assert.equal(retry().disabled, true);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+    const cancel = [...rendered.host.querySelectorAll("button")].find(button => button.textContent.trim() === "Cancel");
+    flushSync(() => cancel.click());
+    await waitFor(() => assert.equal(retry().disabled, false));
+    assert.match(recovery().textContent, /Couldn’t find new-missing.md/);
+    assert.doesNotMatch(rendered.host.textContent, /old-missing.md/);
+    assert.ok(!rendered.host.querySelector("article"));
+  } finally { await rendered.cleanup(); }
+});
+
+function missingRecentFixture(path = "/tmp/missing.md") {
+  return {
+    initialNativePath: null,
+    initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
+    readySelector: ".empty-state-recovery",
+    recentStorage: { version: 3, value: { version: 1, files: [
+      { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
+    ] }, writes: [] },
+  };
+}
+
+test("retrying the missing file itself keeps its recovery while the read is pending", async () => {
+  const fixture = missingRecentFixture();
+  const rendered = await renderContinuityApp(fixture);
+  try {
+    const pending = deferred();
+    rendered.deferNextOpen(pending);
+    flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+    await waitFor(() => assert.equal(pending.args?.path, "/tmp/missing.md"));
+    assert.match(rendered.host.querySelector(".empty-state-recovery").textContent, /Couldn’t find missing.md/);
+    assert.match(rendered.host.textContent, /Opening…/);
+    assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+    await act(async () => pending.resolve({
+      canonicalPath: "/tmp/missing.md", name: "missing.md", content: rendered.diskContent(),
+      revision: { mtimeMs: 1, size: 1, contentHash: "r1" },
+    }));
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    assert.ok(rendered.scrolledIds.includes("second"));
+    assert.ok(!fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
+      "a successful retry re-enables restore through the ordinary session write, not by forgetting");
+  } finally { await rendered.cleanup(); }
+});
+
+for (const control of ["Dismiss", "Remove"]) {
+  test(`${control} clears persisted missing-file recovery and stops it returning at launch`, async () => {
+    const fixture = missingRecentFixture();
+    const rendered = await renderContinuityApp(fixture);
+    try {
+      const button = control === "Remove"
+        ? rendered.host.querySelector('[aria-label="Remove missing.md from recent files"]')
+        : [...rendered.host.querySelector(".empty-state-recovery-message").querySelectorAll("button")]
+          .find(candidate => candidate.textContent === "Dismiss");
+      button.focus();
+      flushSync(() => button.click());
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+      assert.match(rendered.host.textContent, /Read, highlight, and add your thoughts/);
+      const entry = rendered.host.querySelector('[aria-label="Open missing.md"]');
+      if (control === "Remove") {
+        assert.equal(entry, null);
+        await waitFor(() => assert.deepEqual(fixture.recentStorage.value.files, []));
+      } else {
+        assert.equal(entry.disabled, false, "Dismiss keeps the entry in recent files");
+        assert.equal(fixture.recentStorage.value.files.length, 1);
+        assert.ok(document.activeElement === [...rendered.host.querySelectorAll("button")]
+          .find(candidate => candidate.textContent === "Open File…"));
+      }
+      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
+        "the stored unavailable session is forgotten"));
+      assert.deepEqual(rendered.openedPaths(), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("a late reading hint stays outside the restored document's scroller", async () => {
+  const hint = deferred();
+  const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });
+  try {
+    assert.ok(rendered.scrolledIds.includes("second"));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    await act(async () => hint.resolve(null));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    const main = rendered.host.querySelector("main");
+    assert.equal(main.contains(rendered.host.querySelector(".reading-hint")), false);
+    const dismiss = rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
+    dismiss.focus();
+    flushSync(() => dismiss.click());
+    assert.ok(document.activeElement === main);
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(main.querySelector("#second"));
+  } finally { await rendered.cleanup(); }
+});
+
+test("welcome hint dismisses once without reopening when another document is read", async () => {
+  const history = { value: { version: 1, files: [] }, writes: [] };
+  const rendered = await renderContinuityApp({ recentStorage: history });
+  try {
+    const dismiss = await waitFor(() => rendered.host.querySelector('[aria-label="Dismiss reading hint"]') || assert.fail("missing hint"));
+    const main = rendered.host.querySelector("main");
+    dismiss.focus();
+    flushSync(() => dismiss.click());
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(document.activeElement === main);
+    await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value === true)));
+    rendered.setOpenDialogPath("/tmp/another.md");
+    clickButton(rendered.host, "Open");
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/another.md"));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+  } finally { await rendered.cleanup(); }
+});
+
+test("the first accepted highlight retires the reading hint", async () => {
+  const history = { value: { version: 1, files: [] }, writes: [] };
+  const rendered = await renderContinuityApp({ recentStorage: history });
+  try {
+    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await selectReaderParagraph(rendered);
+    flushSync(() => rendered.host.querySelector('[aria-label="Highlight Yellow"]').click());
+    await waitFor(() => assert.ok(rendered.annotationWrites.length));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
+  } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });

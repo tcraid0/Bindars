@@ -846,6 +846,24 @@ button:active:not(:disabled),
   margin: 1.125rem 0 2rem;
 }
 
+.empty-state-recovery .empty-state-symbol {
+  width: 3rem;
+}
+
+.empty-state-recovery .empty-state-wordmark {
+  width: 6rem;
+  margin-top: 0.5rem;
+}
+
+.empty-state-recovery-message {
+  overflow-wrap: anywhere;
+}
+
+.reading-hint {
+  margin: 1.5rem auto 0;
+  padding: 0 1.5rem 0.75rem;
+}
+
 @media (max-height: 640px) {
   .empty-state {
     padding-block: 1rem;
