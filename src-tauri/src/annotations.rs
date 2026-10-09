@@ -347,7 +347,7 @@ fn initialize_with(
         return Err("Annotation storage is missing after migration; recovery is required".into());
     }
 
-    // Preserve every legacy byte before the settings plugin is allowed to load.
+    // Preserve every legacy byte before the native settings owner loads the file.
     let original = match read_optional(&root.join(ARCHIVE))? {
         Some(bytes) => Some(bytes),
         None => read_optional(&root.join("settings.json"))?,

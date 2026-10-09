@@ -17,6 +17,14 @@ It introduces no new document, settings, or annotation format.
   controls that disappear.
 - Clearer text in all four themes, including links, search results, and labels
   on filled buttons. Sepia keeps its warm background with stronger text contrast.
+- Refreshed themes and a new app icon. Light uses blue accents on its off-white
+  surfaces, Dark and Midnight use cool charcoal surfaces, and Sepia stays warm.
+  Code colouring reads clearly in every theme, and search results stand apart
+  from saved highlights.
+- The reader's keyboard focus ring stays clear of the scrollbar and is not
+  printed.
+- Save sits with New and Open in the header, and Reader settings sits beside
+  the theme toggle.
 - The operating system's Reduce Motion preference now also stops smooth reader
   scrolling. The Saved confirmation stays visible, and the startup screen stops
   animating. Bindars' own Reduced effects setting still removes texture and blur.
@@ -93,7 +101,9 @@ or whose annotation state cannot be confirmed, also stay at their original paths
 Math inside Mermaid diagrams now follows the same safety limits as Markdown math
 and is checked before rendering starts. Diagrams with math that exceeds those
 limits, or transformations that cannot be checked safely, show their source
-instead of rendering.
+instead of rendering. A diagram with a dollar sign next to a tag, or text that
+could decode to one such as the colour `#036;`, is also refused even when it
+contains no math.
 
 ## Upgrading
 
@@ -108,8 +118,8 @@ for storage locations and details.
 
 ## Known limitations
 
-- Real exFAT drives and network shares have had limited testing and need native
-  validation for this release. Folder-change checks depend on filesystem identity
+- Real exFAT and FAT32 drives and network shares have had limited testing and
+  need native validation for this release. Folder-change checks depend on filesystem identity
   and cannot reliably detect every replacement on some network shares.
 - Reading position restores a section rather than an exact pixel offset. Very
   last-moment scrolling or preference changes may not be recorded before quitting.
