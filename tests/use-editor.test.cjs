@@ -267,6 +267,43 @@ test("useEditor preserves in-flight typing and saves it with the returned revisi
   }
 });
 
+test("useEditor reports the in-flight save for the current session until its lock is released", async () => {
+  await installDom();
+  const { dialogs, writes } = mockPendingSaveAsTransactions();
+  const rendered = renderUseEditor();
+
+  try {
+    enterEditMode(rendered, "Draft");
+    assert.equal(rendered.api().saveInFlight(), false);
+
+    updateBuffer(rendered, "Snapshot");
+    const savePromise = startSave(rendered);
+    assert.equal(rendered.api().saveInFlight(), true);
+    updateBuffer(rendered, "Draft");
+    assert.equal(rendered.api().dirty, false, "the buffer looks clean against the pre-save baseline");
+    await settleSave(writes[0], savePromise, successfulWrite({ mtimeMs: 2, size: 8, contentHash: "snapshot" }, "/tmp/draft.md"));
+    assert.equal(rendered.api().saveInFlight(), false);
+    assert.equal(rendered.api().dirty, true, "the landed write rebases the comparison");
+
+    const failing = startSave(rendered);
+    assert.equal(rendered.api().saveInFlight(), true);
+    await rejectSave(writes[1], failing, new Error("disk unavailable"));
+    assert.equal(rendered.api().saveInFlight(), false, "a failed write also releases the lock");
+
+    const saveAs = startSaveAs(rendered);
+    assert.equal(rendered.api().saveInFlight(), true, "the Save As dialog holds the lock");
+    await act(async () => { dialogs[0].resolve(null); await saveAs; });
+    assert.equal(rendered.api().saveInFlight(), false, "a cancelled dialog releases it too");
+
+    const abandoned = startSave(rendered);
+    flushSync(() => { rendered.api().exitEditMode(); });
+    assert.equal(rendered.api().saveInFlight(), false, "a write from an ended session is not this session's");
+    await settleSave(writes[2], abandoned, successfulWrite({ mtimeMs: 3, size: 5, contentHash: "late" }, "/tmp/draft.md"));
+  } finally {
+    rendered.cleanup();
+  }
+});
+
 test("useEditor is clean when in-flight edits return to the saved snapshot", async () => {
   await installDom();
   const writes = mockPendingWrites();
@@ -655,6 +692,29 @@ test("conditional save retries one equal-content metadata conflict", async () =>
     );
     assert.equal(result.status, "saved");
     assert.equal(rendered.api().saveError, null);
+  } finally {
+    rendered.cleanup();
+  }
+});
+
+test("conditional save never retries an equal-content conflict from a different folder", async () => {
+  await installDom();
+  const writes = mockPendingWrites();
+  const rendered = renderUseEditor();
+
+  try {
+    const openedRevision = { mtimeMs: 1, size: 5, contentHash: "before", folderId: "1:100" };
+    const substitutedRevision = { mtimeMs: 2, size: 5, contentHash: "before", folderId: "1:200" };
+    enterEditMode(rendered, "Draft", openedRevision);
+    updateBuffer(rendered, "Local words");
+    const savePromise = startSave(rendered);
+
+    const result = await settleSave(writes[0], savePromise, conflictingWrite(substitutedRevision));
+
+    assert.equal(writes.length, 1, "no second write may carry the substituted folder's revision");
+    assert.equal(result.status, "conflict");
+    assert.equal(rendered.api().dirty, true);
+    assert.equal(rendered.api().buffer, "Local words");
   } finally {
     rendered.cleanup();
   }

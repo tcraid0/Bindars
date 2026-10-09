@@ -31,6 +31,51 @@ pub(crate) struct FileRevision {
     mtime_ms: u64,
     pub(crate) size: u64,
     pub(crate) content_hash: String,
+    /// The folder this revision was read from or written into, so a save can
+    /// refuse a different folder that later occupies the same pathname. Absent
+    /// where the platform offers no stable directory identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) folder_id: Option<String>,
+}
+
+impl FileRevision {
+    /// True when `bytes` are the contents this revision described. The
+    /// timestamp is ignored: a touch that leaves the bytes intact is not a
+    /// competing edit.
+    pub(crate) fn matches_contents(&self, bytes: &[u8]) -> bool {
+        self.size == bytes.len() as u64 && self.content_hash == stable_hash_hex(bytes)
+    }
+
+    /// True when `parent` is the folder this revision came from. A revision
+    /// without a folder identity cannot be checked and is accepted.
+    pub(crate) fn same_folder(&self, parent: &fs::Metadata) -> bool {
+        self.folder_id.is_none() || self.folder_id == folder_identity(parent)
+    }
+}
+
+/// Device and inode of a directory, or `None` where unavailable.
+pub(crate) fn folder_identity(parent: &fs::Metadata) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some(format!("{:x}:{:x}", parent.dev(), parent.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = parent;
+        None
+    }
+}
+
+/// Metadata of the folder containing `path`, read through the pathname.
+fn parent_metadata(
+    path: &Path,
+    operation: NativeFileOperation,
+) -> Result<fs::Metadata, NativeFileError> {
+    let parent = path.parent().ok_or_else(|| {
+        NativeFileError::invalid(operation, "Cannot determine the destination folder.")
+    })?;
+    fs::metadata(parent).map_err(|error| NativeFileError::from_io(operation, parent, error))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -426,7 +471,7 @@ pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileEr
     let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::OpenDocument, path, error)
     })?;
-    let (buffer, _) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
+    let (buffer, _) = read_bounded_file(path, &file, NativeFileOperation::ReadDocument)?;
     decode_markdown_contents(buffer)
 }
 
@@ -434,15 +479,16 @@ fn read_open_document_snapshot(
     path: &Path,
     file: fs::File,
 ) -> Result<(String, FileRevision), NativeFileError> {
-    let (buffer, metadata) = read_bounded_file(path, file, NativeFileOperation::ReadDocument)?;
-    let revision = revision_from_bytes(&metadata, &buffer);
+    let (buffer, metadata) = read_bounded_file(path, &file, NativeFileOperation::ReadDocument)?;
+    let parent = parent_metadata(path, NativeFileOperation::ReadDocument)?;
+    let revision = revision_from_bytes(&metadata, &parent, &buffer);
     let content = decode_markdown_contents(buffer)?;
     Ok((content, revision))
 }
 
 pub(crate) fn read_bounded_file(
     path: &Path,
-    file: fs::File,
+    file: &fs::File,
     operation: NativeFileOperation,
 ) -> Result<(Vec<u8>, fs::Metadata), NativeFileError> {
     let metadata = file
@@ -507,16 +553,24 @@ fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
     let file = fs::File::open(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
     })?;
-    let (bytes, metadata) = read_bounded_file(path, file, NativeFileOperation::CheckRevision)?;
+    let (bytes, metadata) = read_bounded_file(path, &file, NativeFileOperation::CheckRevision)?;
+    let parent = parent_metadata(path, NativeFileOperation::CheckRevision)?;
 
-    Ok(revision_from_bytes(&metadata, &bytes))
+    Ok(revision_from_bytes(&metadata, &parent, &bytes))
 }
 
-pub(crate) fn revision_from_bytes(metadata: &fs::Metadata, bytes: &[u8]) -> FileRevision {
+/// The revision of a file whose `bytes` were read from `metadata`'s file
+/// inside the folder described by `parent`.
+pub(crate) fn revision_from_bytes(
+    metadata: &fs::Metadata,
+    parent: &fs::Metadata,
+    bytes: &[u8],
+) -> FileRevision {
     FileRevision {
         mtime_ms: modified_time_ms(metadata),
         size: bytes.len() as u64,
         content_hash: stable_hash_hex(bytes),
+        folder_id: folder_identity(parent),
     }
 }
 
@@ -525,19 +579,12 @@ fn read_written_file_revision(path: &Path, content: &str) -> Result<FileRevision
     let metadata = fs::metadata(path).map_err(|error| {
         NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
     })?;
+    let parent = parent_metadata(path, NativeFileOperation::InspectSavedDocument)?;
 
     // The size and hash intentionally describe the exact contents Bindars wrote.
     // If another process replaces the file before this metadata read, the hybrid
     // revision will not bless those external bytes on the next conditional save.
-    Ok(written_file_revision(&metadata, content))
-}
-
-pub(crate) fn written_file_revision(metadata: &fs::Metadata, content: &str) -> FileRevision {
-    FileRevision {
-        mtime_ms: modified_time_ms(metadata),
-        size: content.len() as u64,
-        content_hash: stable_hash_hex(content.as_bytes()),
-    }
+    Ok(revision_from_bytes(&metadata, &parent, content.as_bytes()))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -576,7 +623,9 @@ pub(crate) fn is_markdown_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
+    use crate::test_support::{
+        cleanup_temp_path, temp_leftovers, unique_temp_dir, unique_temp_path,
+    };
     use std::fs::File;
     #[cfg(unix)]
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1105,17 +1154,7 @@ mod tests {
             fs::read_to_string(&path).expect("read unchanged file"),
             "# Original"
         );
-        let temporary_files = fs::read_dir(path.parent().expect("fixture parent"))
-            .expect("list fixture parent")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-tmp")
-            })
-            .count();
-        assert_eq!(temporary_files, 0);
+        assert!(temp_leftovers(path.parent().expect("fixture parent")).is_empty());
 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
             .expect("restore fixture permissions");
@@ -1154,17 +1193,7 @@ mod tests {
                 format!("updated-{index}")
             );
         }
-        assert_eq!(
-            fs::read_dir(&root)
-                .expect("list fixture root")
-                .filter_map(Result::ok)
-                .filter(|entry| entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-tmp"))
-                .count(),
-            0
-        );
+        assert!(temp_leftovers(&root).is_empty());
 
         cleanup_dir(&root);
     }

@@ -121,7 +121,8 @@ export type NativeFileOperation =
   | "watchDocument"
   | "revealInFolder"
   | "saveRecoveryData"
-  | "accessRecoveryData";
+  | "accessRecoveryData"
+  | "accessSettings";
 
 export interface NativeFileError {
   category: NativeFileErrorCategory;
@@ -134,6 +135,8 @@ export interface FileRevision {
   mtimeMs: number;
   size: number;
   contentHash: string;
+  /** Identity of the folder the file was read from or written into, when the platform provides one. */
+  folderId?: string;
 }
 
 export interface OpenFileResult {
@@ -150,6 +153,9 @@ export interface ConditionalWriteResult {
   canonicalPath: string;
   name: string;
 }
+
+/// What the native side did with a draft retired after Save As.
+export type DraftRetirement = "removed" | "nothing-to-remove" | "kept";
 
 export interface FileWatcherPathEvent {
   path: string;

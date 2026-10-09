@@ -21,20 +21,19 @@ function fresh() {
     recents: require('../.tmp/workspace-tests/src/hooks/useRecentFiles.js').useRecentFiles,
   };
 }
-function storage(t, values, { bootstrap, get, set, save } = {}) {
+function storage(t, values, { bootstrap, get, save } = {}) {
   const cache = structuredClone(values);
   let durable = structuredClone(values);
   const writes = [], reads = [];
   mockIPC(async (cmd, args = {}) => {
     if (cmd === 'initialize_annotation_storage') return bootstrap ? bootstrap() : { settingsReady: true };
-    if (cmd === 'plugin:store|load') return 1;
-    if (cmd === 'plugin:store|get') {
+    if (cmd === 'get_setting') {
       reads.push(args.key);
       if (get) { const result = get(args.key); if (result !== undefined) return result; }
-      return [structuredClone(cache[args.key] ?? null), args.key in cache];
+      return structuredClone(cache[args.key] ?? null);
     }
-    if (cmd === 'plugin:store|set') { writes.push(structuredClone(args)); if (set) await set(args); cache[args.key] = structuredClone(args.value); return; }
-    if (cmd === 'plugin:store|save') { if (save) await save(); durable = structuredClone(cache); return; }
+    // One native write per change: the cache keeps the value even when the disk write (`save`) fails.
+    if (cmd === 'set_setting') { writes.push(structuredClone(args)); cache[args.key] = structuredClone(args.value); if (save) await save(); durable = structuredClone(cache); return; }
     throw Error(`Unexpected IPC ${cmd}`);
   });
   t.after(() => { clearMocks(); window.localStorage.clear(); });
@@ -94,7 +93,7 @@ test('formatting held read cannot replace explicit rapid toggles or publish afte
   const view = await mount(t, fresh().formatting);
   assert.equal(view.current.loaded, false); assert.deepEqual(disk.writes, []);
   await act(async () => { view.current.toggle(); view.current.toggle(); view.current.toggle(); });
-  held.resolve([true, true]); await settle();
+  held.resolve(true); await settle();
   assert.equal(view.current.enabled, false);
   assert.deepEqual(disk.writes.map(w => w.value), [false, true, false]);
   assert.equal(disk.durable()[formattingKey], false);
@@ -102,7 +101,7 @@ test('formatting held read cannot replace explicit rapid toggles or publish afte
   const abandoned = deferred();
   const other = storage(t, { [formattingKey]: false }, { get: () => abandoned.promise });
   const gone = await mount(t, fresh().formatting); await gone.unmount();
-  abandoned.resolve([false, true]); await settle();
+  abandoned.resolve(false); await settle();
   assert.equal(window.localStorage.getItem(localKey), null); assert.deepEqual(other.writes, []);
 });
 test('recents held hydration blocks every mutation then preserves loaded history', async t => {
@@ -111,7 +110,7 @@ test('recents held hydration blocks every mutation then preserves loaded history
   const view = await mount(t, fresh().recents);
   await act(async () => { view.current.addRecent('/new.md', 'new.md'); view.current.removeRecent('/old.md'); view.current.updateScrollPosition('/old.md', 'changed'); });
   assert.deepEqual(disk.writes, []);
-  held.resolve([[old], true]); await settle();
+  held.resolve([old]); await settle();
   await act(async () => view.current.addRecent('/new.md', 'new.md')); await settle();
   assert.deepEqual(disk.durable()['recent-files'].files.map(f => f.path), ['/new.md', '/old.md']);
   assert.equal(disk.durable()['recent-files'].files[1].lastHeadingId, 'intro');
@@ -215,11 +214,11 @@ test('recents abandoned held read cannot replace a newer mount; StrictMode share
   } });
   const hooks = fresh(), first = await mount(t, hooks.recents, true);
   assert.equal(disk.reads.filter(k => k === 'config-version').length, 1);
-  version.resolve([2, true]); await settle();
+  version.resolve(2); await settle();
   assert.equal(first.current.status, 'loading'); await first.unmount();
   const next = await mount(t, hooks.recents, true); await settle();
   await act(async () => next.current.addRecent('/new.md', 'new.md')); await settle();
-  oldRead.resolve([{ version: 1, files: [recent('/stale.md')] }, true]); await settle();
+  oldRead.resolve({ version: 1, files: [recent('/stale.md')] }); await settle();
   assert.deepEqual(next.current.recentFiles.map(f => f.path), ['/new.md', '/old.md']);
   assert.deepEqual(disk.durable()['recent-files'], { version: 1, files: next.current.recentFiles });
   assert.equal(disk.writes.filter(w => w.key === 'config-version').length, 0);
@@ -230,7 +229,7 @@ test('formatting StrictMode abandoned hydration cannot overwrite the active loca
   const disk = storage(t, { [formattingKey]: false }, { get: key => key === formattingKey && ++reads === 1 ? abandoned.promise : undefined });
   const view = await mount(t, fresh().formatting, true); await settle();
   assert.equal(view.current.enabled, false);
-  abandoned.resolve([true, true]); await settle();
+  abandoned.resolve(true); await settle();
   assert.equal(view.current.enabled, false);
   assert.equal(window.localStorage.getItem(localKey), 'false');
   assert.deepEqual(disk.writes, []);
@@ -262,12 +261,13 @@ test('D1 legacy upgrade stores headings and their version together without chang
   assert.equal(disk.writes.length, 1, 'restart must neither re-strip headings nor rewrite modern history');
 });
 
-for (const failure of ['set rejected', 'save rejected before flush', 'save rejected after flush', 'later unrelated flush']) {
+// A native write that fails keeps the value in the cache (the insert precedes
+// the disk write), so every rejection here happens after the cache update.
+for (const failure of ['save rejected before flush', 'save rejected after flush', 'later unrelated flush']) {
   test(`D1 restart after ${failure} never strips the legitimate second prefix`, async t => {
     const original = { 'config-version': 2, 'recent-files': [recent('/old.md', 'user-content-user-content-intro')] };
     let failing = true;
     const disk = storage(t, original, {
-      set: () => { if (failing && failure === 'set rejected') throw Error('set rejected'); },
       save: () => {
         if (!failing) return;
         if (failure === 'save rejected after flush') disk.flush();
@@ -276,8 +276,7 @@ for (const failure of ['set rejected', 'save rejected before flush', 'save rejec
     });
     const hooks = fresh(), first = await mount(t, hooks.recents, true); await settle();
     assert.equal(first.current.status, 'unavailable');
-    if (failure === 'set rejected') assert.deepEqual(disk.cache, original);
-    else assert.deepEqual(disk.cache['recent-files'], { version: 1, files: [recent('/old.md', 'user-content-intro')] });
+    assert.deepEqual(disk.cache['recent-files'], { version: 1, files: [recent('/old.md', 'user-content-intro')] });
     if (failure === 'save rejected after flush') assert.equal(disk.durable()['recent-files'].version, 1);
     else assert.deepEqual(disk.durable(), original);
     const attempts = disk.writes.length;
@@ -287,7 +286,7 @@ for (const failure of ['set rejected', 'save rejected before flush', 'save rejec
     assert.equal(remount.current.status, 'unavailable', 'failed preparation stays failed for this process');
     assert.equal(disk.writes.length, attempts);
     if (failure === 'later unrelated flush') {
-      // An ordinary settings save flushes the entire plugin cache.
+      // An ordinary settings write persists the entire native cache.
       await require('../.tmp/workspace-tests/src/lib/store.js').storeSet('theme', 'light');
     }
     await remount.unmount(); disk.restart();

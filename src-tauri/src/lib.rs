@@ -17,6 +17,7 @@ mod images;
 mod native_lifecycle;
 mod navigation;
 mod printing;
+mod settings;
 #[cfg(test)]
 mod test_support;
 mod workspace;
@@ -109,11 +110,11 @@ pub fn run() {
             },
         )
         .plugin(navigation::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::clone(&pending_open_path))
         .manage(images::AuthorizedDocument::default())
+        .manage(settings::Settings::default())
         .invoke_handler(tauri::generate_handler![
             annotations::initialize_annotation_storage,
             annotations::load_annotations,
@@ -121,6 +122,8 @@ pub fn run() {
             annotations::check_copy_destination,
             annotations::export_annotation_recovery,
             annotations::read_annotation_recovery,
+            settings::get_setting,
+            settings::set_setting,
             printing::print_current_webview,
             read_markdown_file,
             open_markdown_file,

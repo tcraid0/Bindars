@@ -14,10 +14,10 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::atomic_write::sync_directory;
+use crate::atomic_write::{preserve_access_metadata, sync_directory};
 use crate::document_io::{
     conditional_write_result, is_markdown_path, read_bounded_file, revision_from_bytes,
-    written_file_revision, ConditionalWriteResult, FileRevision, NewMarkdownFile,
+    ConditionalWriteResult, FileRevision, NewMarkdownFile,
 };
 use crate::file_errors::{
     NativeFileError, NativeFileErrorCategory as Category, NativeFileOperation as Op,
@@ -54,9 +54,11 @@ fn located_directory(dir: &File) -> Option<PathBuf> {
     }
 }
 
+/// Before publication, a folder that is not the one the document was opened
+/// from, or not the one this save started in, leaves the file untouched.
 fn folder_changed_before_replace() -> NativeFileError {
     NativeFileError::destination_changed(
-        "The document's folder changed during saving, before the file was replaced. Reopen the document, or use Save As to keep your edits.",
+        "The document's folder changed, so the file was not replaced. Reopen the document, or use Save As to keep your edits.",
     )
 }
 
@@ -251,6 +253,13 @@ fn open_document(parent: &File, path: &Path) -> Result<File, NativeFileError> {
     Ok(file)
 }
 
+/// The displaced name does not exist after a reported exchange: macOS FAT
+/// performs a plain replace instead, so there is nothing to retain. Any
+/// failure after the name opened is not this case.
+fn displaced_name_missing(error: &NativeFileError) -> bool {
+    error.category == Category::NotFound && error.operation == Op::ResolveDocument
+}
+
 pub(crate) fn write_document(
     path: &Path,
     content: &str,
@@ -346,13 +355,29 @@ fn write_document_using(
         ));
     }
     let parent = open_parent(path)?;
+    let parent_metadata = parent
+        .metadata()
+        .map_err(|e| NativeFileError::from_io(Op::InspectWriteParent, path, e))?;
     let name = path.file_name().ok_or_else(changed_location)?;
-    let (checked, permissions) = match mode {
+    // The folder the document was opened from is part of its identity. A folder
+    // substituted since then is not it, whether it holds a matching file (never
+    // a conflict the editor could retry) or no file at all (never a forced
+    // creation there).
+    if let WriteMode::Save {
+        expected: Some(expected),
+        ..
+    } = &mode
+    {
+        if !expected.same_folder(&parent_metadata) {
+            return Err(folder_changed_before_replace());
+        }
+    }
+    let (checked, source) = match mode {
         WriteMode::CreateNew => (None, None),
         WriteMode::Save { expected, force } => match open_document(&parent, path) {
             Ok(file) => {
-                let (bytes, metadata) = read_bounded_file(path, file, Op::CheckRevision)?;
-                let revision = revision_from_bytes(&metadata, &bytes);
+                let (bytes, metadata) = read_bounded_file(path, &file, Op::CheckRevision)?;
+                let revision = revision_from_bytes(&metadata, &parent_metadata, &bytes);
                 if !force {
                     let expected = expected.ok_or_else(|| {
                         NativeFileError::invalid(
@@ -364,7 +389,8 @@ fn write_document_using(
                         return Ok(conditional_write_result(path, true, revision));
                     }
                 }
-                (Some(revision), Some(metadata.permissions()))
+                // The handle stays open: the staged file takes its metadata below.
+                (Some(revision), Some((file, metadata.permissions())))
             }
             Err(e)
                 if force && e.category == crate::file_errors::NativeFileErrorCategory::NotFound =>
@@ -386,9 +412,9 @@ fn write_document_using(
     );
     let temp_name = format!(".bindars-save-{unique}");
     let temp = OsStr::new(&temp_name);
-    let mode_bits = permissions
+    let mode_bits = source
         .as_ref()
-        .map(|p| p.mode() & 0o777)
+        .map(|(_, p)| p.mode() & 0o777)
         .unwrap_or(0o666);
     let mut staged = open_at(
         &parent,
@@ -401,10 +427,9 @@ fn write_document_using(
         staged
             .write_all(content.as_bytes())
             .map_err(|e| NativeFileError::from_io(Op::WriteTemporaryFile, path, e))?;
-        if let Some(p) = permissions {
-            staged
-                .set_permissions(p)
-                .map_err(|e| NativeFileError::from_io(Op::PreservePermissions, path, e))?;
+        if let Some((document, permissions)) = &source {
+            preserve_access_metadata(document, permissions, &staged)
+                .map_err(|e| NativeFileError::metadata_not_preserved(path, e))?;
         }
         staged
             .sync_all()
@@ -412,9 +437,16 @@ fn write_document_using(
         let metadata = staged
             .metadata()
             .map_err(|e| NativeFileError::from_io(Op::InspectSavedDocument, path, e))?;
-        Ok::<_, NativeFileError>(written_file_revision(&metadata, content))
+        // Size and hash describe exactly the bytes Bindars wrote, never bytes
+        // another writer may put at this name before the next save checks it.
+        Ok::<_, NativeFileError>(revision_from_bytes(
+            &metadata,
+            &parent_metadata,
+            content.as_bytes(),
+        ))
     })();
     drop(staged);
+    drop(source);
     let mut saved_revision = match prepare {
         Ok(revision) => revision,
         Err(e) => {
@@ -446,7 +478,11 @@ fn write_document_using(
                     at_stage(SaveStage::Created);
                     created.write_all(content.as_bytes())?;
                     created.sync_all()?;
-                    Ok(written_file_revision(&created.metadata()?, content))
+                    Ok(revision_from_bytes(
+                        &created.metadata()?,
+                        &parent_metadata,
+                        content.as_bytes(),
+                    ))
                 })
                 .map(|revision| {
                     saved_revision = revision;
@@ -468,9 +504,11 @@ fn write_document_using(
     at_stage(SaveStage::Exchanged);
     let mut result = conditional_write_result(path, false, saved_revision);
     if let Some(checked) = checked.filter(|_| exchanged) {
-        let displaced = open_document(&parent, &path.with_file_name(temp))
-            .and_then(|file| read_bounded_file(path, file, Op::CheckRevision))
-            .map(|(bytes, metadata)| revision_from_bytes(&metadata, &bytes));
+        let displaced = open_document(&parent, &path.with_file_name(temp));
+        let replaced = displaced.as_ref().is_err_and(displaced_name_missing);
+        let displaced = displaced
+            .and_then(|file| read_bounded_file(path, &file, Op::CheckRevision))
+            .map(|(bytes, metadata)| revision_from_bytes(&metadata, &parent_metadata, &bytes));
         // Once exchanged, never roll back over a possible third writer. Retain
         // the displaced entry when the bytes observed here differ or cannot be
         // read. A write that completes after this read and before the unlink,
@@ -479,7 +517,7 @@ fn write_document_using(
         let matches = displaced.as_ref().is_ok_and(|revision| {
             revision.size == checked.size && revision.content_hash == checked.content_hash
         });
-        if !matches || remove_at(&parent, temp).is_err() {
+        if !replaced && (!matches || remove_at(&parent, temp).is_err()) {
             let recovery_name = format!(
                 "Bindars recovered {unique}.{}",
                 path.extension()
@@ -515,6 +553,7 @@ fn write_document_using(
 mod tests {
     use super::*;
     use crate::document_io::open_markdown_file_impl;
+    use crate::test_support::temp_leftovers;
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::sync::{Arc, Barrier};
@@ -818,6 +857,74 @@ mod tests {
             },
             unsupported_rename,
         )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+        assert!(result.recovery_path.is_none());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exchange_that_replaced_in_place_reports_no_recovery_copy() {
+        // macOS FAT accepts the exchange flag but performs a plain replace.
+        let (root, path, revision) = fixture("fat-exchange");
+        let result = write_document_using(
+            &path,
+            "local",
+            WriteMode::Save {
+                expected: Some(&revision),
+                force: false,
+            },
+            |_| {},
+            |parent, from, to, exchange| {
+                if exchange {
+                    replace_at(parent, from, to)
+                } else {
+                    rename_at(parent, from, to, false)
+                }
+            },
+        )
+        .unwrap();
+        assert!(!result.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+        assert!(result.recovery_path.is_none());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_missing_displaced_name_counts_as_a_plain_replace() {
+        let path = Path::new("/tmp/document.md");
+        let not_found = || io::Error::from(io::ErrorKind::NotFound);
+        assert!(displaced_name_missing(&NativeFileError::from_io(
+            Op::ResolveDocument,
+            path,
+            not_found()
+        )));
+        for operation in [Op::InspectWriteTarget, Op::CheckRevision] {
+            assert!(!displaced_name_missing(&NativeFileError::from_io(
+                operation,
+                path,
+                not_found()
+            )));
+        }
+        assert!(!displaced_name_missing(&NativeFileError::from_io(
+            Op::ResolveDocument,
+            path,
+            io::Error::from(io::ErrorKind::PermissionDenied)
+        )));
+    }
+
+    #[test]
+    fn displaced_entry_removed_after_exchange_is_an_ordinary_save() {
+        // Indistinguishable from the FAT case above: the displaced name is gone,
+        // so nothing is retained and nothing is reported.
+        let (root, path, revision) = fixture("displaced-removed");
+        let result = write_document_with(&path, "local", Some(&revision), false, |stage| {
+            if stage == SaveStage::Exchanged {
+                fs::remove_file(&temp_leftovers(&root)[0]).unwrap();
+            }
+        })
         .unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "local");
         assert!(result.recovery_path.is_none());
@@ -1235,6 +1342,291 @@ mod tests {
             fs::remove_dir_all(moved).unwrap();
             fs::remove_dir_all(other).unwrap();
         }
+    }
+
+    /// Moves the opened folder away and puts a real directory holding an
+    /// identical file at the old pathname. With `same_mtime` the replacement
+    /// also carries the original timestamp, so only folder identity differs.
+    fn substitute_folder(root: &Path, path: &Path, same_mtime: bool) -> PathBuf {
+        let modified = fs::metadata(path).unwrap().modified().unwrap();
+        let moved = root.with_extension("moved");
+        fs::rename(root, &moved).unwrap();
+        fs::create_dir(root).unwrap();
+        fs::write(path, "original").unwrap();
+        let replacement_modified = if same_mtime {
+            modified
+        } else {
+            modified + std::time::Duration::from_secs(5)
+        };
+        set_modified(path, replacement_modified);
+        moved
+    }
+
+    fn set_modified(path: &Path, modified: SystemTime) {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+    }
+
+    #[test]
+    fn a_folder_substituted_since_opening_is_refused_even_with_matching_bytes_and_time() {
+        for (same_mtime, force) in [(true, false), (false, false), (true, true)] {
+            let (root, path, revision) = fixture("folder-substituted");
+            let moved = substitute_folder(&root, &path, same_mtime);
+
+            let error = write_document(&path, "local edits", Some(&revision), force)
+                .expect_err("a substituted folder must not receive the edits");
+
+            // Never a conflict: the editor retries equal-content conflicts.
+            assert_eq!(error.detail, "destination-changed");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+            assert_eq!(
+                fs::read_to_string(moved.join("document.md")).unwrap(),
+                "original"
+            );
+            assert!(temp_leftovers(&root).is_empty());
+            fs::remove_dir_all(root).unwrap();
+            fs::remove_dir_all(moved).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_forced_save_never_creates_the_document_in_a_substituted_folder() {
+        // Overwrite after a conflict, with the folder swapped for one that does
+        // not hold the file: the missing-file creation path must not run there.
+        let (root, path, revision) = fixture("folder-substituted-empty");
+        let moved = substitute_folder(&root, &path, true);
+        fs::remove_file(&path).unwrap();
+
+        let error = write_document(&path, "local edits", Some(&revision), true)
+            .expect_err("a substituted folder must not receive a forced creation");
+
+        assert_eq!(error.detail, "destination-changed");
+        assert!(
+            !path.exists(),
+            "nothing may be created in the replacement folder"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_to_string(moved.join("document.md")).unwrap(),
+            "original"
+        );
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_folder_saves_normally_and_keeps_its_identity() {
+        let (root, path, revision) = fixture("folder-unchanged");
+        assert!(revision.folder_id.is_some());
+
+        let saved = write_document(&path, "local edits", Some(&revision), false).unwrap();
+        assert!(!saved.conflict);
+        assert_eq!(saved.current_revision.folder_id, revision.folder_id);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local edits");
+
+        // A touch that keeps the bytes is still the same document in the same
+        // folder: the timestamp conflict carries the same folder identity, so
+        // the editor's equal-content retry with that revision goes through.
+        let saved_at = fs::metadata(&path).unwrap().modified().unwrap();
+        set_modified(&path, saved_at + std::time::Duration::from_secs(5));
+        let touched =
+            write_document(&path, "more edits", Some(&saved.current_revision), false).unwrap();
+        assert!(touched.conflict);
+        assert_eq!(touched.current_revision.folder_id, revision.folder_id);
+        let retried =
+            write_document(&path, "more edits", Some(&touched.current_revision), false).unwrap();
+        assert!(!retried.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "more edits");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_real_directory_substituted_during_the_save_still_hits_the_during_save_checks() {
+        for stage in [SaveStage::Staged, SaveStage::Exchanged] {
+            let (root, path, revision) = fixture("folder-substituted-mid-save");
+            let mut moved = None;
+            let error = write_document_with(&path, "local", Some(&revision), false, |at| {
+                if at == stage {
+                    moved = Some(substitute_folder(&root, &path, true));
+                }
+            })
+            .expect_err("a folder replaced during saving must not be acknowledged");
+            let moved = moved.unwrap();
+
+            assert_eq!(error.detail, "destination-changed");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+            assert_eq!(
+                fs::read_to_string(moved.join("document.md")).unwrap(),
+                if stage == SaveStage::Exchanged {
+                    "local"
+                } else {
+                    "original"
+                }
+            );
+            assert!(temp_leftovers(&root).is_empty());
+            assert!(temp_leftovers(&moved).is_empty());
+            fs::remove_dir_all(root).unwrap();
+            fs::remove_dir_all(moved).unwrap();
+        }
+    }
+
+    #[test]
+    fn save_as_and_copy_establish_the_destination_folder_as_the_new_identity() {
+        let (root, path, revision) = fixture("folder-new-identity");
+        let elsewhere = root.with_extension("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let elsewhere_id = crate::document_io::folder_identity(&fs::metadata(&elsewhere).unwrap());
+        assert_ne!(elsewhere_id, revision.folder_id);
+
+        // Save As: no expected revision, force.
+        let saved_as = write_document(&elsewhere.join("saved-as.md"), "edits", None, true).unwrap();
+        assert_eq!(saved_as.current_revision.folder_id, elsewhere_id);
+        // Make a copy and draft creation: exclusive creation.
+        let NewMarkdownFile::Written(copied) =
+            create_document(&elsewhere.join("copy.md"), "edits").unwrap()
+        else {
+            panic!("copy destination was free");
+        };
+        assert_eq!(copied.current_revision.folder_id, elsewhere_id);
+
+        // The new identity then saves normally there, and the moved-away
+        // original folder is untouched by any of it.
+        let again = write_document(
+            &elsewhere.join("saved-as.md"),
+            "more edits",
+            Some(&saved_as.current_revision),
+            false,
+        )
+        .unwrap();
+        assert!(!again.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(elsewhere).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saves_keep_the_documents_acl_extended_attributes_and_mode() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr, xattr};
+        let (root, path, _) = fixture("keep-access-metadata");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny write");
+        assert!(File::options().write(true).open(&path).is_err());
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        let saved = write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert!(!saved.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert!(
+            acl_text(&path).contains("deny write"),
+            "{}",
+            acl_text(&path)
+        );
+        assert_eq!(xattr(&path).as_deref(), Some("kept"));
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert!(
+            File::options().write(true).open(&path).is_err(),
+            "the ACL must still deny direct writes after the save"
+        );
+        assert!(temp_leftovers(&root).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saves_keep_acl_entries_the_document_inherited_from_a_folder_rule_since_removed() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, remove_acl};
+        let (root, _, _) = fixture("keep-inherited-acl");
+        // An inheritable deny that still lets the file be created and written.
+        add_acl(&root, "everyone deny append,file_inherit");
+        let path = root.join("inherited.md");
+        fs::write(&path, "original").unwrap();
+        remove_acl(&root, "everyone deny append,file_inherit");
+        assert!(
+            acl_text(&path).contains("inherited deny append"),
+            "{}",
+            acl_text(&path)
+        );
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert!(
+            acl_text(&path).contains("inherited deny append"),
+            "{}",
+            acl_text(&path)
+        );
+        assert!(File::options().append(true).open(&path).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saves_do_not_give_the_document_a_folder_grant_it_never_had() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        let (root, path, _) = fixture("no-acl-stays-no-acl");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        // The rule arrives after the document exists, so the document has no
+        // ACL while the staged file would inherit a read grant.
+        add_acl(&root, "everyone allow read,file_inherit");
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        write_document(&path, "save", Some(&revision), false).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "save");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&path).contains("allow read"),
+            "{}",
+            acl_text(&path)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_save_that_cannot_carry_access_metadata_leaves_the_document_unchanged() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
+        let (root, path, _) = fixture("unreadable-access-metadata");
+        set_xattr(&path, "kept");
+        // Reading the attributes is denied, so they cannot be carried over.
+        add_acl(&path, "everyone deny readextattr");
+        let revision = open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .unwrap()
+            .revision;
+
+        let error = write_document(&path, "save", Some(&revision), false)
+            .expect_err("a save that would drop the restriction must fail");
+
+        assert_eq!(error.operation, Op::PreservePermissions);
+        assert!(
+            error.message.contains("left unchanged"),
+            "{}",
+            error.message
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        assert!(acl_text(&path).contains("deny readextattr"));
+        assert!(temp_leftovers(&root).is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -13,7 +13,7 @@ import type {
   EditorSaveResult,
   SaveErrorRecovery,
 } from "../lib/editor-save";
-import { sameFileRevision } from "../lib/document-reconciliation";
+import { sameContent, sameFileRevision, sameFolderIdentity } from "../lib/document-reconciliation";
 import type { ConditionalWriteResult, FileRevision } from "../types";
 
 export type EditorExternalChange = "changed";
@@ -261,6 +261,12 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     return editSession;
   }, []);
 
+  // True while a write started by the current session still holds the save
+  // lock. Leaving then would abandon a write that cannot be cancelled.
+  const saveInFlight = useCallback((): boolean => (
+    savingSessionRef.current !== null && savingSessionRef.current === editSessionRef.current
+  ), []);
+
   const completeWrite = useCallback((
     editSession: number,
     savedBuffer: string,
@@ -429,8 +435,8 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         && expectedRevision !== null
         && result.canonicalPath === filePath
         && result.conflict
-        && result.currentRevision.size === expectedRevision.size
-        && result.currentRevision.contentHash === expectedRevision.contentHash
+        && sameContent(result.currentRevision, expectedRevision)
+        && sameFolderIdentity(result.currentRevision, expectedRevision)
       ) {
         result = await invoke<ConditionalWriteResult>("write_markdown_file_if_unmodified", {
           path: filePath,
@@ -604,6 +610,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     save,
     createDraft,
     saveAs,
+    saveInFlight,
     exitEditMode,
     dismissSaveError,
   };

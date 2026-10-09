@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -26,10 +26,137 @@ pub(crate) fn write_contents_atomic(
     write_contents_atomic_impl(path, content, tmp_prefix, false, read_only_operation)
 }
 
-/// Atomic write for private app data. The temporary file is created owner-only on
-/// Unix so its contents are never group/world readable, even
-/// briefly. Ordinary documents and exports keep an existing destination's Unix
-/// permissions through `write_contents_atomic`.
+/// Gives `staged` the access metadata of `source`, whose mode bits the caller
+/// already captured as `permissions`, before `staged` is published over it.
+/// Preserved everywhere: the mode bits. Preserved on macOS: the whole ACL,
+/// inherited entries included (and its absence), and every extended attribute
+/// (Finder tags and comments, quarantine, resource fork, custom attributes).
+/// Not preserved: owner and group, BSD flags such as locked or hidden, and
+/// timestamps.
+pub(crate) fn preserve_access_metadata(
+    source: &fs::File,
+    permissions: &fs::Permissions,
+    staged: &fs::File,
+) -> io::Result<()> {
+    staged.set_permissions(permissions.clone())?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: both descriptors are open for the whole call. A null state
+        // selects copyfile's defaults; the flag limits the copy to xattrs. The
+        // ACL is copied separately because COPYFILE_ACL silently skips entries
+        // a file inherited from its folder.
+        let result = unsafe {
+            libc::fcopyfile(
+                source.as_raw_fd(),
+                staged.as_raw_fd(),
+                std::ptr::null_mut(),
+                libc::COPYFILE_XATTR,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        copy_acl(source.as_raw_fd(), staged.as_raw_fd())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = source;
+    Ok(())
+}
+
+// sys/acl.h; libc 0.2 has no bindings for these.
+#[cfg(target_os = "macos")]
+type AclT = *mut libc::c_void;
+#[cfg(target_os = "macos")]
+const ACL_TYPE_EXTENDED: u32 = 0x0000_0100;
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn acl_init(count: libc::c_int) -> AclT;
+    fn acl_get_fd_np(fd: libc::c_int, acl_type: u32) -> AclT;
+    fn acl_set_fd_np(fd: libc::c_int, acl: AclT, acl_type: u32) -> libc::c_int;
+    fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
+}
+
+/// The file's ACL, or None when acl_get_fd_np gives null with ENOENT, which
+/// is what a file without an ACL reports, on exFAT and FAT as everywhere.
+/// Any other failure, ENOTSUP included, is an error.
+#[cfg(target_os = "macos")]
+fn read_acl(fd: libc::c_int) -> io::Result<Option<AclT>> {
+    // SAFETY: the descriptor is open; a null result with ENOENT means the file
+    // has no ACL, and any other null is an error.
+    let acl = unsafe { acl_get_fd_np(fd, ACL_TYPE_EXTENDED) };
+    if !acl.is_null() {
+        return Ok(Some(acl));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENOENT) {
+        Ok(None)
+    } else {
+        Err(error)
+    }
+}
+
+/// Gives `staged` exactly the ACL of `source`. A source without an ACL yields
+/// a staged file without one: the staged file was created inside the folder
+/// and may have inherited entries the source never had.
+#[cfg(target_os = "macos")]
+fn copy_acl(source: libc::c_int, staged: libc::c_int) -> io::Result<()> {
+    match read_acl(source)? {
+        Some(acl) => set_acl(staged, acl),
+        None => clear_acl(staged),
+    }
+}
+
+/// Removes every ACL entry from the file, including entries inherited from
+/// its folder at creation. A file without an ACL is left alone: exFAT and FAT
+/// refuse even an empty ACL.
+#[cfg(target_os = "macos")]
+fn clear_acl(fd: libc::c_int) -> io::Result<()> {
+    let Some(existing) = read_acl(fd)? else {
+        return Ok(());
+    };
+    unsafe { acl_free(existing) };
+    // SAFETY: acl_init returns a fresh, empty ACL or null on allocation failure.
+    let empty = unsafe { acl_init(0) };
+    if empty.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    set_acl(fd, empty)
+}
+
+/// Applies `acl` to `fd` and frees it.
+#[cfg(target_os = "macos")]
+fn set_acl(fd: libc::c_int, acl: AclT) -> io::Result<()> {
+    // SAFETY: `acl` came from acl_get_fd_np or acl_init and is freed exactly
+    // once here, whatever the set returned.
+    let set = unsafe { acl_set_fd_np(fd, acl, ACL_TYPE_EXTENDED) };
+    let set_error = (set != 0).then(io::Error::last_os_error);
+    unsafe { acl_free(acl) };
+    set_error.map_or(Ok(()), Err)
+}
+
+/// Makes a freshly created private file readable by its owner alone: mode
+/// 0600, and on macOS no ACL entries inherited from the folder.
+#[cfg(unix)]
+fn make_owner_only(file: &fs::File) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    // The creation mode is filtered by the umask, which can only remove
+    // bits; this normalizes stragglers like 0o400 back to exactly 0o600.
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        clear_acl(file.as_raw_fd())?;
+    }
+    Ok(())
+}
+
+/// Atomic write for private app data. The temporary file is created owner-only
+/// on Unix (mode 0600, and on macOS without ACL entries inherited from the
+/// folder) so its contents are never group/world readable, even briefly, and
+/// it inherits nothing from an existing destination. Ordinary documents and
+/// exports keep an existing destination's Unix permissions and access metadata
+/// through `write_contents_atomic`.
 pub(crate) fn write_contents_atomic_private(
     path: &Path,
     content: &str,
@@ -86,6 +213,50 @@ fn open_atomic_temp_file(
     open_options.open(path)
 }
 
+/// Opens an existing regular file at `path` so its permissions and access
+/// metadata can be carried onto the replacement. `None` when nothing is there
+/// to inherit from. A final symlink is rejected, never followed or replaced.
+#[cfg(unix)]
+fn open_existing_destination(
+    path: &Path,
+    read_only_operation: NativeFileOperation,
+) -> Result<Option<(fs::File, fs::Permissions)>, NativeFileError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    // NONBLOCK keeps a FIFO at the destination from stalling this open.
+    let file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+            return Err(NativeFileError::invalid(
+                NativeFileOperation::InspectWriteTarget,
+                "The destination cannot be a symbolic link.",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(NativeFileError::from_io(
+                NativeFileOperation::InspectWriteTarget,
+                path,
+                error,
+            ));
+        }
+    };
+    let metadata = file.metadata().map_err(|error| {
+        NativeFileError::from_io(NativeFileOperation::InspectWriteTarget, path, error)
+    })?;
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    if metadata.permissions().readonly() {
+        return Err(NativeFileError::read_only(read_only_operation, path));
+    }
+    Ok(Some((file, metadata.permissions())))
+}
+
 fn write_contents_atomic_impl(
     path: &Path,
     content: &str,
@@ -117,47 +288,23 @@ fn write_contents_atomic_impl(
     // destination between inspection and replacement; rename never follows a
     // final-component symlink, so that race cannot redirect the write elsewhere.
     #[cfg(unix)]
-    let existing_permissions = if owner_only {
+    let existing = if owner_only {
         None
     } else {
-        match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(NativeFileError::invalid(
-                    NativeFileOperation::InspectWriteTarget,
-                    "The destination cannot be a symbolic link.",
-                ));
-            }
-            Ok(metadata) if metadata.file_type().is_file() => {
-                if metadata.permissions().readonly() {
-                    return Err(NativeFileError::read_only(read_only_operation, path));
-                }
-                Some(metadata.permissions())
-            }
-            Ok(_) => None,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => {
-                return Err(NativeFileError::from_io(
-                    NativeFileOperation::InspectWriteTarget,
-                    path,
-                    error,
-                ));
-            }
-        }
+        open_existing_destination(path, read_only_operation)?
     };
     #[cfg(not(unix))]
-    let existing_permissions = None::<fs::Permissions>;
+    let existing = None::<(fs::File, fs::Permissions)>;
+    let existing_permissions = existing.as_ref().map(|(_, permissions)| permissions);
 
-    let mut tmp_file = open_atomic_temp_file(&tmp_path, owner_only, existing_permissions.as_ref())
-        .map_err(|error| {
+    let mut tmp_file =
+        open_atomic_temp_file(&tmp_path, owner_only, existing_permissions).map_err(|error| {
             NativeFileError::from_io(NativeFileOperation::CreateTemporaryFile, &tmp_path, error)
         })?;
 
     #[cfg(unix)]
     if owner_only {
-        use std::os::unix::fs::PermissionsExt;
-        // The creation mode is filtered by the umask, which can only remove
-        // bits; this normalizes stragglers like 0o400 back to exactly 0o600.
-        if let Err(e) = tmp_file.set_permissions(fs::Permissions::from_mode(0o600)) {
+        if let Err(e) = make_owner_only(&tmp_file) {
             let _ = fs::remove_file(&tmp_path);
             return Err(NativeFileError::from_io(
                 NativeFileOperation::PreservePermissions,
@@ -171,11 +318,9 @@ fn write_contents_atomic_impl(
         tmp_file.write_all(content.as_bytes()).map_err(|error| {
             NativeFileError::from_io(NativeFileOperation::WriteTemporaryFile, &tmp_path, error)
         })?;
-        #[cfg(unix)]
-        if let Some(permissions) = existing_permissions {
-            tmp_file.set_permissions(permissions).map_err(|error| {
-                NativeFileError::from_io(NativeFileOperation::PreservePermissions, &tmp_path, error)
-            })?;
+        if let Some((source, permissions)) = &existing {
+            preserve_access_metadata(source, permissions, &tmp_file)
+                .map_err(|error| NativeFileError::metadata_not_preserved(path, error))?;
         }
         tmp_file.sync_all().map_err(|error| {
             NativeFileError::from_io(NativeFileOperation::SyncTemporaryFile, &tmp_path, error)
@@ -212,7 +357,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
-    use crate::test_support::unique_temp_dir;
+    use crate::test_support::{temp_leftovers, unique_temp_dir};
 
     #[cfg(unix)]
     #[test]
@@ -242,6 +387,55 @@ mod tests {
         cleanup_dir(&root);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn private_writes_drop_acl_entries_inherited_from_the_folder() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        let root = temp_dir("atomic-private-inherited");
+        fs::create_dir(&root).expect("create fixture root");
+        add_acl(&root, "everyone allow read,file_inherit");
+        let destination = root.join("annotations.json");
+
+        write_contents_atomic_private(&destination, "{}", ".bindars-private-test")
+            .expect("private write creates the destination");
+
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&destination).contains("allow read"),
+            "{}",
+            acl_text(&destination)
+        );
+        cleanup_dir(&root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn private_writes_inherit_no_access_metadata_from_an_existing_destination() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr, xattr};
+        let root = temp_dir("atomic-private-no-inherit");
+        fs::create_dir(&root).expect("create fixture root");
+        let destination = root.join("annotations.json");
+        fs::write(&destination, "{}").expect("write destination");
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o644)).unwrap();
+        set_xattr(&destination, "shared");
+        add_acl(&destination, "everyone deny write");
+
+        write_contents_atomic_private(&destination, "{\"v\":1}", ".bindars-private-test")
+            .expect("private write replaces the destination");
+
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "{\"v\":1}");
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(xattr(&destination), None);
+        assert!(!acl_text(&destination).contains("deny write"));
+        cleanup_dir(&root);
+    }
+
     #[test]
     fn failed_replacement_removes_its_sibling_temporary_file() {
         let root = temp_dir("atomic-replace-cleanup");
@@ -258,17 +452,7 @@ mod tests {
         .expect_err("a file cannot replace an existing directory");
 
         assert_eq!(error.operation, NativeFileOperation::ReplaceFile);
-        let leftovers = fs::read_dir(&root)
-            .expect("list fixture root")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".bindars-cleanup-test")
-            })
-            .count();
-        assert_eq!(leftovers, 0);
+        assert!(temp_leftovers(&root).is_empty());
 
         cleanup_dir(&root);
     }

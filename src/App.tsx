@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
+import { ReadingHint } from "./components/ReadingHint";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { DocumentNotice } from "./components/DocumentNotice";
 import { DOCUMENT_COMPLEXITY_REASON } from "./lib/document-complexity";
@@ -47,6 +48,8 @@ import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSessionRestore } from "./hooks/useSessionRestore";
+import { useReadingHint } from "./hooks/useReadingHint";
+import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
@@ -65,7 +68,7 @@ import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constan
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
 import { adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
-import type { EditorSaveResult } from "./lib/editor-save";
+import type { EditorSaveOutcome, EditorSaveResult, SavedFileSnapshot } from "./lib/editor-save";
 import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
 import type {
@@ -95,7 +98,7 @@ import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
 import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
@@ -140,6 +143,13 @@ interface SaveCurrentEditsOptions {
   saveAs?: boolean;
 }
 
+// A draft that Save As is moving elsewhere, captured before the save so that
+// retirement can refuse once the draft on disk no longer holds these bytes.
+interface RetiringDraft {
+  path: string;
+  revision: FileRevision | null;
+}
+
 function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
 }
@@ -172,6 +182,7 @@ function App() {
     openFile,
     openFilePath,
     openFilePathWithStatus,
+    reportMissingFile,
     setVirtualContent,
     adoptSavedFile,
     adoptReconciledDocument,
@@ -240,6 +251,7 @@ function App() {
   } = useAnnotations(filePath);
 
   const annotationExit = useAnnotationExit(pendingAnnotationRecords, waitForAnnotationSaves, retryAnnotationSave);
+  const { visible: readingHintVisible, dismiss: dismissReadingHint } = useReadingHint();
 
   useEffect(() => {
     let active = true;
@@ -347,8 +359,8 @@ function App() {
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const { visible: visiblePanels, preparePanelChange } = useReaderPanels({
     sidebar: sidebarVisible && !focusMode && !presentationMode,
-    toc: tocVisible && !focusMode && !editing && !presentationMode,
-    notes: annotationsPanelVisible && !focusMode && !editing && !presentationMode,
+    toc: documentOpen && tocVisible && !focusMode && !editing && !presentationMode,
+    notes: documentOpen && annotationsPanelVisible && !focusMode && !editing && !presentationMode,
   }, mainScrollRef);
   const readerFocusRequestRef = useRef<{
     documentKey: string | null;
@@ -548,7 +560,7 @@ function App() {
 
   const saveCurrentEdits = useCallback(async (
     options: SaveCurrentEditsOptions = {},
-  ): Promise<EditorSaveResult> => {
+  ): Promise<EditorSaveOutcome> => {
     const result = filePath && !options.saveAs
       ? await editor.save(filePath, {
         force: options.forceOverwrite ?? false,
@@ -560,19 +572,25 @@ function App() {
     if (adoptsWrittenDestination(result)) {
       editingFilePathRef.current = result.file.canonicalPath;
       adoptSavedFile(result.file);
-      if (result.file.canonicalPath !== filePath && isSuccessfulSave(result.status)) {
-        const path = result.file.canonicalPath;
-        toast(`Saved in ${path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) || path}`, "success");
+      if (result.file.canonicalPath !== filePath) {
+        // Record the destination here, not only from the effect on the
+        // published path: a departure waiting on this save may replace that
+        // path before the effect runs.
+        if (recentFilesStatus === "ready") addRecent(result.file.canonicalPath, result.file.name);
+        if (isSuccessfulSave(result.status)) {
+          const path = result.file.canonicalPath;
+          toast(`Saved in ${path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))) || path}`, "success");
+        }
       }
     }
 
-    return result.status;
-  }, [adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, toast]);
+    return result;
+  }, [addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
-    if (isSuccessfulSave(result)) flashSaved();
-    return result;
+    if (isSuccessfulSave(result.status)) flashSaved();
+    return result.status;
   }, [flashSaved, saveCurrentEdits]);
 
   const editorPersistenceActive = editing
@@ -778,121 +796,163 @@ function App() {
 
   const saveCurrentEditsForSession = useCallback(async (
     options: SaveCurrentEditsOptions = {},
-  ): Promise<EditorSaveResult> => {
+  ): Promise<EditorSaveOutcome> => {
     const sessionKey = editorSessionKeyRef.current;
     const result = await saveCurrentEdits(options);
-    if (!editorSessionIsCurrent(sessionKey)) return "stale";
+    if (!editorSessionIsCurrent(sessionKey)) return { status: "stale" };
     // Flush edits that arrived while the write resolved before a caller
     // treats the saved text as permission to leave.
-    if (result === "saved" && flushAndReadDirty()) return "saved-with-newer-edits";
+    if (result.status === "saved" && flushAndReadDirty()) return { ...result, status: "saved-with-newer-edits" };
     return result;
   }, [editorSessionIsCurrent, flushAndReadDirty, saveCurrentEdits]);
 
-  const retireDraft = useCallback(async (draftPath: string | null) => {
-    const savedPath = getPublishedDocument().filePath;
-    if (!draftPath || !savedPath) return;
+  const retireDraft = useCallback(async (draft: RetiringDraft | null, saved: SavedFileSnapshot) => {
+    if (!draft) return;
+    const name = draft.path.split(/[\\/]/).pop() || draft.path;
     // Annotations belong to the draft's path. Deleting an annotated draft would
     // hide its notes and let the next draft with that name inherit them.
-    if (toPathIdentityKey(draftPath) !== toPathIdentityKey(savedPath)) {
-      const annotations = annotationRecordState(draftPath);
+    if (toPathIdentityKey(draft.path) !== toPathIdentityKey(saved.canonicalPath)) {
+      const annotations = annotationRecordState(draft.path);
       if (annotations !== "empty") {
-        const name = draftPath.split(/[\\/]/).pop() || draftPath;
         toast(annotations === "annotated"
           ? `Your highlights, notes, and bookmarks remain in the kept draft ${name}.`
           : `Bindars kept the draft ${name} because it couldn't confirm whether it has highlights, notes, or bookmarks.`, "info");
         return;
       }
     }
+    if (!draft.revision) {
+      console.warn("[drafts] Kept the old draft because its last-known revision is unavailable:", draft.path);
+      return;
+    }
     try {
-      const removed = await invoke<boolean>("delete_draft_document", { path: draftPath, savedPath });
-      if (removed) removeRecent(draftPath);
+      // The native side retains the draft unless both files still hold the
+      // bytes these revisions describe; a draft changed by another program may
+      // be the only copy of that text.
+      const retirement = await invoke<DraftRetirement>("delete_draft_document", {
+        path: draft.path,
+        savedPath: saved.canonicalPath,
+        draftRevision: draft.revision,
+        savedRevision: saved.revision,
+      });
+      if (retirement === "removed") removeRecent(draft.path);
+      if (retirement === "kept") {
+        toast(`Bindars kept the draft ${name} because it or the new file changed outside Bindars during the save.`, "info");
+      }
     } catch (error) {
       console.warn("[drafts] Saved the document but could not remove its old draft:", error);
     }
-  }, [annotationRecordState, getPublishedDocument, removeRecent, toast]);
+  }, [annotationRecordState, removeRecent, toast]);
 
-  const handleSave = useCallback(async () => {
-    if (actionAdmissionOwnerRef.current !== null) return;
-    let draftPath = currentFileIsDraftRef.current ? filePath : null;
-    const sessionKey = editorSessionKeyRef.current;
-    try {
-      const pendingIssue = await cancelAutosaveAndWait();
-      // Waiting on the autosave can outlast this session (undo to clean, open
-      // another file, start editing it). This closure's file path belongs to
-      // the old session, so a superseded Save must not run against it.
-      if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
-      const pathAfterAutosave = getPublishedDocument().filePath;
-      if (filePath && pathAfterAutosave !== filePath) return;
-      // Handle pending classification, the first draft published before its
-      // effect ran, or an already resolved flag. Ordinary saves reuse the
-      // existing classification; only the first-draft gap needs a new lookup.
-      if (pathAfterAutosave && !draftPath) {
-        const classification = draftClassificationRef.current;
-        if (classification?.path === pathAfterAutosave) {
-          if (await classification.promise) draftPath = pathAfterAutosave;
-        } else if (!filePath) {
-          // Autosave may publish the first draft before its classification effect runs.
-          try {
-            if (await invoke<boolean>("is_draft_document", { path: pathAfterAutosave })) {
-              draftPath = pathAfterAutosave;
-            }
-          } catch {
-            // A failed lookup keeps the ordinary save behavior available.
-          }
-        } else if (currentFilePathRef.current === pathAfterAutosave && currentFileIsDraftRef.current) {
-          draftPath = pathAfterAutosave;
-        }
+  // Every manual save runs through here so a departure can wait until the save
+  // has recorded its outcome. Overlapping saves join rather than replace: a
+  // later Save that finishes first (clean buffer, or refused by the write lock)
+  // must not release the wait for an earlier save still writing. Autosaves are
+  // joined through the coordinator.
+  const manualSaveRef = useRef<Promise<void> | null>(null);
+  const runManualSave = useCallback(async (operation: () => Promise<void>) => {
+    const run = operation();
+    const settled = Promise.all([manualSaveRef.current, run.then(() => undefined, () => undefined)])
+      .then(() => undefined);
+    manualSaveRef.current = settled;
+    void settled.then(() => {
+      if (manualSaveRef.current === settled) manualSaveRef.current = null;
+    });
+    await run;
+  }, []);
+
+  // Shared tail of Save and Save As: record the outcome, report it, then retire
+  // a draft the save moved elsewhere. A failed Save As away from a draft must
+  // not pause the draft's own autosave; a failure writing the active document does.
+  const finishManualSave = useCallback(async (result: EditorSaveOutcome, draft: RetiringDraft | null) => {
+    const failedDraftSaveAs = draft !== null && (result.status === "error" || result.status === "conflict");
+    if (!failedDraftSaveAs) recordSaveResult(result.status);
+    if (result.status === "conflict" && !failedDraftSaveAs) openConflictDialog("stay-editing");
+    if (!adoptsWrittenDestination(result)) return;
+    if (isSuccessfulSave(result.status)) flashSaved();
+    await retireDraft(draft, result.file);
+  }, [flashSaved, openConflictDialog, recordSaveResult, retireDraft]);
+
+  // The draft as Bindars last read or wrote it. Captured after autosave has
+  // settled and before Save As moves the editor to its destination.
+  const retiringDraft = useCallback((draftPath: string | null): RetiringDraft | null => (
+    draftPath ? { path: draftPath, revision: getPublishedDocument().fileRevision } : null
+  ), [getPublishedDocument]);
+
+  const handleSave = useCallback(() => {
+    // A save decision dialog owns the next save; starting another write under
+    // it would leave its Save button nothing to do but cancel.
+    if (
+      actionAdmissionOwnerRef.current !== null
+      || showConfirmDialogRef.current
+      || showConflictDialogRef.current
+    ) return;
+    return runManualSave(async () => {
+      let draftPath = currentFileIsDraftRef.current ? filePath : null;
+      const sessionKey = editorSessionKeyRef.current;
+      try {
+        const pendingIssue = await cancelAutosaveAndWait();
+        // Waiting on the autosave can outlast this session (undo to clean, open
+        // another file, start editing it). This closure's file path belongs to
+        // the old session, so a superseded Save must not run against it.
         if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
-        if (getPublishedDocument().filePath !== pathAfterAutosave) return;
-      }
-      if (pendingIssue?.kind === "conflict") {
-        openConflictDialog("stay-editing");
-        return;
-      }
-      clearAutosaveIssue();
-      if (filePath && !draftPath && !flushAndReadDirty()) {
-        flashSaved();
-        return;
-      }
-
-      const result = await saveCurrentEditsForSession({ saveAs: draftPath !== null });
-      const failedDraftSaveAs = draftPath !== null && (result === "error" || result === "conflict");
-      if (!failedDraftSaveAs) recordSaveResult(result);
-      if (result === "conflict" && !failedDraftSaveAs) {
-        openConflictDialog("stay-editing");
-      }
-      if (result !== "saved-with-recovery" && !isSuccessfulSave(result)) return;
-      if (isSuccessfulSave(result)) {
+        const pathAfterAutosave = getPublishedDocument().filePath;
+        if (filePath && pathAfterAutosave !== filePath) return;
+        // Handle pending classification, the first draft published before its
+        // effect ran, or an already resolved flag. Ordinary saves reuse the
+        // existing classification; only the first-draft gap needs a new lookup.
+        if (pathAfterAutosave && !draftPath) {
+          const classification = draftClassificationRef.current;
+          if (classification?.path === pathAfterAutosave) {
+            if (await classification.promise) draftPath = pathAfterAutosave;
+          } else if (!filePath) {
+            // Autosave may publish the first draft before its classification effect runs.
+            try {
+              if (await invoke<boolean>("is_draft_document", { path: pathAfterAutosave })) {
+                draftPath = pathAfterAutosave;
+              }
+            } catch {
+              // A failed lookup keeps the ordinary save behavior available.
+            }
+          } else if (currentFilePathRef.current === pathAfterAutosave && currentFileIsDraftRef.current) {
+            draftPath = pathAfterAutosave;
+          }
+          if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
+          if (getPublishedDocument().filePath !== pathAfterAutosave) return;
+        }
+        if (pendingIssue?.kind === "conflict") {
+          openConflictDialog("stay-editing");
+          return;
+        }
         clearAutosaveIssue();
-        flashSaved();
-      }
-      await retireDraft(draftPath);
-    } finally {
-      rearmAutosave();
-    }
-  }, [cancelAutosaveAndWait, clearAutosaveIssue, editorSessionIsCurrent, filePath, flashSaved, flushAndReadDirty, getPublishedDocument, openConflictDialog, rearmAutosave, recordSaveResult, retireDraft, saveCurrentEditsForSession]);
+        if (filePath && !draftPath && !flushAndReadDirty()) {
+          flashSaved();
+          return;
+        }
 
-  const handleSaveAsAfterError = useCallback(async () => {
+        const draft = retiringDraft(draftPath);
+        await finishManualSave(await saveCurrentEditsForSession({ saveAs: draft !== null }), draft);
+      } finally {
+        rearmAutosave();
+      }
+    });
+  }, [cancelAutosaveAndWait, clearAutosaveIssue, editorSessionIsCurrent, filePath, finishManualSave, flashSaved, flushAndReadDirty, getPublishedDocument, openConflictDialog, rearmAutosave, retiringDraft, runManualSave, saveCurrentEditsForSession]);
+
+  const handleSaveAsAfterError = useCallback(() => {
     if (actionAdmissionOwnerRef.current !== null) return;
-    const draftPath = currentFileIsDraftRef.current ? filePath : null;
-    const sessionKey = editorSessionKeyRef.current;
-    try {
-      await cancelAutosaveAndWait();
-      if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
+    return runManualSave(async () => {
+      const draftPath = currentFileIsDraftRef.current ? filePath : null;
+      const sessionKey = editorSessionKeyRef.current;
+      try {
+        await cancelAutosaveAndWait();
+        if (!editorSessionIsCurrent(sessionKey) || actionAdmissionOwnerRef.current !== null) return;
 
-      const result = await saveCurrentEditsForSession({ saveAs: true });
-      const failedDraftSaveAs = draftPath !== null && (result === "error" || result === "conflict");
-      if (!failedDraftSaveAs) recordSaveResult(result);
-      if (result !== "saved-with-recovery" && !isSuccessfulSave(result)) return;
-      if (isSuccessfulSave(result)) {
-        clearAutosaveIssue();
-        flashSaved();
+        const draft = retiringDraft(draftPath);
+        await finishManualSave(await saveCurrentEditsForSession({ saveAs: true }), draft);
+      } finally {
+        rearmAutosave();
       }
-      await retireDraft(draftPath);
-    } finally {
-      rearmAutosave();
-    }
-  }, [cancelAutosaveAndWait, clearAutosaveIssue, editorSessionIsCurrent, filePath, flashSaved, rearmAutosave, recordSaveResult, retireDraft, saveCurrentEditsForSession]);
+    });
+  }, [cancelAutosaveAndWait, editorSessionIsCurrent, filePath, finishManualSave, rearmAutosave, retiringDraft, runManualSave, saveCurrentEditsForSession]);
 
   const beginEditSession = useCallback((
     initialContent: string,
@@ -1091,18 +1151,46 @@ function App() {
   const flushBeforeContinuation = useCallback(async () => {
     if (boundaryFlushInFlightRef.current) return;
     boundaryFlushInFlightRef.current = true;
+    const sessionKey = editorSessionKeyRef.current;
+    const pending = pendingActionRef.current;
     try {
-      const result = await flushAutosave();
-      if (!editingRef.current) {
-        resolvePendingAction();
+      // Saves that began before or during this departure must finish first: a
+      // manual save until it has recorded its outcome, an autosave by joining
+      // it in flushAutosave. Leaving Edit takes no admission, so a Save pressed
+      // while the autosave is joined can register meanwhile and starts another
+      // round; admitted departures already refuse Save. Only after every write
+      // has rebased the dirty comparison can the live buffer say whether
+      // anything is still unsaved.
+      let result: EditorSaveResult | null;
+      do {
+        while (manualSaveRef.current) await manualSaveRef.current;
+        // A dialog's Save that settled meanwhile owns what happens next: it ran
+        // or cancelled this departure, or asked its own question.
+        if (pendingActionRef.current !== pending) return;
+        if (showConflictDialogRef.current) {
+          openConflictDialog("continue");
+          return;
+        }
+        if (showConfirmDialogRef.current) {
+          openSaveConfirmation("continue");
+          return;
+        }
+        result = await flushAutosave();
+      } while (manualSaveRef.current);
+      if (!editorSessionIsCurrent(sessionKey)) {
+        // The session ended while waiting. A Save continuation may already have
+        // run the pending action; one still pending must not run over a newer
+        // session, which wins as it does for a stale close or quit.
+        if (editingRef.current) cancelPendingAction();
+        else resolvePendingAction();
         return;
       }
       if (result === "conflict") {
         openConflictDialog("continue");
         return;
       }
-      if (result && isSuccessfulSave(result) && !flushAndReadDirty()) {
-        flashSaved();
+      if (!flushAndReadDirty()) {
+        if (result && isSuccessfulSave(result)) flashSaved();
         continueAfterSuccessfulSave("continue");
         return;
       }
@@ -1114,12 +1202,20 @@ function App() {
     } finally {
       boundaryFlushInFlightRef.current = false;
     }
-  }, [cancelPendingAction, continueAfterSuccessfulSave, flashSaved, flushAndReadDirty, flushAutosave, openConflictDialog, openSaveConfirmation, resolvePendingAction, toast]);
+  }, [cancelPendingAction, continueAfterSuccessfulSave, editorSessionIsCurrent, flashSaved, flushAndReadDirty, flushAutosave, openConflictDialog, openSaveConfirmation, resolvePendingAction, toast]);
   // The native close listener is registered once; this mirror keeps its async
   // autosave boundary pointed at the current session and save callbacks.
   flushBeforeContinuationRef.current = () => {
     void flushBeforeContinuation();
   };
+
+  // The one departure rule: leaving is immediate only when the live buffer is
+  // clean and no save for this session is still running. Everything else goes
+  // through flushBeforeContinuation, which waits, flushes, and decides.
+  const departureNeedsSettlement = useCallback(
+    () => flushAndReadDirty() || editor.saveInFlight() || manualSaveRef.current !== null,
+    [editor.saveInFlight, flushAndReadDirty],
+  );
 
   const guardedExitEditMode = useCallback(() => {
     if (
@@ -1127,12 +1223,12 @@ function App() {
       || actionAdmissionOwnerRef.current !== null
       || boundaryFlushInFlightRef.current
     ) return;
-    if (!flushAndReadDirty()) {
+    if (!departureNeedsSettlement()) {
       exitEditMode("clean");
       return;
     }
     void flushBeforeContinuation();
-  }, [editing, exitEditMode, flushAndReadDirty, flushBeforeContinuation]);
+  }, [departureNeedsSettlement, editing, exitEditMode, flushBeforeContinuation]);
 
   const toggleEditMode = useCallback(() => {
     if (isPrintInvoked()) return;
@@ -1161,7 +1257,7 @@ function App() {
     }
     const decision = decideEditNavigation({
       editing: editingRef.current,
-      dirty: flushAndReadDirty(),
+      dirty: departureNeedsSettlement(),
       confirmDialogOpen: showConfirmDialogRef.current,
       conflictDialogOpen: showConflictDialogRef.current,
     });
@@ -1190,7 +1286,7 @@ function App() {
     pendingActionRef.current = admitted;
     void flushBeforeContinuation();
     return "accepted";
-  }, [beginActionAdmission, executeAdmittedAction, flushAndReadDirty, presentationMode, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
+  }, [beginActionAdmission, departureNeedsSettlement, executeAdmittedAction, presentationMode, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
   // The native close and quit listeners are registered once; these mirrors
   // keep them pointed at the current guard admission.
   const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
@@ -1204,34 +1300,36 @@ function App() {
     discardEditsAndContinue();
   }, [discardEditsAndContinue]);
 
-  const handleConfirmSave = useCallback(async () => {
+  const handleConfirmSave = useCallback(() => {
     const continuation = saveContinuationRef.current;
     if (!continuation) return;
     setShowConfirmDialog(false);
     showConfirmDialogRef.current = false;
 
-    clearAutosaveIssue();
-    const result = await saveCurrentEditsForSession();
-    if (result === "stale" || saveContinuationRef.current !== continuation) return;
-    recordSaveResult(result);
-    const continuationDecision = decideSaveContinuation(result);
-    if (continuationDecision === "continue") {
-      flashSaved();
-      continueAfterSuccessfulSave(continuation.intent);
-      return;
-    }
-    if (continuationDecision === "reconfirm") {
-      flashSaved();
-      openSaveConfirmation(continuation.intent);
-      return;
-    }
-    if (result === "conflict") {
-      openConflictDialog(continuation.intent);
-      return;
-    }
-    saveContinuationRef.current = null;
-    cancelPendingAction();
-  }, [cancelPendingAction, clearAutosaveIssue, recordSaveResult, saveCurrentEditsForSession, flashSaved, continueAfterSuccessfulSave, openConflictDialog, openSaveConfirmation]);
+    return runManualSave(async () => {
+      clearAutosaveIssue();
+      const { status } = await saveCurrentEditsForSession();
+      if (status === "stale" || saveContinuationRef.current !== continuation) return;
+      recordSaveResult(status);
+      const continuationDecision = decideSaveContinuation(status);
+      if (continuationDecision === "continue") {
+        flashSaved();
+        continueAfterSuccessfulSave(continuation.intent);
+        return;
+      }
+      if (continuationDecision === "reconfirm") {
+        flashSaved();
+        openSaveConfirmation(continuation.intent);
+        return;
+      }
+      if (status === "conflict") {
+        openConflictDialog(continuation.intent);
+        return;
+      }
+      saveContinuationRef.current = null;
+      cancelPendingAction();
+    });
+  }, [cancelPendingAction, clearAutosaveIssue, recordSaveResult, runManualSave, saveCurrentEditsForSession, flashSaved, continueAfterSuccessfulSave, openConflictDialog, openSaveConfirmation]);
 
   const handleConfirmCancel = useCallback(() => {
     setShowConfirmDialog(false);
@@ -1240,25 +1338,27 @@ function App() {
     cancelPendingAction();
   }, [cancelPendingAction]);
 
-  const handleConflictOverwrite = useCallback(async () => {
+  const handleConflictOverwrite = useCallback(() => {
     const continuation = saveContinuationRef.current;
     if (!continuation) return;
-    clearAutosaveIssue();
-    const result = await saveCurrentEditsForSession({ forceOverwrite: true });
-    if (result === "stale" || saveContinuationRef.current !== continuation) return;
-    recordSaveResult(result);
-    const continuationDecision = decideSaveContinuation(result);
-    if (continuationDecision === "stop") return;
+    return runManualSave(async () => {
+      clearAutosaveIssue();
+      const { status } = await saveCurrentEditsForSession({ forceOverwrite: true });
+      if (status === "stale" || saveContinuationRef.current !== continuation) return;
+      recordSaveResult(status);
+      const continuationDecision = decideSaveContinuation(status);
+      if (continuationDecision === "stop") return;
 
-    setShowConflictDialog(false);
-    showConflictDialogRef.current = false;
-    flashSaved();
-    if (continuationDecision === "reconfirm") {
-      openSaveConfirmation(continuation.intent);
-      return;
-    }
-    continueAfterSuccessfulSave(continuation.intent);
-  }, [clearAutosaveIssue, recordSaveResult, saveCurrentEditsForSession, flashSaved, continueAfterSuccessfulSave, openSaveConfirmation]);
+      setShowConflictDialog(false);
+      showConflictDialogRef.current = false;
+      flashSaved();
+      if (continuationDecision === "reconfirm") {
+        openSaveConfirmation(continuation.intent);
+        return;
+      }
+      continueAfterSuccessfulSave(continuation.intent);
+    });
+  }, [clearAutosaveIssue, recordSaveResult, runManualSave, saveCurrentEditsForSession, flashSaved, continueAfterSuccessfulSave, openSaveConfirmation]);
 
   const handleConflictReload = useCallback(async () => {
     // "Reload" resolves conflict by discarding local edits and reading file content from disk.
@@ -1613,26 +1713,29 @@ function App() {
 
   // Session restore: reopen last file + scroll position on startup
   const handleSessionRestore = useCallback(
-    async (session: { filePath: string; headingId: string | null }) => {
+    async (session: { filePath: string; headingId: string | null }, knownMissing: boolean) => {
       // Settings can arrive after a newer document action has already finished or
       // been cancelled. Startup restoration only owns the untouched launch;
       // the open hook handles supersession once the restoration read starts.
       if (startupRestoreSupersededRef.current) return;
-      const result = await openPathAndScroll(
-        session.filePath,
-        session.headingId,
-        { kind: "restore-session", path: session.filePath, headingId: session.headingId },
-      );
-      if (result.status === "failed" && result.error.category !== "resource-unavailable") {
-        dismissError(result.errorOwnerToken);
+      const retryAction = { kind: "restore-session", path: session.filePath, headingId: session.headingId } as const;
+      if (knownMissing) {
+        reportMissingFile(session.filePath, retryAction);
+        return;
+      }
+      const result = await openPathAndScroll(session.filePath, session.headingId, retryAction);
+      if (result.status === "failed" && result.error.category === "not-found") {
+        return "not-found" as const;
       }
     },
-    [openPathAndScroll, dismissError],
+    [openPathAndScroll, reportMissingFile],
   );
 
   const {
     restored: sessionRestored,
+    forgetUnavailableSession,
     notifyPositionChanged: notifySessionPositionChanged,
+    flushCurrentSession,
   } = useSessionRestore({
     filePath,
     getActiveHeadingId,
@@ -1839,18 +1942,19 @@ function App() {
 
   // Annotations: highlight handler
   const handleHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, headingId: string | null) => {
-    addHighlight(anchor, color, headingId);
-  }, [addHighlight]);
+    if (addHighlight(anchor, color, headingId)) dismissReadingHint();
+  }, [addHighlight, dismissReadingHint]);
 
   const handleNote = useCallback((anchor: TextAnchor, headingId: string | null) => {
     const id = addHighlight(anchor, "yellow", headingId);
     if (!id) return;
+    dismissReadingHint();
     pendingNoteScrollRef.current = { id, path: filePath, content };
     startNoteRef.current?.(id);
     preparePanelChange("notes", true);
     setAnnotationsPanelVisible(true);
     setFocusMode(false);
-  }, [addHighlight, filePath, content, preparePanelChange]);
+  }, [addHighlight, filePath, content, preparePanelChange, dismissReadingHint]);
 
   // Repaint for document identity changes, even when another file has identical text.
   useEffect(() => {
@@ -2056,10 +2160,11 @@ function App() {
   }, [visiblePanels.sidebar, preparePanelChange]);
 
   const toggleToc = useCallback(() => {
+    if (!documentOpen) return;
     const next = !visiblePanels.toc;
     preparePanelChange("toc", next);
     setTocVisible(next);
-  }, [visiblePanels.toc, preparePanelChange]);
+  }, [documentOpen, visiblePanels.toc, preparePanelChange]);
 
   const toggleReaderControls = useCallback(() => {
     setReaderControlsVisible((v) => !v);
@@ -2070,11 +2175,12 @@ function App() {
   }, []);
 
   const toggleAnnotationsPanel = useCallback(() => {
+    if (!documentOpen) return;
     pendingNoteScrollRef.current = null;
     const next = !visiblePanels.notes;
     preparePanelChange("notes", next);
     setAnnotationsPanelVisible(next);
-  }, [visiblePanels.notes, preparePanelChange]);
+  }, [documentOpen, visiblePanels.notes, preparePanelChange]);
 
   const closeAnnotationsPanel = useCallback(() => {
     pendingNoteScrollRef.current = null;
@@ -2084,6 +2190,10 @@ function App() {
 
   const closeShortcuts = useCallback(() => {
     setShortcutsVisible(false);
+  }, []);
+
+  const showShortcuts = useCallback(() => {
+    setShortcutsVisible(true);
   }, []);
 
   const openCommandPalette = useCallback(() => {
@@ -2175,6 +2285,7 @@ function App() {
       case "close-window": {
         const appWindow = getCurrentWindow();
         try {
+          await flushCurrentSession();
           // Exiting for the original close leaves no active editor. If one
           // exists now, it is a newer session and wins over the stale close.
           if (editingRef.current) {
@@ -2199,13 +2310,14 @@ function App() {
         return;
       }
       case "quit-app": {
-        // Document and annotation decisions are complete. A newly entered
-        // edit session still wins over the stale quit.
-        if (editingRef.current) {
-          console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
-          return;
-        }
         try {
+          await flushCurrentSession();
+          // Recheck after persistence: a newly entered edit session still wins
+          // over the stale quit, including while the session write was pending.
+          if (editingRef.current) {
+            console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
+            return;
+          }
           await invoke("exit_after_guarded_quit");
         } catch (error) {
           console.error("[quit-guard] Failed to exit after the guard completed:", error);
@@ -2275,6 +2387,8 @@ function App() {
           const result = await openPathAndScroll(path, null, { kind: "open-file-path", path });
           if (result.status === "failed") {
             toast(`The example was saved to ${path}, but couldn't be opened. Open that file to try again.`, "error");
+          } else if (result.status === "opened") {
+            toast(`Example saved to ${result.canonicalPath}`, "success");
           }
         } catch (error) {
           if (isCurrent()) {
@@ -2516,7 +2630,7 @@ function App() {
     if (inInput) return;
 
     if (shortcutsVisible) {
-      if (e.key === "?" && !ctrl && !e.altKey) {
+      if (e.key === "?" && ctrl && !e.altKey) {
         e.preventDefault();
         closeShortcuts();
       }
@@ -2534,7 +2648,7 @@ function App() {
       }
     } else if (ctrl && key === "m") {
       e.preventDefault();
-      if (!editing) toggleAnnotationsPanel();
+      if (documentOpen && !editing) toggleAnnotationsPanel();
     } else if (ctrl && key === "f" && !e.shiftKey) {
       e.preventDefault();
       openSearch();
@@ -2551,14 +2665,14 @@ function App() {
       toggleSidebar();
     } else if (ctrl && key === "j") {
       e.preventDefault();
-      if (!editing) toggleToc();
+      if (documentOpen && !editing) toggleToc();
     } else if (ctrl && e.key === "\\") {
       e.preventDefault();
       toggleSidebar();
-      if (!editing) toggleToc();
+      if (documentOpen && !editing) toggleToc();
     } else if (ctrl && e.shiftKey && key === "f") {
       e.preventDefault();
-      if (!editing) {
+      if (documentOpen && !editing) {
         if (focusMode) exitFocusMode();
         else {
           // Transfer focus only from UI that Focus mode removes.
@@ -2603,7 +2717,7 @@ function App() {
     } else if (e.altKey && key === "arrowdown" && !ctrl && !e.shiftKey) {
       e.preventDefault();
       navigateScene(1);
-    } else if (e.key === "?" && !ctrl && !e.altKey) {
+    } else if (e.key === "?" && ctrl && !e.altKey) {
       e.preventDefault();
       setShortcutsVisible((v) => !v);
     } else if (key === "f5") {
@@ -2677,6 +2791,26 @@ function App() {
   // Suppress render while startup state is settling — loading screen covers #root
   if (!appReady) return null;
 
+  // The open error is the single source for file recovery; a persisted missing
+  // session is reported into it at startup (handleSessionRestore).
+  const recoveryAction = documentError?.source === "open" ? documentError.retryAction : null;
+  const retryDisabled = documentError?.retryAvailability !== "ready" || loading || actionAdmissionInFlight;
+  const recentRecovery: WelcomeRecovery | null = error && recoveryAction && "path" in recoveryAction
+    ? { path: recoveryAction.path, error, retryDisabled }
+    : null;
+  const welcomeRecovery = !documentOpen ? recentRecovery : null;
+  const dismissRecentRecovery = () => {
+    if (!recentRecovery) return;
+    dismissDocumentError();
+    void forgetUnavailableSession(recentRecovery.path);
+  };
+  // Removing the unavailable entry also dismisses its recovery; Dismiss alone
+  // keeps the entry in recent files.
+  const removeRecentFile = (path: string) => {
+    if (path === recentRecovery?.path) dismissRecentRecovery();
+    removeRecent(path);
+  };
+
   return (
     <div
       className={`app-shell h-screen flex flex-col bg-bg-primary text-text-primary overflow-hidden ${fileName ? "has-document" : ""}`}
@@ -2707,6 +2841,7 @@ function App() {
           onCycleTheme={cycleTheme}
           onNewFile={guardedNewFile}
           onOpenFile={guardedOpenFile}
+          onShowShortcuts={showShortcuts}
           onToggleSidebar={toggleSidebar}
           onToggleToc={toggleToc}
           onToggleReaderControls={toggleReaderControls}
@@ -2766,7 +2901,9 @@ function App() {
           backlinks={workspaceInsights.backlinks}
           mentions={workspaceInsights.mentions}
           onOpenRecent={guardedOpenRecent}
-          onRemoveRecent={removeRecent}
+          onRemoveRecent={removeRecentFile}
+          recovery={recentRecovery}
+          onRetry={retryDocumentOpen}
           onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
@@ -2789,114 +2926,124 @@ function App() {
             />
           )}
 
-          <main
-            ref={mainScrollRef}
-            tabIndex={-1}
-            aria-label="Document"
-            className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-          >
-            {loading && (
-              <div
-                className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
-              >
-                <span role="status" aria-live="polite" aria-atomic="true">
-                  {openingSlow
-                    ? "Still opening. Cloud and external files can take longer to become available."
-                    : "Opening file..."}
-                </span>
-                {openingSlow && (
-                  <button
-                    type="button"
-                    onClick={handleCancelPendingOpen}
-                    className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
+          <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
+            {readingHintVisible && readerDocumentReady && !editing && filePath
+              && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
+              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} />
             )}
+            <main
+              ref={mainScrollRef}
+              tabIndex={-1}
+              aria-label="Document"
+              className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
+            >
+              {loading && (
+                <div
+                  className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+                >
+                  <span role="status" aria-live="polite" aria-atomic="true">
+                    {openingSlow
+                      ? "Still opening. Cloud and external files can take longer to become available."
+                      : "Opening file..."}
+                  </span>
+                  {openingSlow && (
+                    <button
+                      type="button"
+                      onClick={handleCancelPendingOpen}
+                      className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )}
 
-            {error && (
-              <ErrorBanner
-                error={error}
-                onDismiss={dismissDocumentError}
-                onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
-                actionLabel={documentError?.retryAction ? "Retry" : undefined}
-                actionDisabled={
-                  documentError?.retryAvailability !== "ready"
-                  || actionAdmissionInFlight
-                }
-              />
-            )}
+              {error && !welcomeRecovery && (
+                <ErrorBanner
+                  error={error}
+                  onDismiss={dismissDocumentError}
+                  onAction={documentError?.retryAction ? retryDocumentOpen : undefined}
+                  actionLabel={documentError?.retryAction ? "Retry" : undefined}
+                  actionDisabled={retryDisabled}
+                />
+              )}
 
-            {fileWatcher.unavailable && (
-              <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
-                Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
-                <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
-              </div>
-            )}
+              {fileWatcher.unavailable && (
+                <div role="status" className="max-w-[65ch] mx-auto px-6 py-3 text-sm text-text-secondary">
+                  Automatic file watching is unavailable. Bindars checks for changes when you return to this window.{" "}
+                  <button type="button" className="underline" onClick={fileWatcher.retry}>Retry file watching</button>
+                </div>
+              )}
 
-            {isDocumentOpen(content) && editing && editor.buffer !== null ? (
-              <MarkdownEditor
-                key={`${editorSessionKey}:${fileType}`}
-                ref={editorSurfaceRef}
-                buffer={editor.buffer}
-                initialPosition={editorInitialPosition}
-                scrollRootRef={mainScrollRef}
-                fileType={fileType}
-                markdownFormattingEnabled={markdownFormattingEnabled}
-                settings={settings}
-                saveError={editor.saveError}
-                canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
-                canDismissSaveError={!editor.savePathBlocked}
-                recoveryPath={editor.recoveryPath}
-                onBufferChange={publishEditorBuffer}
-                onSaveAsAfterError={handleSaveAsAfterError}
-                onDismissSaveError={editor.dismissSaveError}
-              />
-            ) : preparedDocument?.status === "too-complex" ? (
-              <DocumentNotice
-                contentRef={contentRef}
-                title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
-                message={preparedDocument.message}
-              />
-            ) : preparedDocument?.status === "parse-failed" ? (
-              <DocumentNotice
-                contentRef={contentRef}
-                title="Screenplay could not be displayed"
-                message={preparedDocument.message}
-              />
-            ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
-              <FountainRenderer
-                // As with Markdown, discard marked DOM as a unit on source changes.
-                key={content}
-                parsed={preparedDocument.parsedFountain}
-                settings={settings}
-                contentRef={contentRef}
-                focusedCharacter={focusedCharacter}
-              />
-            ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
-              <MarkdownRenderer
-                content={content}
-                filePath={filePath || ""}
-                imagesAuthorized={imagesAuthorized}
-                settings={settings}
-                contentRef={contentRef}
-                onOpenFragment={openMarkdownFragment}
-                onNavigateToFile={guardedNavigateToFile}
-              />
-            ) : (
-              <EmptyState
-                onNewFile={guardedNewFile}
-                onOpenFile={guardedOpenFile}
-                onTrySample={() => { guardAction({ kind: "try-sample" }); }}
-                canTrySample={!actionAdmissionInFlight}
-                recentFiles={recentFiles}
-                recentHistoryUnavailable={recentFilesStatus !== "ready"}
-                onOpenRecent={guardedOpenRecent}
-              />
-            )}
-          </main>
+              {isDocumentOpen(content) && editing && editor.buffer !== null ? (
+                <MarkdownEditor
+                  key={`${editorSessionKey}:${fileType}`}
+                  ref={editorSurfaceRef}
+                  buffer={editor.buffer}
+                  initialPosition={editorInitialPosition}
+                  scrollRootRef={mainScrollRef}
+                  fileType={fileType}
+                  markdownFormattingEnabled={markdownFormattingEnabled}
+                  settings={settings}
+                  saveError={editor.saveError}
+                  canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
+                  canDismissSaveError={!editor.savePathBlocked}
+                  recoveryPath={editor.recoveryPath}
+                  onBufferChange={publishEditorBuffer}
+                  onSaveAsAfterError={handleSaveAsAfterError}
+                  onDismissSaveError={editor.dismissSaveError}
+                />
+              ) : preparedDocument?.status === "too-complex" ? (
+                <DocumentNotice
+                  contentRef={contentRef}
+                  title={`Document ${DOCUMENT_COMPLEXITY_REASON}`}
+                  message={preparedDocument.message}
+                />
+              ) : preparedDocument?.status === "parse-failed" ? (
+                <DocumentNotice
+                  contentRef={contentRef}
+                  title="Screenplay could not be displayed"
+                  message={preparedDocument.message}
+                />
+              ) : preparedDocument?.status === "ready" && preparedDocument.format === "fountain" ? (
+                <FountainRenderer
+                  // As with Markdown, discard marked DOM as a unit on source changes.
+                  key={content}
+                  parsed={preparedDocument.parsedFountain}
+                  settings={settings}
+                  contentRef={contentRef}
+                  focusedCharacter={focusedCharacter}
+                />
+              ) : isDocumentOpen(content) && preparedDocument?.status === "ready" ? (
+                <MarkdownRenderer
+                  content={content}
+                  filePath={filePath || ""}
+                  imagesAuthorized={imagesAuthorized}
+                  settings={settings}
+                  contentRef={contentRef}
+                  onOpenFragment={openMarkdownFragment}
+                  onNavigateToFile={guardedNavigateToFile}
+                />
+              ) : (
+                <EmptyState
+                  onOpenFile={guardedOpenFile}
+                  onTrySample={() => { guardAction({ kind: "try-sample" }); }}
+                  onShowShortcuts={showShortcuts}
+                  canTrySample={!actionAdmissionInFlight}
+                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight
+                    && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
+                  recentFiles={recentFiles}
+                  recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                  onOpenRecent={guardedOpenRecent}
+                  onRemoveRecent={removeRecentFile}
+                  openingPath={openingPath}
+                  recovery={welcomeRecovery}
+                  onRetry={retryDocumentOpen}
+                  onDismiss={dismissRecentRecovery}
+                />
+              )}
+            </main>
+          </div>
         </div>
 
         <ReaderNavigation

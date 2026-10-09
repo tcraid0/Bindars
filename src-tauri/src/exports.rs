@@ -62,11 +62,11 @@ mod tests {
     use super::export_markdown_file_impl;
     use crate::document_io::MAX_MARKDOWN_BYTES;
     use crate::file_errors::{NativeFileErrorCategory, NativeFileOperation};
-    use crate::test_support::{cleanup_temp_path, unique_temp_path};
+    use crate::test_support::{cleanup_temp_path as cleanup, unique_temp_path as temp_path};
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[test]
     fn export_markdown_accepts_md_extension() {
@@ -139,6 +139,82 @@ mod tests {
         cleanup(&target);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_keeps_the_destinations_acl_extended_attributes_and_mode() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr, xattr};
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny write");
+        assert!(fs::File::options().write(true).open(&path).is_err());
+
+        export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+            .expect("export replaces the destination");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+        assert!(
+            acl_text(&path).contains("deny write"),
+            "{}",
+            acl_text(&path)
+        );
+        assert_eq!(xattr(&path).as_deref(), Some("kept"));
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert!(fs::File::options().write(true).open(&path).is_err());
+        cleanup(&path);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_does_not_give_the_destination_a_folder_grant_it_never_had() {
+        use crate::test_support::access_metadata::{acl_text, add_acl};
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        add_acl(path.parent().unwrap(), "everyone allow read,file_inherit");
+
+        export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+            .expect("export replaces the destination");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !acl_text(&path).contains("allow read"),
+            "{}",
+            acl_text(&path)
+        );
+        cleanup(&path);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_refuses_a_destination_whose_access_metadata_cannot_be_carried_over() {
+        use crate::test_support::access_metadata::{acl_text, add_acl, set_xattr};
+        let path = temp_path("md");
+        fs::write(&path, "old content").expect("write existing export");
+        set_xattr(&path, "kept");
+        add_acl(&path, "everyone deny readextattr");
+
+        let error =
+            export_markdown_file_impl(path.to_string_lossy().into_owned(), "new content".into())
+                .expect_err("an export that would drop the restriction must fail");
+
+        assert_eq!(error.operation, NativeFileOperation::PreservePermissions);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old content");
+        assert!(acl_text(&path).contains("deny readextattr"));
+        assert!(crate::test_support::temp_leftovers(path.parent().unwrap()).is_empty());
+        cleanup(&path);
+    }
+
     #[test]
     fn export_markdown_rejects_html_extension() {
         let path = temp_path("html");
@@ -191,13 +267,5 @@ mod tests {
         let error = result.expect_err("missing parent should error");
         assert_eq!(error.category, NativeFileErrorCategory::NotFound);
         assert_eq!(error.operation, NativeFileOperation::ResolveWriteParent);
-    }
-
-    fn temp_path(ext: &str) -> PathBuf {
-        unique_temp_path(ext)
-    }
-
-    fn cleanup(path: &Path) {
-        cleanup_temp_path(path);
     }
 }

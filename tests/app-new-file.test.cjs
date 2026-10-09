@@ -44,6 +44,11 @@ function successfulDraftWrite(content) {
   };
 }
 
+// Retirement also carries the revisions it verifies; most tests care only about which files were involved.
+function retirementPaths(deletes) {
+  return deletes.map(({ path, savedPath }) => ({ path, savedPath }));
+}
+
 async function waitFor(assertion) {
   let lastError;
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -201,7 +206,7 @@ async function renderEditorApp({
   themeLocal,
   themeLocalLegacy,
   createDraft = (args) => successfulDraftWrite(args.content),
-  deleteDraft = (args) => args.path !== args.savedPath,
+  deleteDraft = (args) => (args.path !== args.savedPath ? "removed" : "nothing-to-remove"),
   loadAnnotations = () => null,
   saveDialogPath = "/tmp/recovered-r7.md",
   savedCanonicalPath = saveDialogPath,
@@ -262,23 +267,20 @@ async function renderEditorApp({
       case "load_annotations":
         return loadAnnotations(args);
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
         if (args.key === "theme" && themeGet !== undefined) {
           return themeGet;
         }
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
+        if (args.key === "recent-files") return { version: 1, files: [] };
         if (args.key === "markdown-formatting-enabled" && markdownFormattingRead) {
           return markdownFormattingRead;
         }
         if (args.key === "markdown-formatting-enabled" && typeof markdownFormattingStored === "boolean") {
-          return [markdownFormattingStored, true];
+          return markdownFormattingStored;
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         storeWrites.push(args);
         if (args.key === "markdown-formatting-enabled" && markdownFormattingWriteError) {
           throw markdownFormattingWriteError;
@@ -516,7 +518,15 @@ test("manual Save waiting on the first draft autosave moves the adopted draft", 
     await waitFor(() => assert.deepEqual(loads, [DRAFT_PATH]));
     await act(async () => new Promise(setImmediate));
     await act(async () => dialog.resolve("/tmp/recovered-r7.md"));
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
+    // Retirement carries the draft as its creation reported it and the
+    // destination as the Save As write acknowledged it, so the native check
+    // can refuse when either file no longer holds those bytes.
+    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{
+      path: DRAFT_PATH,
+      savedPath: "/tmp/recovered-r7.md",
+      draftRevision: { mtimeMs: 2, size: content.length, contentHash: "created-draft" },
+      savedRevision: { mtimeMs: 3, size: content.length, contentHash: "saved-file" },
+    }]));
     assert.equal(rendered.saveDialogs.length, 1);
     assert.equal(rendered.fileWrites.length, 1);
     assert.equal(rendered.fileWrites[0].content, content);
@@ -526,6 +536,47 @@ test("manual Save waiting on the first draft autosave moves the adopted draft", 
     creation.resolve(successfulDraftWrite(""));
     dialog.resolve(null);
     context.mock.timers.reset();
+    await rendered.cleanup();
+  }
+});
+
+test("draft retirement keeps typing during Save As and immediate quit saves it to the destination", async () => {
+  const rendered = await renderContinuityApp({ requestedPath: DRAFT_PATH });
+  const write = deferred();
+  const destination = "/tmp/retired-draft.md";
+  const snapshot = "# Draft\n\nSaved snapshot.";
+  const latest = `${snapshot}\n\nTyped during the write.`;
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    rendered.setSaveDialogPath(destination);
+    rendered.deferNextWrite(write);
+    updateEditor(rendered.host, snapshot);
+    dispatchShortcut("s");
+    await waitFor(() => assert.equal(write.args?.path, destination));
+    assert.equal(write.args.content, snapshot);
+    updateEditor(rendered.host, latest);
+    rendered.setDiskContent(snapshot);
+    await act(async () => write.resolve({
+      conflict: false, canonicalPath: destination, name: "retired-draft.md",
+      currentRevision: { mtimeMs: 2, size: snapshot.length, contentHash: "saved-draft" },
+    }));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: destination }]));
+    // The draft revision was captured before Save As moved the editor to the destination.
+    assert.equal(rendered.draftDeletes()[0].draftRevision.contentHash, "r1");
+    assert.deepEqual(rendered.draftDeletes()[0].savedRevision, { mtimeMs: 2, size: snapshot.length, contentHash: "saved-draft" });
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), latest);
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+    assert.equal(rendered.diskContent(), snapshot);
+
+    await act(async () => emit("bindars://quit-requested"));
+    await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+    assert.equal(rendered.diskContent(), latest);
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.fileWrites()[1].path, destination);
+    assert.equal(rendered.fileWrites()[1].content, latest);
+  } finally {
+    write.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -548,7 +599,7 @@ test("manual Save waits for a reopened draft's pending classification", async ()
     assert.deepEqual(rendered.saveDialogs(), []);
     assert.deepEqual(rendered.fileWrites(), []);
     await act(async () => classification.resolve(true));
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: "/tmp/virtual-continuity.md" }]));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: "/tmp/virtual-continuity.md" }]));
     assert.equal(rendered.saveDialogs().length, 1);
     assert.deepEqual(rendered.draftChecks(), [DRAFT_PATH, "/tmp/virtual-continuity.md"], "Save reuses the existing draft classification");
     assert.equal(rendered.fileWrites()[0].content, content);
@@ -583,11 +634,12 @@ for (const classificationFails of [false, true]) {
   });
 }
 
-test("a stale Save As dialog leaves the draft intact when a newer session starts", async () => {
+test("a New request during a draft's Save As dialog waits for the dialog, then runs", async () => {
   const dialog = deferred();
   const rendered = await renderEditorApp({ saveDialog: () => dialog.promise });
   try {
-    updateEditor(rendered.host, "Old draft retained after switching sessions");
+    const draftWords = "Old draft retained while its Save As dialog is open";
+    updateEditor(rendered.host, draftWords);
     dispatchShortcut("e");
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     dispatchShortcut("e");
@@ -595,15 +647,25 @@ test("a stale Save As dialog leaves the draft intact when a newer session starts
     dispatchShortcut("s");
     await waitFor(() => assert.equal(rendered.saveDialogs.length, 1));
     dispatchShortcut("n");
-    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
-    updateEditor(rendered.host, "New session words must not be saved by the old dialog");
-    await act(async () => dialog.resolve("/tmp/stale-save-as.md"));
+    // The pending Save As owns this session. New waits for it instead of
+    // abandoning the session around the dialog and its write.
+    await act(async () => new Promise((resolve) => realSetTimeout(resolve, 20)));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), draftWords);
     assert.deepEqual(rendered.fileWrites, []);
-    assert.deepEqual(rendered.draftDeletes, []);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => dialog.resolve("/tmp/recovered-r7.md"));
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    assert.equal(rendered.fileWrites.length, 1);
+    assert.equal(rendered.fileWrites[0].path, "/tmp/recovered-r7.md");
+    assert.equal(rendered.fileWrites[0].content, draftWords);
+    assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]);
+    // The destination is recorded by the save itself, so New replacing the
+    // published path before the Recent effect runs cannot drop it.
     const recent = rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1);
-    assert.deepEqual(recent.value.files.map((file) => file.path), [DRAFT_PATH]);
-    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "New session words must not be saved by the old dialog");
+    assert.deepEqual(recent.value.files.map((file) => file.path), ["/tmp/recovered-r7.md"]);
     assert.match(rendered.windowTitles.at(-1), /Untitled\.md/);
+    assert.ok(!document.querySelector('[role="dialog"]'));
     assert.equal(rendered.host.querySelectorAll('[role="status"] [role="alert"]').length, 0);
   } finally {
     dialog.resolve(null);
@@ -613,6 +675,10 @@ test("a stale Save As dialog leaves the draft intact when a newer session starts
 
 for (const sameSession of [false, true]) {
   test(`a completed draft deletion cannot clear a ${sameSession ? "same" : "newer"} session's later autosave failure`, async (context) => {
+    // Retirement is part of the manual save, so a newer session can only start
+    // once the deletion has settled; its late completion then has nothing to
+    // clear. The same-session case checks the deletion itself cannot clear a
+    // later autosave failure.
     const deletion = deferred();
     let creationCount = 0;
     const rendered = await renderEditorApp({
@@ -630,12 +696,15 @@ for (const sameSession of [false, true]) {
       dispatchShortcut("e");
       await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
       dispatchShortcut("s");
-      await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
+      await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath: "/tmp/recovered-r7.md" }]));
 
       if (sameSession) {
         rendered.failNextFileWrite(new Error("Later autosave unavailable"));
       } else {
         dispatchShortcut("n");
+        await act(async () => {});
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), "First draft to move", "New waits for the pending retirement");
+        await act(async () => deletion.resolve("removed"));
         await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
       }
       updateEditor(rendered.host, "Later text must stay protected by its warning");
@@ -643,24 +712,26 @@ for (const sameSession of [false, true]) {
       await act(async () => context.mock.timers.tick(2500));
       assert.equal(sameSession ? rendered.fileWrites.length : rendered.draftCreates.length, 2);
       assert.match(rendered.host.textContent, /Autosave is paused/);
-      await act(async () => deletion.resolve(true));
+      await act(async () => deletion.resolve("removed"));
       assert.match(rendered.host.textContent, /Autosave is paused/);
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Later text must stay protected by its warning");
       assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
     } finally {
-      deletion.resolve(true);
+      deletion.resolve("removed");
       context.mock.timers.reset();
       await rendered.cleanup();
     }
   });
 }
 
-for (const result of ["move", "cancel", "same canonical path", "delete failure"]) {
+for (const result of ["move", "cancel", "same canonical path", "delete failure", "kept for changed bytes"]) {
   test(`manual Save on a clean draft handles ${result}`, async () => {
     const rendered = await renderEditorApp({
       saveDialogPath: result === "cancel" ? null : result === "same canonical path" ? "/tmp/draft-alias.md" : "/tmp/Chosen draft.md",
       savedCanonicalPath: result === "same canonical path" ? DRAFT_PATH : "/tmp/Chosen draft.md",
-      deleteDraft: result === "delete failure" ? () => { throw new Error("Synthetic draft cleanup failure"); } : undefined,
+      deleteDraft: result === "delete failure"
+        ? () => { throw new Error("Synthetic draft cleanup failure"); }
+        : result === "kept for changed bytes" ? () => "kept" : undefined,
     });
     try {
       const content = "# Draft ready for a permanent home";
@@ -695,17 +766,24 @@ for (const result of ["move", "cancel", "same canonical path", "delete failure"]
         assert.equal(rendered.fileWrites[0].content, content);
         assert.equal(rendered.fileWrites[0].force, true);
         const savedPath = result === "same canonical path" ? DRAFT_PATH : "/tmp/Chosen draft.md";
-        await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{ path: DRAFT_PATH, savedPath }]));
+        await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{ path: DRAFT_PATH, savedPath }]));
         assert.deepEqual(rendered.operationLog, ["write", "delete"]);
         if (result === "same canonical path") {
           assert.deepEqual(rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1).value.files.map((file) => file.path), [DRAFT_PATH]);
         } else {
           await waitFor(() => {
             const recent = rendered.storeWrites.filter((write) => write.key === "recent-files").at(-1);
-            const expected = result === "delete failure" ? ["/tmp/Chosen draft.md", DRAFT_PATH] : ["/tmp/Chosen draft.md"];
+            const draftStays = result === "delete failure" || result === "kept for changed bytes";
+            const expected = draftStays ? ["/tmp/Chosen draft.md", DRAFT_PATH] : ["/tmp/Chosen draft.md"];
             assert.deepEqual(recent.value.files.map((file) => file.path), expected);
           });
           assert.match(rendered.windowTitles.at(-1), /Chosen draft\.md/);
+        }
+        if (result === "kept for changed bytes") {
+          // The person needs to know a second copy with other text still exists.
+          await waitFor(() => assert.match(rendered.host.textContent, /kept the draft Untitled 2\.md because it or the new file changed outside Bindars/));
+        } else {
+          assert.doesNotMatch(rendered.host.textContent, /kept the draft/);
         }
         assert.equal(rendered.host.querySelectorAll('[role="status"] [role="alert"]').length, 0, "draft cleanup must not show an error toast");
       }
@@ -853,7 +931,7 @@ test("Save As on a draft error removes the draft after the new file is written",
     dispatchShortcut("s");
     await waitFor(() => assert.match(rendered.host.textContent, /must end in/));
     clickButton(rendered.host, "Save As…");
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes, [{
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes), [{
       path: DRAFT_PATH,
       savedPath: "/tmp/Chosen draft.md",
     }]));
@@ -1029,7 +1107,7 @@ test("a stored theme applies over a seeded localStorage theme when no user actio
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeWritesOf(rendered), []);
 
-    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    await resolveStoredTheme(storedTheme, "sepia");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
@@ -1057,7 +1135,7 @@ test("a stored theme arriving after the Ctrl+Shift+T cycle keeps the user's them
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["deep-dark", true]);
+    await resolveStoredTheme(storedTheme, "deep-dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.equal(window.localStorage.getItem("bindars-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
@@ -1081,7 +1159,7 @@ test("a stored theme arriving after the toolbar theme button keeps the user's th
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["dark", true]);
+    await resolveStoredTheme(storedTheme, "dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
   } finally {
@@ -1109,7 +1187,7 @@ test("a stored theme arriving after a settings swatch selection keeps the user's
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     await waitForThemeWrites(rendered, ["dark"]);
 
-    await resolveStoredTheme(storedTheme, ["sepia", true]);
+    await resolveStoredTheme(storedTheme, "sepia");
     assert.equal(document.documentElement.getAttribute("data-theme"), "dark");
     assert.deepEqual(themeWritesOf(rendered), ["dark"]);
   } finally {
@@ -1146,7 +1224,7 @@ test("a stored theme arriving after settings swatch arrow navigation keeps the u
     assert.ok(document.activeElement === sepiaSwatch);
     await waitForThemeWrites(rendered, ["sepia"]);
 
-    await resolveStoredTheme(storedTheme, ["dark", true]);
+    await resolveStoredTheme(storedTheme, "dark");
     assert.equal(document.documentElement.getAttribute("data-theme"), "sepia");
     assert.deepEqual(themeWritesOf(rendered), ["sepia"]);
   } finally {
@@ -1348,7 +1426,7 @@ test("a delayed stored-off preference never paints an enabled editor state", asy
     assert.ok(formattingButton);
     assert.equal(formattingButton.getAttribute("aria-pressed"), "false");
 
-    preferenceRead.resolve([false, true]);
+    preferenceRead.resolve(false);
     await waitFor(() => {
       assert.equal(view.state.field(markdownFormattingEnabled), false);
       assert.equal(window.localStorage.getItem("bindars-markdown-formatting-enabled"), "false");
@@ -1394,7 +1472,7 @@ test("a resolved default is seeded locally for the next synchronous mount", asyn
   });
   try {
     assert.equal(findEditorView(second.host).state.field(markdownFormattingEnabled), true);
-    delayedRead.resolve([false, true]);
+    delayedRead.resolve(false);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -1414,7 +1492,7 @@ test("a user toggle wins over a stale delayed formatting preference", async () =
     assert.equal(toggle.defaultPrevented, true);
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
-    preferenceRead.resolve([true, true]);
+    preferenceRead.resolve(true);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -1498,15 +1576,12 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        if (args.key === "hasSeenWelcome") { welcomeReads.push(args.key); return [false, true]; }
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        if (args.key === "hasSeenWelcome") { welcomeReads.push(args.key); return false; }
+        return null;
+      case "set_setting":
         return null;
       case "plugin:window|set_title":
         return null;
@@ -1641,14 +1716,11 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        return null;
+      case "set_setting":
       case "plugin:window|set_title":
         return null;
       case "create_draft_document":
@@ -1764,14 +1836,11 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "load_annotations":
         return null;
       case "save_annotations":
-      case "plugin:store|save":
         return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
-        return [null, false];
-      case "plugin:store|set":
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
+        return null;
+      case "set_setting":
       case "plugin:window|set_title":
         return null;
       case "plugin:dialog|save": {
@@ -1878,6 +1947,7 @@ async function renderContinuityApp({
   annotationWrite = null,
   initialOpenOperation = null,
   initialSessionOperation = null,
+  readingHintRead = null,
   bootstrapRead = null,
   sidebarRead = null,
   freshStorage = false,
@@ -1947,46 +2017,43 @@ async function renderContinuityApp({
       case "save_annotations":
         annotationWrites.push(structuredClone(args));
         return annotationWrite ? annotationWrite(args) : null;
-      case "plugin:store|save":
-        if (recentStorage) recentStorage.durable = structuredClone(recentStorage.value);
-        return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
+      case "get_setting":
+        if (args.key === "reading-hint-dismissed" && readingHintRead) return readingHintRead;
         if (args.key === "sidebar-visible" && sidebarRead) return sidebarRead;
         if (sampleFlow) sampleFlow.reads.push(args.key);
-        if (sampleFlow && args.key === "hasSeenWelcome") return [sampleFlow.seen, true];
-        if (recentStorage && args.key === "config-version") return [recentStorage.version ?? 3, true];
+        if (sampleFlow && args.key === "hasSeenWelcome") return sampleFlow.seen;
+        if (recentStorage && args.key === "config-version") return recentStorage.version ?? 3;
         if (args.key === "recent-files") {
-          if (!recentStorage) return [{ version: 1, files: [] }, true];
+          if (!recentStorage) return { version: 1, files: [] };
           recentStorage.reads = (recentStorage.reads ?? 0) + 1;
-          return recentStorage.read ? recentStorage.read() : [structuredClone(recentStorage.value), true];
+          return recentStorage.read ? recentStorage.read() : structuredClone(recentStorage.value);
         }
         if (args.key === "theme" && themeRead) return themeRead;
         if (args.key === "reader-settings" && settingsRead) return settingsRead;
-        if (args.key === "reader-settings" && storedReaderSettings) return [storedReaderSettings, true];
-        if (args.key === "workspace:root" && workspaceFiles.length) return ["/tmp", true];
+        if (args.key === "reader-settings" && storedReaderSettings) return storedReaderSettings;
+        if (args.key === "workspace:root" && workspaceFiles.length) return "/tmp";
         if (args.key === `annotations:${canonicalPath}`) {
-          return [{ highlights: storedHighlights, bookmarks: [], version: 2 }, true];
+          return { highlights: storedHighlights, bookmarks: [], version: 2 };
         }
         if (args.key === "session" && initialSessionOperation) {
           initialSessionOperation.args = args;
           return initialSessionOperation.promise;
         }
         if (args.key === "session" && restoreHeadingId !== undefined) {
-          return [{ filePath: requestedPath, headingId: restoreHeadingId }, true];
+          return { filePath: requestedPath, headingId: restoreHeadingId };
         }
-        return [null, false];
+        return null;
       case "list_workspace_markdown_files":
         return { files: workspaceFiles, skippedCount: 0, limitHit: false };
       case "read_markdown_file":
         return workspaceContent ?? `# ${workspaceFiles.find((file) => file.path === args.path).name}`;
-      case "plugin:store|set":
+      case "set_setting":
         if (recentStorage) {
           recentStorage.writes.push(structuredClone(args));
           if (args.key === "recent-files") {
             if (recentStorage.writeError) throw recentStorage.writeError;
             recentStorage.value = structuredClone(args.value);
+            recentStorage.durable = structuredClone(recentStorage.value);
           }
         }
         return null;
@@ -2061,7 +2128,7 @@ async function renderContinuityApp({
       case "delete_draft_document":
         draftDeletes.push(args);
         assert.equal(args.path, DRAFT_PATH, "only Drafts-folder files can be deleted");
-        return args.path !== args.savedPath;
+        return args.path !== args.savedPath ? "removed" : "nothing-to-remove";
       case "write_markdown_file_if_unmodified":
         fileWrites.push(args);
         if (fileWriteError) {
@@ -2941,10 +3008,10 @@ test("file switching flushes the pending autosave before opening the next file",
   }
 });
 
-test("a manual Save that waited on an autosave is dropped once the editor session has changed", async () => {
-  // The wait can outlast the session: undo to clean, open another file from
-  // Finder, start editing it. The old closure's file path must never receive
-  // the new document's text.
+test("a native open during a pending autosave write waits for it, and the Save that waited on that autosave writes nothing stale", async () => {
+  // Undo to clean while an autosave write and a manual Save are both waiting,
+  // then open another file from Finder. The open must wait for the write, and
+  // the old session's Save must never write the new document's text.
   const rendered = await renderContinuityApp();
   const oldWrite = deferred();
   try {
@@ -2961,16 +3028,21 @@ test("a manual Save that waited on an autosave is dropped once the editor sessio
     updateEditor(rendered.host, initial);
     rendered.setPendingNativeOpenPath("/tmp/second-copy.md");
     await act(async () => emit("bindars://native-open-available"));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(!rendered.openedPaths().includes("/tmp/second-copy.md"), "the open must wait for the pending write");
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), initial);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => oldWrite.reject(new Error("Temporary old-file save error")));
     await waitFor(() => assert.match(rendered.host.textContent, /second-copy\.md/));
     dispatchShortcut("e");
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     const newWords = "New document words which must never reach continuity.md";
     updateEditor(rendered.host, newWords);
-
-    await act(async () => oldWrite.reject(new Error("Temporary old-file save error")));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     assert.equal(rendered.fileWrites().length, 1);
     assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
+    assert.equal(rendered.diskContent(), initial);
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
     assert.match(rendered.host.textContent, /second-copy\.md/);
     assert.ok(!document.querySelector('[role="dialog"]'));
@@ -2980,7 +3052,7 @@ test("a manual Save that waited on an autosave is dropped once the editor sessio
   }
 });
 
-test("a manual Save waiting on autosave is dropped after re-entering Edit on the same file", async (context) => {
+test("leaving Edit while an autosave write and a waiting Save are pending waits for both before re-entry starts a fresh session", async (context) => {
   const rendered = await renderContinuityApp();
   const oldWrite = deferred();
   try {
@@ -2996,10 +3068,15 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
     context.mock.timers.reset();
 
     dispatchShortcut("s");
-    // Return to clean so Edit can be left while Save still awaits the old
-    // autosave. Re-entering this same path defeats the separate path guard.
+    // Return to clean while Save still awaits the old autosave. Leaving Edit
+    // must wait for both rather than abandon the session around them.
     updateEditor(rendered.host, initial);
     dispatchShortcut("e");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(rendered.host.querySelector(".cm-editor"), "leaving must wait for the pending write");
+    assert.ok(!document.querySelector('[role="dialog"]'));
+
+    await act(async () => oldWrite.reject(new Error("Temporary old-session save error")));
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
     dispatchShortcut("e");
@@ -3007,10 +3084,8 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
     assert.ok(findEditorView(rendered.host) !== oldEditor);
     const newWords = `${initial}\nNew session words which Save must leave unsaved`;
     updateEditor(rendered.host, newWords);
-
-    await act(async () => oldWrite.reject(new Error("Temporary old-session save error")));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-    assert.equal(rendered.fileWrites().length, 1, "the stale Save must not write the new session");
+    assert.equal(rendered.fileWrites().length, 1, "the earlier Save must not write the new session");
     assert.equal(rendered.fileWrites()[0].path, "/tmp/continuity.md");
     assert.equal(rendered.diskContent(), initial);
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), newWords);
@@ -3019,6 +3094,396 @@ test("a manual Save waiting on autosave is dropped after re-entering Edit on the
   } finally {
     oldWrite.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md", currentRevision: { mtimeMs: 2, size: 0, contentHash: "r2" } });
     context.mock.timers.reset();
+    await rendered.cleanup();
+  }
+});
+
+// A write that started before a clean-looking departure must land before the
+// buffer can be judged: its completion rebases the dirty comparison. Until
+// then the restored text would read as clean while the write replaces it.
+const RESTORED_TEXT = "# First\n\nThe only copy of this paragraph.\n\n## Second\n";
+const PENDING_DELETION = "# First\n\nParagraph deleted.\n\n## Second\n";
+const SWITCH_TARGET = "/tmp/switched-while-saving.md";
+
+async function startPendingWriteOf(rendered, trigger, write) {
+  dispatchShortcut("e");
+  await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+  rendered.deferNextWrite(write);
+  updateEditor(rendered.host, PENDING_DELETION);
+  if (trigger === "manual") {
+    dispatchShortcut("s");
+  } else {
+    await waitForEditorPublication();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2650)));
+  }
+  await waitFor(() => assert.ok(write.args));
+  assert.equal(write.args.content, PENDING_DELETION);
+}
+
+async function requestDeparture(rendered, boundary) {
+  if (boundary === "new") dispatchShortcut("n");
+  else if (boundary === "exit") dispatchShortcut("e");
+  else if (boundary === "open") {
+    rendered.setPendingNativeOpenPath(SWITCH_TARGET);
+    await act(async () => emit("bindars://native-open-available"));
+  } else await act(async () => emit("bindars://quit-requested"));
+}
+
+function departureCompleted(rendered, boundary) {
+  if (boundary === "new") return findEditorView(rendered.host).state.sliceDoc() === "";
+  if (boundary === "quit") return rendered.guardedExitCount() === 1;
+  if (boundary === "open") return rendered.openedPaths().includes(SWITCH_TARGET);
+  return !rendered.host.querySelector(".cm-editor");
+}
+
+function landPendingWrite(rendered, write, extra = {}) {
+  rendered.setDiskContent(write.args.content);
+  return act(async () => write.resolve({
+    conflict: false, canonicalPath: write.args.path, name: write.args.path.split("/").at(-1),
+    currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "landed" },
+    ...extra,
+  }));
+}
+
+// After the old write lands, the restored text is dirty again. The departure
+// either autosaves it silently or asks through the ordinary Save/Discard
+// decision; both must end with the restored text on disk.
+async function finishDepartureWithRestoredText(rendered, expectedDisk) {
+  let route = "silent";
+  await waitFor(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog) {
+      route = "dialog";
+      return;
+    }
+    assert.equal(rendered.diskContent(), expectedDisk);
+  });
+  if (route === "dialog") {
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /Unsaved changes/);
+    clickButton(rendered.host, "Save", dialog);
+  }
+  await waitFor(() => assert.equal(rendered.diskContent(), expectedDisk));
+  await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+}
+
+for (const trigger of ["manual", "autosave"]) {
+  for (const boundary of ["new", "quit", "exit", "open"]) {
+    test(`${trigger} save, restore to baseline, then ${boundary}: departure waits for the write and keeps the restored text`, async (context) => {
+      const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+      const write = deferred();
+      try {
+        await startPendingWriteOf(rendered, trigger, write);
+        updateEditor(rendered.host, RESTORED_TEXT);
+        await requestDeparture(rendered, boundary);
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+        assert.ok(rendered.host.querySelector(".cm-editor"), "the editor was abandoned around its write");
+        assert.ok(!departureCompleted(rendered, boundary), `${boundary} proceeded before the write landed`);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+        assert.ok(!document.querySelector('[role="dialog"]'), "no decision can be asked before the write lands");
+        assert.equal(rendered.fileWrites().length, 1);
+
+        await landPendingWrite(rendered, write);
+        await finishDepartureWithRestoredText(rendered, RESTORED_TEXT);
+        await waitFor(() => assert.ok(departureCompleted(rendered, boundary), `${boundary} did not complete after the write landed`));
+        assert.equal(rendered.fileWrites().length, 2, "exactly one follow-up write");
+        assert.equal(rendered.fileWrites()[1].content, RESTORED_TEXT);
+        assert.equal(rendered.diskContent(), RESTORED_TEXT);
+      } finally {
+        write.resolve(null);
+        context.mock.timers.reset();
+        await rendered.cleanup();
+      }
+    });
+  }
+}
+
+// A second Save while the first is still writing finishes first: the buffer is
+// clean, or the write lock refuses it. That must not release the departure's
+// wait for the first write.
+for (const secondSave of ["before the departure", "while the departure waits"]) {
+  for (const boundary of ["new", "exit", "quit"]) {
+    test(`a repeated Save ${secondSave} does not let ${boundary} leave before the first write lands`, async () => {
+      const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+      const write = deferred();
+      try {
+        await startPendingWriteOf(rendered, "manual", write);
+        updateEditor(rendered.host, RESTORED_TEXT);
+        if (secondSave === "before the departure") dispatchShortcut("s");
+        await requestDeparture(rendered, boundary);
+        if (secondSave === "while the departure waits") {
+          await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+          dispatchShortcut("s");
+        }
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+        assert.ok(rendered.host.querySelector(".cm-editor"), "the editor was abandoned around its first write");
+        assert.ok(!departureCompleted(rendered, boundary), `${boundary} proceeded before the first write landed`);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+        assert.ok(!document.querySelector('[role="dialog"]'));
+        assert.equal(rendered.fileWrites().length, 1, "the second Save has nothing to write yet");
+
+        await landPendingWrite(rendered, write);
+        await finishDepartureWithRestoredText(rendered, RESTORED_TEXT);
+        await waitFor(() => assert.ok(departureCompleted(rendered, boundary), `${boundary} did not complete after the write landed`));
+        assert.equal(rendered.fileWrites().length, 2, "exactly one follow-up write");
+        assert.equal(rendered.fileWrites()[1].content, RESTORED_TEXT);
+        assert.equal(rendered.diskContent(), RESTORED_TEXT);
+      } finally {
+        write.resolve(null);
+        await rendered.cleanup();
+      }
+    });
+  }
+}
+
+test("a repeated Save on a dirty buffer is refused by the write lock and the departure still waits for the first write", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    const typedMore = `${PENDING_DELETION}\nTyped while the first save is writing.\n`;
+    updateEditor(rendered.host, typedMore);
+    dispatchShortcut("s");
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.ok(!document.querySelector('[role="dialog"]'), "no decision can be asked before the first write lands");
+    assert.equal(rendered.fileWrites().length, 1);
+
+    await landPendingWrite(rendered, write);
+    await finishDepartureWithRestoredText(rendered, typedMore);
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.diskContent(), typedMore);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("text typed while a departure waits for a pending save is saved before leaving", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const typedWhileWaiting = `${RESTORED_TEXT}\nTyped while the departure waited.\n`;
+    updateEditor(rendered.host, typedWhileWaiting);
+
+    await landPendingWrite(rendered, write);
+    await finishDepartureWithRestoredText(rendered, typedWhileWaiting);
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.equal(rendered.fileWrites().length, 2);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that fails without touching disk lets a genuinely clean buffer leave", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "exit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+
+    await act(async () => write.reject(new Error("Temporary write failure")));
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    assert.equal(rendered.fileWrites().length, 1, "nothing was unsaved, so nothing is rewritten");
+    assert.equal(rendered.diskContent(), RESTORED_TEXT);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+// Leaving Edit while the boundary autosave fails asks Save/Discard/Cancel. The
+// dialog's Save starts `write`, which the test lands or fails later.
+async function saveFromUnsavedChangesDialog(rendered, write) {
+  const words = `${rendered.diskContent()}\nFirst words`;
+  dispatchShortcut("e");
+  await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+  updateEditor(rendered.host, words);
+  await waitForEditorPublication();
+  rendered.failNextFileWrite(new Error("Boundary autosave failed"));
+  dispatchShortcut("e");
+  const dialog = await waitFor(() => {
+    const candidate = document.querySelector('[role="dialog"]');
+    assert.ok(candidate);
+    assert.match(candidate.textContent, /Unsaved changes/);
+    return candidate;
+  });
+  rendered.deferNextWrite(write);
+  clickButton(rendered.host, "Save", dialog);
+  await waitFor(() => assert.ok(write.args));
+  return words;
+}
+
+// A dialog's Save that lands while newer text is pending asks again. The
+// departure that waited on it must not leave a dead dialog behind.
+for (const second of ["new", "quit"]) {
+  test(`a dialog Save that lands with newer edits pending asks again before ${second}`, async () => {
+    const rendered = await renderContinuityApp();
+    const write = deferred();
+    try {
+      const saved = await saveFromUnsavedChangesDialog(rendered, write);
+      const newer = `${saved}\nTyped during the dialog Save`;
+      updateEditor(rendered.host, newer);
+      await requestDeparture(rendered, second);
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      assert.ok(rendered.host.querySelector(".cm-editor"), "the departure waits for the dialog Save");
+
+      await landPendingWrite(rendered, write);
+      const dialog = await waitFor(() => {
+        const candidate = document.querySelector('[role="dialog"]');
+        assert.ok(candidate);
+        return candidate;
+      });
+      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /continuity\.md/);
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), newer);
+      const writesBefore = rendered.fileWrites().length;
+      clickButton(rendered.host, "Save", dialog);
+      await waitFor(() => assert.equal(rendered.fileWrites().length, writesBefore + 1));
+      assert.equal(rendered.fileWrites().at(-1).content, newer);
+      await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+      await waitFor(() => assert.ok(departureCompleted(rendered, second), `${second} did not complete after the second Save`));
+      assert.equal(rendered.guardedExitCount(), second === "quit" ? 1 : 0);
+    } finally {
+      write.resolve(null);
+      await rendered.cleanup();
+    }
+  });
+}
+
+test("a dialog Save that fails while New waits keeps the editor and asks nothing more", async () => {
+  const rendered = await renderContinuityApp();
+  const write = deferred();
+  try {
+    const saved = await saveFromUnsavedChangesDialog(rendered, write);
+    const typed = `${saved}\nTyped during the dialog Save`;
+    updateEditor(rendered.host, typed);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const disk = rendered.diskContent();
+
+    await act(async () => {
+      write.reject(new Error("Dialog save failed"));
+      await Promise.resolve();
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /Autosave is paused/));
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), typed);
+    assert.ok(!departureCompleted(rendered, "new"), "New ran over the failed Save");
+    assert.match(rendered.host.textContent, /continuity\.md/);
+    assert.equal(rendered.diskContent(), disk);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that lands as a conflict stops the departure at the conflict decision", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+
+    await act(async () => write.resolve({
+      conflict: true, canonicalPath: write.args.path, name: "continuity.md",
+      currentRevision: { mtimeMs: 9, size: 5, contentHash: "outside" },
+    }));
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      return candidate;
+    });
+    assert.match(dialog.textContent, /File changed/);
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.equal(rendered.fileWrites().length, 1, "a conflict is not retried behind the person's back");
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.notEqual(findEditorView(rendered.host).state.sliceDoc(), "");
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a pending save that retained a competing version stops the departure at the Save decision with the notice visible", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "manual", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "quit");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(rendered.guardedExitCount(), 0);
+
+    await landPendingWrite(rendered, write, { recoveryPath: "/tmp/Bindars recovered competing.md" });
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate);
+      return candidate;
+    });
+    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.equal(rendered.guardedExitCount(), 0, "quit must not proceed over a recovery-required outcome");
+    assert.equal(rendered.fileWrites().length, 1, "autosave stays paused after a retained version");
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.match(rendered.host.textContent, /kept another version at \/tmp\/Bindars recovered competing\.md/);
+    assert.equal(rendered.guardedExitCount(), 0);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("cancelling the decision that follows a settled autosave keeps the editor, and autosave then restores the text", async () => {
+  const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
+  const write = deferred();
+  try {
+    await startPendingWriteOf(rendered, "autosave", write);
+    updateEditor(rendered.host, RESTORED_TEXT);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(!departureCompleted(rendered, "new"));
+
+    await landPendingWrite(rendered, write);
+    // Joining the autosave reports newer edits, so the ordinary decision opens.
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate, "the restored text must be put to the person, not dropped");
+      return candidate;
+    });
+    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.equal(rendered.diskContent(), PENDING_DELETION);
+    dispatchWindowKey("Escape");
+    await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+    assert.ok(rendered.host.querySelector(".cm-editor"), "Cancel keeps the editor");
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
+    assert.ok(!departureCompleted(rendered, "new"), "Cancel cancels New");
+    assert.ok(rendered.host.querySelector('[aria-label="Unsaved changes"]'));
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2700)));
+    await waitFor(() => assert.equal(rendered.diskContent(), RESTORED_TEXT));
+    assert.equal(rendered.fileWrites().length, 2);
+  } finally {
+    write.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -3096,7 +3561,7 @@ test("a newer Finder request wins over delayed startup settings", async (context
         }
 
         await act(async () => {
-          settings.resolve([{ filePath: "/tmp/older-session.md", headingId: "old-heading" }, true]);
+          settings.resolve({ filePath: "/tmp/older-session.md", headingId: "old-heading" });
           await settings.promise;
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("main")));
@@ -3112,7 +3577,7 @@ test("a newer Finder request wins over delayed startup settings", async (context
         }
         assert.doesNotMatch(rendered.host.textContent, /older-session\.md/);
       } finally {
-        settings.resolve([null, false]);
+        settings.resolve(null);
         finderRead.resolve(rendered.openResult());
         await rendered.cleanup();
       }
@@ -3138,14 +3603,14 @@ test("cancelling a newer file-open dialog does not revive delayed startup restor
       await openDialog.promise;
     });
     await act(async () => {
-      settings.resolve([{ filePath: "/tmp/older-session.md", headingId: null }, true]);
+      settings.resolve({ filePath: "/tmp/older-session.md", headingId: null });
       await settings.promise;
     });
     await waitFor(() => assert.ok(rendered.host.querySelector("main")));
     assert.deepEqual(rendered.openedPaths(), []);
   } finally {
     openDialog.resolve(null);
-    settings.resolve([null, false]);
+    settings.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -4854,7 +5319,7 @@ test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", 
   try {
     const opener = rendered.host.querySelector("button");
     opener.focus();
-    dispatchWindowKey("?");
+    dispatchShortcut("?");
     const close = document.querySelector('[role="dialog"] button');
     assert.ok(document.activeElement === close);
     dispatchShortcut("k");
@@ -5039,8 +5504,8 @@ test("late theme and settings hydration wait until printing ends", async (t) => 
   await act(async () => dispatchShortcut("p"));
   await act(async () => view.pending[0].resolve());
   await act(async () => {
-    theme.resolve(["dark", true]);
-    settings.resolve([{ fontSize: 24 }, true]);
+    theme.resolve("dark");
+    settings.resolve({ fontSize: 24 });
   });
   assert.equal(document.documentElement.getAttribute("data-theme"), originalTheme);
   assert.equal(view.host.querySelector("main").getAttribute("style"), originalStyle);
@@ -5189,7 +5654,7 @@ for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
     const old = { path: '/tmp/old.md', name: 'old.md', openedAt: 1, lastHeadingId: startup === 'legacy migration' ? 'user-content-intro' : 'intro' };
     const stored = format === 'versioned' ? { version: 1, files: [old] } : [old];
     let released = false;
-    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? [structuredClone(history.value), true] : held.promise };
+    const history = { version: startup === 'legacy migration' ? 2 : 3, value: stored, writes: [], read: () => released ? structuredClone(history.value) : held.promise };
     const rendered = await renderContinuityApp({
       requestedPath: '/tmp/new.md',
       ...(startup === 'session' ? { restoreHeadingId: 'second' } : {}),
@@ -5208,7 +5673,7 @@ for (const startup of ['native', 'session', 'A then B', 'legacy migration']) {
       assert.deepEqual(history.writes.filter(w => w.key === 'recent-files'), []);
       assert.deepEqual(history.value, stored);
       released = true;
-      await act(async () => { held.resolve([stored, true]); });
+      await act(async () => { held.resolve(stored); });
       const current = startup === 'A then B' ? '/tmp/newer.md' : '/tmp/new.md';
       await waitFor(() => assert.deepEqual(history.durable.files.map(f => f.path), [current, '/tmp/old.md']));
       assert.equal(history.durable.files[1].lastHeadingId, 'intro');
@@ -5224,7 +5689,7 @@ for (const failure of ['history read', 'conversion write', 'unknown format']) {
     const history = { version: failure === 'conversion write' ? 2 : 3, value: original, durable: structuredClone(original), writes: [],
       writeError: failure === 'conversion write' ? Error('conversion write rejected') : null, read: () => {
       if (failure === 'history read') throw Error('history unavailable');
-      return [original, true];
+      return original;
     } };
     const expectedWrites = failure === 'conversion write'
       ? [{ key: 'recent-files', value: { version: 1, files: [{ ...original[0], lastHeadingId: 'intro' }] } }]
@@ -5800,15 +6265,15 @@ for (const seen of [undefined, false, true]) {
     const history = { version: 3, value: { version: 1, files: [] }, writes: [] };
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
     try {
-      assert.ok([...rendered.host.querySelectorAll('button')].some(b => b.textContent === 'Try an example'));
+      assert.ok([...rendered.host.querySelectorAll('button')].some(b => b.textContent === 'Try an Example…'));
       assert.equal(flow.reads.includes('hasSeenWelcome'), false);
       assert.deepEqual(flow.dialogs, []);
       assert.deepEqual(flow.exports, []);
       assert.ok(!rendered.host.querySelector('article'));
       rendered.setSaveDialogPath(null);
-      clickButton(rendered.host, 'Try an example');
+      clickButton(rendered.host, 'Try an Example…');
       await waitFor(() => assert.equal(flow.dialogs.length, 1));
-      await waitFor(() => assert.equal([...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example').disabled, false));
+      await waitFor(() => assert.equal([...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…').disabled, false));
       assert.equal(flow.dialogs[0].options.defaultPath, '/tmp/Documents/Welcome to Bindars.md');
       assert.deepEqual(flow.exports, []);
       assert.deepEqual(history.writes.filter(w => /sample|welcome/i.test(w.key)), []);
@@ -5826,7 +6291,7 @@ for (const [name, directory, expected] of [
     const flow = sampleFixture({ directory, dialog: () => null });
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
     try {
-      clickButton(rendered.host, 'Try an example');
+      clickButton(rendered.host, 'Try an Example…');
       await waitFor(() => assert.equal(flow.dialogs.length, 1));
       assert.equal(flow.dialogs[0].options.defaultPath, expected);
       assert.deepEqual(flow.directories, [6, 21]);
@@ -5840,7 +6305,7 @@ test('sample admission owns repeated activation and quit until cancel releases i
   const flow = sampleFixture({ dialog: () => held.promise });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
-    const button = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    const button = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     flushSync(() => { button.click(); button.click(); });
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => emit('bindars://quit-requested'));
@@ -5851,7 +6316,7 @@ test('sample admission owns repeated activation and quit until cancel releases i
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     assert.doesNotMatch(rendered.host.textContent, /Couldn't save the example|example was saved/);
     flow.dialog = () => '/tmp/sample.md';
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.dialogs.length, 2);
     assert.deepEqual(flow.exports, [{ path: '/tmp/sample.md', content: '# Welcome fixture\n\nSave with Ctrl+S.' }]);
@@ -5863,12 +6328,12 @@ test('sample write failure preserves the entrance and supports a deliberate retr
   const flow = sampleFixture({ write: () => { throw { category: 'permissionDenied', operation: 'exportDocument', message: 'Choose a writable folder.', detail: 'fixture' }; } });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.match(rendered.host.textContent, /Choose a writable folder/));
     assert.deepEqual(rendered.openedPaths(), []);
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     flow.write = null;
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 2);
   } finally { await rendered.cleanup(); }
@@ -5881,14 +6346,14 @@ test('sample saved but open failed reports the destination and ordinary Open doe
   try {
     rendered.setSaveDialogPath('/tmp/saved-sample.md');
     rendered.deferNextOpen(open);
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(open.args));
     await act(async () => open.reject(Error('Synthetic read failure')));
     await waitFor(() => assert.match(rendered.host.textContent, /example was saved to \/tmp\/saved-sample.md, but couldn't be opened/));
     assert.ok(rendered.host.querySelector('.empty-state-content'));
     assert.match(rendered.host.textContent, /Synthetic read failure/);
     rendered.setOpenDialogPath('/tmp/saved-sample.md');
-    clickButton(rendered.host, 'Open File');
+    clickButton(rendered.host, 'Open File…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 1);
     assert.equal(rendered.diskContent(), flow.exports[0].content);
@@ -5902,7 +6367,7 @@ test('sample cancel supersedes an in-flight session restore without exporting', 
   const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(session.args));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => dialog.resolve(null));
     await act(async () => session.resolve(rendered.openResult('# Late session')));
@@ -5920,7 +6385,7 @@ test('sample cancels an already pending session open before showing its Save dia
   const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(startup.args));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => startup.resolve(rendered.openResult('# Stale startup')));
     assert.ok(!rendered.host.querySelector('article'));
@@ -5934,7 +6399,7 @@ test('sample completion after unmount does not open or publish stale feedback', 
   const write = deferred();
   const flow = sampleFixture({ write: () => write.promise });
   const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
-  clickButton(rendered.host, 'Try an example');
+  clickButton(rendered.host, 'Try an Example…');
   await waitFor(() => assert.equal(flow.exports.length, 1));
   await rendered.cleanup();
   await act(async () => write.resolve(null));
@@ -5948,13 +6413,13 @@ test('sample keeps the existing native-open busy guard and accepts a later retry
   const rendered = await renderContinuityApp({ initialNativePath: '/tmp/startup.md', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(startup.args));
-    const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an example');
+    const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     assert.equal(sample.disabled, true);
     flushSync(() => sample.click());
     assert.deepEqual(flow.dialogs, []);
     await act(async () => startup.reject(Error('Synthetic open failure')));
     await waitFor(() => assert.equal(sample.disabled, false));
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     assert.equal(flow.exports.length, 1);
   } finally { await rendered.cleanup(); }
@@ -6045,7 +6510,7 @@ test('sample canonical opening supports notes and ordinary reopening preserves e
   const rendered = await renderContinuityApp({ initialNativePath: null, requestedPath: selectedPath, canonicalPath: actualPath, readySelector: '.empty-state-content', sampleFlow: flow, recentStorage: history });
   try {
     rendered.setSaveDialogPath(selectedPath);
-    clickButton(rendered.host, 'Try an example');
+    clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.ok(rendered.host.querySelector('article')));
     await waitFor(() => assert.equal(history.value.files[0].path, actualPath));
     await selectReaderParagraph(rendered);
@@ -6181,7 +6646,7 @@ test("an incomplete Save As preserves the warning, current text and draft until 
     assert.ok(!rendered.draftChecks().includes("/tmp/partial-copy.md"));
     rendered.setSaveDialogPath("/tmp/complete-copy.md");
     clickButton(rendered.host, "Save As…");
-    await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: "/tmp/complete-copy.md" }]));
+    await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: "/tmp/complete-copy.md" }]));
     assert.equal(rendered.fileWrites().at(-1).content, words);
     assert.doesNotMatch(rendered.host.textContent, /may be incomplete/);
   } finally { await rendered.cleanup(); }
@@ -6273,7 +6738,9 @@ for (const route of ["manual Save", "Save As after error"]) {
         conflict: false, canonicalPath: selectedPath, name: "draft-with-recovery.md",
         currentRevision: written, recoveryPath: "/tmp/Bindars recovered competing.md",
       }));
-      await waitFor(() => assert.deepEqual(rendered.draftDeletes(), [{ path: DRAFT_PATH, savedPath: selectedPath }]));
+      await waitFor(() => assert.deepEqual(retirementPaths(rendered.draftDeletes()), [{ path: DRAFT_PATH, savedPath: selectedPath }]));
+      // The acknowledged destination revision travels with retirement even when a competing version was retained.
+      assert.deepEqual(rendered.draftDeletes()[0].savedRevision, written);
       assert.match(rendered.host.textContent, /kept another version at \/tmp\/Bindars recovered competing\.md/);
       assert.ok(rendered.host.querySelector('[aria-label^="Save warning: Autosave is paused"]'));
       assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
@@ -6540,8 +7007,8 @@ for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
       await act(async () => {
         held.resolve(heldStage === "bootstrap" ? { settingsReady: true, settingsError: null }
           : heldStage === "native drain" ? null
-          : heldStage === "history" ? [oldHistory, true]
-          : [{ filePath: "/tmp/stale-session.md", headingId: null }, true]);
+          : heldStage === "history" ? oldHistory
+          : { filePath: "/tmp/stale-session.md", headingId: null });
       });
       await waitFor(() => assert.ok(history.value.files.some(file => file.path === "/tmp/user-selected.md")));
       assert.equal(history.value.files.find(file => file.path === "/tmp/kept.md").lastHeadingId, "kept-position");
@@ -6550,7 +7017,7 @@ for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
       await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     } finally {
       context.mock.timers.reset();
-      held.resolve([null, false]);
+      held.resolve(null);
       await rendered.cleanup();
       restoreLocalStorage();
     }
@@ -6567,14 +7034,14 @@ for (const stored of [false, "true", { unexpected: true }]) {
       const toggle = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
       assert.ok(!rendered.host.querySelector("aside"));
       if (stored === false) flushSync(() => toggle.click());
-      await act(async () => held.resolve([stored, true]));
+      await act(async () => held.resolve(stored));
       assert.equal(Boolean(rendered.host.querySelector("aside")), stored === false);
       if (stored === false) {
         assert.equal(window.localStorage.getItem("bindars-sidebar-visible"), "true");
         assert.equal(storage.writes.findLast(write => write.key === "sidebar-visible").value, true);
       }
     } finally {
-      held.resolve([null, false]);
+      held.resolve(null);
       await rendered.cleanup();
       restoreLocalStorage();
     }
@@ -6584,7 +7051,7 @@ for (const stored of [false, "true", { unexpected: true }]) {
 test("a malformed saved heading still opens a usable document", async () => {
   const restoreLocalStorage = bindAppLocalStorage();
   const session = deferred();
-  session.resolve([{ filePath: "/tmp/continuity.md", headingId: { toString: null } }, true]);
+  session.resolve({ filePath: "/tmp/continuity.md", headingId: { toString: null } });
   const rendered = await renderContinuityApp({ initialNativePath: null, initialSessionOperation: session, freshStorage: true });
   try {
     assert.ok(rendered.host.querySelector("#second"));
@@ -6667,7 +7134,7 @@ for (const format of ["markdown", "fountain"]) {
         await act(async () => new Promise(setImmediate));
         assert.ok(!rendered.host.querySelector("article"), "startup still hides the prepared document");
         await act(async () => {
-          if (readyBy === "history") held.resolve([history.value, true]);
+          if (readyBy === "history") held.resolve(history.value);
           else context.mock.timers.tick(3000);
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("article h1[id], article h2[id], article h3[id]")));
@@ -6676,7 +7143,7 @@ for (const format of ["markdown", "fountain"]) {
         assert.doesNotMatch(rendered.host.textContent, /No headings/);
       } finally {
         context.mock.timers.reset();
-        held.resolve([history.value, true]);
+        held.resolve(history.value);
         await rendered.cleanup();
       }
     });
@@ -6691,11 +7158,11 @@ test("saved heading restores when the reader mounts after the session document l
     await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
     await act(async () => new Promise(setImmediate));
     assert.ok(!rendered.host.querySelector("article"));
-    await act(async () => held.resolve([history.value, true]));
+    await act(async () => held.resolve(history.value));
     await waitFor(() => assert.ok(rendered.host.querySelector("#second")));
     await waitFor(() => assert.ok(rendered.scrolledIds.includes("second"), "restore waits for the startup-hidden reader to mount"));
   } finally {
-    held.resolve([history.value, true]);
+    held.resolve(history.value);
     await rendered.cleanup();
   }
 });
@@ -6732,7 +7199,7 @@ test("startup restoration persists the same heading across two launches", async 
             main.scrollTop += this.getBoundingClientRect().top - main.getBoundingClientRect().top - HEADING_SCROLL_MARGIN_PX;
           }
         };
-        await act(async () => held.resolve([history.value, true]));
+        await act(async () => held.resolve(history.value));
         await waitFor(() => assert.ok(rendered.host.querySelector("#second")));
         await act(async () => { await new Promise(resolve => setTimeout(resolve, 2300)); });
         const saved = history.writes.findLast(write => write.key === "session")?.value;
@@ -6741,7 +7208,7 @@ test("startup restoration persists the same heading across two launches", async 
         assert.equal(history.value.files.find(file => file.path === "/tmp/continuity.md")?.lastHeadingId, "second");
         savedHeading = saved.headingId;
       } finally {
-        held.resolve([history.value, true]);
+        held.resolve(history.value);
         await rendered.cleanup();
       }
     }
@@ -6765,4 +7232,254 @@ test("Focus mode retains a focused selection-toolbar action that remains visible
     window.getSelection().removeAllRanges();
     await rendered.cleanup();
   }
+});
+
+test("welcome keeps reader controls dormant until a document opens and offers accessible help", async () => {
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state", sampleFlow: sampleFixture() });
+  try {
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="notes"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label="Toggle table of contents"]'));
+    assert.ok(!rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]'));
+    assert.equal(dispatchWindowKey("?").defaultPrevented, false);
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    dispatchShortcut("j");
+    dispatchShortcut("m");
+    dispatchShortcut("f", { shiftKey: true });
+    assert.ok(rendered.host.querySelector("header"), "Focus mode must not hide the welcome controls");
+    assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
+    const shortcutButton = [...rendered.host.querySelectorAll(".empty-state button")]
+      .find(button => button.textContent === "Keyboard Shortcuts");
+    shortcutButton.focus();
+    flushSync(() => shortcutButton.click());
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Keyboard Shortcuts/);
+    dispatchElementKey(document.activeElement, "Escape");
+    assert.ok(document.activeElement === shortcutButton);
+    dispatchShortcut("?");
+    assert.ok(document.querySelector('[role="dialog"]'));
+    dispatchShortcut("?");
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    rendered.setOpenDialogPath("/tmp/ready.md");
+    clickButton(rendered.host, "Open File…");
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.ok(rendered.host.querySelector('nav[aria-label="Table of contents"]'),
+      "hidden panel shortcuts must not change the preference");
+    assert.ok(!rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) {
+  test("startup recovery preserves recent files and reports " + category, async () => {
+    const failed = deferred();
+    const path = "/tmp/continuity.md";
+    const history = { value: { version: 1, files: [
+      { path, name: "continuity.md", openedAt: 100, lastHeadingId: "second" },
+    ] }, writes: [] };
+    const rendered = await renderContinuityApp({
+      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: ".empty-state", recentStorage: history,
+    });
+    try {
+      await waitFor(() => assert.ok(failed.args));
+      await act(async () => failed.reject({
+        category, operation: "readDocument", message: "The storage request is unavailable.", detail: "fixture",
+      }));
+      await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state-recovery")));
+      assert.match(rendered.host.textContent, category === "notFound" ? /Couldn’t find continuity.md/ :
+        category === "permissionDenied" ? /Couldn’t access continuity.md/ : /The storage request is unavailable/);
+      assert.doesNotMatch(rendered.host.textContent, /Resume:/);
+      assert.equal(history.value.files.length, 1);
+      const blocked = history.writes.find(write => write.key === "session" && write.value.restoreDisabled);
+      assert.equal(Boolean(blocked), category === "notFound", "only a confirmed missing file stops automatic reopen");
+      assert.equal(rendered.annotationWrites.length, 0);
+      const retry = rendered.host.querySelector('[aria-label="Retry opening continuity.md"]');
+      assert.ok(retry && !retry.disabled);
+      flushSync(() => retry.click());
+      await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+      assert.ok(rendered.scrolledIds.includes("second"), "Retry retains the saved reading position");
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const action of ["Open File…", "Try an Example…"]) {
+  test("persisted missing-file recovery survives a cancelled " + action, async () => {
+    const path = "/tmp/missing.md";
+    const dialog = deferred();
+    const flow = sampleFixture({ dialog: () => dialog.promise });
+    const history = { version: 3, value: { version: 1, files: [
+      { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
+    ] }, writes: [] };
+    const rendered = await renderContinuityApp({
+      initialNativePath: null,
+      initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
+      readySelector: ".empty-state-recovery", recentStorage: history, sampleFlow: flow,
+    });
+    try {
+      if (action === "Open File…") rendered.deferNextOpenDialog(dialog);
+      clickButton(rendered.host, action);
+      await waitFor(() => assert.ok(action === "Open File…" ? dialog.args : flow.dialogs.length));
+      assert.ok(rendered.host.querySelector(".empty-state-recovery"));
+      assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+      await act(async () => dialog.resolve(null));
+      await waitFor(() => assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, false));
+      assert.ok(!rendered.host.querySelector("article"));
+      assert.deepEqual(rendered.openedPaths(), []);
+      assert.match(rendered.host.textContent, /Couldn’t find missing.md/);
+      flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+      await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+      assert.deepEqual(rendered.openedPaths(), [path]);
+      assert.ok(rendered.scrolledIds.includes("second"));
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("a newer open error takes precedence over persisted missing-file recovery", async () => {
+  const rendered = await renderContinuityApp({
+    initialNativePath: null,
+    initialSessionOperation: { promise: Promise.resolve({ filePath: "/tmp/old-missing.md", headingId: null, savedAt: 1, restoreDisabled: true }) },
+    readySelector: ".empty-state-recovery",
+  });
+  try {
+    const failed = deferred();
+    rendered.deferNextOpen(failed);
+    rendered.setOpenDialogPath("/tmp/new-missing.md");
+    clickButton(rendered.host, "Open File…");
+    await waitFor(() => assert.ok(failed.args));
+    await act(async () => failed.reject({ category: "notFound", operation: "readDocument", message: "File missing", detail: "fixture" }));
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn’t find new-missing.md/));
+    assert.doesNotMatch(rendered.host.querySelector(".empty-state-recovery").textContent, /old-missing.md/);
+
+    // Retrying that newer file, and cancelling its slow read, keep naming it.
+    const recovery = () => rendered.host.querySelector(".empty-state-recovery-message");
+    const retry = () => [...recovery().querySelectorAll("button")].find(button => button.textContent === "Retry");
+    const stalled = deferred();
+    rendered.deferNextOpen(stalled);
+    flushSync(() => retry().click());
+    await waitFor(() => assert.equal(stalled.args?.path, "/tmp/new-missing.md"));
+    assert.match(recovery().textContent, /Couldn’t find new-missing.md/);
+    assert.doesNotMatch(rendered.host.textContent, /old-missing.md/);
+    assert.equal(retry().disabled, true);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+    const cancel = [...rendered.host.querySelectorAll("button")].find(button => button.textContent.trim() === "Cancel");
+    flushSync(() => cancel.click());
+    await waitFor(() => assert.equal(retry().disabled, false));
+    assert.match(recovery().textContent, /Couldn’t find new-missing.md/);
+    assert.doesNotMatch(rendered.host.textContent, /old-missing.md/);
+    assert.ok(!rendered.host.querySelector("article"));
+  } finally { await rendered.cleanup(); }
+});
+
+function missingRecentFixture(path = "/tmp/missing.md") {
+  return {
+    initialNativePath: null,
+    initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
+    readySelector: ".empty-state-recovery",
+    recentStorage: { version: 3, value: { version: 1, files: [
+      { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
+    ] }, writes: [] },
+  };
+}
+
+test("retrying the missing file itself keeps its recovery while the read is pending", async () => {
+  const fixture = missingRecentFixture();
+  const rendered = await renderContinuityApp(fixture);
+  try {
+    const pending = deferred();
+    rendered.deferNextOpen(pending);
+    flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+    await waitFor(() => assert.equal(pending.args?.path, "/tmp/missing.md"));
+    assert.match(rendered.host.querySelector(".empty-state-recovery").textContent, /Couldn’t find missing.md/);
+    assert.match(rendered.host.textContent, /Opening…/);
+    assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+    await act(async () => pending.resolve({
+      canonicalPath: "/tmp/missing.md", name: "missing.md", content: rendered.diskContent(),
+      revision: { mtimeMs: 1, size: 1, contentHash: "r1" },
+    }));
+    await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+    assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+    assert.ok(rendered.scrolledIds.includes("second"));
+    assert.ok(!fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
+      "a successful retry re-enables restore through the ordinary session write, not by forgetting");
+  } finally { await rendered.cleanup(); }
+});
+
+for (const control of ["Dismiss", "Remove"]) {
+  test(`${control} clears persisted missing-file recovery and stops it returning at launch`, async () => {
+    const fixture = missingRecentFixture();
+    const rendered = await renderContinuityApp(fixture);
+    try {
+      const button = control === "Remove"
+        ? rendered.host.querySelector('[aria-label="Remove missing.md from recent files"]')
+        : [...rendered.host.querySelector(".empty-state-recovery-message").querySelectorAll("button")]
+          .find(candidate => candidate.textContent === "Dismiss");
+      button.focus();
+      flushSync(() => button.click());
+      assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
+      assert.match(rendered.host.textContent, /Read, highlight, and add your thoughts/);
+      const entry = rendered.host.querySelector('[aria-label="Open missing.md"]');
+      if (control === "Remove") {
+        assert.equal(entry, null);
+        await waitFor(() => assert.deepEqual(fixture.recentStorage.value.files, []));
+      } else {
+        assert.equal(entry.disabled, false, "Dismiss keeps the entry in recent files");
+        assert.equal(fixture.recentStorage.value.files.length, 1);
+        assert.ok(document.activeElement === [...rendered.host.querySelectorAll("button")]
+          .find(candidate => candidate.textContent === "Open File…"));
+      }
+      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
+        "the stored unavailable session is forgotten"));
+      assert.deepEqual(rendered.openedPaths(), []);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("a late reading hint stays outside the restored document's scroller", async () => {
+  const hint = deferred();
+  const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });
+  try {
+    assert.ok(rendered.scrolledIds.includes("second"));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    await act(async () => hint.resolve(null));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    const main = rendered.host.querySelector("main");
+    assert.equal(main.contains(rendered.host.querySelector(".reading-hint")), false);
+    const dismiss = rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
+    dismiss.focus();
+    flushSync(() => dismiss.click());
+    assert.ok(document.activeElement === main);
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(main.querySelector("#second"));
+  } finally { await rendered.cleanup(); }
+});
+
+test("welcome hint dismisses once without reopening when another document is read", async () => {
+  const history = { value: { version: 1, files: [] }, writes: [] };
+  const rendered = await renderContinuityApp({ recentStorage: history });
+  try {
+    const dismiss = await waitFor(() => rendered.host.querySelector('[aria-label="Dismiss reading hint"]') || assert.fail("missing hint"));
+    const main = rendered.host.querySelector("main");
+    dismiss.focus();
+    flushSync(() => dismiss.click());
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(document.activeElement === main);
+    await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value === true)));
+    rendered.setOpenDialogPath("/tmp/another.md");
+    clickButton(rendered.host, "Open");
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/another.md"));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+  } finally { await rendered.cleanup(); }
+});
+
+test("the first accepted highlight retires the reading hint", async () => {
+  const history = { value: { version: 1, files: [] }, writes: [] };
+  const rendered = await renderContinuityApp({ recentStorage: history });
+  try {
+    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await selectReaderParagraph(rendered);
+    flushSync(() => rendered.host.querySelector('[aria-label="Highlight Yellow"]').click());
+    await waitFor(() => assert.ok(rendered.annotationWrites.length));
+    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
+  } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });

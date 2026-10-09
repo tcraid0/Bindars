@@ -47,7 +47,8 @@ async function upgradeLegacyFiles(value: unknown[]) {
       ? { ...file, lastHeadingId: file.lastHeadingId.slice("user-content-".length) }
       : file);
   // One value keeps transformed headings and their interpretation together,
-  // even when a rejected save leaves a changed plugin cache for a later flush.
+  // even when a rejected save leaves the changed value in the native settings
+  // cache for a later write.
   if (!await saveRecentFiles(migrated)) throw new Error("Could not save upgraded recent history");
 }
 

@@ -63,6 +63,7 @@ export function useTheme(pause?: StatePause) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme === "light" ? "" : theme);
+    document.documentElement.style.backgroundColor = "var(--bg-primary)";
     if (!userUpdatedRef.current) {
       currentThemeRef.current = theme;
     }

@@ -1,12 +1,13 @@
-//! Annotation storage is separate from the settings plugin: a successful command
-//! acknowledges an atomic file replacement, not an update to an autosave cache.
+//! Annotation storage is separate from settings (settings.rs); both acknowledge
+//! an atomic file replacement, and the settings cache is seeded only here, after
+//! migration has preserved the legacy bytes.
 use crate::atomic_write::write_contents_atomic_private;
 use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
-use serde::Serialize;
+use crate::settings::Settings;
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 use std::{collections::HashSet, fs, io::Read, path::Path, sync::Mutex};
 use tauri::Manager;
-use tauri_plugin_store::StoreExt;
 
 static STORAGE_LOCK: Mutex<()> = Mutex::new(());
 const DATA: &str = "annotations.json";
@@ -56,7 +57,7 @@ pub(crate) async fn initialize_annotation_storage(
     run(app, move |root| {
         initialize_at(root)?;
         // Annotation data remains readable when only settings are unavailable.
-        let settings_error = prepare_settings_store(&settings_app, root).err();
+        let settings_error = prepare_settings(&settings_app.state::<Settings>(), root).err();
         Ok(StorageStatus {
             settings_ready: settings_error.is_none(),
             settings_error,
@@ -65,28 +66,21 @@ pub(crate) async fn initialize_annotation_storage(
     .await
 }
 
-fn prepare_settings_store<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    root: &Path,
-) -> Result<(), String> {
-    let path = root.join("settings.json");
-    // Bootstrap runs under STORAGE_LOCK. Once prepared, the plugin cache owns
-    // newer changes, including a set whose save failed; do not reload over it.
-    if app.get_store(&path).is_some() {
+fn prepare_settings(settings: &Settings, root: &Path) -> Result<(), String> {
+    // Bootstrap runs under STORAGE_LOCK. Once loaded, the cache owns newer
+    // changes, including a value whose write failed; do not reload over it.
+    if settings.is_loaded() {
         return Ok(());
     }
-    let settings = match read_optional(&path)? {
+    let path = root.join("settings.json");
+    // Seed the cache from this checked read only: a damaged or unreadable file
+    // must leave settings unavailable rather than load an empty cache that the
+    // next write would persist over the original bytes.
+    let values = match read_optional(&path)? {
         Some(bytes) => parse_object(&bytes)?,
-        None => json!({}),
+        None => Map::new(),
     };
-    // The plugin's ordinary load ignores disk-read errors. Seed its cache from
-    // this checked read instead: failure must register no store for later writes
-    // or the plugin's unconditional Exit save to flush.
-    app.store_builder(&path)
-        .defaults(serde_json::from_value(settings).map_err(|e| e.to_string())?)
-        .create_new()
-        .build()
-        .map_err(|e| e.to_string())?;
+    settings.load(&path, values);
     Ok(())
 }
 
@@ -165,14 +159,11 @@ fn export_recovery_at(root: &Path, path: &Path, documents: Value) -> Result<(), 
             .ok_or_else(|| invalid("Choose a recovery filename."))?,
     );
     let data = json!({"kind":"bindars-annotation-recovery","version":1,"documents":documents});
-    if serde_json::to_vec_pretty(&data)
-        .map_err(|e| recovery_export_error(e.to_string()))?
-        .len()
-        > 64 * 1024 * 1024
-    {
+    let content = serialize_json(&data).map_err(recovery_export_error)?;
+    if content.len() > 64 * 1024 * 1024 {
         return Err(invalid("Recovery copy exceeds 64 MiB."));
     }
-    write_json(&path, &data).map_err(recovery_export_error)?;
+    write_json_text(&path, &content).map_err(recovery_export_error)?;
     if read_recovery_at(&path).map_err(recovery_export_error)? != data {
         return Err(recovery_export_error("Couldn't verify recovery copy"));
     }
@@ -206,7 +197,7 @@ fn read_recovery_at(path: &Path) -> Result<Value, String> {
     if data.get("kind") != Some(&json!("bindars-annotation-recovery")) {
         return Err("This is not an annotation recovery copy".into());
     }
-    Ok(data)
+    Ok(Value::Object(data))
 }
 
 fn ensure_directory(root: &Path) -> Result<(), String> {
@@ -233,24 +224,79 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-fn parse_object(bytes: &[u8]) -> Result<Value, String> {
-    let value: Value =
+// serde_json::Value normally keeps only the last member with a given key.
+// Check decoded keys while visiting every object, including objects in arrays,
+// so no primary, recovery or migration input loses data before validation.
+struct UniqueValue(Value);
+
+impl<'de> Deserialize<'de> for UniqueValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Value;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("JSON with unique object members")
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Value, E> {
+                Ok(value.into())
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Value, E> {
+                Ok(value.into())
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Value, E> {
+                Ok(value.into())
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Value, E> {
+                Ok(value.into())
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Value, E> {
+                Ok(value.into())
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(UniqueValue(value)) = seq.next_element()? {
+                    values.push(value);
+                }
+                Ok(Value::Array(values))
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+                let mut values = Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        return Err(de::Error::custom("Duplicate JSON object member"));
+                    }
+                    let UniqueValue(value) = map.next_value()?;
+                    values.insert(key, value);
+                }
+                Ok(Value::Object(values))
+            }
+        }
+        deserializer.deserialize_any(Visitor).map(UniqueValue)
+    }
+}
+
+fn parse_object(bytes: &[u8]) -> Result<Map<String, Value>, String> {
+    let UniqueValue(value) =
         serde_json::from_slice(bytes).map_err(|_| "Stored JSON is damaged".to_string())?;
-    if !value.is_object() {
-        return Err("Stored JSON is not an object".into());
+    match value {
+        Value::Object(members) => Ok(members),
+        _ => Err("Stored JSON is not an object".into()),
     }
-    Ok(value)
 }
 
-fn read_settings(root: &Path) -> Result<Option<Vec<u8>>, String> {
-    let bytes = read_optional(&root.join("settings.json"))?;
-    if let Some(bytes) = &bytes {
-        parse_object(bytes)?;
-    }
-    Ok(bytes)
-}
-
-fn validate_collection(value: &Value) -> Result<(), String> {
+fn validate_collection(value: &Map<String, Value>) -> Result<(), String> {
     if value.get("version") != Some(&json!(1))
         || !value.get("documents").is_some_and(Value::is_object)
     {
@@ -259,12 +305,15 @@ fn validate_collection(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+fn serialize_json(value: &Value) -> Result<String, String> {
+    serde_json::to_string_pretty(value).map_err(|e| e.to_string())
+}
+
+fn write_json_text(path: &Path, content: &str) -> Result<(), String> {
     // Inspect the target even for private writes, which intentionally don't
     // inherit an existing target's permissions in the common atomic helper.
     read_optional(path)?;
-    let content = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    write_contents_atomic_private(path, &content, ".bindars-annotations")
+    write_contents_atomic_private(path, content, ".bindars-annotations")
 }
 
 fn initialize_at(root: &Path) -> Result<Value, String> {
@@ -292,20 +341,18 @@ fn initialize_with(
             // The new file is authoritative; never reapply the legacy snapshot.
             write(&root.join(RECEIPT), "{\"version\":1}")?;
         }
-        return Ok(data);
+        return Ok(Value::Object(data));
     }
     if receipt.is_some() {
         return Err("Annotation storage is missing after migration; recovery is required".into());
     }
 
-    // Preserve every legacy byte before the settings plugin is allowed to load.
+    // Preserve every legacy byte before the native settings owner loads the file.
     let original = match read_optional(&root.join(ARCHIVE))? {
-        Some(bytes) => {
-            parse_object(&bytes)?;
-            Some(bytes)
-        }
-        None => read_settings(root)?,
+        Some(bytes) => Some(bytes),
+        None => read_optional(&root.join("settings.json"))?,
     };
+    let settings = original.as_deref().map(parse_object).transpose()?;
     if let Some(bytes) = &original {
         if read_optional(&root.join(ARCHIVE))?.is_none() {
             let text =
@@ -318,13 +365,12 @@ fn initialize_with(
     }
 
     let mut documents = Map::new();
-    if let Some(bytes) = &original {
-        let settings = parse_object(bytes)?;
+    if let Some(settings) = settings {
         let version = match settings.get("config-version") {
             None => 0,
             Some(value) => value.as_u64().ok_or("Settings version is damaged")?,
         };
-        for (key, record) in settings.as_object().expect("validated object") {
+        for (key, record) in &settings {
             if let Some(path) = key.strip_prefix("annotations:") {
                 let mut record = record.clone();
                 if version < 3 {
@@ -335,12 +381,9 @@ fn initialize_with(
         }
     }
     let data = json!({"version":1,"documents":documents});
-    write(
-        &root.join(DATA),
-        &serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?,
-    )?;
+    write(&root.join(DATA), &serialize_json(&data)?)?;
     let readback = read_optional(&root.join(DATA))?.ok_or("New annotations were not written")?;
-    if parse_object(&readback)? != data {
+    if Value::Object(parse_object(&readback)?) != data {
         return Err("Couldn't verify migrated annotation data".into());
     }
     write(&root.join(RECEIPT), "{\"version\":1}")?;
@@ -423,7 +466,7 @@ fn save_at(root: &Path, path: &str, annotations: Value) -> Result<(), String> {
     }
     let mut data = initialize_at(root)?;
     data["documents"][path] = annotations;
-    write_json(&root.join(DATA), &data)
+    write_json_text(&root.join(DATA), &serialize_json(&data)?)
 }
 
 #[cfg(test)]
@@ -443,60 +486,193 @@ mod tests {
         bytes
     }
 
-    fn settings_app() -> tauri::App<tauri::test::MockRuntime> {
-        tauri::test::mock_builder()
-            .plugin(tauri_plugin_store::Builder::default().build())
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap()
+    fn duplicate_documents() -> [&'static str; 6] {
+        [
+            r#""/a.md":{"note":"first"},"/a.md":{"note":"second"}"#,
+            r#""/a.md":{"highlights":[{"note":"keep"}],"highlights":[]}"#,
+            r#""/a.md":{"highlights":[{"note":"first","note":"second"}]}"#,
+            r#""/a.md":{"note":"first"},"\u002fa.md":{"note":"second"}"#,
+            r#""/a.md":{"highlights":[{"note":"first","\u006eote":"second"}]}"#,
+            r#""/a.md":{"future":{"😀":1,"\ud83d\ude00":2}}"#,
+        ]
+    }
+
+    fn assert_storage_error(failure: NativeFileError) {
+        assert_eq!(
+            failure.category,
+            crate::file_errors::NativeFileErrorCategory::Unknown
+        );
+        assert_eq!(failure.operation, NativeFileOperation::AccessRecoveryData);
+        assert_eq!(
+            failure.message,
+            "Couldn't access annotation storage. Existing data was preserved."
+        );
+        assert_eq!(failure.detail, "Stored JSON is damaged");
     }
 
     #[test]
-    fn settings_bootstrap_registers_checked_bytes_and_keeps_newer_cache() {
-        let root = fixture();
-        let bytes = legacy(&root);
-        initialize_at(&root).unwrap();
-        let app = settings_app();
-        prepare_settings_store(app.handle(), &root).unwrap();
-        let path = root.join("settings.json");
-        let store = app.store(&path).unwrap();
-        assert_eq!(store.get("theme"), Some(json!("dark")));
-        assert_eq!(fs::read(&path).unwrap(), bytes);
+    fn duplicate_primary_members_reject_load_and_save_without_changing_any_bytes() {
+        for members in duplicate_documents() {
+            let root = fixture();
+            let bytes = format!(r#"{{"version":1,"documents":{{{members}}}}}"#);
+            fs::write(root.join(DATA), &bytes).unwrap();
+            assert_storage_error(initialize_at(&root).map_err(error).unwrap_err());
+            assert_storage_error(
+                save_at(&root, "/unrelated.md", json!({"note":"new"}))
+                    .map_err(error)
+                    .unwrap_err(),
+            );
+            assert_eq!(fs::read(root.join(DATA)).unwrap(), bytes.as_bytes());
+            assert!(!root.join(RECEIPT).exists());
+            assert!(!root.join(ARCHIVE).exists());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
 
-        // A failed explicit save still leaves a newer plugin cache. Repeated
-        // bootstrap must not discard that value or migrate its heading twice.
-        fs::remove_file(&path).unwrap();
-        fs::create_dir(&path).unwrap();
-        let history =
-            json!({"version":1,"files":[{"path":"/a.md","lastHeadingId":"user-content-intro"}]});
-        store.set("recent-files", history.clone());
-        assert!(store.save().is_err());
-        prepare_settings_store(app.handle(), &root).unwrap();
-        assert_eq!(
-            app.store(&path).unwrap().get("recent-files"),
-            Some(history.clone())
+    #[test]
+    fn duplicate_recovery_members_return_the_recoverable_error_and_preserve_the_copy() {
+        for members in duplicate_documents() {
+            let root = fixture();
+            let path = root.join("recovery.json");
+            let bytes = format!(
+                r#"{{"kind":"bindars-annotation-recovery","version":1,"documents":{{{members}}}}}"#
+            );
+            fs::write(&path, &bytes).unwrap();
+            let result = tauri::async_runtime::block_on(read_annotation_recovery(
+                path.to_string_lossy().into_owned(),
+            ));
+            assert_storage_error(result.unwrap_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes.as_bytes());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn duplicate_migration_members_never_create_or_replace_storage() {
+        for source in ["settings.json", ARCHIVE] {
+            for bytes in [
+                r#"{"annotations:/a.md":{"note":"first"},"annotations:/a.md":{"note":"second"}}"#,
+                r#"{"annotations:/a.md":{"highlights":[{"note":"keep"}],"highlights":[]}}"#,
+                r#"{"annotations:/a.md":{"highlights":[{"note":"first","\u006eote":"second"}]}}"#,
+                r#"{"annotations:/a.md":{"note":"first"},"annotations:\u002fa.md":{"note":"second"}}"#,
+                r#"{"config-version":2,"config-version":3,"annotations:/a.md":{"note":"keep"}}"#,
+            ] {
+                let root = fixture();
+                fs::write(root.join(source), bytes).unwrap();
+                assert_storage_error(initialize_at(&root).map_err(error).unwrap_err());
+                assert_storage_error(
+                    save_at(&root, "/unrelated.md", json!({}))
+                        .map_err(error)
+                        .unwrap_err(),
+                );
+                assert_eq!(fs::read(root.join(source)).unwrap(), bytes.as_bytes());
+                assert!(!root.join(DATA).exists());
+                assert!(!root.join(RECEIPT).exists());
+                assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn duplicate_receipt_members_preserve_the_receipt_and_primary_collection() {
+        let root = fixture();
+        save_at(&root, "/a.md", json!({"note":"keep"})).unwrap();
+        let primary = fs::read(root.join(DATA)).unwrap();
+        let receipt = br#"{"version":99,"version":1}"#;
+        fs::write(root.join(RECEIPT), receipt).unwrap();
+        assert_storage_error(initialize_at(&root).map_err(error).unwrap_err());
+        assert_storage_error(
+            save_at(&root, "/unrelated.md", json!({}))
+                .map_err(error)
+                .unwrap_err(),
         );
-        fs::remove_dir(&path).unwrap();
-        store.set("sidebar-open", json!(true));
-        store.save().unwrap();
-        let saved = parse_object(&fs::read(&path).unwrap()).unwrap();
-        assert_eq!(saved["theme"], "dark");
-        assert_eq!(saved["recent-files"], history);
-        assert_eq!(saved["annotations:/a.md"]["unknown"], 5);
-        // The successful explicit save above cancels pending autosave.
-        store.close_resource();
+        assert_eq!(fs::read(root.join(DATA)).unwrap(), primary);
+        assert_eq!(fs::read(root.join(RECEIPT)).unwrap(), receipt);
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn damaged_settings_register_no_cache_for_later_or_exit_saves() {
+    fn checked_json_keeps_valid_values_and_distinct_object_scopes() {
+        let bytes = br#"{"null":null,"bools":[true,false],"numbers":[-1,0,1.25,1e30,18446744073709551615,-9223372036854775808],"\u006eote":"escaped\ntext","objects":[{"note":"first"},{"note":"second"}],"empty":[{},[]]}"#;
+        assert_eq!(
+            Value::Object(parse_object(bytes).unwrap()),
+            serde_json::from_slice::<Value>(bytes).unwrap()
+        );
+        for invalid in [
+            b"{} {}".as_slice(),
+            b"[]",
+            b"{broken",
+            br#"{"a":1,}"#,
+            br#"{"version":99,"version":1}"#,
+        ] {
+            assert!(parse_object(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn repaired_primary_can_retry_without_losing_valid_unknown_data() {
+        let root = fixture();
+        fs::write(
+            root.join(DATA),
+            br#"{"version":99,"version":1,"documents":{}}"#,
+        )
+        .unwrap();
+        assert!(initialize_at(&root).is_err());
+        let valid = br#"{"version":1,"documents":{"/a.md":{"highlights":[{"note":"keep","future":{"note":"nested"}}],"bookmarks":[]}},"future":{"enabled":true}}"#;
+        fs::write(root.join(DATA), valid).unwrap();
+        let expected: Value = serde_json::from_slice(valid).unwrap();
+        assert_eq!(initialize_at(&root).unwrap(), expected);
+        save_at(&root, "/b.md", json!({"note":"new"})).unwrap();
+        let saved = initialize_at(&root).unwrap();
+        assert_eq!(saved["documents"]["/a.md"], expected["documents"]["/a.md"]);
+        assert_eq!(saved["future"], expected["future"]);
+        assert_eq!(saved["documents"]["/b.md"]["note"], "new");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn settings_bootstrap_loads_checked_bytes_and_keeps_newer_cache() {
+        let root = fixture();
+        let bytes = legacy(&root);
+        initialize_at(&root).unwrap();
+        let settings = Settings::default();
+        prepare_settings(&settings, &root).unwrap();
+        let path = root.join("settings.json");
+        assert_eq!(settings.get("theme").unwrap(), Some(json!("dark")));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+
+        // A failed write still leaves a newer cache. Repeated bootstrap must
+        // not discard that value or migrate its heading twice.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        let history =
+            json!({"version":1,"files":[{"path":"/a.md","lastHeadingId":"user-content-intro"}]});
+        assert!(settings
+            .set("recent-files".into(), history.clone())
+            .is_err());
+        prepare_settings(&settings, &root).unwrap();
+        assert_eq!(settings.get("recent-files").unwrap(), Some(history.clone()));
+        fs::remove_dir(&path).unwrap();
+        settings.set("sidebar-open".into(), json!(true)).unwrap();
+        let saved = parse_object(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["theme"], "dark");
+        assert_eq!(saved["recent-files"], history);
+        assert_eq!(saved["annotations:/a.md"]["unknown"], 5);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn damaged_settings_load_no_cache_for_later_writes() {
         for bytes in [b"".as_slice(), b"{broken", b"[]", b"null"] {
             let root = fixture();
             initialize_at(&root).unwrap();
             let path = root.join("settings.json");
             fs::write(&path, bytes).unwrap();
-            let app = settings_app();
-            assert!(prepare_settings_store(app.handle(), &root).is_err());
-            assert!(app.get_store(&path).is_none());
+            let settings = Settings::default();
+            assert!(prepare_settings(&settings, &root).is_err());
+            assert!(!settings.is_loaded());
+            assert!(settings.set("theme".into(), json!("dark")).is_err());
             assert_eq!(fs::read(&path).unwrap(), bytes);
             assert!(
                 initialize_at(&root).is_ok(),
@@ -508,55 +684,53 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unreadable_settings_can_retry_without_registering_an_empty_store() {
+    fn unreadable_settings_can_retry_without_loading_an_empty_cache() {
         use std::os::unix::fs::PermissionsExt;
         let root = fixture();
         let bytes = legacy(&root);
         initialize_at(&root).unwrap();
         let path = root.join("settings.json");
-        let app = settings_app();
+        let settings = Settings::default();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let result = prepare_settings_store(app.handle(), &root);
+        let result = prepare_settings(&settings, &root);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(result.is_err());
-        assert!(app.get_store(&path).is_none());
+        if result.is_ok() {
+            // Root can bypass mode bits; the damaged-bytes test covers the refusal.
+            assert_eq!(std::env::var("USER").unwrap_or_default(), "root");
+        } else {
+            assert!(!settings.is_loaded());
+        }
         assert_eq!(fs::read(&path).unwrap(), bytes);
 
-        prepare_settings_store(app.handle(), &root).unwrap();
-        // The frontend load reuses the checked cache even if disk access fails
-        // afterward; there is no second fallible load that becomes empty.
+        prepare_settings(&settings, &root).unwrap();
+        // Reads come from the checked cache even if disk access fails afterward.
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let store = app.store(&path).unwrap();
-        let theme = store.get("theme");
+        let theme = settings.get("theme");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(theme, Some(json!("dark")));
-        store.set("sidebar-open", json!(true));
-        store.save().unwrap();
+        assert_eq!(theme.unwrap(), Some(json!("dark")));
+        settings.set("sidebar-open".into(), json!(true)).unwrap();
         assert_eq!(
             parse_object(&fs::read(&path).unwrap()).unwrap()["theme"],
             "dark"
         );
-        store.close_resource();
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn missing_settings_register_a_fresh_store() {
+    fn missing_settings_load_an_empty_cache_and_create_the_file_on_first_write() {
         let root = fixture();
         initialize_at(&root).unwrap();
-        let app = settings_app();
-        prepare_settings_store(app.handle(), &root).unwrap();
+        let settings = Settings::default();
+        prepare_settings(&settings, &root).unwrap();
         let path = root.join("settings.json");
-        let store = app.get_store(&path).unwrap();
-        assert!(store.is_empty());
+        assert!(settings.is_loaded());
+        assert_eq!(settings.get("theme").unwrap(), None);
         assert!(!path.exists());
-        store.set("theme", json!("dark"));
-        store.save().unwrap();
+        settings.set("theme".into(), json!("dark")).unwrap();
         assert_eq!(
-            parse_object(&fs::read(&path).unwrap()).unwrap()["theme"],
-            "dark"
+            Value::Object(parse_object(&fs::read(&path).unwrap()).unwrap()),
+            json!({"theme": "dark"})
         );
-        store.close_resource();
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -635,7 +809,7 @@ mod tests {
             json!({"/a.md":{"note":"A"},"/b.md":{"note":"B"}})
         );
         fs::write(root.join("settings.json"), b"broken").unwrap();
-        assert!(read_settings(&root).is_err());
+        assert!(parse_object(&fs::read(root.join("settings.json")).unwrap()).is_err());
         assert_eq!(
             initialize_at(&root).unwrap()["documents"]["/a.md"]["note"],
             "A"
@@ -712,7 +886,7 @@ mod tests {
             "/a.md":{"highlights":[{"note":"recover","future":7}],"bookmarks":[]},
             "/b.md":{"highlights":[],"bookmarks":[{"headingId":"lost"}]}
         }});
-        write_json(&path, &data).unwrap();
+        write_json_text(&path, &serialize_json(&data).unwrap()).unwrap();
         assert_eq!(read_recovery_at(&path).unwrap(), data);
         fs::write(&path, b"{broken").unwrap();
         assert!(read_recovery_at(&path).is_err());

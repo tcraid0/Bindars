@@ -90,8 +90,19 @@ export function sameFileRevision(
 ): boolean {
   if (left === null || right === null) return left === right;
   return left.mtimeMs === right.mtimeMs
-    && left.size === right.size
-    && left.contentHash === right.contentHash;
+    && sameContent(left, right)
+    && sameFolderIdentity(left, right);
+}
+
+/// The same bytes, whatever the timestamp or folder.
+export function sameContent(left: FileRevision, right: FileRevision): boolean {
+  return left.size === right.size && left.contentHash === right.contentHash;
+}
+
+/// A file in a different folder at the same pathname is a different document,
+/// however closely its bytes and timestamp match.
+export function sameFolderIdentity(left: FileRevision, right: FileRevision): boolean {
+  return left.folderId === right.folderId;
 }
 
 export function staleReconciliation(
@@ -173,7 +184,6 @@ export function decideDocumentReconciliation({
   if (current.mode === "editor" && !current.dirty) {
     const cleanEditorChanged = captured.content !== current.content
       || captured.dirty !== current.dirty
-      || !sameFileRevision(captured.expectedRevision, current.expectedRevision)
       || !sameFileRevision(captured.publishedRevision, current.publishedRevision);
     if (cleanEditorChanged) return staleReconciliation("clean-editor-changed");
   }
@@ -195,7 +205,14 @@ export function decideDocumentReconciliation({
   const contentChanged = current.content !== probe.document.content;
 
   if (current.mode === "editor" && current.dirty) {
-    if (revision === null || revision.contentHash !== probe.document.revision.contentHash) {
+    // Unsaved edits must not follow a folder substituted at this pathname: an
+    // equal-revision refresh would otherwise carry the new folder identity
+    // into the next save.
+    if (
+      revision === null
+      || !sameContent(revision, probe.document.revision)
+      || !sameFolderIdentity(revision, probe.document.revision)
+    ) {
       return {
         kind: "protect-dirty-editor",
         sessionId: current.sessionId,
@@ -208,6 +225,17 @@ export function decideDocumentReconciliation({
   if (!revisionChanged && !contentChanged) return { kind: "no-change" };
 
   if (!contentChanged) {
+    // A clean editor keeps the folder identity it opened with. A substituted
+    // folder holding the same bytes is then refused at the next save instead
+    // of quietly becoming the destination. A reader has nothing to protect
+    // and follows the pathname.
+    if (
+      current.mode === "editor"
+      && revision !== null
+      && !sameFolderIdentity(revision, probe.document.revision)
+    ) {
+      return { kind: "no-change" };
+    }
     return equalRevisionRefresh(current, probe.document.revision);
   }
 

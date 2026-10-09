@@ -37,7 +37,7 @@ function click(element) {
   });
 }
 
-test("EmptyState exposes a working New File action alongside Open File", async () => {
+test("EmptyState offers Open and Example while New remains in the header", async () => {
   await installDom();
   let newCount = 0;
   let openCount = 0;
@@ -51,11 +51,11 @@ test("EmptyState exposes a working New File action alongside Open File", async (
   }));
 
   try {
-    click(buttonWithText(rendered.host, "New File"));
-    click(buttonWithText(rendered.host, "Open File"));
-    assert.equal(newCount, 1);
+    assert.ok(![...rendered.host.querySelectorAll("button")].some(button => button.textContent === "New File"));
+    click(buttonWithText(rendered.host, "Open File…"));
+    assert.equal(newCount, 0);
     assert.equal(openCount, 1);
-    click(buttonWithText(rendered.host, "Try an example"));
+    click(buttonWithText(rendered.host, "Try an Example…"));
     assert.equal(sampleCount, 1);
     assert.doesNotMatch(rendered.host.textContent, /Restore an unsaved draft/);
   } finally {
@@ -111,7 +111,7 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
   try {
     click(buttonWithText(rendered.host, "New"));
     const saveButton = buttonWithText(rendered.host, "Save");
-    assert.equal(saveButton.classList.contains("text-text-muted"), true);
+    assert.equal(saveButton.classList.contains("text-text-secondary"), true);
     assert.equal(saveButton.classList.contains("text-accent-text"), false);
     click(saveButton);
     click(buttonWithText(rendered.host, "Styled"));

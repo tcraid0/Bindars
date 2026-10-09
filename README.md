@@ -27,17 +27,17 @@ native testing and code signing.
 - Optional Markdown heading formatting with an instant plain-markup fallback
 - macOS spelling underlines and native right-click suggestions while editing
 - Print the document or save it as PDF; export highlights and notes separately as Markdown
-- Keyboard-driven workflow - press `?` for the full shortcut list
+- Keyboard-driven workflow - press Cmd+? (Ctrl+? on Linux) for the full shortcut list
 
 See [highlights, notes, and recovery](docs/annotations.md) for location, saving,
 and document-path limitations. You can also paste plain text into a new document.
 Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
 or PDF documents.
 
-On the empty screen, choose **Try an example** and save a copy to try highlighting
+On the empty screen, choose **Try an Example…** and save a copy to try highlighting
 and notes. Select a passage and choose **Note**, or choose **Add note** on an
 existing highlight. Reopen your saved copy from **Recent files**, **Open**, or
-your file manager. Choosing **Try an example** again asks where to save a fresh copy;
+your file manager. Choosing **Try an Example…** again asks where to save a fresh copy;
 confirming replacement writes the example text over the file you choose.
 
 ### Spelling on macOS

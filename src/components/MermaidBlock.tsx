@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SourcePositionAttributes } from "../lib/markdown-source-position";
+import { createMathBudget } from "../lib/math-safety";
 
 interface MermaidBlockProps {
   chart: string;
@@ -12,6 +13,49 @@ const MAX_MERMAID_CHARS = 50_000;
 export const MERMAID_RENDER_TIMEOUT_MS = 5_000;
 const MERMAID_FONT_SIZE = "14px";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+/** Mermaid's own `katexRegex`: each `$$…$$` pair on a line goes to KaTeX. */
+const DIAGRAM_MATH_RE = /\$\$(.*?)\$\$/g;
+/** A dollar sign written as a Mermaid entity code or an HTML character reference. */
+const CODED_DOLLAR_RE = /#0*36;|#x0*24;|&#0*36|&#x0*24|&dollar/i;
+/** A dollar sign against a tag or comment; removing what follows can join two into `$$`. */
+const DOLLAR_AT_TAG_RE = /\$<|>\$/;
+/**
+ * A tag start, a possible character reference (named references are never
+ * shorter than two letters, so `\&D` and `a&b` stay legal), or a Mermaid
+ * entity code.
+ */
+const REWRITABLE_RE = /<[a-z!\/?]|&(?:#|[a-z]{2})|#\w+;/i;
+export const UNSUPPORTED_DIAGRAM_MATH_MESSAGE =
+  "This diagram has math or dollar signs that Bindars can't check safely.";
+
+/**
+ * Applies the shared math policy (math-safety.ts) to the math Mermaid would
+ * hand its bundled KaTeX, which has no expansion or size limit, before Mermaid
+ * is even loaded. On the way from the source to KaTeX, Mermaid decodes its
+ * `#…;` entity codes, HTML-sanitizes each label (decoding character
+ * references and removing tags, comments and the contents of elements such
+ * as script, which can join the text around them), collapses `\\` to `\`,
+ * and in markdown-string labels applies Markdown escapes, so `\$` becomes
+ * `$`. Rather than predict that output, this refuses the only inputs that
+ * can create or alter a `$$…$$` segment on the way, so every remaining
+ * segment reaches KaTeX verbatim and can be checked as written. The
+ * collapses run on this detection copy only, everywhere rather than inside
+ * the label grammar, so they can only make the check stricter. Honest
+ * diagrams rarely hit a rule; when one does it shows its source instead.
+ */
+export function unsupportedDiagramMath(chart: string): string | null {
+  const source = chart.replace(/\\\\/g, "\\").replace(/\\\$/g, "$");
+  if (CODED_DOLLAR_RE.test(source) || DOLLAR_AT_TAG_RE.test(source)) {
+    return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
+  }
+  const budget = createMathBudget();
+  for (const [, segment] of source.matchAll(DIAGRAM_MATH_RE)) {
+    if (REWRITABLE_RE.test(segment) || !budget.accept(segment)) {
+      return UNSUPPORTED_DIAGRAM_MATH_MESSAGE;
+    }
+  }
+  return null;
+}
 
 let mermaidCounter = 0;
 let lastInitializedConfig: string | null = null;
@@ -91,10 +135,6 @@ function getCurrentThemeName() {
   return document.documentElement.getAttribute("data-theme") || "light";
 }
 
-function readThemeToken(styles: CSSStyleDeclaration, name: string, fallback: string) {
-  return styles.getPropertyValue(name).trim() || fallback;
-}
-
 function parseHexColor(color: string): [number, number, number] | null {
   const match = color.trim().match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
   const hex = match?.groups?.hex;
@@ -131,11 +171,11 @@ function mixHexColor(baseColor: string, overlayColor: string, overlayRatio: numb
 function getMermaidThemeConfig(themeName: string) {
   const rootStyles = getComputedStyle(document.documentElement);
   const isDark = themeName === "dark" || themeName === "deep-dark";
-  const bgPrimary = readThemeToken(rootStyles, "--bg-primary", isDark ? "#1A1816" : "#FAFAF8");
-  const bgSecondary = readThemeToken(rootStyles, "--bg-secondary", isDark ? "#231F1C" : "#F5F4F2");
-  const bgTertiary = readThemeToken(rootStyles, "--bg-tertiary", isDark ? "#2C2724" : "#EDECEB");
-  const textPrimary = readThemeToken(rootStyles, "--text-primary", isDark ? "#EEEBE6" : "#1C1917");
-  const textSecondary = readThemeToken(rootStyles, "--text-secondary", isDark ? "#A39E98" : "#57534E");
+  const bgPrimary = rootStyles.getPropertyValue("--bg-primary").trim();
+  const bgSecondary = rootStyles.getPropertyValue("--bg-secondary").trim();
+  const bgTertiary = rootStyles.getPropertyValue("--bg-tertiary").trim();
+  const textPrimary = rootStyles.getPropertyValue("--text-primary").trim();
+  const textSecondary = rootStyles.getPropertyValue("--text-secondary").trim();
   const fontFamily = getComputedStyle(document.body).fontFamily || "sans-serif";
 
   const themeVariables = {
@@ -224,6 +264,18 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
   }, []);
 
   useEffect(() => {
+    // Reject before any rendering work. The source limit bounds Mermaid's own
+    // parsing; the math policy bounds KaTeX, which Mermaid calls synchronously
+    // on this thread. Neither can be stopped once started.
+    const rejection = chart.length > MAX_MERMAID_CHARS
+      ? `Diagram too large (${chart.length} chars, max ${MAX_MERMAID_CHARS})`
+      : unsupportedDiagramMath(chart);
+    if (rejection) {
+      setError(rejection);
+      setSvg("");
+      return;
+    }
+
     let cancelled = false;
 
     // Generate a fresh ID per render to avoid mermaid ID collisions
@@ -241,12 +293,8 @@ export const MermaidBlock = memo(function MermaidBlock({ chart, sourcePosition }
           lastInitializedConfig = configKey;
         }
 
-        // Size guard — reject before rendering
-        if (chart.length > MAX_MERMAID_CHARS) {
-          throw new Error(`Diagram too large (${chart.length} chars, max ${MAX_MERMAID_CHARS})`);
-        }
-
-        // Timeout guard — stop waiting if Mermaid hangs.
+        // Timeout: error handling for a render that never settles, not a
+        // resource budget. It cannot interrupt work already on this thread.
         const renderPromise = mermaid.render(id, chart);
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<never>((_, reject) => {

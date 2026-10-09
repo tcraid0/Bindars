@@ -7,6 +7,7 @@ import { displayHighlightColor, readAnnotationRecord } from "../lib/annotation-r
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useToast } from "./ToastProvider";
 import { buildAnnotationMarkdown } from "../lib/annotation-export";
+import { normalizeFileError } from "../lib/native-file-error";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -41,13 +42,6 @@ interface AnnotationsPanelProps {
   headings: HeadingItem[];
 }
 
-const COLOR_DOTS: Record<string, string> = {
-  yellow: "var(--highlight-yellow)",
-  green: "var(--highlight-green)",
-  blue: "var(--highlight-blue)",
-  pink: "var(--highlight-pink)",
-};
-
 export const AnnotationsPanel = memo(function AnnotationsPanel({
   visible,
   saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, startNoteRef, filePath, onRestoreRecord,
@@ -70,6 +64,8 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 }: AnnotationsPanelProps) {
   const isMac = detectShortcutPlatform() === "macos";
   const [recoveryRecord, setRecoveryRecord] = useState<unknown>(null);
+  const [restoring, setRestoring] = useState(false);
+  const restoreBusy = useRef(false);
   const [exporting, setExporting] = useState(false);
   const exportBusy = useRef(false);
   const alive = useRef(true);
@@ -158,11 +154,24 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     [saveNote, cancelEditNote, editingNoteId],
   );
 
+  const finishRecovery = () => {
+    restoreBusy.current = false;
+    if (alive.current) {
+      setRecoveryRecord(null);
+      setRestoring(false);
+    }
+  };
+
   const restoreRecovery = async () => {
-    if (!filePath || !onRestoreRecord) return;
+    if (!filePath || !onRestoreRecord || !annotationsReady || mutationsDisabled || restoreBusy.current) return;
+    // Hold ownership from the picker through confirmation, including before
+    // React renders the disabled button. App keys this panel by document path.
+    restoreBusy.current = true;
+    setRestoring(true);
+    let confirming = false;
     try {
       const path = await open({ multiple: false, filters: [{ name: "Annotation recovery", extensions: ["json"] }] });
-      if (!path || typeof path !== "string") return;
+      if (!alive.current || !path || typeof path !== "string") return;
       const recovery = await invoke<{ documents: Record<string, unknown> }>("read_annotation_recovery", { path });
       if (!alive.current) return;
       const record = recovery.documents[filePath];
@@ -170,7 +179,9 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       readAnnotationRecord(record);
       saveNote();
       setRecoveryRecord(record);
+      confirming = true;
     } catch { if (alive.current) toast("Couldn't read annotation recovery data. Existing annotations were not changed.", "error"); }
+    finally { if (!confirming) finishRecovery(); }
   };
 
   const handleExport = useCallback(async () => {
@@ -191,8 +202,8 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       if (!savePath) return;
       await invoke("export_markdown_file", { path: savePath, content: markdown });
       toast("Highlights and notes exported");
-    } catch {
-      toast("Export failed", "error");
+    } catch (error) {
+      toast(normalizeFileError(error, "Export failed").message, "error");
     } finally {
       exportBusy.current = false;
       if (alive.current) setExporting(false);
@@ -244,13 +255,16 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
         </div>
       </div>
 
-      {filePath && onRestoreRecord && <button type="button" disabled={!annotationsReady || mutationsDisabled}
+      {filePath && onRestoreRecord && <button type="button" disabled={!annotationsReady || mutationsDisabled || restoring}
         className="mx-4 mb-3 text-xs text-accent-text underline" onClick={() => void restoreRecovery()}>Restore recovery copy</button>}
       <ConfirmDialog visible={recoveryRecord !== null} title="Restore highlights & notes?"
         message="Replace this document's current highlights, notes, and bookmarks with the recovery copy? The copy itself will be kept."
         confirmLabel="Restore highlights & notes" cancelLabel="Cancel" initialFocus="cancel"
-        onConfirm={() => { if (recoveryRecord) onRestoreRecord?.(recoveryRecord); setRecoveryRecord(null); }}
-        onCancel={() => setRecoveryRecord(null)} onDismiss={() => setRecoveryRecord(null)} />
+        onConfirm={() => {
+          try { if (recoveryRecord) onRestoreRecord?.(recoveryRecord); }
+          finally { finishRecovery(); }
+        }}
+        onCancel={finishRecovery} onDismiss={finishRecovery} />
       {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving highlights and notes...</p>}
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
       {loadError && (
@@ -344,7 +358,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
-                    style={{ backgroundColor: COLOR_DOTS[displayHighlightColor(hl.color)] }}
+                    style={{ backgroundColor: `var(--highlight-${displayHighlightColor(hl.color)})` }}
                   />
                   <span className="line-clamp-2 flex-1">&ldquo;{hl.exact}&rdquo;</span>
                 </button>
@@ -383,7 +397,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       onKeyDown={handleNoteKeyDown}
                       aria-label="Highlight note"
                       rows={3}
-                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent-indicator"
                       placeholder="Add a note..."
                     />
                   </div>

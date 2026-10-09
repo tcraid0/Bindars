@@ -63,7 +63,7 @@ function SearchBarComponent({
         onKeyDown={handleKeyDown}
         placeholder="Search in document..."
         aria-label="Search in document"
-        className="w-[200px] min-w-0 bg-transparent text-sm font-ui text-text-primary placeholder-text-muted outline-none"
+        className="w-[200px] min-w-0 bg-transparent text-sm font-ui text-text-primary placeholder-text-muted"
       />
 
       {query.trim() && (

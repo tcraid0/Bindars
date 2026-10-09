@@ -69,7 +69,7 @@ const TOCItem = memo(function TOCItem({
           indentByLevel[heading.level] || "pl-4"
         } ${
           isActive
-            ? "text-text-primary font-medium border-l-2 border-l-accent toc-active-item"
+            ? "text-text-primary font-medium border-l-2 border-l-accent-indicator toc-active-item"
             : "text-text-secondary border-l-2 border-l-transparent"
         }`}
       >

@@ -1,12 +1,14 @@
 use cap_fs_ext::MetadataExt;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::document_io::{
-    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path,
-    reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult, NewMarkdownFile,
+    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path, read_bounded_file,
+    reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult, FileRevision,
+    NewMarkdownFile,
 };
 use crate::file_errors::{
     run_blocking_file_io, NativeFileError, NativeFileErrorCategory, NativeFileOperation,
@@ -92,7 +94,28 @@ fn is_draft_in(dir: &Path, path: &Path) -> bool {
     canonical_path.parent() == Some(canonical_dir.as_path())
 }
 
-fn delete_draft_in(dir: &Path, path: &Path, saved_path: &Path) -> Result<bool, NativeFileError> {
+/// What retirement did with the old draft after a successful Save As.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum DraftRetirement {
+    Removed,
+    /// The draft is the saved document itself, or is already gone.
+    NothingToRemove,
+    /// The draft or the saved document no longer holds the bytes the save knew
+    /// about, so the draft may be the only copy of some text.
+    Kept,
+}
+
+/// Removes a retired draft after Save As, or says why it stays.
+/// `draft_revision` describes the draft as Bindars last read or wrote it and
+/// `saved_revision` the destination as the save acknowledged it.
+fn delete_draft_in(
+    dir: &Path,
+    path: &Path,
+    saved_path: &Path,
+    draft_revision: &FileRevision,
+    saved_revision: &FileRevision,
+) -> Result<DraftRetirement, NativeFileError> {
     let outside_drafts = || {
         NativeFileError::invalid(
             NativeFileOperation::ValidateDocument,
@@ -108,7 +131,7 @@ fn delete_draft_in(dir: &Path, path: &Path, saved_path: &Path) -> Result<bool, N
         Err(error) if error.category == NativeFileErrorCategory::NotFound => {
             // Removing an already absent draft must not recreate its folder.
             return if path.parent() == Some(dir) && is_markdown_path(path) {
-                Ok(false)
+                Ok(DraftRetirement::NothingToRemove)
             } else {
                 Err(outside_drafts())
             };
@@ -125,7 +148,7 @@ fn delete_draft_in(dir: &Path, path: &Path, saved_path: &Path) -> Result<bool, N
                 NativeFileOperation::InspectWriteParent,
             )?;
             return if canonical_parent == canonical_dir && is_markdown_path(path) {
-                Ok(false)
+                Ok(DraftRetirement::NothingToRemove)
             } else {
                 Err(outside_drafts())
             };
@@ -138,7 +161,7 @@ fn delete_draft_in(dir: &Path, path: &Path, saved_path: &Path) -> Result<bool, N
 
     let canonical_saved_path = canonicalize_markdown_path(saved_path)?;
     if canonical_path == canonical_saved_path {
-        return Ok(false);
+        return Ok(DraftRetirement::NothingToRemove);
     }
     let open_for_comparison = |path: &Path| {
         fs::File::open(path).map_err(|error| {
@@ -157,12 +180,37 @@ fn delete_draft_in(dir: &Path, path: &Path, saved_path: &Path) -> Result<bool, N
     // Canonical paths catch spelling and symlink aliases; file identity catches hard links.
     if draft_metadata.dev() == saved_metadata.dev() && draft_metadata.ino() == saved_metadata.ino()
     {
-        return Ok(false);
+        return Ok(DraftRetirement::NothingToRemove);
+    }
+
+    // Best-effort version check through the handles opened above. A draft
+    // changed by another program, or a destination that no longer holds the
+    // acknowledged text, may be the only copy of that text, so keep the draft.
+    // Newer typing in the destination is expected and compared only against
+    // the acknowledged save. A replacement between this read and the unlink is
+    // not detected.
+    let (draft_bytes, _) = read_bounded_file(
+        &canonical_path,
+        &draft_file,
+        NativeFileOperation::InspectSavedDocument,
+    )?;
+    if !draft_revision.matches_contents(&draft_bytes) {
+        return Ok(DraftRetirement::Kept);
+    }
+    let (saved_bytes, _) = read_bounded_file(
+        &canonical_saved_path,
+        &saved_file,
+        NativeFileOperation::InspectSavedDocument,
+    )?;
+    if !saved_revision.matches_contents(&saved_bytes) {
+        return Ok(DraftRetirement::Kept);
     }
 
     match fs::remove_file(&canonical_path) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Ok(()) => Ok(DraftRetirement::Removed),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(DraftRetirement::NothingToRemove)
+        }
         Err(error) => Err(NativeFileError::from_io(
             NativeFileOperation::SaveDocument,
             &canonical_path,
@@ -195,9 +243,17 @@ pub(crate) async fn delete_draft_document(
     app: AppHandle,
     path: String,
     saved_path: String,
-) -> Result<bool, NativeFileError> {
+    draft_revision: FileRevision,
+    saved_revision: FileRevision,
+) -> Result<DraftRetirement, NativeFileError> {
     run_blocking_file_io(move || {
-        delete_draft_in(&drafts_dir(&app)?, Path::new(&path), Path::new(&saved_path))
+        delete_draft_in(
+            &drafts_dir(&app)?,
+            Path::new(&path),
+            Path::new(&saved_path),
+            &draft_revision,
+            &saved_revision,
+        )
     })
     .await
 }
@@ -211,7 +267,7 @@ mod tests {
     use crate::document_io::write_markdown_file_if_unmodified;
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     use crate::document_io::write_reserved_markdown;
-    use crate::document_io::{open_markdown_file_impl, MAX_MARKDOWN_BYTES};
+    use crate::document_io::{open_markdown_file_impl, revision_from_bytes, MAX_MARKDOWN_BYTES};
     use crate::test_support::{cleanup_temp_path, unique_temp_path};
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
     use std::fs::OpenOptions;
@@ -227,6 +283,33 @@ mod tests {
     fn cleanup(dir: &Path) {
         let _ = fs::remove_dir_all(dir);
         cleanup_temp_path(dir);
+    }
+
+    /// The revision Bindars would hold for `path` after reading or writing it.
+    fn revision_of(path: &Path) -> FileRevision {
+        open_markdown_file_impl(path.to_string_lossy().into_owned())
+            .expect("read revision")
+            .revision
+    }
+
+    /// A revision describing bytes no test file holds, for calls that must stop
+    /// before any content comparison.
+    fn unrelated_revision() -> FileRevision {
+        let temp = fs::metadata(std::env::temp_dir()).unwrap();
+        revision_from_bytes(&temp, &temp, b"unrelated bytes")
+    }
+
+    fn retire(dir: &Path, draft: &Path, saved: &Path) -> Result<DraftRetirement, NativeFileError> {
+        delete_draft_in(dir, draft, saved, &revision_of(draft), &revision_of(saved))
+    }
+
+    fn retire_unverified(
+        dir: &Path,
+        draft: &Path,
+        saved: &Path,
+    ) -> Result<DraftRetirement, NativeFileError> {
+        let unrelated = unrelated_revision();
+        delete_draft_in(dir, draft, saved, &unrelated, &unrelated)
     }
 
     #[test]
@@ -424,11 +507,14 @@ mod tests {
         fs::write(&nested_file, "nested document").unwrap();
 
         for path in [&outside, &unsupported, &nested_file, &nested] {
-            let error = delete_draft_in(&dir, path, &outside).expect_err("refuse non-draft path");
+            let error = retire_unverified(&dir, path, &outside).expect_err("refuse non-draft path");
             assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
             assert!(path.exists());
         }
-        assert!(delete_draft_in(&dir, &dir.join("Untitled.md"), &outside).expect("delete draft"));
+        assert_eq!(
+            retire(&dir, &dir.join("Untitled.md"), &outside).expect("delete draft"),
+            DraftRetirement::Removed
+        );
         assert!(!dir.join("Untitled.md").exists());
         cleanup_temp_path(&outside);
         cleanup(&dir);
@@ -439,14 +525,20 @@ mod tests {
         let dir = temp_drafts_dir();
         let missing = dir.join("Untitled.md");
 
-        assert!(!delete_draft_in(&dir, &missing, &missing).expect("already absent folder"));
+        assert_eq!(
+            retire_unverified(&dir, &missing, &missing).expect("already absent folder"),
+            DraftRetirement::NothingToRemove
+        );
         assert!(!dir.exists());
         fs::create_dir(&dir).unwrap();
-        assert!(!delete_draft_in(&dir, &missing, &missing).expect("already absent draft"));
+        assert_eq!(
+            retire_unverified(&dir, &missing, &missing).expect("already absent draft"),
+            DraftRetirement::NothingToRemove
+        );
         assert!(!missing.exists());
-        assert!(delete_draft_in(&dir, &dir.join("notes.txt"), &missing).is_err());
+        assert!(retire_unverified(&dir, &dir.join("notes.txt"), &missing).is_err());
         let outside = unique_temp_path("md");
-        assert!(delete_draft_in(&dir, &outside, &missing).is_err());
+        assert!(retire_unverified(&dir, &outside, &missing).is_err());
         cleanup_temp_path(&outside);
         cleanup(&dir);
     }
@@ -457,8 +549,107 @@ mod tests {
         create_draft_in(&dir, "Untitled", "saved draft", &HashSet::new()).unwrap();
         let path = dir.join("Untitled.md");
 
-        assert!(!delete_draft_in(&dir, &path, &path).expect("same file needs no cleanup"));
+        assert_eq!(
+            retire(&dir, &path, &path).expect("same file needs no cleanup"),
+            DraftRetirement::NothingToRemove
+        );
         assert_eq!(fs::read_to_string(&path).unwrap(), "saved draft");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn delete_keeps_draft_changed_by_another_program() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "baseline draft", &HashSet::new()).unwrap();
+        let draft = dir.join("Untitled.md");
+        let known = revision_of(&draft);
+        let saved = unique_temp_path("md");
+        fs::write(&saved, "baseline draft").unwrap();
+        let acknowledged = revision_of(&saved);
+        fs::write(&draft, "only copy: changed outside Bindars during Save As").unwrap();
+
+        assert_eq!(
+            delete_draft_in(&dir, &draft, &saved, &known, &acknowledged)
+                .expect("retain the changed draft"),
+            DraftRetirement::Kept
+        );
+        assert_eq!(
+            fs::read_to_string(&draft).unwrap(),
+            "only copy: changed outside Bindars during Save As"
+        );
+        cleanup_temp_path(&saved);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn delete_keeps_draft_when_saved_document_lost_the_acknowledged_text() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "intended text", &HashSet::new()).unwrap();
+        let draft = dir.join("Untitled.md");
+        let saved = unique_temp_path("md");
+        fs::write(&saved, "intended text").unwrap();
+        let acknowledged = revision_of(&saved);
+        fs::write(&saved, "").unwrap();
+
+        assert_eq!(
+            delete_draft_in(&dir, &draft, &saved, &revision_of(&draft), &acknowledged)
+                .expect("retain the draft behind a truncated destination"),
+            DraftRetirement::Kept
+        );
+        assert_eq!(fs::read_to_string(&draft).unwrap(), "intended text");
+        cleanup_temp_path(&saved);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn delete_removes_unchanged_draft_when_saved_document_holds_newer_text() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "draft text", &HashSet::new()).unwrap();
+        let draft = dir.join("Untitled.md");
+        let saved = unique_temp_path("md");
+        // The destination legitimately carries typing the draft never received.
+        fs::write(&saved, "draft text plus newer typing").unwrap();
+
+        assert_eq!(
+            retire(&dir, &draft, &saved).expect("retire the unchanged draft"),
+            DraftRetirement::Removed
+        );
+        assert!(!draft.exists());
+        assert_eq!(
+            fs::read_to_string(&saved).unwrap(),
+            "draft text plus newer typing"
+        );
+        cleanup_temp_path(&saved);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn delete_ignores_timestamp_only_changes() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "touched draft", &HashSet::new()).unwrap();
+        let draft = dir.join("Untitled.md");
+        let known = revision_of(&draft);
+        let saved = unique_temp_path("md");
+        fs::write(&saved, "touched draft").unwrap();
+        let acknowledged = revision_of(&saved);
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        for path in [&draft, &saved] {
+            let file = fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(later).unwrap();
+        }
+        assert_ne!(
+            revision_of(&draft),
+            known,
+            "the touch must change the full revision"
+        );
+
+        assert_eq!(
+            delete_draft_in(&dir, &draft, &saved, &known, &acknowledged)
+                .expect("timestamps alone do not block retirement"),
+            DraftRetirement::Removed
+        );
+        assert!(!draft.exists());
+        cleanup_temp_path(&saved);
         cleanup(&dir);
     }
 
@@ -469,7 +660,7 @@ mod tests {
         let draft = dir.join("Untitled.md");
         let missing_saved_path = unique_temp_path("md");
 
-        let error = delete_draft_in(&dir, &draft, &missing_saved_path)
+        let error = retire_unverified(&dir, &draft, &missing_saved_path)
             .expect_err("do not delete without a saved document");
 
         assert_eq!(error.category, NativeFileErrorCategory::NotFound);
@@ -484,6 +675,7 @@ mod tests {
         let dir = temp_drafts_dir();
         create_draft_in(&dir, "Untitled", "before Save As", &HashSet::new()).unwrap();
         let draft = dir.join("Untitled.md");
+        let draft_revision = revision_of(&draft);
         let chosen = dir.join("untitled.md");
         let saved = tauri::async_runtime::block_on(write_markdown_file_if_unmodified(
             chosen.to_string_lossy().into_owned(),
@@ -493,16 +685,23 @@ mod tests {
             None,
         ))
         .expect("save to case variant");
+        let saved_revision = saved.current_revision.clone();
         let saved = serde_json::to_value(saved).unwrap();
         let saved_path = Path::new(saved["canonicalPath"].as_str().unwrap());
         let same_file =
             dunce::canonicalize(&draft).unwrap() == dunce::canonicalize(saved_path).unwrap();
 
-        let removed =
-            delete_draft_in(&dir, &draft, saved_path).expect("clean up draft after saving");
+        let retirement =
+            delete_draft_in(&dir, &draft, saved_path, &draft_revision, &saved_revision)
+                .expect("clean up draft after saving");
 
         assert_eq!(
-            removed, !same_file,
+            retirement,
+            if same_file {
+                DraftRetirement::NothingToRemove
+            } else {
+                DraftRetirement::Removed
+            },
             "respect the host volume's case sensitivity"
         );
         assert_eq!(
@@ -519,6 +718,7 @@ mod tests {
         let dir = temp_drafts_dir();
         create_draft_in(&dir, "Caf\u{e9}", "before Save As", &HashSet::new()).unwrap();
         let draft = dir.join("Caf\u{e9}.md");
+        let draft_revision = revision_of(&draft);
         let chosen = dir.join("Cafe\u{301}.md");
         let saved = tauri::async_runtime::block_on(write_markdown_file_if_unmodified(
             chosen.to_string_lossy().into_owned(),
@@ -528,16 +728,23 @@ mod tests {
             None,
         ))
         .expect("save to normalization variant");
+        let saved_revision = saved.current_revision.clone();
         let saved = serde_json::to_value(saved).unwrap();
         let saved_path = Path::new(saved["canonicalPath"].as_str().unwrap());
         let same_file =
             dunce::canonicalize(&draft).unwrap() == dunce::canonicalize(saved_path).unwrap();
 
-        let removed =
-            delete_draft_in(&dir, &draft, saved_path).expect("clean up draft after saving");
+        let retirement =
+            delete_draft_in(&dir, &draft, saved_path, &draft_revision, &saved_revision)
+                .expect("clean up draft after saving");
 
         assert_eq!(
-            removed, !same_file,
+            retirement,
+            if same_file {
+                DraftRetirement::NothingToRemove
+            } else {
+                DraftRetirement::Removed
+            },
             "respect the host volume's normalization behavior"
         );
         assert_eq!(
@@ -558,7 +765,10 @@ mod tests {
         symlink(&dir, &alias).unwrap();
         let saved_path = alias.join("Untitled.md");
 
-        assert!(!delete_draft_in(&dir, &draft, &saved_path).expect("same file through alias"));
+        assert_eq!(
+            retire(&dir, &draft, &saved_path).expect("same file through alias"),
+            DraftRetirement::NothingToRemove
+        );
         assert_eq!(
             fs::read_to_string(&saved_path).unwrap(),
             "saved through alias"
@@ -577,13 +787,18 @@ mod tests {
         let saved_path = unique_temp_path("md");
         fs::hard_link(&draft, &saved_path).unwrap();
 
-        assert!(!delete_draft_in(&dir, &draft, &saved_path).expect("same underlying file"));
+        assert_eq!(
+            retire(&dir, &draft, &saved_path).expect("same underlying file"),
+            DraftRetirement::NothingToRemove
+        );
         assert_eq!(fs::read_to_string(&draft).unwrap(), "linked document");
         assert_eq!(fs::read_to_string(&saved_path).unwrap(), "linked document");
 
         write_markdown_contents_atomic(&saved_path, "saved separately").unwrap();
-        assert!(delete_draft_in(&dir, &draft, &saved_path)
-            .expect("saved file now has its own identity"));
+        assert_eq!(
+            retire(&dir, &draft, &saved_path).expect("saved file now has its own identity"),
+            DraftRetirement::Removed
+        );
         assert!(!draft.exists());
         assert_eq!(fs::read_to_string(&saved_path).unwrap(), "saved separately");
         cleanup_temp_path(&saved_path);
@@ -632,16 +847,22 @@ mod tests {
         assert!(is_draft_in(&alias, &dir.join("Untitled.md")));
         assert!(!is_draft_in(&dir, &outside_link));
         assert_eq!(
-            delete_draft_in(&dir, &outside_link, &outside)
+            retire_unverified(&dir, &outside_link, &outside)
                 .unwrap_err()
                 .category,
             NativeFileErrorCategory::InvalidInput
         );
         assert_eq!(fs::read_to_string(&outside).unwrap(), "outside document");
-        assert!(delete_draft_in(&dir, &alias.join("Untitled.md"), &outside)
-            .expect("delete through parent alias"));
-        assert!(!delete_draft_in(&dir, &alias.join("Untitled.md"), &outside)
-            .expect("missing file through parent alias"));
+        assert_eq!(
+            retire(&dir, &alias.join("Untitled.md"), &outside)
+                .expect("delete through parent alias"),
+            DraftRetirement::Removed
+        );
+        assert_eq!(
+            retire_unverified(&dir, &alias.join("Untitled.md"), &outside)
+                .expect("missing file through parent alias"),
+            DraftRetirement::NothingToRemove
+        );
         assert!(!dir.join("Untitled.md").exists());
         cleanup_temp_path(&outside);
         cleanup_temp_path(&alias);

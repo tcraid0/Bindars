@@ -169,21 +169,17 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         return args.path === DOC_PATH ? { highlights, bookmarks: [], version: 2 } : null;
       case "save_annotations":
         return annotationWrite(args);
-      case "plugin:store|save":
-        return null;
-      case "plugin:store|load":
-        return 1;
-      case "plugin:store|get":
-        if (args.key === "recent-files") return [{ version: 1, files: [] }, true];
+      case "get_setting":
+        if (args.key === "recent-files") return { version: 1, files: [] };
         if (args.key === "session" && initialSessionOperation) {
           initialSessionOperation.args = args;
           return initialSessionOperation.promise;
         }
         if (args.key === `annotations:${DOC_PATH}`) {
-          return [{ highlights, bookmarks: [], version: 2 }, true];
+          return { highlights, bookmarks: [], version: 2 };
         }
-        return [null, false];
-      case "plugin:store|set":
+        return null;
+      case "set_setting":
         return null;
       case "plugin:window|set_title":
         return null;
@@ -422,7 +418,7 @@ test("Save As reconfirms typing during the file write before leaving the documen
   }
 });
 
-test("a late Save As write leaves a newer draft and its confirmation intact", async () => {
+test("a New request during a pending Save As write waits for the write, then runs without a dialog", async () => {
   const rendered = await renderLifecycleApp({ draftCreationError: new Error("Documents unavailable") });
   const save = deferred();
   try {
@@ -435,15 +431,13 @@ test("a late Save As write leaves a newer draft and its confirmation intact", as
     clickButton(rendered.host, "Save", dialog);
     await waitFor(() => assert.ok(save.args));
 
-    // The first draft is still dirty while its write waits. Explicitly discard
-    // that session before starting another draft, leaving the old write pending.
+    // The Save As write is still pending. New waits for it rather than asking
+    // about a buffer whose baseline that write is about to move.
     dispatchShortcut("n");
-    const newFileDialog = await waitFor(() => confirmDialog(rendered.host));
-    clickButton(rendered.host, "Discard", newFileDialog);
-    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
-    updateEditor(rendered.host, "Keep this newer draft.");
-    await rendered.requestQuit();
-    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    noDialog(rendered.host);
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "First draft saved.");
+
     await act(async () => {
       save.resolve({
         conflict: false,
@@ -453,20 +447,27 @@ test("a late Save As write leaves a newer draft and its confirmation intact", as
       });
       await save.promise;
     });
-
-    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Keep this newer draft.");
-    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    noDialog(rendered.host);
+    assert.equal(rendered.fileWrites().length, 1);
     assert.equal(rendered.exitCalls().length, 0);
-    // The old save must neither execute nor cancel the newer quit admission.
+
+    // The newer draft is its own session with its own quit decision.
+    updateEditor(rendered.host, "Keep this newer draft.");
+    await rendered.requestQuit();
+    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Keep this newer draft.");
+    assert.equal(rendered.exitCalls().length, 0);
     clickButton(rendered.host, "Discard", newerDialog);
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites().length, 1);
   } finally {
     save.resolve(null);
     await rendered.cleanup();
   }
 });
 
-test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation", async () => {
+test("a cancelled overwrite's completion acts on nothing, and a later quit finds the saved text clean", async () => {
   const rendered = await renderLifecycleApp();
   const overwrite = deferred();
   try {
@@ -480,9 +481,11 @@ test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation
     clickButton(rendered.host, "Overwrite", conflict);
     await waitFor(() => assert.equal(overwrite.args?.force, true));
     await cancelDialog(rendered.host);
-    await rendered.requestQuit();
-    const newerDialog = await waitFor(() => confirmDialog(rendered.host));
-    assert.match(newerDialog.textContent, /Unsaved changes/);
+    noDialog(rendered.host);
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+
+    // The write the cancelled dialog started still lands. Its continuation was
+    // cancelled, so it must neither quit nor open or dismiss a dialog.
     await act(async () => {
       overwrite.resolve({
         conflict: false,
@@ -492,13 +495,100 @@ test("a cancelled overwrite cannot complete or dismiss a newer quit confirmation
       });
       await overwrite.promise;
     });
-
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
     assert.ok(rendered.host.querySelector(".cm-editor"));
-    assert.ok(confirmDialog(rendered.host) === newerDialog, "the newer confirmation must stay open");
+    noDialog(rendered.host);
     assert.equal(rendered.exitCalls().length, 0);
-    await cancelDialog(rendered.host);
+    // The conflicting autosave attempt and the overwrite are the only writes.
+    assert.equal(rendered.fileWrites().length, 2);
+
     await rendered.requestQuit();
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    assert.equal(rendered.fileWrites().length, 2, "the overwritten text was already saved");
+  } finally {
+    overwrite.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("a quit requested while a cancelled overwrite is still writing waits for it and then quits cleanly", async () => {
+  const rendered = await renderLifecycleApp();
+  const overwrite = deferred();
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to save.`);
+    rendered.conflictNextWrite();
+    await rendered.requestQuit();
+    const conflict = await waitFor(() => confirmDialog(rendered.host));
+    rendered.deferNextWrite(overwrite);
+    clickButton(rendered.host, "Overwrite", conflict);
+    await waitFor(() => assert.equal(overwrite.args?.force, true));
+    await cancelDialog(rendered.host);
+
+    await rendered.requestQuit();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    noDialog(rendered.host);
+    assert.ok(rendered.host.querySelector(".cm-editor"), "quit must wait for the pending overwrite");
+    assert.equal(rendered.exitCalls().length, 0);
+
+    await act(async () => {
+      overwrite.resolve({
+        conflict: false,
+        canonicalPath: DOC_PATH,
+        name: DOC_NAME,
+        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
+      });
+      await overwrite.promise;
+    });
+    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+    noDialog(rendered.host);
+    // The conflicting autosave attempt and the overwrite; the quit adds no write.
+    assert.equal(rendered.fileWrites().length, 2, "no duplicate write of the overwritten text");
+    assert.equal(rendered.fileWrites().at(-1), overwrite.args);
+    assert.equal(overwrite.args.content, `${DOC_CONTENT}\nWords to save.`);
+  } finally {
+    overwrite.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
+test("Reload during a pending Overwrite ends the session, and the late overwrite result cannot revive it", async () => {
+  // Reload is the one route that still ends a session around a pending write:
+  // the person chose to discard. The write still lands; its stale completion
+  // must not reopen the editor, flash, or open a dialog.
+  const rendered = await renderLifecycleApp();
+  const overwrite = deferred();
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to overwrite.`);
+    rendered.conflictNextWrite();
+    dispatchShortcut("e");
+    const conflict = await waitFor(() => confirmDialog(rendered.host));
+    assert.match(conflict.textContent, /File changed/);
+    rendered.deferNextWrite(overwrite);
+    clickButton(rendered.host, "Overwrite", conflict);
+    await waitFor(() => assert.equal(overwrite.args?.force, true));
+    clickButton(rendered.host, "Reload", conflict);
+    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+    noDialog(rendered.host);
+
+    await act(async () => {
+      overwrite.resolve({
+        conflict: false,
+        canonicalPath: DOC_PATH,
+        name: DOC_NAME,
+        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
+      });
+      await overwrite.promise;
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(!rendered.host.querySelector(".cm-editor"), "a stale overwrite must not reopen the editor");
+    noDialog(rendered.host);
+    assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
+    assert.equal(rendered.exitCalls().length, 0);
+    // The conflicting autosave attempt and the overwrite; nothing writes after Reload.
+    assert.equal(rendered.fileWrites().length, 2);
+    assert.equal(rendered.fileWrites().at(-1), overwrite.args);
   } finally {
     overwrite.resolve(null);
     await rendered.cleanup();
@@ -515,7 +605,7 @@ test("hiding the macOS window during startup still allows stored session restora
     await rendered.requestClose();
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     await act(async () => {
-      settings.resolve([{ filePath: DOC_PATH, headingId: null }, true]);
+      settings.resolve({ filePath: DOC_PATH, headingId: null });
       await settings.promise;
     });
     await waitFor(() => assert.ok(rendered.host.textContent.includes(DOC_NAME)));
@@ -523,7 +613,7 @@ test("hiding the macOS window during startup still allows stored session restora
     assert.equal(rendered.hideCount(), 1);
     assert.equal(rendered.exitCalls().length, 0);
   } finally {
-    settings.resolve([null, false]);
+    settings.resolve(null);
     await rendered.cleanup();
   }
 });
@@ -831,6 +921,43 @@ test("a failed macOS hide reports the problem and leaves close retryable", async
 });
 
 // --- macOS quit behavior ---
+
+for (const [platform, boundary, completedOperation] of [
+  ["mac", "quit", "exit"],
+  ["windows", "close", "close"],
+  ["mac", "close", "hide"],
+]) {
+  test(`${platform} ${boundary} flushes the pending reading position and awaits storage`, async context => {
+    const rendered = await renderLifecycleApp({ platform,
+      content: "# Lifecycle\n\n[Jump](#deeper)\n\n## Deeper\n\nClosing words.",
+    });
+    const persistence = deferred();
+    const sessions = [];
+    try {
+      await rendered.openLifecycleDocument();
+      const store = require("../.tmp/workspace-tests/src/lib/store.js");
+      const originalSet = store.storeSet;
+      context.mock.method(store, "storeSet", (key, value) => {
+        if (key !== "session") return originalSet(key, value);
+        sessions.push(value);
+        return persistence.promise;
+      });
+      await act(async () => rendered.host.querySelector('article a[href="#deeper"]').click());
+      assert.equal(sessions.length, 0, "the position debounce is still pending");
+      if (boundary === "quit") await rendered.requestQuit();
+      else await rendered.requestClose();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0].filePath, DOC_PATH);
+      assert.equal(sessions[0].headingId, "deeper");
+      assert.ok(!rendered.operationLog().includes(completedOperation), "exit must wait for persistence");
+      await act(async () => persistence.resolve(true));
+      assert.ok(rendered.operationLog().includes(completedOperation));
+    } finally {
+      persistence.resolve(true);
+      await rendered.cleanup();
+    }
+  });
+}
 
 test("macOS quit with a clean document exits only through the guarded command", async () => {
   const rendered = await renderLifecycleApp({ platform: "mac" });
@@ -1656,7 +1783,7 @@ test("a saved-open sidebar is fitted at 600px after delayed startup, without a t
   const gate = deferred();
   const r = await renderLifecycleApp({ sidebarInitiallyOpen: true, initialSessionOperation: gate });
   try {
-    await act(async () => gate.resolve([null, false]));
+    await act(async () => gate.resolve(null));
     await waitFor(() => assert.ok(r.host.querySelector(".empty-state-content")));
     await r.openLifecycleDocument(); await act(async () => {});
     const shown = [...r.host.querySelectorAll("[data-reader-panel]")].map(p => p.dataset.readerPanel);

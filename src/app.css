@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/newsreader";
+/* Newsreader's own italic, so italic text isn't the upright face slanted. */
+@import "@fontsource-variable/newsreader/wght-italic.css";
 @import "@fontsource-variable/source-sans-3";
 @import "@fontsource-variable/dm-sans";
 @import "@fontsource-variable/roboto-slab";
@@ -9,10 +11,6 @@
 @import "@fontsource/opendyslexic/700.css";
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/700.css";
-
-/* highlight.js themes — import both, scope with CSS layers won't work well,
-   so we import light by default and override hljs colors in dark themes below */
-@import "highlight.js/styles/github.css";
 
 /* KaTeX math rendering */
 @import "katex/dist/katex.min.css";
@@ -62,8 +60,9 @@
   --text-primary: #1C1917;
   --text-secondary: #4E4A46;
   --text-muted: #665F5B;
-  --accent: #BD9264;
-  --accent-hover: #AD8358;
+  --accent: #2475CD;
+  --accent-fill: #1463C9;
+  --accent-fill-hover: #0E55B2;
   --border: #E8E7E6;
   --code-bg: #F5F4F2;
   --highlight-yellow: #fef08a;
@@ -71,18 +70,21 @@
   --highlight-blue: #bfdbfe;
   --highlight-pink: #fbcfe8;
   --syntax-base: #24292e;
-  --syntax-comment: #6a737d;
-  --syntax-keyword: #d73a49;
+  --syntax-comment: #676f79;
+  --syntax-keyword: #d22b3b;
   --syntax-string: #032f62;
   --syntax-number: #005cc5;
   --syntax-builtin: #6f42c1;
   --syntax-attr: #005cc5;
-  --syntax-variable: #e36209;
+  --syntax-variable: #b74f07;
   --syntax-deletion: #b31d28;
-  --accent-text: #6E4F30;
-  --on-accent: #24180D;
+  --accent-text: #1559A6;
+  --accent-indicator: var(--accent);
+  --on-accent: #FFFFFF;
   --danger: #A52C32;
   --warning: #785108;
+  /* The artist's navy, the back page in the symbol. */
+  --wordmark: #0841B4;
 }
 
 [data-theme="sepia"] {
@@ -93,7 +95,8 @@
   --text-secondary: #4F433B;
   --text-muted: #65584A;
   --accent: #C8956C;
-  --accent-hover: #B8855C;
+  --accent-fill: var(--accent);
+  --accent-fill-hover: #B8855C;
   --border: #D9CEBC;
   --code-bg: #EDE5D1;
   --highlight-yellow: #fde68a;
@@ -101,38 +104,41 @@
   --highlight-blue: #a5d8ff;
   --highlight-pink: #f9a8d4;
   --syntax-base: #5B4636;
-  --syntax-comment: #9C8B7A;
+  --syntax-comment: #726355;
   --syntax-keyword: #9E4A3A;
   --syntax-string: #5C6D29;
-  --syntax-number: #8B6834;
-  --syntax-builtin: #7B5C8A;
-  --syntax-attr: #8B6834;
-  --syntax-variable: #B07330;
+  --syntax-number: #806030;
+  --syntax-builtin: #795A88;
+  --syntax-attr: #806030;
+  --syntax-variable: #8B5B26;
   --syntax-deletion: #A0392B;
   --accent-text: #644327;
+  --accent-indicator: var(--accent-text);
   --on-accent: #24180D;
   --danger: #942627;
   --warning: #6E4600;
+  --wordmark: #0841B4;
 }
 
 [data-theme="dark"] {
-  --bg-primary: #1A1816;
-  --bg-secondary: #231F1C;
-  --bg-tertiary: #2C2724;
-  --text-primary: #EEEBE6;
-  --text-secondary: #C2BEBA;
-  --text-muted: #A6A19C;
-  --accent: #D4A373;
-  --accent-hover: #E0B48A;
-  --border: #352F2B;
-  --code-bg: #221E1B;
+  --bg-primary: #17181A;
+  --bg-secondary: #1F2022;
+  --bg-tertiary: #27282B;
+  --text-primary: #EAEBED;
+  --text-secondary: #BDBFC3;
+  --text-muted: #A0A2A6;
+  --accent: #56A3FE;
+  --accent-fill: #1366E8;
+  --accent-fill-hover: #0F5BD8;
+  --border: #2F3034;
+  --code-bg: #1E1F21;
   /* Opaque mixes prevent overlapping annotations from accumulating tint. */
   --highlight-yellow: color-mix(in srgb, #facc15 30%, var(--bg-primary));
   --highlight-green: color-mix(in srgb, #4ade80 30%, var(--bg-primary));
   --highlight-blue: color-mix(in srgb, #60a5fa 30%, var(--bg-primary));
   --highlight-pink: color-mix(in srgb, #f472b6 30%, var(--bg-primary));
   --syntax-base: #adbac7;
-  --syntax-comment: #768390;
+  --syntax-comment: #7C8995;
   --syntax-keyword: #f47067;
   --syntax-string: #96d0ff;
   --syntax-number: #6cb6ff;
@@ -140,29 +146,33 @@
   --syntax-attr: #6cb6ff;
   --syntax-variable: #f69d50;
   --syntax-deletion: #f47067;
-  --accent-text: #F7D6B7;
-  --on-accent: #24180D;
+  --accent-text: #94C4FF;
+  --accent-indicator: var(--accent);
+  --on-accent: #FFFFFF;
   --danger: #FFA3A3;
   --warning: #F2CA83;
+  /* Navy is about 2:1 here, so a pale tint of the symbol's front page (#56A3FE). */
+  --wordmark: #C9DFFF;
 }
 
 [data-theme="deep-dark"] {
-  --bg-primary: #0C0A09;
-  --bg-secondary: #1A1816;
-  --bg-tertiary: #231F1C;
-  --text-primary: #E7E5E4;
-  --text-secondary: #B5B2AE;
-  --text-muted: #9B968F;
-  --accent: #DAA97A;
-  --accent-hover: #E5B88E;
-  --border: #292524;
-  --code-bg: #161412;
+  --bg-primary: #0A0A0C;
+  --bg-secondary: #17181A;
+  --bg-tertiary: #1F2022;
+  --text-primary: #E4E5E8;
+  --text-secondary: #B1B3B6;
+  --text-muted: #95979B;
+  --accent: #56A3FE;
+  --accent-fill: #1366E8;
+  --accent-fill-hover: #0F5BD8;
+  --border: #252629;
+  --code-bg: #131416;
   --highlight-yellow: color-mix(in srgb, #facc15 25%, var(--bg-primary));
   --highlight-green: color-mix(in srgb, #4ade80 25%, var(--bg-primary));
   --highlight-blue: color-mix(in srgb, #60a5fa 25%, var(--bg-primary));
   --highlight-pink: color-mix(in srgb, #f472b6 25%, var(--bg-primary));
   --syntax-base: #9DA5AE;
-  --syntax-comment: #636C76;
+  --syntax-comment: #76818C;
   --syntax-keyword: #E06058;
   --syntax-string: #7EB8E0;
   --syntax-number: #5A9FD6;
@@ -170,10 +180,12 @@
   --syntax-attr: #5A9FD6;
   --syntax-variable: #D98F48;
   --syntax-deletion: #E06058;
-  --accent-text: #E8BC91;
-  --on-accent: #24180D;
+  --accent-text: #7DB8FF;
+  --accent-indicator: var(--accent);
+  --on-accent: #FFFFFF;
   --danger: #FFA3A3;
   --warning: #F2CA83;
+  --wordmark: #C9DFFF;
 }
 
 /* ── Tailwind theme mapping ── */
@@ -187,10 +199,12 @@
   --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
   --color-accent-text: var(--accent-text);
+  --color-accent-indicator: var(--accent-indicator);
   --color-on-accent: var(--on-accent);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
-  --color-accent-hover: var(--accent-hover);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fill-hover: var(--accent-fill-hover);
   --color-border: var(--border);
   --color-code-bg: var(--code-bg);
 
@@ -343,7 +357,7 @@ body {
 }
 
 .command-palette-input-wrap:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 70%, var(--border) 30%);
+  border-color: var(--accent-indicator);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
@@ -373,14 +387,39 @@ body {
 
 /* ── Focus-visible styles for keyboard accessibility ── */
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[role="button"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+/* Keep the document's ring stationary and clear of its scrollbar. The frame
+   adds no padding or tab stop, and child focus never activates the ring. */
+.reading-pane {
+  --reader-scrollbar-width: 8px;
+}
+
+.reading-surface::-webkit-scrollbar {
+  width: var(--reader-scrollbar-width);
+}
+
+.reading-surface:focus-visible {
+  outline: none;
+}
+
+.reading-pane:has(> .reading-surface:focus-visible)::after {
+  content: "";
+  position: absolute;
+  inset: 0 calc(var(--reader-scrollbar-width) + 2px) 0 0;
+  border: 2px solid var(--accent-indicator);
+  pointer-events: none;
+  z-index: 1;
+}
+
+@layer base {
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--accent-indicator);
+    outline-offset: 1px;
+  }
 }
 
 /* Restrained press feedback — buttons press in, not float up */
@@ -545,7 +584,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body li.task-list-item input[type="checkbox"] {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fill);
   margin: 0;
   flex-shrink: 0;
 }
@@ -665,11 +704,6 @@ button:active:not(:disabled),
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
-.code-copy-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .code-copy-button svg {
   flex-shrink: 0;
 }
@@ -685,14 +719,8 @@ button:active:not(:disabled),
   word-break: break-word;
 }
 
-/* Prevent highlight.js base theme from drawing a second inner panel. */
+/* The code block owns its panel; syntax text uses the same backdrop. */
 .markdown-body .code-block-wrapper pre code.hljs {
-  padding: 0;
-  background: transparent;
-  overflow-x: visible;
-}
-
-.markdown-body .code-block-wrapper .hljs {
   background: transparent;
 }
 
@@ -767,14 +795,97 @@ button:active:not(:disabled),
   }
 }
 
-/* ── TOC active item accent background ── */
-
-.toc-active-item {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+/* At launch the startup screen reveals the empty state instead (src/main.tsx). */
+.empty-state-at-launch :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
+  animation: none;
 }
 
-/* ── Sidebar active file accent background ── */
+/* ── Empty state layout ── */
 
+/* Centred while it fits. In a short window it starts at the top and scrolls,
+   instead of pushing the symbol above the pane. */
+.empty-state {
+  min-height: 100%;
+  padding-block: 1.5rem;
+}
+
+.empty-state > :first-child {
+  margin-top: auto;
+}
+
+.empty-state > :last-child {
+  margin-bottom: auto;
+}
+
+/* The artist's symbol over the BINDARS wordmark, like an app icon over its name. */
+.empty-state-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-state-brand svg {
+  flex: none;
+  overflow: visible;
+}
+
+.empty-state-symbol {
+  width: 4.5rem;
+  aspect-ratio: 1;
+}
+
+.empty-state-wordmark {
+  width: 7.5rem;
+  /* Match the cropped viewBox in assets/brand/bindars-wordmark.svg and index.html. */
+  aspect-ratio: 676.24 / 85.12;
+  margin-top: 0.75rem;
+  fill: var(--wordmark);
+}
+
+.empty-state-tagline {
+  margin: 1.125rem 0 2rem;
+}
+
+.empty-state-recovery .empty-state-symbol {
+  width: 3rem;
+}
+
+.empty-state-recovery .empty-state-wordmark {
+  width: 6rem;
+  margin-top: 0.5rem;
+}
+
+.empty-state-recovery-message {
+  overflow-wrap: anywhere;
+}
+
+.reading-hint {
+  margin: 1.5rem auto 0;
+  padding: 0 1.5rem 0.75rem;
+}
+
+@media (max-height: 640px) {
+  .empty-state {
+    padding-block: 1rem;
+  }
+
+  .empty-state-symbol {
+    width: 3.5rem;
+  }
+
+  .empty-state-wordmark {
+    width: 6rem;
+    margin-top: 0.625rem;
+  }
+
+  .empty-state-tagline {
+    margin: 0.75rem 0 1.5rem;
+  }
+}
+
+/* ── Active navigation item background ── */
+
+.toc-active-item,
 .sidebar-active-item {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
@@ -804,53 +915,64 @@ button:active:not(:disabled),
 
 mark.search-highlight {
   background: color-mix(in srgb, var(--accent) 25%, var(--bg-primary));
-  border-radius: 2px;
-  padding: 1px 0;
   color: inherit;
 }
 
+mark.search-highlight,
 mark.search-highlight-active {
-  background: var(--accent);
-  color: var(--on-accent);
   border-radius: 2px;
   padding: 1px 0;
+}
+
+/* A ring distinguishes blue search results from saved blue highlights. */
+:root:not([data-theme="sepia"]) mark.search-highlight {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+:root:is([data-theme="dark"], [data-theme="deep-dark"]) mark.search-highlight {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 85%, var(--bg-primary));
+}
+
+mark.search-highlight-active,
+mark.search-highlight-active mark {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+mark.search-highlight-active {
+  outline: 1px solid var(--accent-indicator);
 }
 
 /* ── Annotation highlights ── */
 
-mark.annotation-highlight-yellow {
-  background: var(--highlight-yellow);
+mark.annotation-highlight-yellow,
+mark.annotation-highlight-green,
+mark.annotation-highlight-blue,
+mark.annotation-highlight-pink {
   border-radius: 2px;
   padding: 1px 0;
   color: inherit;
   cursor: pointer;
+}
+
+mark.annotation-highlight-yellow {
+  background: var(--highlight-yellow);
 }
 
 mark.annotation-highlight-green {
   background: var(--highlight-green);
-  border-radius: 2px;
-  padding: 1px 0;
-  color: inherit;
-  cursor: pointer;
 }
 
 mark.annotation-highlight-blue {
   background: var(--highlight-blue);
-  border-radius: 2px;
-  padding: 1px 0;
-  color: inherit;
-  cursor: pointer;
 }
 
 mark.annotation-highlight-pink {
   background: var(--highlight-pink);
-  border-radius: 2px;
-  padding: 1px 0;
-  color: inherit;
-  cursor: pointer;
 }
 
-/* Lift secondary prose only where it is marked; preserve link and code colours. */
+/* Lift marked secondary prose; links and code have their own colours. */
 :is(.markdown-body h6, .markdown-body blockquote, .markdown-body del,
     .markdown-body .footnotes, .frontmatter-description, .frontmatter-meta, .frontmatter-separator,
     .fountain-credit, .fountain-draft-date, .fountain-title-entry,
@@ -859,10 +981,18 @@ mark:not(.search-highlight-active, .search-highlight-active *):not(a *, code *, 
   color: var(--text-primary);
 }
 
-/* Annotation repainting can place marks inside the active search result. */
-mark.search-highlight-active mark {
-  background: var(--accent);
-  color: var(--on-accent);
+/* Annotation repainting can place marks inside a search result. Let an
+   ordinary result's tint and ring show through, as when it is painted last. */
+mark.search-highlight mark {
+  background: transparent;
+}
+
+@media screen {
+  /* Syntax colours are tuned for the code panel, not highlight backgrounds.
+     Marks wrap text only, so nested marks are the only descendants. */
+  code mark:not(.search-highlight-active, .search-highlight-active *) {
+    color: var(--text-primary);
+  }
 }
 
 /* ── Syntax highlighting (variable-driven, all themes) ── */
@@ -873,24 +1003,34 @@ mark.search-highlight-active mark {
 }
 
 .hljs-subst,
-.hljs-comment,
-.hljs-quote {
+.hljs-emphasis,
+.hljs-strong {
   color: var(--syntax-base);
 }
 
 .hljs-comment,
-.hljs-quote {
+.hljs-quote,
+.hljs-code,
+.hljs-formula {
   color: var(--syntax-comment);
 }
 
 .hljs-keyword,
 .hljs-selector-tag,
-.hljs-type {
+.hljs-type,
+.hljs-doctag,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-variable.language_,
+.hljs-name,
+.hljs-selector-pseudo {
   color: var(--syntax-keyword);
 }
 
 .hljs-string,
-.hljs-addition {
+.hljs-addition,
+.hljs-regexp,
+.hljs-meta .hljs-string {
   color: var(--syntax-string);
 }
 
@@ -906,17 +1046,51 @@ mark.search-highlight-active mark {
 }
 
 .hljs-attr,
-.hljs-attribute {
+.hljs-attribute,
+.hljs-meta,
+.hljs-operator,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
   color: var(--syntax-attr);
 }
 
 .hljs-variable,
-.hljs-template-variable {
+.hljs-template-variable,
+.hljs-symbol,
+.hljs-bullet {
   color: var(--syntax-variable);
 }
 
 .hljs-deletion {
   color: var(--syntax-deletion);
+}
+
+.hljs-section,
+.hljs-strong {
+  font-weight: bold;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-addition {
+  background-color: #f0fff4;
+}
+
+.hljs-deletion {
+  background-color: #ffeef0;
+}
+
+@media screen {
+  :is([data-theme="dark"], [data-theme="deep-dark"]) .hljs-addition {
+    background-color: color-mix(in srgb, var(--syntax-string) 12%, transparent);
+  }
+
+  :is([data-theme="dark"], [data-theme="deep-dark"]) .hljs-deletion {
+    background-color: color-mix(in srgb, var(--syntax-deletion) 12%, transparent);
+  }
 }
 
 /* ── Sidebar animation ── */
@@ -1418,7 +1592,7 @@ body[data-printing] .print-hide {
 }
 
 .print-status button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-indicator);
   outline-offset: 3px;
 }
 
@@ -1461,11 +1635,16 @@ body[data-printing] .print-hide {
 
   /* Reset flex wrapper that constrains content height */
   #root > div > .flex,
-  .reader-column {
+  .reader-column,
+  .reading-pane {
     height: auto !important;
     overflow: visible !important;
     min-height: 0 !important;
     display: block !important;
+  }
+
+  .reading-pane::after {
+    display: none !important;
   }
 
   /* Print colors must survive cleanup of the temporary print session. */
@@ -1629,51 +1808,17 @@ body[data-printing] .print-hide {
     border-radius: 4px !important;
   }
 
-  /* Keep syntax colors readable on white paper. */
-  .hljs,
-  .hljs-subst {
-    color: #24292e !important;
-  }
-
-  .hljs-keyword,
-  .hljs-selector-tag,
-  .hljs-type {
-    color: #d73a49 !important;
-  }
-
-  .hljs-built_in,
-  .hljs-title,
-  .hljs-section {
-    color: #6f42c1 !important;
-  }
-
-  .hljs-string,
-  .hljs-addition {
-    color: #032f62 !important;
-  }
-
-  .hljs-comment,
-  .hljs-quote {
-    color: #6a737d !important;
-  }
-
-  .hljs-number,
-  .hljs-literal {
-    color: #005cc5 !important;
-  }
-
-  .hljs-attr,
-  .hljs-attribute {
-    color: #005cc5 !important;
-  }
-
-  .hljs-variable,
-  .hljs-template-variable {
-    color: #e36209 !important;
-  }
-
-  .hljs-deletion {
-    color: #d73a49 !important;
+  /* One paper palette feeds the same syntax mapping as the reader. */
+  :root {
+    --syntax-base: #24292e;
+    --syntax-comment: #676f79;
+    --syntax-keyword: #d22b3b;
+    --syntax-string: #032f62;
+    --syntax-number: #005cc5;
+    --syntax-builtin: #6f42c1;
+    --syntax-attr: #005cc5;
+    --syntax-variable: #b74f07;
+    --syntax-deletion: #b31d28;
   }
 
   /* ── Blockquotes ── */
@@ -1762,6 +1907,7 @@ body[data-printing] .print-hide {
     background: none !important;
     color: inherit !important;
     padding: 0 !important;
+    outline: none !important;
   }
 
   /* Annotation highlights: subtle in print */

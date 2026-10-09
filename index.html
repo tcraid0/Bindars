@@ -7,7 +7,12 @@
       (function () {
         var themes = ["light", "sepia", "dark", "deep-dark"];
         var theme = "light";
-        var bgMap = { light: "#FAFAF8", sepia: "#F3EACE", dark: "#1A1816", "deep-dark": "#0C0A09" };
+        var colors = {
+          light:       { bg: "#FAFAF8", text: "#665F5B", indicator: "#2475CD" },
+          sepia:       { bg: "#F3EACE", text: "#65584A", indicator: "#644327" },
+          dark:        { bg: "#17181A", text: "#A0A2A6", indicator: "#56A3FE" },
+          "deep-dark": { bg: "#0A0A0C", text: "#95979B", indicator: "#56A3FE" }
+        };
 
         try {
           var stored = localStorage.getItem("bindars-theme") || localStorage.getItem("markdown-reader-theme");
@@ -22,128 +27,150 @@
           }
         }
 
-        document.documentElement.setAttribute("data-theme", theme === "light" ? "" : theme);
-        document.documentElement.style.backgroundColor = bgMap[theme] || bgMap.light;
+        var root = document.documentElement;
+        var c = colors[theme];
+        root.setAttribute("data-theme", theme === "light" ? "" : theme);
+        root.style.backgroundColor = c.bg;
+        root.style.setProperty("--ls-bg", c.bg);
+        root.style.setProperty("--ls-text", c.text);
+        root.style.setProperty("--ls-indicator", c.indicator);
+
+        // Reduced motion applies from the first frame: the macOS setting, or Reduce
+        // effects saved by Bindars. App.tsx keeps this class current once it mounts.
+        var reduce = false;
+        try {
+          reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch (_error) {}
+        // Like useReaderSettings, use the first record with at least one usable setting.
+        // The theme test checks this pre-paint eligibility copy against normalizeReaderSettings.
+        var keys = ["bindars-settings", "markdown-reader-settings"];
+        for (var i = 0; !reduce && i < keys.length; i++) {
+          try {
+            var settings = JSON.parse(localStorage.getItem(keys[i]));
+            if (!settings || typeof settings !== "object" || Array.isArray(settings)) continue;
+            var usable = ["fontSize", "contentWidth", "lineHeight"].some(function (key) {
+              return typeof settings[key] === "number" && Number.isFinite(settings[key]);
+            }) || ["sceneLensEnabled", "reducedEffects"].some(function (key) {
+              return typeof settings[key] === "boolean";
+            }) || ["newsreader", "source-sans-3", "dm-sans", "roboto-slab", "atkinson", "opendyslexic"].indexOf(settings.fontFamily) !== -1
+              || ["compact", "comfortable", "spacious"].indexOf(settings.paragraphSpacing) !== -1;
+            if (!usable) continue;
+            reduce = settings.reducedEffects === true;
+            break;
+          } catch (_error) {}
+        }
+        if (reduce) root.classList.add("reduced-motion");
       })();
     </script>
     <style>
+      #brand-artwork {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
       #loading-screen {
+        --ls-center-y: 47%;
+        --ls-mark-size: 112px;
+        --ls-feedback-delay: 900ms;
+        --ls-reduced-mark-fade: 100ms;
         position: fixed;
         inset: 0;
         z-index: 99999;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
         background: var(--ls-bg, #FAFAF8);
         transition: opacity 200ms ease-out;
       }
       #loading-screen.fade-out { opacity: 0; }
-      #loading-screen-title {
-        font-family: Georgia, "Times New Roman", serif;
-        font-style: italic;
-        font-size: 2.5rem;
-        color: var(--ls-text, #665F5B);
-        margin: 0 0 0.5rem;
-        letter-spacing: 0.12em;
-        animation: ls-settle 800ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+      /* The app icon, a little above the middle. Margins centre it so the exit
+         can use transform. The mark leaves just ahead of the background, so it
+         barely overlaps the app underneath. */
+      #loading-screen-mark {
+        position: absolute;
+        left: 50%;
+        top: var(--ls-center-y);
+        display: block;
+        width: var(--ls-mark-size);
+        height: var(--ls-mark-size);
+        margin: calc(var(--ls-mark-size) / -2) 0 0 calc(var(--ls-mark-size) / -2);
+        transition: opacity 140ms ease-out, transform 140ms ease-out;
       }
-      @keyframes ls-settle {
-        to { letter-spacing: 0.02em; }
-      }
-      #loading-screen-tagline {
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 0.85rem;
-        color: var(--ls-text, #665F5B);
-        margin: 0 0 1.5rem;
-        letter-spacing: 0.08em;
+      #loading-screen.fade-out #loading-screen-mark {
         opacity: 0;
-        animation: ls-fade-in 400ms ease-out 400ms forwards;
+        transform: scale(0.985);
       }
-      @keyframes ls-fade-in {
+      /* Loading feedback is for slow starts only: nothing shows before 0.9 s.
+         Both sit outside the layout, so their arrival never moves the mark. */
+      #loading-screen-progress,
+      #loading-screen-status {
+        position: absolute;
+        opacity: 0;
+      }
+      #loading-screen-progress {
+        left: 50%;
+        top: calc(var(--ls-center-y) + var(--ls-mark-size) / 2 + 30px);
+        width: 44px;
+        height: 2px;
+        transform: translateX(-50%);
+        border-radius: 1px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--ls-text) 16%, transparent);
+        animation: ls-appear 400ms ease-out var(--ls-feedback-delay) forwards;
+      }
+      #loading-screen-progress::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 40%;
+        border-radius: inherit;
+        background: var(--ls-indicator);
+        animation: ls-slide 1.5s cubic-bezier(0.45, 0, 0.55, 1) var(--ls-feedback-delay) infinite both;
+      }
+      #loading-screen-status {
+        display: none;
+        left: 0;
+        right: 0;
+        top: calc(var(--ls-center-y) + var(--ls-mark-size) / 2 + 24px);
+        margin: 0;
+        text-align: center;
+        font: 12px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        letter-spacing: 0.02em;
+        color: var(--ls-text);
+        animation: ls-appear 200ms ease-out var(--ls-feedback-delay) forwards;
+      }
+      @keyframes ls-appear {
         to { opacity: 1; }
       }
-      #loading-screen-track {
-        width: 120px;
-        height: 2px;
-        border-radius: 1px;
-        background: var(--ls-track, rgba(168,162,158,0.2));
-        overflow: hidden;
-        opacity: 0;
-        animation: ls-fade-in 400ms ease-out 500ms forwards;
-      }
-      #loading-screen-bar {
-        width: 100%;
-        height: 100%;
-        border-radius: 1px;
-        background: var(--ls-accent, #BD9264);
-        position: relative;
-        overflow: hidden;
-      }
-      #loading-screen-bar::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 50%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
-        animation: ls-shimmer 1.5s ease-in-out infinite;
-      }
-      @keyframes ls-shimmer {
+      @keyframes ls-slide {
         from { transform: translateX(-100%); }
-        to { transform: translateX(200%); }
+        to { transform: translateX(250%); }
       }
-      @media (prefers-reduced-motion: reduce) {
-        #loading-screen-title {
-          animation: none;
-          opacity: 1;
-          letter-spacing: 0.02em;
-        }
-        #loading-screen-tagline {
-          animation: none;
-          opacity: 1;
-        }
-        #loading-screen-track {
-          animation: none;
-          opacity: 1;
-        }
-        #loading-screen-bar {
-          animation: none;
-          opacity: 0.6;
-          width: 100%;
-        }
-        #loading-screen-bar::after {
-          animation: none;
-          opacity: 0;
-        }
-      }
+      /* Reduced motion: nothing moves or loops. A slow start shows the word
+         instead of the sliding line, and the exit is a short dissolve. */
+      .reduced-motion #loading-screen { transition-duration: 150ms; }
+      .reduced-motion #loading-screen-mark { transition: opacity var(--ls-reduced-mark-fade) ease-out; }
+      .reduced-motion #loading-screen.fade-out #loading-screen-mark { transform: none; }
+      .reduced-motion #loading-screen-progress { display: none; }
+      .reduced-motion #loading-screen-status { display: block; }
+      /* Opening to the welcome screen, which shows the symbol too. With motion, src/main.tsx
+         moves the mark into place. Without it, the mark leaves before the screen dissolves,
+         so the two never show at once. */
+      .reduced-motion #loading-screen.to-welcome { transition-delay: var(--ls-reduced-mark-fade); }
     </style>
     <title>Bindars</title>
   </head>
   <body>
+    <!-- Brand artwork, inlined from assets/brand/ at build time (vite.config.ts). The startup
+         mark and the welcome screen draw it from here. Each viewBox is the artwork's bounds in
+         its source file; update them together. Overflow keeps the edges' antialiasing. -->
+    <svg id="brand-artwork" aria-hidden="true">
+      <symbol id="bindars-symbol" viewBox="239 239.28 546 545.5" overflow="visible"><!-- bindars-icon.svg --></symbol>
+      <symbol id="bindars-wordmark" viewBox="748.75 497.44 676.24 85.12" overflow="visible"><!-- bindars-wordmark.svg --></symbol>
+    </svg>
     <div id="loading-screen">
-      <p id="loading-screen-title">Bindars</p>
-      <p id="loading-screen-tagline">read well</p>
-      <div id="loading-screen-track"><div id="loading-screen-bar"></div></div>
+      <svg id="loading-screen-mark" role="img" aria-label="Bindars"><use href="#bindars-symbol" /></svg>
+      <div id="loading-screen-progress" aria-hidden="true"></div>
+      <p id="loading-screen-status" aria-hidden="true">Loading…</p>
     </div>
-    <script>
-      (function () {
-        var t = document.documentElement.getAttribute("data-theme") || "light";
-        var colors = {
-          light:     { bg: "#FAFAF8", text: "#665F5B", accent: "#BD9264", track: "rgba(168,162,158,0.2)" },
-          sepia:     { bg: "#F3EACE", text: "#65584A", accent: "#C8956C", track: "rgba(169,155,138,0.2)" },
-          dark:      { bg: "#1A1816", text: "#A6A19C", accent: "#D4A373", track: "rgba(107,101,96,0.2)" },
-          "deep-dark": { bg: "#0C0A09", text: "#9B968F", accent: "#DAA97A", track: "rgba(87,83,78,0.2)" }
-        };
-        var c = colors[t] || colors.light;
-        var el = document.getElementById("loading-screen");
-        el.style.setProperty("--ls-bg", c.bg);
-        el.style.setProperty("--ls-text", c.text);
-        el.style.setProperty("--ls-accent", c.accent);
-        el.style.setProperty("--ls-track", c.track);
-      })();
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

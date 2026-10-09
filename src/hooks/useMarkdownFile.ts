@@ -29,6 +29,12 @@ export interface DocumentErrorState {
   readonly retryAvailability: "ready" | "native-pending" | null;
 }
 
+function preserveOpenErrorDuringReconciliation(state: DocumentErrorState | null): boolean {
+  return state?.source === "open"
+    && state.error.category === "resource-unavailable"
+    && state.retryAction !== null;
+}
+
 export interface PublishedDocument {
   readonly content: string | null;
   readonly filePath: string | null;
@@ -108,6 +114,7 @@ interface UseMarkdownFileReturn {
     path: string,
     retryAction?: RetryablePendingAction,
   ) => Promise<OpenFilePathResult>;
+  reportMissingFile: (path: string, retryAction: RetryablePendingAction) => void;
   setVirtualContent: (text: string, name: string) => void;
   adoptSavedFile: (file: SavedFileSnapshot) => void;
   adoptReconciledDocument: (document: OpenFileResult) => void;
@@ -302,10 +309,19 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     activeRequestRef.current = requestId;
     activePathKeyRef.current = pathKey;
     setLoading(true);
-    publishErrorState(null);
+    // An earlier error stays until this open settles: success clears it, a
+    // failure replaces it, and a cancelled or superseded read leaves it. The
+    // welcome screen's recovery therefore keeps naming the relevant file.
     userOpenInFlightRef.current = true;
     setOpeningPath(path);
     setOpeningSlow(false);
+    // Missing files and permission errors also need their original path and
+    // navigation intent, so the welcome screen can explain and retry them.
+    const failWithRetry = (appError: AppError): OpenFilePathResult => ({
+      status: "failed",
+      error: appError,
+      errorOwnerToken: reportOwnedError("open", appError, retryAction ?? null, retryAction ? "ready" : null),
+    });
 
     try {
       const read = beginDocumentRead(path);
@@ -376,17 +392,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         return { status: "failed", error: timeoutError, errorOwnerToken };
       }
       if (outcome.status === "rejected") {
-        const appError = appErrorFromNative(outcome.reason, "Failed to open file.");
-        const retryAvailability = retryAction && appError.category === "resource-unavailable"
-          ? "ready"
-          : null;
-        const errorOwnerToken = reportOwnedError(
-          "open",
-          appError,
-          retryAvailability ? retryAction : null,
-          retryAvailability,
-        );
-        return { status: "failed", error: appError, errorOwnerToken };
+        return failWithRetry(appErrorFromNative(outcome.reason, "Failed to open file."));
       }
 
       publishDocument(publishedFileDocument(outcome.value));
@@ -395,9 +401,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
       if (!mountedRef.current || requestId !== requestIdRef.current) {
         return { status: "superseded" };
       }
-      const appError = appErrorFromNative(unexpectedError, "Failed to open file.");
-      const errorOwnerToken = reportOwnedError("open", appError);
-      return { status: "failed", error: appError, errorOwnerToken };
+      return failWithRetry(appErrorFromNative(unexpectedError, "Failed to open file."));
     } finally {
       if (activeRequestRef.current === requestId) {
         if (mountedRef.current) {
@@ -410,7 +414,17 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
         }
       }
     }
-  }, [cancelActiveOperation, publishDocument, publishErrorState, reportOwnedError, resetOpenTracking]);
+  }, [cancelActiveOperation, publishDocument, reportOwnedError, resetOpenTracking]);
+
+  // A persisted session whose file was already confirmed missing is reported
+  // without another read, so the welcome screen offers the same recovery.
+  const reportMissingFile = useCallback((path: string, retryAction: RetryablePendingAction) => {
+    const name = path.split(/[/\\]/).pop() || path;
+    reportOwnedError("open", {
+      category: "not-found",
+      message: `${name} could not be found. It may have been moved or renamed.`,
+    }, retryAction, "ready");
+  }, [reportOwnedError]);
 
   const openFilePath = useCallback(async (
     path: string,
@@ -461,9 +475,8 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     publishErrorState(null);
   }, [publishErrorState]);
 
-  const clearNonRetryableErrorAfterReconciliation = useCallback(() => {
-    const current = documentErrorRef.current;
-    if (current?.source === "open" && current.retryAction !== null) return;
+  const clearErrorAfterReconciliation = useCallback(() => {
+    if (preserveOpenErrorDuringReconciliation(documentErrorRef.current)) return;
     publishErrorState(null);
   }, [publishErrorState]);
 
@@ -473,11 +486,11 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     resetOpenTracking();
     const published = publishedFileDocument(document);
     applyPublishedDocument(published);
-    clearNonRetryableErrorAfterReconciliation();
+    clearErrorAfterReconciliation();
   }, [
     applyPublishedDocument,
     cancelActiveOperation,
-    clearNonRetryableErrorAfterReconciliation,
+    clearErrorAfterReconciliation,
     resetOpenTracking,
   ]);
 
@@ -489,12 +502,11 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     const refreshed = { ...current, fileRevision: revision };
     publishedDocumentRef.current = refreshed;
     setFileRevision(revision);
-    clearNonRetryableErrorAfterReconciliation();
-  }, [cancelActiveOperation, clearNonRetryableErrorAfterReconciliation, resetOpenTracking]);
+    clearErrorAfterReconciliation();
+  }, [cancelActiveOperation, clearErrorAfterReconciliation, resetOpenTracking]);
 
   const reportReconciliationError = useCallback((reconciliationError: AppError) => {
-    const current = documentErrorRef.current;
-    if (current?.source === "open" && current.retryAction !== null) return;
+    if (preserveOpenErrorDuringReconciliation(documentErrorRef.current)) return;
     reportOwnedError("reconciliation", reconciliationError);
   }, [reportOwnedError]);
 
@@ -519,6 +531,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     openFile,
     openFilePath,
     openFilePathWithStatus,
+    reportMissingFile,
     setVirtualContent,
     adoptSavedFile,
     adoptReconciledDocument,

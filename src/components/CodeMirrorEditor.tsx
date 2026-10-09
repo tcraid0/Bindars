@@ -81,13 +81,13 @@ const editorTheme = EditorView.theme({
   ".cm-content": {
     minHeight: "calc(100vh - 200px)",
     padding: "0",
-    caretColor: "var(--accent)",
+    caretColor: "var(--accent-indicator)",
   },
   ".cm-line": {
     padding: "0",
   },
   ".cm-cursor, .cm-dropCursor": {
-    borderLeftColor: "var(--accent)",
+    borderLeftColor: "var(--accent-indicator)",
   },
   ".cm-content ::selection": {
     color: "var(--text-primary)",
@@ -115,7 +115,7 @@ const editorTheme = EditorView.theme({
     outline: "none",
   },
   ".cm-panel.cm-search .cm-textfield:focus": {
-    borderColor: "var(--accent)",
+    borderColor: "var(--accent-indicator)",
     boxShadow: "0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)",
   },
   ".cm-panel.cm-search .cm-textfield::placeholder": {
@@ -135,7 +135,7 @@ const editorTheme = EditorView.theme({
     borderColor: "var(--accent)",
   },
   ".cm-panel.cm-search input[type=checkbox]": {
-    accentColor: "var(--accent)",
+    accentColor: "var(--accent-fill)",
   },
   ".cm-panel.cm-search [name=close]": {
     color: "var(--text-secondary)",
@@ -147,8 +147,7 @@ const editorTheme = EditorView.theme({
     backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
   },
   ".cm-searchMatch.cm-searchMatch-selected": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
-    outline: "1px solid var(--accent)",
+    outline: "1px solid var(--accent-indicator)",
   },
   ".cm-md-h1, .cm-md-h2, .cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6": {
     fontFamily: "var(--font-ui)",

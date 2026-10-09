@@ -114,7 +114,7 @@ function CommandPaletteComponent({
                   onClick={() => onOpenHit(hit)}
                   className={`w-full text-left px-4 py-2.5 border-b border-border/50 transition-colors ${
                     selected
-                      ? "bg-bg-tertiary border-l-2 border-l-accent pl-[14px]"
+                      ? "bg-bg-tertiary border-l-2 border-l-accent-indicator pl-[14px]"
                       : "hover:bg-bg-tertiary/60 border-l-2 border-l-transparent"
                   }`}
                 >

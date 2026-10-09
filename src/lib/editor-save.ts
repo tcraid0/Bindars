@@ -131,6 +131,12 @@ export interface SaveErrorDescription {
 
 export function actionableSaveError(error: unknown): SaveErrorDescription {
   const normalized = normalizeFileError(error, "Bindars could not save this file.");
+  // A save refused because the file's permissions, ACL or attributes could not
+  // be carried over left the file unchanged. Its native text says so and names
+  // the way forward, whatever OS category the failure carried.
+  if (normalized.native?.operation === "preservePermissions") {
+    return { message: normalized.message, recovery: "save-as" };
+  }
   switch (normalized.native?.category) {
     case "alreadyExists":
     case "incompleteWrite":

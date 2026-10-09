@@ -4,6 +4,9 @@ author: Bindars
 description: A short day-out plan to try reading, highlighting, and notes.
 ---
 
+Select a sentence to highlight it or add a note.
+Your highlights and notes are saved in Bindars, separately from this file.
+
 ## The plan
 
 Leave the morning open enough to change your mind. Pick one place you want to
@@ -27,7 +30,7 @@ three. Before heading home, write down one place you would like to return to.
 
 ## Make this plan yours
 
-Open **Reader Settings** (the **Aa** button) to adjust the text size or theme.
+Open **Reader Settings** (the **T** button) to adjust the text size or theme.
 
 Select a sentence above and choose a color to highlight it. To attach a thought,
 select a passage and choose **Note**. Try “Which bookshop should we visit?”
@@ -38,8 +41,8 @@ marked passages. Choose **Add note** on an existing highlight to add a thought.
 
 ## Come back or share
 
-This is your saved copy. Reopen it from **Recent files**, **Open**, or Finder.
-**Try an example** makes another copy; confirming Replace regenerates the
+This is your saved copy. Reopen it from **Recent files**, **Open**, or your file manager.
+**Try an Example…** makes another copy; confirming Replace regenerates the
 example text in the file you choose.
 
 Choose **Print to PDF** from the export menu to share the document. Attached note

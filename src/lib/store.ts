@@ -1,28 +1,18 @@
-import { load } from "@tauri-apps/plugin-store";
+import { invoke } from "@tauri-apps/api/core";
 import { initializeAnnotationStorage } from "./annotation-storage";
 
-let storePromise: ReturnType<typeof load> | null = null;
+// Settings are owned natively (src-tauri/src/settings.rs): every write is an
+// atomic replacement of settings.json, so a resolved storeSet is on disk and a
+// rejected one left the previous file intact. The native bootstrap seeds the
+// cache from a checked read; nothing here can read or write before it succeeds.
 
 export type StoreGetResult<T> =
   | { ok: true; value: T | null }
   | { ok: false; error: unknown };
 
-function getStore() {
-  if (!storePromise) {
-    const pendingStore = initializeAnnotationStorage().then((status) => {
-      if (!status.settingsReady) throw new Error("Settings storage is unavailable. Existing data was preserved.");
-      // Native bootstrap already registered the cache from a checked read.
-      // load reuses that resource without reading settings.json a second time.
-      return load("settings.json", { defaults: {}, autoSave: true });
-    });
-    storePromise = pendingStore;
-    pendingStore.catch(() => {
-      if (storePromise === pendingStore) {
-        storePromise = null;
-      }
-    });
-  }
-  return storePromise;
+async function requireSettings(): Promise<void> {
+  const status = await initializeAnnotationStorage();
+  if (!status.settingsReady) throw new Error("Settings storage is unavailable. Existing data was preserved.");
 }
 
 export async function storeGet<T>(key: string): Promise<T | null> {
@@ -37,8 +27,8 @@ export async function storeGet<T>(key: string): Promise<T | null> {
 
 export async function storeTryGet<T>(key: string): Promise<StoreGetResult<T>> {
   try {
-    const store = await getStore();
-    const value = await store.get<T>(key);
+    await requireSettings();
+    const value = await invoke<T | null>("get_setting", { key });
     return { ok: true, value: value ?? null };
   } catch (e) {
     return { ok: false, error: e };
@@ -47,9 +37,8 @@ export async function storeTryGet<T>(key: string): Promise<StoreGetResult<T>> {
 
 export async function storeSet<T>(key: string, value: T): Promise<boolean> {
   try {
-    const store = await getStore();
-    await store.set(key, value);
-    await store.save();
+    await requireSettings();
+    await invoke("set_setting", { key, value });
     return true;
   } catch (e) {
     console.warn(`[store] Failed to set "${key}":`, e);

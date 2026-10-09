@@ -11,9 +11,9 @@ and Tailwind CSS as build-output contributors, and every third-party Rust
 package in src-tauri/Cargo.lock. Rust packages are classified using the union
 of the supported macOS, Windows, and Linux linked-runtime graphs.
 
-Inventoried npm packages: 305
-Inventoried Rust packages: 573
-Distinct license/notice documents: 401
+Inventoried npm packages: 304
+Inventoried Rust packages: 571
+Distinct license/notice documents: 400
 Packages requiring human follow-up: 0
 Inventory-only unresolved packages: 16
 Reviewed standard-license overrides: 10
@@ -4935,18 +4935,6 @@ License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08a
 License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
 License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
 
-Package-ID: cargo:tauri-plugin-store@2.4.2
-License: Apache-2.0 OR MIT
-Distribution-class: runtime-linked
-Disposition: packaged-license-document
-License-choice: MIT
-Authors: Tauri Programme within The Commons Conservancy
-Project: https://github.com/tauri-apps/plugins-workspace
-License-text: available
-License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
-License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
-License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
-
 Package-ID: cargo:tauri-plugin-window-state@2.4.1
 License: Apache-2.0 OR MIT
 Distribution-class: runtime-linked
@@ -5166,15 +5154,6 @@ License-text: available
 License-document-ref: sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b
 License-document-ref: sha256:943f36fd309fb5ea67a82f577433f4ed3bc877e5b00f9b874e2f8b7f72bf0bdc
 License-document-ref: sha256:bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3
-
-Package-ID: cargo:tokio-macros@2.6.0
-License: MIT
-Distribution-class: inventory-only
-Disposition: packaged-license-document
-Authors: Tokio Contributors <team@tokio.rs>
-Project: https://github.com/tokio-rs/tokio
-License-text: available
-License-document-ref: sha256:c0fdcda1a4ffc5fd63c452e40ce25e54f2098669e3415033b228773eea24a871
 
 Package-ID: cargo:tokio-util@0.7.18
 License: MIT
@@ -6890,18 +6869,6 @@ License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b
 License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
 
 Package-ID: npm:@tauri-apps/plugin-opener@2.5.3
-License: MIT OR Apache-2.0
-Distribution-class: runtime-dependency
-Disposition: packaged-license-document
-License-choice: MIT
-Project: https://github.com/tauri-apps/plugins-workspace
-Evidence: Packaged Tauri project license texts from @tauri-apps/api
-License-text: available
-License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
-License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
-License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
-
-Package-ID: npm:@tauri-apps/plugin-store@2.4.2
 License: MIT OR Apache-2.0
 Distribution-class: runtime-dependency
 Disposition: packaged-license-document
@@ -15421,7 +15388,7 @@ License-Document-End: sha256:4be46afa7981dcef58b82523ff2d5f203fd93fd32cc596d5983
 --------------------------------------------------------------------------------
 
 License-Document: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
-Applies-to: cargo:fdeflate@0.3.7, cargo:field-offset@0.3.6, cargo:miniz_oxide@0.8.9, cargo:pin-project-lite@0.2.16, cargo:portable-atomic-util@0.2.7, cargo:portable-atomic@1.15.0, cargo:raw-window-handle@0.6.2, cargo:simdutf8@0.1.5, cargo:sync_wrapper@1.0.2, cargo:tauri-build@2.6.3, cargo:tauri-codegen@2.6.3, cargo:tauri-macros@2.6.3, cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-store@2.4.2, cargo:tauri-plugin-window-state@2.4.1, cargo:tauri-plugin@2.5.3, cargo:tauri-runtime-wry@2.11.4, cargo:tauri-runtime@2.11.3, cargo:tauri-utils@2.9.3, cargo:tauri@2.11.6, cargo:time-core@0.1.8, cargo:time-macros@0.2.27, cargo:time@0.3.47, npm:@tauri-apps/api@2.11.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3, npm:@tauri-apps/plugin-store@2.4.2
+Applies-to: cargo:fdeflate@0.3.7, cargo:field-offset@0.3.6, cargo:miniz_oxide@0.8.9, cargo:pin-project-lite@0.2.16, cargo:portable-atomic-util@0.2.7, cargo:portable-atomic@1.15.0, cargo:raw-window-handle@0.6.2, cargo:simdutf8@0.1.5, cargo:sync_wrapper@1.0.2, cargo:tauri-build@2.6.3, cargo:tauri-codegen@2.6.3, cargo:tauri-macros@2.6.3, cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-window-state@2.4.1, cargo:tauri-plugin@2.5.3, cargo:tauri-runtime-wry@2.11.4, cargo:tauri-runtime@2.11.3, cargo:tauri-utils@2.9.3, cargo:tauri@2.11.6, cargo:time-core@0.1.8, cargo:time-macros@0.2.27, cargo:time@0.3.47, npm:@tauri-apps/api@2.11.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3
 Source-files: LICENSE, LICENSE-APACHE, LICENSE-APACHE.md, LICENSE-Apache, LICENSE_APACHE-2.0, https://github.com/tauri-apps/tauri/blob/8d67af37b6d3fc0aedaab58549b1bca5b34fda19/LICENSE_APACHE-2.0
 
 Apache License
@@ -22241,7 +22208,7 @@ License-Document-End: sha256:89204184891f65c98db6e4e5ba84b6291fa6aa68ba1d589f948
 --------------------------------------------------------------------------------
 
 License-Document: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
-Applies-to: cargo:tauri-build@2.6.3, cargo:tauri-codegen@2.6.3, cargo:tauri-macros@2.6.3, cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-store@2.4.2, cargo:tauri-plugin-window-state@2.4.1, cargo:tauri-plugin@2.5.3, cargo:tauri-runtime-wry@2.11.4, cargo:tauri-runtime@2.11.3, cargo:tauri-utils@2.9.3, cargo:tauri@2.11.6, npm:@tauri-apps/api@2.11.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3, npm:@tauri-apps/plugin-store@2.4.2
+Applies-to: cargo:tauri-build@2.6.3, cargo:tauri-codegen@2.6.3, cargo:tauri-macros@2.6.3, cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-window-state@2.4.1, cargo:tauri-plugin@2.5.3, cargo:tauri-runtime-wry@2.11.4, cargo:tauri-runtime@2.11.3, cargo:tauri-utils@2.9.3, cargo:tauri@2.11.6, npm:@tauri-apps/api@2.11.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3
 Source-files: LICENSE_MIT, https://github.com/tauri-apps/tauri/blob/8d67af37b6d3fc0aedaab58549b1bca5b34fda19/LICENSE_MIT
 
 MIT License
@@ -28444,36 +28411,6 @@ Repository: https://github.com/websockets/ws
 License-Document-End: sha256:bf03f6d922a1b67d124af2d9d3b316596a2b98e6c3c7450cee87526df66b1ec7
 --------------------------------------------------------------------------------
 
-License-Document: sha256:c0fdcda1a4ffc5fd63c452e40ce25e54f2098669e3415033b228773eea24a871
-Applies-to: cargo:tokio-macros@2.6.0
-Source-files: LICENSE
-
-MIT License
-
-Copyright (c) 2019 Yoshua Wuyts
-Copyright (c) Tokio Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-License-Document-End: sha256:c0fdcda1a4ffc5fd63c452e40ce25e54f2098669e3415033b228773eea24a871
---------------------------------------------------------------------------------
-
 License-Document: sha256:c193d216d646a101f91edd7c786f856d105b58d87bb7b3f97ac6837a2da56045
 Applies-to: cargo:unic-char-property@0.9.0, cargo:unic-char-range@0.9.0, cargo:unic-common@0.9.0, cargo:unic-ucd-ident@0.9.0, cargo:unic-ucd-version@0.9.0
 Source-files: https://github.com/open-i18n/rust-unic/blob/5878605364af97a3358368a6eaef02104af2e016/COPYRIGHT.md, https://github.com/open-i18n/rust-unic/blob/8a6ce83063d90b91ae2ce59eddb803edd393fca9/COPYRIGHT.md
@@ -32381,7 +32318,7 @@ License-Document-End: sha256:eb319c6e6f233607f71e8e2f450391751883cfc0eeb3ca7ef57
 --------------------------------------------------------------------------------
 
 License-Document: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
-Applies-to: cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-store@2.4.2, cargo:tauri-plugin-window-state@2.4.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3, npm:@tauri-apps/plugin-store@2.4.2
+Applies-to: cargo:tauri-plugin-dialog@2.6.0, cargo:tauri-plugin-fs@2.4.5, cargo:tauri-plugin-log@2.8.0, cargo:tauri-plugin-opener@2.5.3, cargo:tauri-plugin-window-state@2.4.1, npm:@tauri-apps/plugin-dialog@2.6.0, npm:@tauri-apps/plugin-opener@2.5.3
 Source-files: LICENSE.spdx
 
 SPDXVersion: SPDX-2.1

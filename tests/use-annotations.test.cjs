@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const React = require('react');
 const { act } = React;
 const { createRoot } = require('react-dom/client');
+const { mockIPC, clearMocks } = require('@tauri-apps/api/mocks');
 const storage = require('../.tmp/workspace-tests/src/lib/annotation-storage.js');
 const { useAnnotations } = require('../.tmp/workspace-tests/src/hooks/useAnnotations.js');
 
@@ -384,22 +385,28 @@ async function mountNotePanel(t) {
   let api, setVisible;
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
-  function Probe() {
-    api = useAnnotations('/a.md');
+  function Probe({ path }) {
+    api = useAnnotations(path);
     const [visible, show] = React.useState(true); setVisible = show;
     return React.createElement(ToastProvider, null, React.createElement(AnnotationsPanel, {
-      visible, filePath: '/a.md', fileName: 'a.md', annotationStatus: api.status,
+      key: path, visible, filePath: path, fileName: path, annotationStatus: api.status,
       annotationsReady: api.ready, loadError: api.loadError, saveError: api.saveError,
       canRetrySave: api.canRetrySave, highlights: api.highlights, bookmarks: api.bookmarks,
       headings: [], onRetryLoad: api.retryLoad, onRetrySave: api.retrySave,
       onRemoveHighlight: api.removeHighlight, onUpdateHighlight: api.updateHighlight,
+      onRestoreRecord: api.restoreRecord,
       onClickHighlight() {}, onClickBookmark() {}, onClose: () => show(false),
     }));
   }
-  await act(async () => root.render(React.createElement(Probe)));
-  t.after(async () => { await act(async () => root.unmount()); host.remove(); });
+  const render = async (path) => { await act(async () => root.render(React.createElement(Probe, { path }))); };
+  let mounted = true;
+  const unmount = async () => {
+    if (mounted) { await act(async () => root.unmount()); host.remove(); mounted = false; }
+  };
+  await render('/a.md');
+  t.after(unmount);
   return {
-    host, api: () => api,
+    host, api: () => api, render, unmount,
     async click(label) {
       const button = [...host.querySelectorAll('button')].find(button =>
         button.getAttribute('aria-label') === label || button.textContent.trim() === label);
@@ -482,6 +489,177 @@ for (const cancel of [true, false]) {
   });
 }
 
+function recoveryButton(view) {
+  return [...view.host.querySelectorAll('button')].find(button => button.textContent === 'Restore recovery copy');
+}
+function recoveryDialog() { return document.querySelector('#dialog-root [role="dialog"]'); }
+async function chooseRecoveryAction(label) {
+  const button = [...recoveryDialog().querySelectorAll('button')].find(button => button.textContent === label);
+  assert.ok(button, label);
+  await act(async () => button.click());
+}
+function recoveryIPC(t, handler) { mockIPC(handler); t.after(clearMocks); }
+const recoveryCopy = (data) => ({ kind: 'bindars-annotation-recovery', version: 1, documents: { '/a.md': data } });
+
+test('recovery owns the picker, delayed read and confirmation until the chosen record is saved', async (t) => {
+  const { disk, writes } = backingStore(t);
+  const picker = deferred(), read = deferred();
+  const source = { ...record('chosen recovery'), version: 3,
+    bookmarks: [{ id: 'b', headingId: 'intro', headingText: 'Recovered bookmark', createdAt: 2 }] };
+  const originalSource = copy(source);
+  let pickers = 0, reads = 0;
+  recoveryIPC(t, (command) => {
+    if (command === 'plugin:dialog|open') { pickers++; return picker.promise; }
+    if (command === 'read_annotation_recovery') { reads++; return read.promise; }
+    throw Error(command);
+  });
+  const view = await mountNotePanel(t);
+  const button = recoveryButton(view);
+  // Both events occur before React can commit the disabled state.
+  await act(async () => { button.click(); button.click(); });
+  assert.equal(pickers, 1);
+  assert.equal(button.disabled, true);
+  await act(async () => picker.resolve('/tmp/chosen.json'));
+  assert.equal(reads, 1);
+  await view.click('Restore recovery copy');
+  assert.equal(pickers, 1, 'no second choice is admitted while a read is pending');
+  assert.equal(recoveryDialog(), null);
+  assert.equal(writes.length, 0);
+  await act(async () => read.resolve(recoveryCopy(source)));
+  assert.match(recoveryDialog().textContent, /Replace this document/);
+  assert.equal(button.disabled, true, 'ownership lasts through confirmation');
+  await view.click('Restore recovery copy');
+  assert.equal(pickers, 1);
+  assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+  await chooseRecoveryAction('Restore highlights & notes');
+  assert.equal(recoveryDialog(), null);
+  assert.equal(button.disabled, false);
+  assert.deepEqual(disk.get('/a.md'), source);
+  assert.deepEqual(view.api().highlights, source.highlights);
+  assert.deepEqual(view.api().bookmarks, source.bookmarks);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(source, originalSource, 'the recovery source survives restoration');
+  await view.render('/b.md'); await view.render('/a.md');
+  assert.deepEqual(view.api().highlights, source.highlights);
+  await view.click('Restore recovery copy');
+  assert.equal(pickers, 2, 'success releases the next restore transaction');
+  await chooseRecoveryAction('Cancel');
+});
+
+for (const outcome of ['picker cancellation', 'picker failure', 'read failure', 'missing document', 'invalid record']) {
+  test(`recovery ${outcome} preserves current notes and allows a successful retry`, async (t) => {
+    const { disk, writes } = backingStore(t);
+    let retry = false, reads = 0;
+    recoveryIPC(t, (command) => {
+      if (command === 'plugin:dialog|open') {
+        if (!retry && outcome === 'picker cancellation') return null;
+        if (!retry && outcome === 'picker failure') throw Error('picker unavailable');
+        return '/tmp/recovery.json';
+      }
+      if (command === 'read_annotation_recovery') {
+        reads++;
+        if (!retry && outcome === 'read failure') throw Error('damaged file');
+        if (!retry && outcome === 'missing document') return { documents: {} };
+        return recoveryCopy(!retry && outcome === 'invalid record' ? { highlights: 42 } : record('retried'));
+      }
+      throw Error(command);
+    });
+    const view = await mountNotePanel(t);
+    await view.click('Restore recovery copy');
+    assert.equal(recoveryDialog(), null);
+    assert.equal(recoveryButton(view).disabled, false);
+    assert.equal(writes.length, 0);
+    assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+    if (outcome.startsWith('picker')) assert.equal(reads, 0);
+    if (outcome === 'picker cancellation') assert.doesNotMatch(view.host.textContent, /Couldn't read/);
+    else assert.match(view.host.textContent, /Couldn't read|no annotations for this document/);
+    retry = true;
+    await view.click('Restore recovery copy');
+    await chooseRecoveryAction('Restore highlights & notes');
+    assert.equal(disk.get('/a.md').highlights[0].note, 'retried');
+    assert.equal(writes.length, 1);
+  });
+}
+
+for (const dismiss of ['Cancel', 'Escape']) {
+  test(`recovery confirmation ${dismiss} changes nothing and permits another choice`, async (t) => {
+    const { disk, writes } = backingStore(t);
+    let choice = 0;
+    recoveryIPC(t, (command) => {
+      if (command === 'plugin:dialog|open') return `/tmp/copy-${++choice}.json`;
+      if (command === 'read_annotation_recovery') return recoveryCopy(record(`choice ${choice}`));
+      throw Error(command);
+    });
+    const view = await mountNotePanel(t);
+    await view.click('Restore recovery copy');
+    if (dismiss === 'Cancel') await chooseRecoveryAction('Cancel');
+    else await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    assert.equal(recoveryDialog(), null, 'confirmation was actually dismissed');
+    assert.equal(recoveryButton(view).disabled, false);
+    assert.equal(writes.length, 0);
+    assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+    await view.click('Restore recovery copy');
+    await chooseRecoveryAction('Restore highlights & notes');
+    assert.equal(disk.get('/a.md').highlights[0].note, 'choice 2');
+    assert.equal(writes.length, 1);
+  });
+}
+
+for (const stage of ['picker', 'read', 'confirmation']) {
+  test(`document switch during recovery ${stage} cannot replace the next document's chosen record`, async (t) => {
+    const { disk, writes } = backingStore(t, new Map([['/a.md', record()], ['/b.md', record('B original')]]));
+    const old = deferred();
+    let pickers = 0, reads = 0;
+    recoveryIPC(t, (command) => {
+      if (command === 'plugin:dialog|open') {
+        pickers++;
+        return pickers === 1 && stage === 'picker' ? old.promise : `/tmp/copy-${pickers}.json`;
+      }
+      if (command === 'read_annotation_recovery') {
+        reads++;
+        if (pickers === 1 && stage === 'read') return old.promise;
+        return { documents: { '/a.md': record('obsolete'), '/b.md': record('B chosen') } };
+      }
+      throw Error(command);
+    });
+    const view = await mountNotePanel(t);
+    await view.click('Restore recovery copy');
+    await view.render('/b.md');
+    assert.equal(recoveryDialog(), null);
+    assert.equal(recoveryButton(view).disabled, false);
+    await view.click('Restore recovery copy');
+    assert.ok(recoveryDialog());
+    if (stage !== 'confirmation') await act(async () => old.resolve(stage === 'picker' ? '/tmp/old.json' : recoveryCopy(record('obsolete'))));
+    await chooseRecoveryAction('Restore highlights & notes');
+    assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+    assert.equal(disk.get('/b.md').highlights[0].note, 'B chosen');
+    assert.deepEqual(writes.map(write => write.path), ['/b.md']);
+    assert.equal(reads, stage === 'picker' ? 1 : 2);
+  });
+}
+
+for (const fail of [false, true]) {
+  test(`unmount during recovery read ignores its late ${fail ? 'failure' : 'success'}`, async (t) => {
+    const { disk, writes } = backingStore(t);
+    const pending = deferred();
+    recoveryIPC(t, (command) => {
+      if (command === 'plugin:dialog|open') return '/tmp/old.json';
+      if (command === 'read_annotation_recovery') return pending.promise;
+      throw Error(command);
+    });
+    const view = await mountNotePanel(t);
+    await view.click('Restore recovery copy');
+    await view.unmount();
+    await act(async () => {
+      if (fail) pending.reject(Error('late failure'));
+      else pending.resolve(recoveryCopy(record('obsolete')));
+    });
+    assert.equal(recoveryDialog(), null);
+    assert.equal(writes.length, 0);
+    assert.equal(disk.get('/a.md').highlights[0].note, 'original');
+    assert.doesNotMatch(document.body.textContent, /Couldn't read annotation recovery/);
+  });
+}
 
 test('unknown highlight colors survive unrelated saves, note edits, recovery and explicit changes', async t => {
   const unknown = { ...record().highlights[0], color: 'purple', futureField: { value: 1 } };

@@ -39,7 +39,7 @@ const SHORTCUT_DEFINITIONS = {
   saveFile: { modifiers: ["primary"], key: "S" },
   toggleMarkdownFormatting: { modifiers: ["primary", "alt"], key: "M" },
   escape: { modifiers: [], key: "Esc" },
-  showShortcuts: { modifiers: [], key: "?" },
+  showShortcuts: { modifiers: ["primary"], key: "?" },
   presentation: { modifiers: [], key: "F5" },
   enter: { modifiers: [], key: "Enter" },
 } as const satisfies Record<string, ShortcutDefinition>;
