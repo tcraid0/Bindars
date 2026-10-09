@@ -63,10 +63,17 @@
       })();
     </script>
     <style>
+      #brand-artwork {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
       #loading-screen {
         --ls-center-y: 47%;
         --ls-mark-size: 112px;
         --ls-feedback-delay: 900ms;
+        --ls-reduced-mark-fade: 100ms;
         position: fixed;
         inset: 0;
         z-index: 99999;
@@ -140,17 +147,27 @@
       /* Reduced motion: nothing moves or loops. A slow start shows the word
          instead of the sliding line, and the exit is a short dissolve. */
       .reduced-motion #loading-screen { transition-duration: 150ms; }
-      .reduced-motion #loading-screen-mark { transition: opacity 100ms ease-out; }
+      .reduced-motion #loading-screen-mark { transition: opacity var(--ls-reduced-mark-fade) ease-out; }
       .reduced-motion #loading-screen.fade-out #loading-screen-mark { transform: none; }
       .reduced-motion #loading-screen-progress { display: none; }
       .reduced-motion #loading-screen-status { display: block; }
+      /* Opening to the welcome screen, which shows the symbol too. With motion, src/main.tsx
+         moves the mark into place. Without it, the mark leaves before the screen dissolves,
+         so the two never show at once. */
+      .reduced-motion #loading-screen.to-welcome { transition-delay: var(--ls-reduced-mark-fade); }
     </style>
     <title>Bindars</title>
   </head>
   <body>
+    <!-- Brand artwork, inlined from assets/brand/ at build time (vite.config.ts). The startup
+         mark and the welcome screen draw it from here. Each viewBox is the artwork's bounds in
+         its source file; update them together. Overflow keeps the edges' antialiasing. -->
+    <svg id="brand-artwork" aria-hidden="true">
+      <symbol id="bindars-symbol" viewBox="239 239.28 546 545.5" overflow="visible"><!-- bindars-icon.svg --></symbol>
+      <symbol id="bindars-wordmark" viewBox="748.75 497.44 676.24 85.12" overflow="visible"><!-- bindars-wordmark.svg --></symbol>
+    </svg>
     <div id="loading-screen">
-      <!-- The viewBox is the artwork's bounds in assets/brand/bindars-icon.svg; update both together. -->
-      <svg id="loading-screen-mark" viewBox="239 239.28 546 545.5" role="img" aria-label="Bindars"><!-- startup mark --></svg>
+      <svg id="loading-screen-mark" role="img" aria-label="Bindars"><use href="#bindars-symbol" /></svg>
       <div id="loading-screen-progress" aria-hidden="true"></div>
       <p id="loading-screen-status" aria-hidden="true">Loading…</p>
     </div>

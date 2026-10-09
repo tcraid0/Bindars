@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/newsreader";
+/* Newsreader's own italic, so italic text isn't the upright face slanted. */
+@import "@fontsource-variable/newsreader/wght-italic.css";
 @import "@fontsource-variable/source-sans-3";
 @import "@fontsource-variable/dm-sans";
 @import "@fontsource-variable/roboto-slab";
@@ -81,6 +83,8 @@
   --on-accent: #FFFFFF;
   --danger: #A52C32;
   --warning: #785108;
+  /* The artist's navy, the back page in the symbol. */
+  --wordmark: #0841B4;
 }
 
 [data-theme="sepia"] {
@@ -113,6 +117,7 @@
   --on-accent: #24180D;
   --danger: #942627;
   --warning: #6E4600;
+  --wordmark: #0841B4;
 }
 
 [data-theme="dark"] {
@@ -146,6 +151,8 @@
   --on-accent: #FFFFFF;
   --danger: #FFA3A3;
   --warning: #F2CA83;
+  /* Navy is about 2:1 here, so a pale tint of the symbol's front page (#56A3FE). */
+  --wordmark: #C9DFFF;
 }
 
 [data-theme="deep-dark"] {
@@ -178,6 +185,7 @@
   --on-accent: #FFFFFF;
   --danger: #FFA3A3;
   --warning: #F2CA83;
+  --wordmark: #C9DFFF;
 }
 
 /* ── Tailwind theme mapping ── */
@@ -784,6 +792,76 @@ button:active:not(:disabled),
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* At launch the startup screen reveals the empty state instead (src/main.tsx). */
+.empty-state-at-launch :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
+  animation: none;
+}
+
+/* ── Empty state layout ── */
+
+/* Centred while it fits. In a short window it starts at the top and scrolls,
+   instead of pushing the symbol above the pane. */
+.empty-state {
+  min-height: 100%;
+  padding-block: 1.5rem;
+}
+
+.empty-state > :first-child {
+  margin-top: auto;
+}
+
+.empty-state > :last-child {
+  margin-bottom: auto;
+}
+
+/* The artist's symbol over the BINDARS wordmark, like an app icon over its name. */
+.empty-state-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-state-brand svg {
+  flex: none;
+  overflow: visible;
+}
+
+.empty-state-symbol {
+  width: 4.5rem;
+  aspect-ratio: 1;
+}
+
+.empty-state-wordmark {
+  width: 7.5rem;
+  /* Match the cropped viewBox in assets/brand/bindars-wordmark.svg and index.html. */
+  aspect-ratio: 676.24 / 85.12;
+  margin-top: 0.75rem;
+  fill: var(--wordmark);
+}
+
+.empty-state-tagline {
+  margin: 1.125rem 0 2rem;
+}
+
+@media (max-height: 640px) {
+  .empty-state {
+    padding-block: 1rem;
+  }
+
+  .empty-state-symbol {
+    width: 3.5rem;
+  }
+
+  .empty-state-wordmark {
+    width: 6rem;
+    margin-top: 0.625rem;
+  }
+
+  .empty-state-tagline {
+    margin: 0.75rem 0 1.5rem;
   }
 }
 

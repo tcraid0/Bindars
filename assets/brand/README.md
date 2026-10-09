@@ -1,4 +1,4 @@
-# Bindars app icon
+# Bindars brand artwork
 
 `bindars-icon.svg` contains the approved primary icon from the artist's final
 delivery (October 7, 2026), including the BINDARS lettering inside the yellow
@@ -9,9 +9,19 @@ outlined, so rendering does not depend on an installed font.
 `app-icon.svg` places that artwork on a light rounded tile with transparent outer
 padding for desktop use. It is generated from the primary icon, not a new logo.
 
-The startup screen in `index.html` also shows this artwork. Vite inlines it at
-build time, so it appears in the first frame. Its `viewBox` there is the
-artwork's bounds, so update it if the artwork's geometry changes.
+`bindars-wordmark.svg` is the BINDARS wordmark from the artist's full logo in
+the same delivery. Its 7 paths are unchanged. The `viewBox` is cropped to the
+wordmark, and its navy (`#0841B4`) is set once on the root element instead of
+on each path, so the app can draw it in another colour.
+
+The startup screen in `index.html` and the welcome screen in
+`src/components/EmptyState.tsx` also show this artwork. Vite inlines both
+artwork files into the sprite in `index.html` at build time, so the startup mark
+appears in the first frame and the welcome screen loads no images. Their
+`viewBox` values there are the artwork's bounds, so update them if the
+artwork's geometry changes. The welcome screen draws the wordmark in navy on
+Light and Sepia, and in `#C9DFFF`, a pale tint of the front page's blue, on
+Dark and Midnight, where navy is too dark to read.
 
 After installing the project's existing dependencies, regenerate with:
 

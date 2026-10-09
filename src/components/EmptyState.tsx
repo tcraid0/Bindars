@@ -1,7 +1,11 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { RecentFile } from "../types";
 import { OPENABLE_FILE_TYPES_DESCRIPTION } from "../lib/openable-files";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
+
+const buttonBase = "px-5 py-3 rounded-lg font-medium text-sm transition-colors duration-120";
+const primaryButton = `${buttonBase} bg-accent-fill text-on-accent hover:bg-accent-fill-hover shadow-sm`;
+const secondaryButton = `${buttonBase} border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
 
 interface EmptyStateProps {
   onNewFile: () => void;
@@ -25,18 +29,24 @@ function EmptyStateComponent({
   const hasRecent = recentFiles.length > 0;
   const topRecent = hasRecent ? recentFiles[0] : null;
   const recentList = recentFiles.slice(0, 5);
+  // At launch the startup screen reveals this screen and its mark glides into the
+  // symbol (main.tsx), so the entrance only plays when the screen appears later.
+  const [atLaunch] = useState(() => document.getElementById("loading-screen") !== null);
 
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
-      {/* Typographic welcome */}
-      <h1
-        className="font-reading text-[2.5rem] font-normal text-text-primary leading-tight tracking-tight empty-state-title"
-      >
-        Bindars
+    <div className={`empty-state flex flex-col items-center text-center px-8 select-none${atLaunch ? " empty-state-at-launch" : ""}`}>
+      {/* The brand artwork is inlined in index.html. */}
+      <h1 className="empty-state-brand empty-state-title">
+        <svg className="empty-state-symbol" data-startup-mark-target aria-hidden="true">
+          <use href="#bindars-symbol" />
+        </svg>
+        <svg className="empty-state-wordmark" data-startup-mark-passes aria-hidden="true">
+          <use href="#bindars-wordmark" />
+        </svg>
+        <span className="sr-only">Bindars</span>
       </h1>
-      <div className="w-12 h-px bg-border mt-3 mb-3 empty-state-subtitle" aria-hidden="true" />
       <p
-        className="font-reading italic text-text-muted text-lg mb-8 empty-state-subtitle"
+        className="font-reading italic text-text-muted text-lg empty-state-tagline empty-state-subtitle"
       >
         Read, highlight, and add your thoughts
       </p>
@@ -50,13 +60,13 @@ function EmptyStateComponent({
             <button
               type="button"
               onClick={() => onOpenRecent(topRecent!.path)}
-              className="px-5 py-2.5 rounded-lg bg-accent-fill text-on-accent font-medium text-sm hover:bg-accent-fill-hover transition-colors duration-120 shadow-sm mb-5 max-w-[320px] truncate"
+              className={`${primaryButton} mb-5 max-w-[320px] truncate`}
             >
               Resume: {topRecent!.name}
             </button>
 
             {recentList.length > 1 && (
-              <ul className="mb-4 space-y-1 max-w-[320px] w-full">
+              <ul className="mb-4 space-y-1 max-w-[320px] w-full mx-auto">
                 {recentList.slice(1).map((file) => (
                   <li key={file.path}>
                     <button
@@ -75,32 +85,35 @@ function EmptyStateComponent({
         )}
 
         <div className="flex flex-wrap items-center justify-center gap-2">
+          {/* Resume is the main action once there is something to resume. */}
           <button
             type="button"
             onClick={onTrySample}
             disabled={!canTrySample}
-            className="px-5 py-3 rounded-lg bg-accent-fill text-on-accent font-medium text-sm hover:bg-accent-fill-hover transition-colors duration-120 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+            className={`${hasRecent ? secondaryButton : primaryButton} disabled:opacity-50 disabled:pointer-events-none`}
           >
             Try an example
           </button>
           <button
             type="button"
             onClick={onNewFile}
-            className="px-5 py-3 rounded-lg border border-border text-text-secondary font-medium text-sm hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+            className={secondaryButton}
           >
             New File
           </button>
           <button
             type="button"
             onClick={onOpenFile}
-            className="px-5 py-3 rounded-lg border border-border text-text-secondary font-medium text-sm hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+            className={secondaryButton}
           >
             Open File
           </button>
         </div>
-        <p className="text-xs text-text-muted mt-3 max-w-sm mx-auto">
-          Save your own copy, then try highlighting and adding notes. Reopen your saved copy from Recent files or Open File.
-        </p>
+        {!hasRecent && (
+          <p className="text-xs text-text-muted mt-3 max-w-sm mx-auto">
+            Save your own copy, then try highlighting and adding notes. Reopen your saved copy from Recent files or Open File.
+          </p>
+        )}
         <p className="text-xs text-text-muted mt-2">
           {formatShortcutLabel("newFile")} · {formatShortcutLabel("openFile")}
         </p>

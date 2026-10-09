@@ -30,7 +30,8 @@ for (const [theme, { tokens, highlights }] of Object.entries(themes)) {
   test(`${theme}: text, code and filled labels meet 4.5:1, indicators meet 3:1`, () => {
     const backgrounds = ['bg-primary', 'bg-secondary', 'bg-tertiary', 'code-bg'].map(k => tokens[k]);
     backgrounds.push(mix(tokens.accent, tokens['bg-primary'], .15));
-    for (const name of ['text-primary','text-secondary','text-muted','accent-text']) {
+    // The welcome screen's wordmark is the app's name, so it reads as text too.
+    for (const name of ['text-primary','text-secondary','text-muted','accent-text','wordmark']) {
       for (const bg of backgrounds) assert.ok(ratio(tokens[name], bg) >= 4.5, `${name}: ${ratio(tokens[name],bg)}`);
     }
     for (const bg of backgrounds) {
