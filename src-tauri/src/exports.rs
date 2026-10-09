@@ -62,9 +62,7 @@ mod tests {
     use super::export_markdown_file_impl;
     use crate::document_io::MAX_MARKDOWN_BYTES;
     use crate::file_errors::{NativeFileErrorCategory, NativeFileOperation};
-    use crate::test_support::{
-        cleanup_temp_path as cleanup, temp_leftovers, unique_temp_path as temp_path,
-    };
+    use crate::test_support::{cleanup_temp_path as cleanup, unique_temp_path as temp_path};
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -213,7 +211,7 @@ mod tests {
         assert_eq!(error.operation, NativeFileOperation::PreservePermissions);
         assert_eq!(fs::read_to_string(&path).unwrap(), "old content");
         assert!(acl_text(&path).contains("deny readextattr"));
-        assert!(temp_leftovers(path.parent().unwrap()).is_empty());
+        assert!(crate::test_support::temp_leftovers(path.parent().unwrap()).is_empty());
         cleanup(&path);
     }
 
