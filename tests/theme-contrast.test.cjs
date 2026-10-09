@@ -72,20 +72,89 @@ for (const [theme, { tokens, highlights }] of Object.entries(themes)) {
   });
 }
 
+// Runs index.html's pre-paint script against a minimal document. Without `win`
+// it has no window at all, like the most restricted environment.
+const bootstrap = /<script>([\s\S]*?)<\/script>/.exec(fs.readFileSync(require('node:path').join(__dirname, '../index.html'), 'utf8'))[1];
+function runBootstrap(getItem, win) {
+  const classes = new Set();
+  const root = { style: { setProperty(name, value) { this[name] = value; } }, setAttribute() {}, classList: { add: name => classes.add(name) } };
+  require('node:vm').runInNewContext(bootstrap, { document: { documentElement: root }, localStorage: { getItem }, ...(win && { window: win }) });
+  return { root, classes };
+}
+
 test('bootstrap and swatch backgrounds agree with the theme palettes', () => {
-  const vm = require('node:vm');
-  const html = fs.readFileSync(require('node:path').join(__dirname, '../index.html'), 'utf8');
   const swatches = fs.readFileSync(require('node:path').join(__dirname, '../src/components/ReaderControls.tsx'), 'utf8');
   for (const [theme, { tokens }] of Object.entries(themes)) {
-    const root = { style: { setProperty(name, value) { this[name] = value; } }, setAttribute() {} };
-    vm.runInNewContext(/<script>([\s\S]*?)<\/script>/.exec(html)[1], {
-      document: { documentElement: root }, localStorage: { getItem: () => theme },
-    });
+    const { root } = runBootstrap(() => theme);
     assert.deepEqual(rgb(root.style.backgroundColor), tokens['bg-primary'], theme);
     assert.deepEqual(rgb(root.style['--ls-bg']), tokens['bg-primary'], theme);
     assert.deepEqual(rgb(root.style['--ls-text']), tokens['text-muted'], theme);
-    assert.deepEqual(rgb(root.style['--ls-accent']), tokens.accent, theme);
+    assert.deepEqual(rgb(root.style['--ls-indicator']), tokens['accent-indicator'], theme);
     const swatch = new RegExp(`value: "${theme}"[^\\n]+bg: "(#[A-Fa-f0-9]{6})"`).exec(swatches);
     assert.deepEqual(rgb(swatch[1]), tokens['bg-primary'], theme);
   }
+});
+
+test('bootstrap applies reduced motion from macOS or the saved Reduce effects setting', () => {
+  const media = reduce => ({ matchMedia: query => ({ matches: reduce && query.includes('reduced-motion') }) });
+  const saved = value => JSON.stringify({ reducedEffects: value });
+  const reduced = (records, os = false) => runBootstrap(key => records[key] ?? null, media(os)).classes.has('reduced-motion');
+  assert.equal(reduced({}), false, 'nothing set');
+  assert.equal(reduced({}, true), true, 'macOS Reduce motion');
+  assert.equal(reduced({ 'bindars-settings': saved(true) }), true, 'Reduce effects');
+  assert.equal(reduced({ 'markdown-reader-settings': saved(true) }), true, 'legacy record only');
+  assert.equal(reduced({ 'bindars-settings': saved(false), 'markdown-reader-settings': saved(true) }), false, 'the current record wins');
+  assert.equal(reduced({ 'bindars-settings': '{', 'markdown-reader-settings': saved(true) }), true, 'a damaged current record falls back');
+  assert.equal(runBootstrap(() => { throw new Error('denied'); }, media(false)).classes.size, 0, 'storage unavailable');
+});
+
+test('bootstrap settings precedence agrees with the reader settings normalizer', () => {
+  // Read the real normalizer without requiring a prior workspace-test build.
+  const ts = require('typescript');
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/lib/reader-settings.ts'), 'utf8');
+  const exports = {};
+  require('node:vm').runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports });
+  const { normalizeReaderSettings, DEFAULT_READER_SETTINGS, VALID_FONTS, VALID_SPACINGS } = exports;
+  const records = [
+    null, '{', 'null', 'false', '42', '"settings"', '[]', '[{"reducedEffects":true}]',
+    '{}', '{"unknown":1}', '{"reducedEffects":"true"}', '{"sceneLensEnabled":"false"}',
+    '{"fontSize":"18"}', '{"contentWidth":null}', '{"lineHeight":1e400}',
+    '{"fontFamily":"unknown"}', '{"paragraphSpacing":"unknown"}',
+    JSON.stringify(DEFAULT_READER_SETTINGS),
+    ...Object.entries(DEFAULT_READER_SETTINGS).map(([key, value]) => JSON.stringify({ [key]: value })),
+    ...VALID_FONTS.map(fontFamily => JSON.stringify({ fontFamily })),
+    ...VALID_SPACINGS.map(paragraphSpacing => JSON.stringify({ paragraphSpacing })),
+    '{"reducedEffects":true}', '{"sceneLensEnabled":true}',
+    '{"fontSize":0}', '{"contentWidth":1000}', '{"lineHeight":-1}',
+    '{"fontSize":18,"reducedEffects":"true"}',
+  ];
+  const legacyRecords = [null, '{', '{}', '{"reducedEffects":false}', '{"reducedEffects":true}'];
+  for (const current of records) {
+    for (const legacy of legacyRecords) {
+      let expected = false;
+      for (const raw of [current, legacy]) {
+        try {
+          const settings = normalizeReaderSettings(JSON.parse(raw));
+          if (settings) {
+            expected = settings.reducedEffects;
+            break;
+          }
+        } catch {}
+      }
+      for (const os of [false, true]) {
+        const saved = { 'bindars-settings': current, 'markdown-reader-settings': legacy };
+        const { classes } = runBootstrap(key => saved[key] ?? null, {
+          matchMedia: query => ({ matches: os && query === '(prefers-reduced-motion: reduce)' }),
+        });
+        assert.equal(classes.has('reduced-motion'), os || expected, JSON.stringify({ current, legacy, os }));
+      }
+    }
+  }
+  const { classes } = runBootstrap(key => {
+    if (key === 'bindars-settings') throw new Error('unreadable primary record');
+    return key === 'markdown-reader-settings' ? '{"reducedEffects":true}' : null;
+  }, { matchMedia: () => ({ matches: false }) });
+  assert.equal(classes.has('reduced-motion'), true, 'an unreadable primary record must not hide the backup');
 });

@@ -9,6 +9,10 @@ outlined, so rendering does not depend on an installed font.
 `app-icon.svg` places that artwork on a light rounded tile with transparent outer
 padding for desktop use. It is generated from the primary icon, not a new logo.
 
+The startup screen in `index.html` also shows this artwork. Vite inlines it at
+build time, so it appears in the first frame. Its `viewBox` there is the
+artwork's bounds, so update it if the artwork's geometry changes.
+
 After installing the project's existing dependencies, regenerate with:
 
 ```sh

@@ -32,16 +32,14 @@ function dismissLoadingScreen(): void {
   const el = document.getElementById("loading-screen");
   if (!el) return;
 
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (prefersReducedMotion || document.documentElement.classList.contains("reduced-motion")) {
-    el.remove();
-    return;
-  }
-
+  // index.html styles the exit, including the shorter dissolve for reduced motion.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       el.classList.add("fade-out");
-      el.addEventListener("transitionend", () => el.remove(), { once: true });
+      // The mark's own, shorter fade also bubbles here; wait for the screen's.
+      el.addEventListener("transitionend", (event) => {
+        if (event.target === el) el.remove();
+      });
       // Safety: remove after 300ms even if transitionend doesn't fire
       setTimeout(() => { if (el.parentNode) el.remove(); }, 300);
     });

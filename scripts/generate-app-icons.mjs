@@ -2,11 +2,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { svgArtwork } from "./brand-artwork.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const brand = path.join(root, "assets/brand");
 const source = await readFile(path.join(brand, "bindars-icon.svg"), "utf8");
-const artwork = source.replace(/^[\s\S]*?<svg\b[^>]*>/, "").replace(/<\/svg>\s*$/, "").trim();
+const artwork = svgArtwork(source);
 
 // A light tile keeps the dark blue page visible on either desktop appearance.
 // The outer transparent margin is intentional for the macOS Dock. Only the
