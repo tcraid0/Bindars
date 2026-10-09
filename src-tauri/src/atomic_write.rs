@@ -77,8 +77,9 @@ extern "C" {
     fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
 }
 
-/// The file's ACL, or None when it has none. Volumes without ACL support
-/// (exFAT, FAT) also report none.
+/// The file's ACL, or None when acl_get_fd_np gives null with ENOENT, which
+/// is what a file without an ACL reports, on exFAT and FAT as everywhere.
+/// Any other failure, ENOTSUP included, is an error.
 #[cfg(target_os = "macos")]
 fn read_acl(fd: libc::c_int) -> io::Result<Option<AclT>> {
     // SAFETY: the descriptor is open; a null result with ENOENT means the file
