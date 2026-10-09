@@ -77,29 +77,44 @@ extern "C" {
     fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
 }
 
+/// The file's ACL, or None when it has none. Volumes without ACL support
+/// (exFAT, FAT) also report none.
+#[cfg(target_os = "macos")]
+fn read_acl(fd: libc::c_int) -> io::Result<Option<AclT>> {
+    // SAFETY: the descriptor is open; a null result with ENOENT means the file
+    // has no ACL, and any other null is an error.
+    let acl = unsafe { acl_get_fd_np(fd, ACL_TYPE_EXTENDED) };
+    if !acl.is_null() {
+        return Ok(Some(acl));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENOENT) {
+        Ok(None)
+    } else {
+        Err(error)
+    }
+}
+
 /// Gives `staged` exactly the ACL of `source`. A source without an ACL yields
 /// a staged file without one: the staged file was created inside the folder
 /// and may have inherited entries the source never had.
 #[cfg(target_os = "macos")]
 fn copy_acl(source: libc::c_int, staged: libc::c_int) -> io::Result<()> {
-    // SAFETY: the descriptor is open; a null result with ENOENT means the file
-    // has no ACL, and any other null is an error.
-    let acl = unsafe { acl_get_fd_np(source, ACL_TYPE_EXTENDED) };
-    if acl.is_null() {
-        let error = io::Error::last_os_error();
-        return if error.raw_os_error() == Some(libc::ENOENT) {
-            clear_acl(staged)
-        } else {
-            Err(error)
-        };
+    match read_acl(source)? {
+        Some(acl) => set_acl(staged, acl),
+        None => clear_acl(staged),
     }
-    set_acl(staged, acl)
 }
 
 /// Removes every ACL entry from the file, including entries inherited from
-/// its folder at creation.
+/// its folder at creation. A file without an ACL is left alone: exFAT and FAT
+/// refuse even an empty ACL.
 #[cfg(target_os = "macos")]
 fn clear_acl(fd: libc::c_int) -> io::Result<()> {
+    let Some(existing) = read_acl(fd)? else {
+        return Ok(());
+    };
+    unsafe { acl_free(existing) };
     // SAFETY: acl_init returns a fresh, empty ACL or null on allocation failure.
     let empty = unsafe { acl_init(0) };
     if empty.is_null() {
