@@ -19,7 +19,7 @@ It introduces no new document, settings, or annotation format.
   on filled buttons. Sepia keeps its warm background with stronger text contrast.
 - Refreshed themes and a new app icon. Light uses blue accents on its off-white
   surfaces, Dark and Midnight use cool charcoal surfaces, and Sepia stays warm.
-  Code colouring reads clearly in every theme, and search results stand apart
+  Code coloring reads clearly in every theme, and search results stand apart
   from saved highlights.
 - The reader's keyboard focus ring stays clear of the scrollbar and is not
   printed.
@@ -102,7 +102,7 @@ Math inside Mermaid diagrams now follows the same safety limits as Markdown math
 and is checked before rendering starts. Diagrams with math that exceeds those
 limits, or transformations that cannot be checked safely, show their source
 instead of rendering. A diagram with a dollar sign next to a tag, or text that
-could decode to one such as the colour `#036;`, is also refused even when it
+could decode to one such as the color `#036;`, is also refused even when it
 contains no math.
 
 ## Upgrading
