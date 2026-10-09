@@ -497,7 +497,13 @@ fn write_document_using(
     at_stage(SaveStage::Exchanged);
     let mut result = conditional_write_result(path, false, saved_revision);
     if let Some(checked) = checked.filter(|_| exchanged) {
-        let displaced = open_document(&parent, &path.with_file_name(temp))
+        let displaced = open_document(&parent, &path.with_file_name(temp));
+        // macOS FAT reports an exchange but performs a plain replace: the
+        // displaced name does not exist, so there is nothing to retain.
+        let replaced = displaced
+            .as_ref()
+            .is_err_and(|error| error.category == Category::NotFound);
+        let displaced = displaced
             .and_then(|file| read_bounded_file(path, &file, Op::CheckRevision))
             .map(|(bytes, metadata)| revision_from_bytes(&metadata, &parent_metadata, &bytes));
         // Once exchanged, never roll back over a possible third writer. Retain
@@ -505,11 +511,6 @@ fn write_document_using(
         // read. A write that completes after this read and before the unlink,
         // or through an old descriptor after the unlink, is not retained.
         // Metadata-only changes do not require a competing-content copy.
-        // macOS FAT reports an exchange but performs a plain replace: no entry
-        // was displaced, so there is nothing to retain.
-        let replaced = displaced
-            .as_ref()
-            .is_err_and(|error| error.category == Category::NotFound);
         let matches = displaced.as_ref().is_ok_and(|revision| {
             revision.size == checked.size && revision.content_hash == checked.content_hash
         });
@@ -882,6 +883,23 @@ mod tests {
         )
         .unwrap();
         assert!(!result.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+        assert!(result.recovery_path.is_none());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn displaced_entry_removed_after_exchange_is_an_ordinary_save() {
+        // Indistinguishable from the FAT case above: the displaced name is gone,
+        // so nothing is retained and nothing is reported.
+        let (root, path, revision) = fixture("displaced-removed");
+        let result = write_document_with(&path, "local", Some(&revision), false, |stage| {
+            if stage == SaveStage::Exchanged {
+                fs::remove_file(&temp_leftovers(&root)[0]).unwrap();
+            }
+        })
+        .unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "local");
         assert!(result.recovery_path.is_none());
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
