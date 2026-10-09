@@ -253,6 +253,13 @@ fn open_document(parent: &File, path: &Path) -> Result<File, NativeFileError> {
     Ok(file)
 }
 
+/// The displaced name does not exist after a reported exchange: macOS FAT
+/// performs a plain replace instead, so there is nothing to retain. Any
+/// failure after the name opened is not this case.
+fn displaced_name_missing(error: &NativeFileError) -> bool {
+    error.category == Category::NotFound && error.operation == Op::ResolveDocument
+}
+
 pub(crate) fn write_document(
     path: &Path,
     content: &str,
@@ -498,11 +505,7 @@ fn write_document_using(
     let mut result = conditional_write_result(path, false, saved_revision);
     if let Some(checked) = checked.filter(|_| exchanged) {
         let displaced = open_document(&parent, &path.with_file_name(temp));
-        // macOS FAT reports an exchange but performs a plain replace: the
-        // displaced name does not exist, so there is nothing to retain.
-        let replaced = displaced
-            .as_ref()
-            .is_err_and(|error| error.category == Category::NotFound);
+        let replaced = displaced.as_ref().is_err_and(displaced_name_missing);
         let displaced = displaced
             .and_then(|file| read_bounded_file(path, &file, Op::CheckRevision))
             .map(|(bytes, metadata)| revision_from_bytes(&metadata, &parent_metadata, &bytes));
@@ -887,6 +890,29 @@ mod tests {
         assert!(result.recovery_path.is_none());
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_missing_displaced_name_counts_as_a_plain_replace() {
+        let path = Path::new("/tmp/document.md");
+        let not_found = || io::Error::from(io::ErrorKind::NotFound);
+        assert!(displaced_name_missing(&NativeFileError::from_io(
+            Op::ResolveDocument,
+            path,
+            not_found()
+        )));
+        for operation in [Op::InspectWriteTarget, Op::CheckRevision] {
+            assert!(!displaced_name_missing(&NativeFileError::from_io(
+                operation,
+                path,
+                not_found()
+            )));
+        }
+        assert!(!displaced_name_missing(&NativeFileError::from_io(
+            Op::ResolveDocument,
+            path,
+            io::Error::from(io::ErrorKind::PermissionDenied)
+        )));
     }
 
     #[test]
