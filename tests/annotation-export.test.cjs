@@ -85,9 +85,9 @@ function toastMessages(host) {
 }
 
 async function flushExport() {
-  await Promise.resolve();
-  await new Promise((resolve) => setImmediate(resolve));
-  await Promise.resolve();
+  await React.act(async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+  });
 }
 
 test("buildAnnotationMarkdown includes bookmarks, heading groups, and notes", () => {
