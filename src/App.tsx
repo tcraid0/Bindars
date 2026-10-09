@@ -1147,6 +1147,7 @@ function App() {
     if (boundaryFlushInFlightRef.current) return;
     boundaryFlushInFlightRef.current = true;
     const sessionKey = editorSessionKeyRef.current;
+    const pending = pendingActionRef.current;
     try {
       // Saves that began before or during this departure must finish first: a
       // manual save until it has recorded its outcome, an autosave by joining
@@ -1158,6 +1159,17 @@ function App() {
       let result: EditorSaveResult | null;
       do {
         while (manualSaveRef.current) await manualSaveRef.current;
+        // A dialog's Save that settled meanwhile owns what happens next: it ran
+        // or cancelled this departure, or asked its own question.
+        if (pendingActionRef.current !== pending) return;
+        if (showConflictDialogRef.current) {
+          openConflictDialog("continue");
+          return;
+        }
+        if (showConfirmDialogRef.current) {
+          openSaveConfirmation("continue");
+          return;
+        }
         result = await flushAutosave();
       } while (manualSaveRef.current);
       if (!editorSessionIsCurrent(sessionKey)) {

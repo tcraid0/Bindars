@@ -3301,6 +3301,93 @@ test("a pending save that fails without touching disk lets a genuinely clean buf
   }
 });
 
+// Leaving Edit while the boundary autosave fails asks Save/Discard/Cancel. The
+// dialog's Save starts `write`, which the test lands or fails later.
+async function saveFromUnsavedChangesDialog(rendered, write) {
+  const words = `${rendered.diskContent()}\nFirst words`;
+  dispatchShortcut("e");
+  await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+  updateEditor(rendered.host, words);
+  await waitForEditorPublication();
+  rendered.failNextFileWrite(new Error("Boundary autosave failed"));
+  dispatchShortcut("e");
+  const dialog = await waitFor(() => {
+    const candidate = document.querySelector('[role="dialog"]');
+    assert.ok(candidate);
+    assert.match(candidate.textContent, /Unsaved changes/);
+    return candidate;
+  });
+  rendered.deferNextWrite(write);
+  clickButton(rendered.host, "Save", dialog);
+  await waitFor(() => assert.ok(write.args));
+  return words;
+}
+
+// A dialog's Save that lands while newer text is pending asks again. The
+// departure that waited on it must not leave a dead dialog behind.
+for (const second of ["new", "quit"]) {
+  test(`a dialog Save that lands with newer edits pending asks again before ${second}`, async () => {
+    const rendered = await renderContinuityApp();
+    const write = deferred();
+    try {
+      const saved = await saveFromUnsavedChangesDialog(rendered, write);
+      const newer = `${saved}\nTyped during the dialog Save`;
+      updateEditor(rendered.host, newer);
+      await requestDeparture(rendered, second);
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      assert.ok(rendered.host.querySelector(".cm-editor"), "the departure waits for the dialog Save");
+
+      await landPendingWrite(rendered, write);
+      const dialog = await waitFor(() => {
+        const candidate = document.querySelector('[role="dialog"]');
+        assert.ok(candidate);
+        return candidate;
+      });
+      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /continuity\.md/);
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), newer);
+      const writesBefore = rendered.fileWrites().length;
+      clickButton(rendered.host, "Save", dialog);
+      await waitFor(() => assert.equal(rendered.fileWrites().length, writesBefore + 1));
+      assert.equal(rendered.fileWrites().at(-1).content, newer);
+      await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+      await waitFor(() => assert.ok(departureCompleted(rendered, second), `${second} did not complete after the second Save`));
+      assert.equal(rendered.guardedExitCount(), second === "quit" ? 1 : 0);
+    } finally {
+      write.resolve(null);
+      await rendered.cleanup();
+    }
+  });
+}
+
+test("a dialog Save that fails while New waits keeps the editor and asks nothing more", async () => {
+  const rendered = await renderContinuityApp();
+  const write = deferred();
+  try {
+    const saved = await saveFromUnsavedChangesDialog(rendered, write);
+    const typed = `${saved}\nTyped during the dialog Save`;
+    updateEditor(rendered.host, typed);
+    await requestDeparture(rendered, "new");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const disk = rendered.diskContent();
+
+    await act(async () => {
+      write.reject(new Error("Dialog save failed"));
+      await Promise.resolve();
+    });
+    await waitFor(() => assert.match(rendered.host.textContent, /Autosave is paused/));
+    assert.ok(!document.querySelector('[role="dialog"]'));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(findEditorView(rendered.host).state.sliceDoc(), typed);
+    assert.ok(!departureCompleted(rendered, "new"), "New ran over the failed Save");
+    assert.match(rendered.host.textContent, /continuity\.md/);
+    assert.equal(rendered.diskContent(), disk);
+  } finally {
+    write.resolve(null);
+    await rendered.cleanup();
+  }
+});
+
 test("a pending save that lands as a conflict stops the departure at the conflict decision", async () => {
   const rendered = await renderContinuityApp({ initialContent: RESTORED_TEXT });
   const write = deferred();
