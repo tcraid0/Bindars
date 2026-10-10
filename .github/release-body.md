@@ -1,8 +1,23 @@
 ## Changes in 1.5.2
 
 This update makes saving safer, restores reading sections more reliably, and
-improves printed output for Markdown and Fountain files.
+improves the welcome screen and printed output for Markdown and Fountain files.
 It introduces no new document, settings, or annotation format.
+
+### Opening files and getting started
+
+- The welcome screen leads with **Open File…** and **Try an Example…**, explains
+  where the example is saved, and shows recent files with their original folder
+  paths. Keyboard shortcuts are available from the welcome screen and header;
+  press **Cmd+?** on macOS or **Ctrl+?** on Linux.
+- Missing and unavailable files have clear recovery messages with **Retry**,
+  **Dismiss**, and **Remove** actions. Retrying or canceling an open keeps the
+  relevant filename, and confirmed missing files are not reopened automatically
+  on every launch. Dismiss keeps recent history; Remove deletes the recent entry.
+- Open File receives keyboard focus after the startup screen leaves, without
+  taking focus from another control. Document-only panels stay hidden until a
+  document opens, and the one-time annotation hint sits outside the document's
+  scrolling area to preserve the restored reading section.
 
 ### Reading and editing
 
