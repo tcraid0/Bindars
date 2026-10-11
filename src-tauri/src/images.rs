@@ -682,13 +682,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn refuses_a_fifo_without_blocking() {
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
         let fixture = Fixture::new();
         let path = fixture.document.parent().unwrap().join("pipe.png");
-        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
-        // SAFETY: name is a valid NUL-terminated path owned for the call.
-        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        assert_eq!(fixture.read(&path).unwrap_err(), ImageError::Unavailable);
+        let error =
+            crate::test_support::with_fifo(&path, move |path| fixture.read(&path).unwrap_err());
+        assert_eq!(error, ImageError::Unavailable);
     }
 }

@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::document_io::{
-    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path, read_bounded_file,
-    reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult, FileRevision,
-    NewMarkdownFile,
+    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path, open_regular_file,
+    read_bounded_file, reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult,
+    FileRevision, NewMarkdownFile,
 };
 use crate::file_errors::{
     run_blocking_file_io, NativeFileError, NativeFileErrorCategory, NativeFileOperation,
@@ -163,13 +163,11 @@ fn delete_draft_in(
     if canonical_path == canonical_saved_path {
         return Ok(DraftRetirement::NothingToRemove);
     }
-    let open_for_comparison = |path: &Path| {
-        fs::File::open(path).map_err(|error| {
-            NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
-        })
-    };
-    let draft_file = open_for_comparison(&canonical_path)?;
-    let saved_file = open_for_comparison(&canonical_saved_path)?;
+    let draft_file = open_regular_file(&canonical_path, NativeFileOperation::InspectSavedDocument)?;
+    let saved_file = open_regular_file(
+        &canonical_saved_path,
+        NativeFileOperation::InspectSavedDocument,
+    )?;
     let metadata_for_comparison = |file: &fs::File, path: &Path| {
         cap_std::fs::Metadata::from_file(file).map_err(|error| {
             NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)

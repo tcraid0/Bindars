@@ -53,6 +53,39 @@ pub(crate) fn cleanup_temp_path(path: &Path) {
     }
 }
 
+/// Exercise a FIFO with no writer, without hanging the test suite on a regression.
+#[cfg(unix)]
+pub(crate) fn with_fifo<T: Send + 'static>(
+    path: &Path,
+    operation: impl FnOnce(PathBuf) -> T + Send + 'static,
+) -> T {
+    use std::ffi::CString;
+    use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: name is a valid NUL-terminated path owned for the call.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let worker_path = path.to_owned();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(operation(worker_path));
+    });
+    match receiver.recv_timeout(Duration::from_secs(5)) {
+        Ok(result) => result,
+        Err(error) => {
+            // Best effort: release a blocked reader. Neither this open nor a
+            // join may wait; an unreleased worker ends with the test process.
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(path);
+            panic!("FIFO operation did not finish: {error}");
+        }
+    }
+}
+
 /// macOS access-metadata fixtures, applied and read back with the system tools
 /// so the tests do not depend on the code under test.
 #[cfg(target_os = "macos")]

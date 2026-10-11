@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -108,9 +106,7 @@ pub(crate) async fn open_markdown_file(path: String) -> Result<OpenFileResult, N
 pub(crate) fn open_markdown_file_impl(path: String) -> Result<OpenFileResult, NativeFileError> {
     let requested_path = PathBuf::from(path);
     let canonical_path = canonicalize_markdown_path(&requested_path)?;
-    let file = fs::File::open(&canonical_path).map_err(|error| {
-        NativeFileError::from_io(NativeFileOperation::OpenDocument, &canonical_path, error)
-    })?;
+    let file = open_regular_file(&canonical_path, NativeFileOperation::OpenDocument)?;
     let (content, revision) = read_open_document_snapshot(&canonical_path, file)?;
     let (canonical_path, name) = markdown_file_identity(&canonical_path);
 
@@ -467,10 +463,36 @@ fn resolve_markdown_write_target(path: &Path) -> Result<PathBuf, NativeFileError
     Ok(write_path)
 }
 
+/// Check the opened handle: a pathname checked earlier can be replaced before open.
+pub(crate) fn open_regular_file(
+    path: &Path,
+    operation: NativeFileOperation,
+) -> Result<fs::File, NativeFileError> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A substituted FIFO must not wait for a writer before we can reject it.
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(path)
+        .map_err(|error| NativeFileError::from_io(operation, path, error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| NativeFileError::from_io(operation, path, error))?;
+    if !metadata.is_file() {
+        return Err(NativeFileError::invalid(
+            NativeFileOperation::ValidateDocument,
+            "The selected document path is not a regular file.",
+        ));
+    }
+    Ok(file)
+}
+
 pub(crate) fn read_markdown_contents(path: &Path) -> Result<String, NativeFileError> {
-    let file = fs::File::open(path).map_err(|error| {
-        NativeFileError::from_io(NativeFileOperation::OpenDocument, path, error)
-    })?;
+    let file = open_regular_file(path, NativeFileOperation::OpenDocument)?;
     let (buffer, _) = read_bounded_file(path, &file, NativeFileOperation::ReadDocument)?;
     decode_markdown_contents(buffer)
 }
@@ -550,9 +572,7 @@ pub(crate) fn stable_hash_hex(bytes: &[u8]) -> String {
 
 #[cfg(any(test, not(any(target_os = "macos", target_os = "linux"))))]
 fn read_file_revision(path: &Path) -> Result<FileRevision, NativeFileError> {
-    let file = fs::File::open(path).map_err(|error| {
-        NativeFileError::from_io(NativeFileOperation::CheckRevision, path, error)
-    })?;
+    let file = open_regular_file(path, NativeFileOperation::CheckRevision)?;
     let (bytes, metadata) = read_bounded_file(path, &file, NativeFileOperation::CheckRevision)?;
     let parent = parent_metadata(path, NativeFileOperation::CheckRevision)?;
 
@@ -654,6 +674,25 @@ mod tests {
         let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
         assert_eq!(result.expect("read markdown"), "# Hello\n\nMarkdown");
 
+        cleanup(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn document_content_and_legacy_revision_reads_refuse_fifos() {
+        let path = temp_path("md");
+        let error = crate::test_support::with_fifo(&path, |path| {
+            read_markdown_contents(&path).expect_err("refuse FIFO contents")
+        });
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::ValidateDocument);
+        fs::remove_file(&path).unwrap();
+        // macOS/Linux saves use document_write; this is the fallback revision reader.
+        let error = crate::test_support::with_fifo(&path, |path| {
+            read_file_revision(&path).expect_err("refuse FIFO revision")
+        });
+        assert_eq!(error.category, NativeFileErrorCategory::InvalidInput);
+        assert_eq!(error.operation, NativeFileOperation::ValidateDocument);
         cleanup(&path);
     }
 

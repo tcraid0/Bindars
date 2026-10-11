@@ -13,6 +13,7 @@ static STORAGE_LOCK: Mutex<()> = Mutex::new(());
 const DATA: &str = "annotations.json";
 const RECEIPT: &str = "annotations-migration.json";
 const ARCHIVE: &str = "annotations-legacy-settings.json";
+const RECOVERY_FILE_REQUIRED: &str = "Recovery copy must be a regular file";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,11 +182,10 @@ pub(crate) async fn read_annotation_recovery(path: String) -> Result<Value, Nati
 fn read_recovery_at(path: &Path) -> Result<Value, String> {
     let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err("Recovery copy must be a regular file".into());
+        return Err(RECOVERY_FILE_REQUIRED.into());
     }
     let mut bytes = Vec::new();
-    fs::File::open(path)
-        .map_err(|e| e.to_string())?
+    open_recovery_file(path)?
         .take(64 * 1024 * 1024 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
@@ -198,6 +198,23 @@ fn read_recovery_at(path: &Path) -> Result<Value, String> {
         return Err("This is not an annotation recovery copy".into());
     }
     Ok(Value::Object(data))
+}
+
+// Keep recovery's no-symlink policy separate from ordinary document opening.
+fn open_recovery_file(path: &Path) -> Result<fs::File, String> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A final-component symlink or FIFO can replace the pre-checked file.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    let file = options.open(path).map_err(|e| e.to_string())?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err(RECOVERY_FILE_REQUIRED.into());
+    }
+    Ok(file)
 }
 
 fn ensure_directory(root: &Path) -> Result<(), String> {
@@ -892,6 +909,36 @@ mod tests {
         assert!(read_recovery_at(&path).is_err());
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_open_refuses_a_fifo_without_blocking() {
+        let root = fixture();
+        let path = root.join("recovery.json");
+        // Exercise opening directly, after the pathname pre-check could be stale.
+        let failure = crate::test_support::with_fifo(&path, |path| {
+            open_recovery_file(&path).expect_err("refuse a substituted FIFO")
+        });
+        assert_eq!(failure, "Recovery copy must be a regular file");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_open_refuses_symlinks_even_without_the_path_precheck() {
+        let root = fixture();
+        let target = root.join("original.json");
+        let link = root.join("recovery.json");
+        fs::write(&target, b"{}").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(open_recovery_file(&link).is_err());
+        assert_eq!(
+            read_recovery_at(&link).unwrap_err(),
+            "Recovery copy must be a regular file"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn recovery_export_refuses_app_data_and_descendants_without_changing_bytes() {
         let root = fixture();
