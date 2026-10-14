@@ -22,6 +22,11 @@ test("reader surfaces have no delayed entrance animation", () => {
   assert.match(css, /\.empty-state-title\s*\{/);
 });
 
+test("reader selection ownership is focus-scoped and retains the WebKit prefix", () => {
+  assert.match(css, /#root:has\(\.reading-surface:focus-within\)\s*\{\s*-webkit-user-select:\s*none;\s*user-select:\s*none;\s*\}/);
+  assert.match(css, /#root:has\(\.reading-surface:focus-within\) \.reading-surface\s*\{\s*-webkit-user-select:\s*text;\s*user-select:\s*text;\s*\}/);
+});
+
 test("print has one format without themed or book selectors", () => {
   assert.doesNotMatch(css, /data-print-themed|data-print-layout/);
 });

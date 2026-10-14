@@ -7434,6 +7434,51 @@ for (const control of ["Dismiss", "Remove"]) {
   });
 }
 
+test("reader selection boundary contains the document but excludes panels, hints, Find, toasts and dialogs", async () => {
+  const rendered = await renderContinuityApp({
+    initialContent: "# First\n\n[Missing section](#missing-section)\n\n## Second\n\nClosing words.",
+    sidebarRead: Promise.resolve(true),
+  });
+  const originalWidth = window.innerWidth;
+  rendered.host.id = "root";
+  try {
+    window.innerWidth = 1600;
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    const main = rendered.host.querySelector("main.reading-surface");
+    assert.ok(main);
+    assert.equal(main.tabIndex, -1);
+    assert.ok(main.contains(rendered.host.querySelector("article.markdown-body")));
+    assert.ok(main.contains(rendered.host.querySelector("#second")));
+
+    dispatchShortcut("m");
+    dispatchShortcut("f");
+    for (const selector of [
+      '[data-reader-panel="sidebar"]', '[data-reader-panel="toc"]',
+      '[data-reader-panel="notes"]', '.reading-hint', '.search-bar',
+    ]) {
+      const element = await waitFor(() => rendered.host.querySelector(selector) || assert.fail(`missing ${selector}`));
+      assert.ok(element.closest("#root") === rendered.host, selector);
+      assert.equal(main.contains(element), false, selector);
+    }
+
+    // Use a real app notification; ToastProvider renders it beside App.
+    flushSync(() => main.querySelector('a[href="#missing-section"]').click());
+    const notification = await waitFor(() => rendered.host.querySelector('[role="alert"]') || assert.fail("missing toast"));
+    assert.match(notification.textContent, /Link target.*not found/);
+    assert.ok(notification.closest("#root") === rendered.host);
+    assert.equal(main.contains(notification), false);
+    assert.equal(rendered.host.querySelector(".app-shell").contains(notification), false);
+
+    dispatchShortcut("k");
+    const dialog = await waitFor(() => document.querySelector('#dialog-root [role="dialog"]') || assert.fail("missing dialog"));
+    assert.equal(rendered.host.contains(dialog), false);
+    assert.ok(dialog.closest("#dialog-root").parentElement === document.body);
+  } finally {
+    window.innerWidth = originalWidth;
+    await rendered.cleanup();
+  }
+});
+
 test("a late reading hint stays outside the restored document's scroller", async () => {
   const hint = deferred();
   const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });

@@ -397,6 +397,16 @@ body {
   width: var(--reader-scrollbar-width);
 }
 
+/* Keep document selections inside the focused reader; panel text stays selectable otherwise. */
+#root:has(.reading-surface:focus-within) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+#root:has(.reading-surface:focus-within) .reading-surface {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .reading-surface:focus-visible {
   outline: none;
 }
