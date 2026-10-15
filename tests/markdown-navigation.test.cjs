@@ -336,6 +336,24 @@ function readerElement(props) {
   }));
 }
 
+test("a rejected system link request shows exactly one error", async () => {
+  await installNavigationDom();
+  let requests = 0;
+  mockIPC(command => {
+    assert.equal(command, "plugin:opener|open_url");
+    requests++;
+    throw new Error("launcher rejected");
+  });
+  const view = await render(readerElement({ content: "[External](https://example.com)" }));
+  try {
+    await click(view.host.querySelector("a"));
+    assert.equal(requests, 1);
+    const errors = view.host.querySelectorAll('[role="alert"]');
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].textContent, "Couldn't ask the system to open this link. Try opening it in your browser or mail app.");
+  } finally { await view.cleanup(); clearMocks(); }
+});
+
 function paintReaderMarks(host) {
   const article = host.querySelector("article");
   const range = findAnchor({ prefix: "Jump", exact: " words ", suffix: "code" }, article);

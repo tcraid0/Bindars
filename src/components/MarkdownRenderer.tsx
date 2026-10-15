@@ -183,7 +183,10 @@ const markdownComponents: Components = {
       e.preventDefault();
       if (isExternal || isMailto) {
         void openUrl(href).catch(() => {
-          // No-op: if system opener fails, keep app stable.
+          toast(
+            "Couldn't ask the system to open this link. Try opening it in your browser or mail app.",
+            "error",
+          );
         });
         return;
       }
