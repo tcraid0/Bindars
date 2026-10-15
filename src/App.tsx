@@ -2644,8 +2644,8 @@ function App() {
     }
 
     // App owns this persisted view preference. Reader and Fountain sessions
-    // deliberately leave Ctrl+Alt+M inert rather than borrowing Ctrl+M's
-    // annotations behavior.
+    // deliberately leave Ctrl+Alt+M inert rather than borrowing the Notes
+    // shortcut's behavior.
     if (ctrl && e.altKey && !altGraph && key === "m") {
       if (editing && fileType === "markdown") {
         e.preventDefault();
@@ -2737,7 +2737,7 @@ function App() {
           toggleBookmark(heading.id, heading.text);
         }
       }
-    } else if (ctrl && key === "m") {
+    } else if (ctrl && e.shiftKey && !e.altKey && key === "m") {
       e.preventDefault();
       if (documentOpen && !editing) toggleAnnotationsPanel();
     } else if (ctrl && key === "f" && !e.shiftKey) {

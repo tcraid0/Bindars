@@ -267,3 +267,16 @@ test("shortcuts list Find next and previous with platform labels", () => {
   assert.equal(formatShortcutLabel("findPrevious", "macos"), "⇧⌘G");
   assert.equal(formatShortcutLabel("findPrevious", "windows-linux"), "Ctrl+Shift+G");
 });
+
+for (const [platform, modifier] of [["MacIntel", "metaKey"], ["Linux x86_64", "ctrlKey"]]) {
+  test(`${platform}: Notes requires Shift and primary; plain primary-M remains native`, async t => {
+    const view = await reader(t);
+    const key = extra => withShortcutPlatform(platform, () => pressKey("m", { [modifier]: true, ...extra }));
+    assert.equal(key({}).defaultPrevented, false);
+    assert.ok(!view.host.querySelector('[data-reader-panel="notes"]'));
+    assert.equal(key({ shiftKey: true, altKey: true }).defaultPrevented, false);
+    assert.ok(!view.host.querySelector('[data-reader-panel="notes"]'));
+    assert.equal(key({ shiftKey: true }).defaultPrevented, true);
+    assert.ok(view.host.querySelector('[data-reader-panel="notes"]'));
+  });
+}

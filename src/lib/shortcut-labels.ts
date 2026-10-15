@@ -32,7 +32,7 @@ const SHORTCUT_DEFINITIONS = {
   findNext: { modifiers: ["primary"], key: "G" },
   findPrevious: { modifiers: ["primary", "shift"], key: "G" },
   bookmarkHeading: { modifiers: ["primary"], key: "D" },
-  toggleAnnotations: { modifiers: ["primary"], key: "M" },
+  toggleAnnotations: { modifiers: ["primary", "shift"], key: "M" },
   print: { modifiers: ["primary"], key: "P" },
   increaseFontSize: { modifiers: ["primary"], key: "+" },
   decreaseFontSize: { modifiers: ["primary"], key: "−" },

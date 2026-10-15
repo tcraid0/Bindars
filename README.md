@@ -18,6 +18,7 @@ native testing and code signing.
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
 - Highlights & notes, plus bookmarks for returning to headings
+  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
 - Recent, Drafts, and an optional folder browser, with Search documents and passage navigation
 - Persistent whole-interface zoom, separate from reading typography
 - Fountain screenplay rendering with character focus and scene navigation

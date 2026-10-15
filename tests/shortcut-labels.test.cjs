@@ -145,6 +145,8 @@ test("platform detection handles current macOS, Windows, and Linux navigator sig
 });
 
 test("shortcut formatting covers modifiers, arrows, symbols, and modifier-free keys", () => {
+  assert.equal(formatShortcutLabel("toggleAnnotations", "macos"), "⇧⌘M");
+  assert.equal(formatShortcutLabel("toggleAnnotations", "windows-linux"), "Ctrl+Shift+M");
   assert.equal(formatShortcutLabel("newFile", "macos"), "⌘N");
   assert.equal(formatShortcutLabel("toggleMarkdownFormatting", "macos"), "⌥⌘M");
   assert.equal(formatShortcutLabel("cycleTheme", "macos"), "⇧⌘T");
@@ -214,11 +216,11 @@ test("the real Welcome template renders only explicit shortcut tokens", () => {
 
   assert.match(template, /\{\{shortcut:saveFile\}\}/);
   assert.match(macosContent, /\*\*⌘S\*\*/);
-  assert.match(macosContent, /\*\*⌘M\*\*/);
+  assert.match(macosContent, /\*\*⇧⌘M\*\*/);
   assert.doesNotMatch(macosContent, /\{\{shortcut:/);
   assert.doesNotMatch(macosContent, /Ctrl\+|Alt\+/);
   assert.match(windowsLinuxContent, /\*\*Ctrl\+S\*\*/);
-  assert.match(windowsLinuxContent, /\*\*Ctrl\+M\*\*/);
+  assert.match(windowsLinuxContent, /\*\*Ctrl\+Shift\+M\*\*/);
   assert.doesNotMatch(windowsLinuxContent, /\{\{shortcut:/);
 
   assert.equal(

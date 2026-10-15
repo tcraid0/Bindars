@@ -1317,7 +1317,7 @@ test("reader keeps its focused link and skips the Markdown pipeline on unrelated
     link.focus();
     dispatchShortcut("b");
     dispatchShortcut("j");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     assert.ok(link.isConnected, "sidebar and panel toggles must retain document nodes");
     assert.ok(document.activeElement === link, "focused link must retain focus");
     assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 0);
@@ -1383,7 +1383,7 @@ test("narrow panels preserve preferences, honor the latest opening, and restore 
   try {
     await rendered.openLifecycleDocument();
     dispatchShortcut("b");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     assert.deepEqual(shown(), ["sidebar", "toc", "notes"]);
     assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true");
     rendered.host.querySelector('[data-reader-panel="toc"] button').focus();
@@ -1395,7 +1395,7 @@ test("narrow panels preserve preferences, honor the latest opening, and restore 
     for (const nextWidth of [600, 599, 579, 539]) {
       resize(nextWidth);
       for (const [key, panel] of [["b", "sidebar"], ["j", "toc"], ["m", "notes"]]) {
-        dispatchShortcut(key);
+        dispatchShortcut(key, { shiftKey: key === "m" });
         assert.deepEqual(shown(), [panel], `opening ${panel} at ${nextWidth}px must reveal it`);
       }
       assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "temporary hides must preserve the sidebar preference");
@@ -1447,7 +1447,7 @@ test("saved highlights survive search and panel changes, then a saved edit retur
     await rendered.openLifecycleDocument();
     await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
     await searchReader(rendered.host, "wo");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
     assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]'));
     assert.ok(rendered.host.textContent.includes("Saved note"));
@@ -1528,7 +1528,7 @@ const ANNOTATION_FIXTURE = { id: "pending-note", prefix: "", exact: "Opening wor
   color: "yellow", note: "Keep me", nearestHeadingId: "lifecycle", createdAt: 1 };
 async function removeFixtureAnnotation(rendered) {
   await rendered.openLifecycleDocument();
-  dispatchShortcut("m");
+  dispatchShortcut("m", { shiftKey: true });
   await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove highlight"]')));
   flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
 }
@@ -1609,7 +1609,7 @@ test("failed location evidence removes stale paint while keeping notes accessibl
     await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
     const anchoring = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
     t.mock.method(anchoring, "prepareAnnotationDocument", async () => { throw new Error("digest unavailable"); });
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
     await waitFor(() => assert.match(rendered.host.textContent, /Location uncertain/));
     assert.ok(!rendered.host.querySelector('mark[data-highlight-id]'));
@@ -1764,7 +1764,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
     try {
       await r.openLifecycleDocument();
       const main = r.host.querySelector("main");
-      if (route === "notes-button") dispatchShortcut("m");
+      if (route === "notes-button") dispatchShortcut("m", { shiftKey: true });
       if (route === "settings-button") {
         flushSync(() => r.host.querySelector('[aria-label="Toggle reader settings"]').click());
       }
@@ -1841,7 +1841,7 @@ test("unknown highlight colors render yellow while notes stay editable and remov
     const mark = await waitFor(() => rendered.host.querySelector('mark[data-highlight-id="unknown"]') || assert.fail("highlight not painted"));
     assert.ok(mark.classList.contains("annotation-highlight-yellow"));
     assert.equal(writes.length, 0, "painting a fallback must not save a replacement color");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     const panel = rendered.host.querySelector('[data-reader-panel="notes"]');
     assert.match(panel.textContent, /Remember this/);
     assert.equal(panel.querySelector('li span[style]').style.backgroundColor, "var(--highlight-yellow)");

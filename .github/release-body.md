@@ -21,6 +21,8 @@ It introduces no new document, settings, or annotation format.
 
 ### Reading and editing
 
+- Toggle Highlights & notes with **Shift+Cmd+M** on macOS or **Ctrl+Shift+M**
+  on Linux. Plain **Ctrl+M** no longer toggles Notes; **Cmd+M** minimizes on macOS.
 - Contents and saved reading sections load reliably when the reader opens.
   The restored section stays consistent across repeated launches, and closing
   or quitting records the current section.

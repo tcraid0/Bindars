@@ -7188,7 +7188,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
     assert.equal(dispatchWindowKey("?").defaultPrevented, false);
     assert.ok(!document.querySelector('[role="dialog"]'));
     dispatchShortcut("j");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     dispatchShortcut("f", { shiftKey: true });
     assert.ok(rendered.host.querySelector("header"), "Focus mode must not hide the welcome controls");
     assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
@@ -7394,7 +7394,7 @@ test("reader selection boundary contains the document but excludes panels, hints
     assert.ok(main.contains(rendered.host.querySelector("article.markdown-body")));
     assert.ok(main.contains(rendered.host.querySelector("#second")));
 
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     dispatchShortcut("f");
     for (const selector of [
       '[data-reader-panel="sidebar"]', '[data-reader-panel="toc"]',
