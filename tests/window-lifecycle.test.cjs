@@ -7,6 +7,7 @@ const { clearMocks, mockIPC, mockWindows, mockConvertFileSrc } = require("@tauri
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
+const { detectShortcutPlatform } = require("../.tmp/workspace-tests/src/lib/shortcut-labels.js");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 
 const DOC_PATH = "/tmp/lifecycle.md";
@@ -64,7 +65,8 @@ function keyboardEvent(key, options = {}) {
 }
 
 function dispatchShortcut(key, options = {}) {
-  const event = keyboardEvent(key, { ctrlKey: true, ...options });
+  const modifier = detectShortcutPlatform() === "macos" ? { metaKey: true } : { ctrlKey: true };
+  const event = keyboardEvent(key, { ...modifier, ...options });
   flushSync(() => window.dispatchEvent(event));
   return event;
 }
@@ -1813,7 +1815,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
       if (route === "nothing-focused") document.activeElement?.blur?.(); else { assert.ok(target, route); target.focus(); }
       const before = document.activeElement;
       if (target) assert.ok(before === target, `${route} must really have focus before the shortcut`);
-      const key = new window.KeyboardEvent("keydown", { key: "f", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      const key = new window.KeyboardEvent("keydown", { key: "f", metaKey: true, shiftKey: true, bubbles: true, cancelable: true });
       flushSync(() => (before && before !== document.body ? before : window).dispatchEvent(key));
       await act(async () => {});
       assert.ok(!r.host.querySelector("header"), "focus mode engaged");
@@ -1852,7 +1854,7 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
     exit.focus();
     assert.ok(document.activeElement === exit, "the character Exit button must have focus before the shortcut");
     const main = r.host.querySelector("main");
-    flushSync(() => exit.dispatchEvent(keyboardEvent("f", { ctrlKey: true, shiftKey: true })));
+    flushSync(() => exit.dispatchEvent(keyboardEvent("f", { metaKey: true, shiftKey: true })));
     await act(async () => {});
     assert.ok(!r.host.querySelector("header"), "Focus mode engaged");
     assert.ok(!r.host.querySelector('[aria-label="Exit character focus"]'), "the character chip is hidden");

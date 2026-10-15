@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const { withShortcutPlatform } = require("./_helpers/shortcut-platform.cjs");
 const React = require("react");
 const { act } = React;
 const { undo } = require("@codemirror/commands");
@@ -984,10 +985,8 @@ test("App cycles every theme from focused CodeMirror without disturbing editor s
     ];
 
     for (const { attribute, options } of cycles) {
-      const event = dispatchEditorKey(rendered.host, "t", {
-        ...options,
-        shiftKey: true,
-      });
+      const event = withShortcutPlatform(options.metaKey ? "MacIntel" : "Linux x86_64", () =>
+        dispatchEditorKey(rendered.host, "t", { ...options, shiftKey: true }));
 
       assert.equal(event.defaultPrevented, true);
       assert.equal(document.documentElement.getAttribute("data-theme"), attribute);
@@ -1351,7 +1350,8 @@ test("Markdown formatting shortcut toggles only in the editor and respects panel
     assert.equal(view.state.field(markdownFormattingEnabled), true);
     assert.equal(formattingButton.getAttribute("aria-pressed"), "true");
 
-    const metaToggle = dispatchEditorKey(rendered.host, "m", { metaKey: true, altKey: true });
+    const metaToggle = withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "m", { metaKey: true, altKey: true }));
     assert.equal(metaToggle.defaultPrevented, true);
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
@@ -1634,7 +1634,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
 
     assert.equal(dispatchShortcut("e").defaultPrevented, true);
     await waitFor(() => assert.ok(!host.querySelector(".cm-editor")));
-    dispatchShortcut("n", { metaKey: true, ctrlKey: false });
+    withShortcutPlatform("MacIntel", () => dispatchShortcut("n", { metaKey: true, ctrlKey: false }));
     await waitFor(() => assert.ok(host.querySelector(".cm-editor")));
     await waitFor(() => assert.equal(host.querySelector('[aria-label="Read mode"]')?.disabled, false));
 

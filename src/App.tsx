@@ -96,7 +96,7 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
-import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform } from "./lib/shortcut-labels";
+import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isPrimaryModifier } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
 import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
@@ -2473,13 +2473,13 @@ function App() {
     // reader, skip app shortcuts but let system keys such as Cmd-Q through;
     // only a second Cmd/Ctrl-P must lose its default action.
     if (isPrintInvoked()) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") e.preventDefault();
+      if (isPrimaryModifier(e) && e.key.toLowerCase() === "p") e.preventDefault();
       return;
     }
     if (showConfirmDialog || showConflictDialog) return;
     if (isImeCompositionKey(e)) return;
 
-    const ctrl = e.ctrlKey || e.metaKey;
+    const ctrl = isPrimaryModifier(e);
     const key = e.key.toLowerCase();
     const altGraph = e.getModifierState?.("AltGraph") ?? false;
     const target = e.target as HTMLElement | null;

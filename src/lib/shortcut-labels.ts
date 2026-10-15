@@ -153,6 +153,13 @@ export function detectShortcutPlatform(
   return "windows-linux";
 }
 
+export function isPrimaryModifier(
+  event: Pick<KeyboardEvent, "ctrlKey" | "metaKey">,
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): boolean {
+  return platform === "macos" ? event.metaKey : event.ctrlKey;
+}
+
 function formatShortcut(
   definition: ShortcutDefinition,
   platform: ShortcutPlatform,
