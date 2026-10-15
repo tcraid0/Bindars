@@ -22,8 +22,7 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 
-// Notifications follow the active dialog so their controls and announcements
-// remain inside the modal's accessible, keyboard-reachable subtree.
+// Notifications raised in a dialog belong inside its accessible subtree.
 export function useActiveDialog() {
   return useSyncExternalStore(subscribe, getActiveDialog, () => null);
 }
