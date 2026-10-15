@@ -123,6 +123,24 @@ instead of rendering. A diagram with a dollar sign next to a tag, or text that
 could decode to one such as the color `#036;`, is also refused even when it
 contains no math.
 
+### Finding and navigating documents
+
+- The sidebar's **Recent**, **Drafts** and **Folders** tabs replace the Workspace
+  panel. Recent lists documents opened from any location, Drafts lists the
+  **Bindars Drafts** folder, and Folders browses one folder of your choice and
+  its subfolders. Files stay where they are.
+- **Search documents** (**Cmd+K** on macOS, **Ctrl+K** on Linux) finds words and
+  phrases across those documents and opens the chosen result at the passage.
+- The **Find in Document** button in the header opens the in-document search.
+- **View** zooms the whole interface from 75% to 300%, and the level is
+  remembered between launches.
+- **Cmd/Ctrl +**, **−** and **0** now zoom the whole interface and return it to
+  actual size. Reading text size and **Reset** are in Reader settings.
+- **Find Notes…** reconnects highlights, notes and bookmarks to a document that
+  was renamed or moved outside Bindars.
+- Contents shows **Linked from**, the documents that link to the open document,
+  and **Unlinked mentions**, the documents that name its title without a link.
+
 ## Upgrading
 
 People already using 1.5.x can update without a new format migration.
