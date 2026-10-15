@@ -286,6 +286,7 @@ function App() {
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [currentFileIsDraft, setCurrentFileIsDraft] = useState(false);
   const [editorSessionKey, setEditorSessionKey] = useState(0);
@@ -1537,8 +1538,21 @@ function App() {
 
   const openSearch = useCallback(() => {
     if (!isDocumentOpen(content) || editing || !readerDocumentReady) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const text = selection.toString().trim();
+      const ancestor = range.commonAncestorContainer;
+      const element = ancestor.nodeType === Node.ELEMENT_NODE ? ancestor as Element : ancestor.parentElement;
+      if (mainScrollRef.current?.contains(ancestor)
+        && text.length > 0 && text.length <= 100 && !/[\r\n\u2028\u2029]/.test(text)
+        && !element?.closest(".katex") && !range.cloneContents().querySelector(".katex")) {
+        search.setQuery(text);
+      }
+    }
     setSearchVisible(true);
-  }, [content, editing, readerDocumentReady]);
+    setSearchFocusRequest((request) => request + 1);
+  }, [content, editing, readerDocumentReady, search.setQuery]);
 
   // Reset search when the reader document changes, including identical text in another file.
   const prevSearchDocumentRef = useRef({ content, filePath });
@@ -2652,6 +2666,11 @@ function App() {
     } else if (ctrl && key === "f" && !e.shiftKey) {
       e.preventDefault();
       openSearch();
+    } else if (ctrl && key === "g" && !editing && !target?.closest?.("select")) {
+      e.preventDefault();
+      if (!searchVisible) openSearch();
+      else if (e.shiftKey) search.previous();
+      else search.next();
     } else if (ctrl && key === "p") {
       e.preventDefault();
       if (isDocumentOpen(content) && !editing) {
@@ -2916,6 +2935,7 @@ function App() {
           {!editing && (
             <SearchBar
               visible={searchVisible}
+              focusRequest={searchFocusRequest}
               query={search.query}
               matchCount={search.matchCount}
               currentIndex={search.currentIndex}

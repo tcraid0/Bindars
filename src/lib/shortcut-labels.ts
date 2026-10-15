@@ -29,6 +29,8 @@ const SHORTCUT_DEFINITIONS = {
   focusMode: { modifiers: ["primary", "shift"], key: "F" },
   cycleTheme: { modifiers: ["primary", "shift"], key: "T" },
   searchDocument: { modifiers: ["primary"], key: "F" },
+  findNext: { modifiers: ["primary"], key: "G" },
+  findPrevious: { modifiers: ["primary", "shift"], key: "G" },
   bookmarkHeading: { modifiers: ["primary"], key: "D" },
   toggleAnnotations: { modifiers: ["primary"], key: "M" },
   print: { modifiers: ["primary"], key: "P" },
@@ -83,6 +85,8 @@ export const SHORTCUT_SECTIONS = [
     title: "Reading",
     shortcuts: [
       { id: "searchDocument", label: "Search in document" },
+      { id: "findNext", label: "Find next" },
+      { id: "findPrevious", label: "Find previous" },
       { id: "bookmarkHeading", label: "Bookmark current heading" },
       { id: "toggleAnnotations", label: "Toggle Highlights & notes" },
       { id: "print", label: "Print / export PDF" },

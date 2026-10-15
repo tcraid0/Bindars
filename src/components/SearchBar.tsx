@@ -1,9 +1,10 @@
 import { memo, useRef, useEffect } from "react";
 import { isImeCompositionKey } from "../lib/keyboard";
-import { detectShortcutPlatform } from "../lib/shortcut-labels";
+import { detectShortcutPlatform, isPrimaryModifier } from "../lib/shortcut-labels";
 
 interface SearchBarProps {
   visible: boolean;
+  focusRequest: number;
   query: string;
   matchCount: number;
   currentIndex: number;
@@ -15,6 +16,7 @@ interface SearchBarProps {
 
 function SearchBarComponent({
   visible,
+  focusRequest,
   query,
   matchCount,
   currentIndex,
@@ -31,16 +33,17 @@ function SearchBarComponent({
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [visible]);
+  }, [visible, focusRequest]);
 
   if (!visible) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isImeCompositionKey(e.nativeEvent)) return;
-    if (e.key === "Enter" && e.shiftKey) {
+    const navigate = e.key === "Enter" || (isPrimaryModifier(e) && e.key.toLowerCase() === "g");
+    if (navigate && e.shiftKey) {
       e.preventDefault();
       onPrevious();
-    } else if (e.key === "Enter") {
+    } else if (navigate) {
       e.preventDefault();
       onNext();
     } else if (e.key === "Escape") {
