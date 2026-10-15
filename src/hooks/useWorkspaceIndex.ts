@@ -343,7 +343,15 @@ export function useWorkspaceIndex(
         )
           next.set(meta.path, failedCatalogDocument(meta, draftResult.reason));
         else if (old && sameFileVersion(old, meta))
-          next.set(meta.path, { ...old, ...meta });
+          // The same object when nothing changed, so the search's
+          // per-document cache survives a window-focus recheck.
+          next.set(
+            meta.path,
+            old.relPath === meta.relPath &&
+              old.sources?.join() === meta.sources?.join()
+              ? old
+              : { ...old, ...meta },
+          );
         else {
           next.set(meta.path, discoveredDocument(meta));
           pending.push(meta);

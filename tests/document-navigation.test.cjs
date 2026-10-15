@@ -168,13 +168,23 @@ test("drafts exist outside Recent, sources deduplicate and unchanged reconciliat
     "An old draft",
   );
   const before = reads,
-    checkedAt = view.get().state.indexedAt;
+    checkedAt = view.get().state.indexedAt,
+    parsed = view.get().docs.find((d) => d.path === "/folder/a.md");
   await act(async () => view.get().reconcile());
   await until(() => assert.ok(view.get().state.indexedAt > checkedAt));
   assert.equal(reads, before);
+  // The same object, so caches keyed on identity still hit.
+  assert.equal(
+    view.get().docs.find((d) => d.path === "/folder/a.md"),
+    parsed,
+  );
   folderVersion = 2;
   await act(async () => view.get().reconcile());
   await until(() => assert.equal(reads, before + 1));
+  assert.notEqual(
+    view.get().docs.find((d) => d.path === "/folder/a.md"),
+    parsed,
+  );
 });
 test("confirmed save is searchable immediately and a late read cannot overwrite it", async (t) => {
   const gate = deferred();
