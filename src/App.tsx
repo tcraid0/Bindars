@@ -209,6 +209,7 @@ function App() {
   const workspaceIndex = useWorkspaceIndex(workspaceRoot.rootPath, recentFiles);
   const [searchFolderOnly, setSearchFolderOnly] = useState(false);
   const searchDocs = useMemo(() => searchFolderOnly ? workspaceIndex.docs.filter(doc => doc.sources?.includes("folder")) : workspaceIndex.docs, [workspaceIndex.docs, searchFolderOnly]);
+  const incompleteCount = useMemo(() => searchDocs.filter(doc => doc.coverage !== "ready").length, [searchDocs]);
   const workspaceSearch = useWorkspaceSearch({ docs: searchDocs, recentFiles });
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
 
@@ -2315,6 +2316,20 @@ function App() {
     [guardAction],
   );
 
+  // Memoised so the Contents panel does not re-render on every App render.
+  const connections = useMemo(() => (
+    <div className="navigation-help">
+      <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
+        {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}
+        {!workspaceInsights.backlinks.length && <p>No incoming links in searchable documents.</p>}
+      </details>
+      <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
+        <p>Documents that mention this document’s title without a link.</p>
+        {workspaceInsights.mentions.map(link => <button className="block py-2 break-all" key={link.path} onClick={() => openWorkspacePath(link.path)}>{link.relPath}</button>)}
+      </details>
+    </div>
+  ), [workspaceInsights.backlinks, workspaceInsights.mentions, openWorkspacePath]);
+
   const openWorkspaceHit = useCallback(
     (hit: WorkspaceSearchHit) => {
       guardAction({ kind: "open-workspace-hit", path: hit.path, headingId: hit.headingId, passage: hit.passage });
@@ -3120,16 +3135,7 @@ function App() {
         </div>
 
         <ReaderNavigation
-          connections={<div className="navigation-help">
-            <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
-              {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}
-              {!workspaceInsights.backlinks.length && <p>No incoming links in searchable documents.</p>}
-            </details>
-            <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
-              <p>Documents that mention this document’s title without a link.</p>
-              {workspaceInsights.mentions.map(link => <button className="block py-2 break-all" key={link.path} onClick={() => openWorkspacePath(link.path)}>{link.relPath}</button>)}
-            </details>
-          </div>}
+          connections={connections}
           ref={readerNavigationRef}
           visible={visiblePanels.toc}
           headings={headings}
@@ -3269,7 +3275,7 @@ function App() {
         folderOnly={searchFolderOnly}
         onFolderOnly={setSearchFolderOnly}
         totalDocuments={workspaceSearch.totalDocuments}
-        incompleteCount={searchDocs.filter(doc => doc.coverage !== "ready").length}
+        incompleteCount={incompleteCount}
         onQueryChange={workspaceSearch.setQuery}
         onClose={closeCommandPalette}
         onOpenHit={openWorkspaceHit}

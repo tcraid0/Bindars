@@ -237,9 +237,6 @@ export interface WorkspaceDocIndex extends WorkspaceFileMeta {
   coverage?: "pending" | "ready" | "partial" | "complexity" | "parse-error" | "missing" | "encoding" | "too-large" | "unreadable";
   problem?: string;
   draftLabel?: string;
-  path: string;
-  relPath: string;
-  name: string;
   title: string | null;
   headings: WorkspaceHeading[];
   bodyText: string;

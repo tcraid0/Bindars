@@ -2124,9 +2124,9 @@ body[data-printing] .print-hide {
   }
 }
 
-/* Document navigation stays reachable at native interface zoom and narrow widths. */
+/* Document navigation stays reachable at native interface zoom and narrow widths.
+   The width comes from READER_PANEL_WIDTHS, like the other reader panels. */
 .document-sidebar {
-  width: 280px;
   max-width: 90vw;
   flex-shrink: 0;
   overflow-y: auto;
@@ -2231,7 +2231,7 @@ body[data-printing] .print-hide {
   margin: 0 0.9rem 0.6rem;
 }
 @media (max-width: 700px) {
-  header {
+  .document-header {
     flex-wrap: wrap;
     height: auto !important;
     min-height: 48px;

@@ -34,7 +34,9 @@ export function DocumentList({
               className="document-open"
             >
               <strong>{drafts ? doc.draftLabel || doc.name : doc.name}</strong>
-              {drafts && <span>{doc.name}</span>}
+              {drafts && doc.draftLabel && doc.draftLabel !== doc.name && (
+                <span>{doc.name}</span>
+              )}
               {doc.coverage === "pending" && (
                 <span>Preparing text search…</span>
               )}
@@ -45,10 +47,8 @@ export function DocumentList({
                 </span>
               )}
             </button>
-            <PathDetails
-              path={doc.path}
-              label={drafts ? "Bindars Drafts" : undefined}
-            />
+            {/* Folder rows sit under the folder's own location. */}
+            {drafts && <PathDetails path={doc.path} label="Bindars Drafts" />}
             {doc.problem && (
               <div className="document-problem">
                 <p>{doc.problem}</p>

@@ -192,17 +192,13 @@ export function ReconnectNotesDialog({
       );
       if (alive.current) setComplete(true);
     } catch (error) {
-      if (alive.current)
-        setError(
-          normalizeFileError(
-            error,
-            "Reconnection failed. Original records were preserved.",
-          ).native?.detail ||
-            normalizeFileError(
-              error,
-              "Reconnection failed. Original records were preserved.",
-            ).message,
+      if (alive.current) {
+        const failure = normalizeFileError(
+          error,
+          "Reconnection failed. Original records were preserved.",
         );
+        setError(failure.native?.detail || failure.message);
+      }
     } finally {
       if (alive.current) setBusy(false);
     }

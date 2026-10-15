@@ -8,6 +8,7 @@ import { RecentFiles } from "./RecentFiles";
 import { DocumentList } from "./DocumentList";
 import { PathDetails } from "./PathDetails";
 import { fileName, parentPath } from "../lib/paths";
+import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 
@@ -80,6 +81,7 @@ function SidebarComponent(props: SidebarProps) {
       className="document-sidebar print-hide"
       data-reader-panel="sidebar"
       aria-label="Document navigation"
+      style={{ width: READER_PANEL_WIDTHS.sidebar }}
     >
       <div
         role="tablist"
