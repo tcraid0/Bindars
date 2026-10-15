@@ -5256,7 +5256,7 @@ test("palette input retains arrow selection and Enter activation", async () => {
   } finally { await rendered.cleanup(); }
 });
 
-test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", async () => {
+test("App blocks Search Documents while the Shortcuts dialog is open", async () => {
   const rendered = await renderEditorApp({ startNew: false });
   try {
     const opener = rendered.host.querySelector("button");
@@ -5265,8 +5265,6 @@ test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", 
     const close = document.querySelector('[role="dialog"] button');
     assert.ok(document.activeElement === close);
     dispatchShortcut("k");
-    assert.equal(document.querySelectorAll('[role="dialog"]').length, 2);
-    dispatchElementKey(document.activeElement, "Escape");
     assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
     assert.ok(document.activeElement === close);
     dispatchElementKey(close, "Escape");
@@ -7517,5 +7515,80 @@ test('an unchanged source with an unresolved rendered passage does not claim the
     await waitFor(() => assert.match(view.host.textContent, /couldn't locate this passage in the displayed document/));
     assert.doesNotMatch(view.host.textContent, /passage has changed|entry is being refreshed/);
     assert.equal(view.host.querySelectorAll('mark.search-highlight-active').length, 0);
+  } finally { await view.cleanup(); }
+});
+
+const menuActions = ["new", "open", "search-documents", "save", "copy-document", "print", "find", "find-next", "find-previous", "show-shortcuts"];
+const menuAction = action => act(async () => emit("bindars://menu-action", { action }));
+
+test("menu New, Open, Save and Make a Copy use the existing document operations", async () => {
+  const view = await renderContinuityApp({ sampleFlow: sampleFixture() });
+  try {
+    view.setOpenDialogPath("/tmp/menu.md"); await menuAction("open");
+    await waitFor(() => assert.equal(view.openedPaths().at(-1), "/tmp/menu.md"));
+    await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+    dispatchShortcut("e"); await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    updateEditor(view.host, "# Saved from the menu"); await menuAction("save");
+    await waitFor(() => assert.equal(view.fileWrites().at(-1)?.content, "# Saved from the menu"));
+    dispatchShortcut("e"); await waitFor(() => assert.ok(!view.host.querySelector(".cm-editor")));
+    view.setSaveDialogPath("/tmp/menu-copy.md"); await menuAction("copy-document");
+    await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    assert.match(view.host.textContent, /menu-copy.md/);
+    await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Read mode"]').disabled, false));
+    await menuAction("new");
+    await waitFor(() => assert.equal(findEditorView(view.host).state.doc.toString(), ""));
+    assert.equal(view.draftCreates().length, 0);
+  } finally { await view.cleanup(); }
+});
+
+for (const boundary of ["dialog", "transition", "print"]) {
+  test(`menu document actions are blocked during a held ${boundary}`, async t => {
+    const view = boundary === "print" ? await renderNativePrintApp(t) : await renderContinuityApp();
+    try {
+      const held = deferred();
+      if (boundary === "dialog") await menuAction("show-shortcuts");
+      if (boundary === "transition") {
+        view.setOpenDialogPath("/tmp/held.md"); view.deferNextOpen(held); await menuAction("open");
+        await waitFor(() => assert.ok(held.args));
+      }
+      if (boundary === "print") await menuAction("print");
+      const opened = view.openedPaths(); const writes = view.fileWrites(); const dialogs = view.saveDialogs();
+      const dialog = document.querySelector('[role="dialog"]');
+      for (let pass = 0; pass < 2; pass++) {
+        for (const action of menuActions) await menuAction(action);
+        assert.deepEqual(view.openedPaths(), opened); assert.deepEqual(view.fileWrites(), writes);
+        assert.deepEqual(view.saveDialogs(), dialogs);
+        assert.ok(document.querySelector('[role="dialog"]') === dialog);
+        assert.ok(!view.host.querySelector('.cm-editor, .search-bar'));
+        if (boundary === "print" && pass === 0) await act(async () => view.pending[0].resolve());
+      }
+      if (boundary === "transition") {
+        await act(async () => held.resolve({ ...view.openResult(), canonicalPath: "/tmp/held.md", name: "held.md" }));
+        await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+        await menuAction("find"); assert.ok(view.host.querySelector(".search-bar"));
+      }
+      if (boundary === "print") assert.equal(view.pending.length, 1);
+    } finally { if (boundary !== "print") await view.cleanup(); }
+  });
+}
+
+test("menu Open waits for a held save and preserves a failed save when cancelled", async () => {
+  const view = await renderContinuityApp();
+  try {
+    dispatchShortcut("e"); await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    updateEditor(view.host, "# Menu unsaved");
+    const held = deferred(); view.deferNextWrite(held);
+    view.setOpenDialogPath("/tmp/next-menu.md"); await menuAction("open");
+    await waitFor(() => assert.ok(held.args));
+    const before = view.openedPaths();
+    for (const action of menuActions) await menuAction(action);
+    assert.deepEqual(view.openedPaths(), before);
+    await act(async () => held.reject(new Error("Save refused")));
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail("missing save decision"));
+    for (const action of menuActions) await menuAction(action);
+    assert.ok(document.querySelector('[role="dialog"]') === dialog);
+    dispatchWindowKey("Escape");
+    assert.equal(findEditorView(view.host).state.doc.toString(), "# Menu unsaved");
+    assert.deepEqual(view.openedPaths(), before);
   } finally { await view.cleanup(); }
 });

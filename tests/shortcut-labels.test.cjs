@@ -187,6 +187,8 @@ test("visible shortcut components render macOS labels consistently", () => {
   const markup = renderPlatformLabels({ platform: "MacIntel" });
 
   assert.match(markup, /⌘N/);
+  assert.doesNotMatch(markup, /⌘\?|Keyboard Shortcuts \(\)|<kbd[^>]*><\/kbd>/);
+  assert.match(markup, /title="Keyboard Shortcuts"/);
   assert.match(markup, /⌥⌘M/);
   assert.match(markup, /⇧⌘T/);
   assert.match(markup, /⌥←/);
@@ -199,6 +201,7 @@ test("visible shortcut components preserve Windows and Linux labels", () => {
   const markup = renderPlatformLabels({ platform: "Linux x86_64" });
 
   assert.match(markup, /Ctrl\+N/);
+  assert.match(markup, /Keyboard Shortcuts \(Ctrl\+\?\)/);
   assert.match(markup, /Ctrl\+Alt\+M/);
   assert.match(markup, /Ctrl\+Shift\+T/);
   assert.match(markup, /Alt\+←/);

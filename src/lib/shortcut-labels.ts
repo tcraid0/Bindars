@@ -13,6 +13,7 @@ type ShortcutModifier = "primary" | "alt" | "shift";
 interface ShortcutDefinition {
   readonly modifiers: readonly ShortcutModifier[];
   readonly key: string;
+  readonly hideOnMac?: boolean;
 }
 
 const SHORTCUT_DEFINITIONS = {
@@ -41,7 +42,7 @@ const SHORTCUT_DEFINITIONS = {
   saveFile: { modifiers: ["primary"], key: "S" },
   toggleMarkdownFormatting: { modifiers: ["primary", "alt"], key: "M" },
   escape: { modifiers: [], key: "Esc" },
-  showShortcuts: { modifiers: ["primary"], key: "?" },
+  showShortcuts: { modifiers: ["primary"], key: "?", hideOnMac: true },
   presentation: { modifiers: [], key: "F5" },
   enter: { modifiers: [], key: "Enter" },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -168,6 +169,7 @@ function formatShortcut(
   definition: ShortcutDefinition,
   platform: ShortcutPlatform,
 ): string {
+  if (platform === "macos" && definition.hideOnMac) return "";
   const separator = platform === "macos" ? "" : "+";
   const modifiers = MODIFIER_DISPLAY_ORDER[platform]
     .filter((modifier) => definition.modifiers.includes(modifier))

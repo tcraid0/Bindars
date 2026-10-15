@@ -450,7 +450,7 @@ fn is_predefined_quit_text(text: &str) -> bool {
 pub(crate) fn default_menu_with_guarded_quit(
     app: &tauri::AppHandle,
 ) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{MenuItem, MenuItemKind};
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 
     let menu = tauri::menu::Menu::default(app)?;
     let app_submenu = menu.items()?.into_iter().find_map(|item| match item {
@@ -490,32 +490,93 @@ pub(crate) fn default_menu_with_guarded_quit(
         MenuItem::with_id(app, QUIT_MENU_ITEM_ID, quit_text, true, Some("CmdOrCtrl+Q"))?;
     app_submenu.append(&quit_item)?;
 
-    let zoom_in = MenuItem::with_id(app, "interface-zoom-in", "Zoom In", true, None::<&str>)?;
-    let zoom_out = MenuItem::with_id(app, "interface-zoom-out", "Zoom Out", true, None::<&str>)?;
-    let zoom_reset = MenuItem::with_id(
+    menu.remove(&app_submenu)?;
+    let action = |id, text| MenuItem::with_id(app, id, text, true, None::<&str>);
+    Menu::with_items(
         app,
-        "interface-zoom-reset",
-        "Actual Size",
-        true,
-        None::<&str>,
-    )?;
-    let view = menu.items()?.into_iter().find_map(|item| match item {
-        MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("View") => {
-            Some(submenu)
-        }
+        &[
+            &app_submenu,
+            &Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[
+                    &action("new", "New File")?,
+                    &action("open", "Open…")?,
+                    &action("search-documents", "Search Documents…")?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &action("save", "Save")?,
+                    &action("copy-document", "Make a Copy…")?,
+                    &action("print", "Print…")?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &Submenu::with_items(
+                        app,
+                        "Find",
+                        true,
+                        &[
+                            &action("find", "Find in Document…")?,
+                            &action("find-next", "Find Next")?,
+                            &action("find-previous", "Find Previous")?,
+                        ],
+                    )?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[
+                    &action("interface-zoom-in", "Zoom In")?,
+                    &action("interface-zoom-out", "Zoom Out")?,
+                    &action("interface-zoom-reset", "Actual Size")?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::fullscreen(app, None)?,
+                ],
+            )?,
+            &Submenu::with_id_and_items(
+                app,
+                tauri::menu::WINDOW_SUBMENU_ID,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                ],
+            )?,
+            &Submenu::with_id_and_items(
+                app,
+                tauri::menu::HELP_SUBMENU_ID,
+                "Help",
+                true,
+                &[&action("show-shortcuts", "Keyboard Shortcuts")?],
+            )?,
+        ],
+    )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn menu_action(id: &str) -> Option<&str> {
+    match id {
+        "new" | "open" | "search-documents" | "save" | "copy-document" | "print" | "find"
+        | "find-next" | "find-previous" | "show-shortcuts" => Some(id),
         _ => None,
-    });
-    if let Some(view) = view {
-        view.append_items(&[&zoom_in, &zoom_out, &zoom_reset])?;
-    } else {
-        menu.append(&tauri::menu::Submenu::with_items(
-            app,
-            "View",
-            true,
-            &[&zoom_in, &zoom_out, &zoom_reset],
-        )?)?;
     }
-    Ok(menu)
 }
 
 /// Forwards the custom Quit menu item to the frontend guard. The window is
@@ -532,6 +593,14 @@ pub(crate) fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu
     };
     if let Some(direction) = zoom {
         let _ = app.emit_to("main", "bindars://interface-zoom", direction);
+        return;
+    }
+    if let Some(action) = menu_action(event.id().as_ref()) {
+        let _ = app.emit_to(
+            "main",
+            "bindars://menu-action",
+            serde_json::json!({ "action": action }),
+        );
         return;
     }
     if event.id() != QUIT_MENU_ITEM_ID {
@@ -556,6 +625,40 @@ pub(crate) fn exit_after_guarded_quit(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn document_menu_actions_exclude_native_edit_zoom_and_quit() {
+        for action in [
+            "new",
+            "open",
+            "search-documents",
+            "save",
+            "copy-document",
+            "print",
+            "find",
+            "find-next",
+            "find-previous",
+            "show-shortcuts",
+        ] {
+            assert_eq!(super::menu_action(action), Some(action));
+        }
+        for native in [
+            "undo",
+            "redo",
+            "cut",
+            "copy",
+            "paste",
+            "select-all",
+            "close",
+            "quit",
+            "interface-zoom-in",
+            "interface-zoom-out",
+            "interface-zoom-reset",
+            "unknown",
+        ] {
+            assert_eq!(super::menu_action(native), None);
+        }
+    }
+
     #[cfg(target_os = "macos")]
     use super::first_supported_opened_path;
     #[cfg(target_os = "macos")]

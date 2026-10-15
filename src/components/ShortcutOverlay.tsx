@@ -47,9 +47,9 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
             {section.shortcuts.map((shortcut) => (
               <div key={shortcut.id} className="flex items-center justify-between py-0.5">
                 <span className="text-sm text-text-secondary">{shortcut.label}</span>
-                <kbd className="shortcut-kbd px-2 py-0.5 rounded bg-bg-tertiary text-xs font-mono text-text-primary border-b-2 border-border">
+                {formatShortcutLabel(shortcut.id) && <kbd className="shortcut-kbd px-2 py-0.5 rounded bg-bg-tertiary text-xs font-mono text-text-primary border-b-2 border-border">
                   {formatShortcutLabel(shortcut.id)}
-                </kbd>
+                </kbd>}
               </div>
             ))}
           </div>

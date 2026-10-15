@@ -43,7 +43,7 @@ async function reader(t) {
   const view = createAppView({ ipc, strictMode: true });
   view.render();
   t.after(async () => {
-    await view.cleanup();
+    if (view.host.isConnected) await view.cleanup();
     window.getSelection().removeAllRanges();
     clearMocks();
   });
@@ -280,3 +280,42 @@ for (const [platform, modifier] of [["MacIntel", "metaKey"], ["Linux x86_64", "c
     assert.ok(view.host.querySelector('[data-reader-panel="notes"]'));
   });
 }
+
+const menu = action => act(async () => emit("bindars://menu-action", { action }));
+test("menu Find routes to the current reader or editor and next/previous keep their search", async t => {
+  const view = await reader(t);
+  await menu("find"); query(view.field(), "alpha");
+  await waitFor(() => assert.match(view.host.textContent, /1 of 3/));
+  await menu("find-next"); assert.match(view.host.textContent, /2 of 3/);
+  await menu("find-previous"); assert.match(view.host.textContent, /1 of 3/);
+  view.main.focus(); pressKey("e", { ctrlKey: true });
+  await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+  await menu("find");
+  const field = view.host.querySelector('.cm-search input[name="search"]'); assert.ok(field);
+  query(field, "alpha"); flushSync(() => field.dispatchEvent(new Event("change", { bubbles: true })));
+  await menu("find-next");
+  const editor = findEditorView(view.host); const first = editor.state.selection.main.from;
+  await menu("find-next"); assert.ok(editor.state.selection.main.from > first);
+  await menu("find-previous"); assert.equal(editor.state.selection.main.from, first);
+  assert.ok(!view.field());
+});
+
+test("menu Help and Search open their dialogs, Mac question-mark stays native, and teardown detaches", async t => {
+  const events = require("@tauri-apps/api/event");
+  const listen = events.listen; let attached = 0; let detached = 0;
+  t.mock.method(events, "listen", (name, ...args) => {
+    const subscription = listen(name, ...args);
+    if (name !== "bindars://menu-action") return subscription;
+    attached++;
+    return subscription.then(unlisten => () => { detached++; return unlisten(); });
+  });
+  const view = await reader(t);
+  assert.equal(withShortcutPlatform("MacIntel", () => pressKey("?", { metaKey: true })).defaultPrevented, false);
+  await menu("show-shortcuts"); assert.match(document.querySelector('[role="dialog"]').textContent, /Keyboard Shortcuts/);
+  pressKey("Escape");
+  await menu("search-documents"); assert.ok(document.querySelector(".command-palette-shell"));
+  pressKey("Escape");
+  await view.cleanup();
+  assert.ok(attached > 0); assert.equal(detached, attached);
+  assert.ok(!document.querySelector('[role="dialog"]'));
+});

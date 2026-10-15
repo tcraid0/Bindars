@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { search, searchKeymap, searchPanelOpen } from "@codemirror/search";
+import { search, searchKeymap, searchPanelOpen, openSearchPanel, findNext, findPrevious } from "@codemirror/search";
 import {
   EditorSelection,
   EditorState,
@@ -27,6 +27,9 @@ const editorDefaultKeymap = defaultKeymap.filter((binding) => binding.key !== "E
 
 export interface CodeMirrorEditorHandle {
   focus: () => void;
+  find: () => void;
+  findNext: () => void;
+  findPrevious: () => void;
   flushPendingChanges: () => boolean | null;
   capturePosition: () => EditorSurfacePosition | null;
   adoptExternalDocument: (capturedDocument: string, externalDocument: string) => boolean;
@@ -297,6 +300,9 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
 
     useImperativeHandle(ref, () => ({
       focus: () => viewRef.current?.focus(),
+      find: () => { if (viewRef.current) openSearchPanel(viewRef.current); },
+      findNext: () => { if (viewRef.current) findNext(viewRef.current); },
+      findPrevious: () => { if (viewRef.current) findPrevious(viewRef.current); },
       flushPendingChanges: () => publishRef.current?.() ?? null,
       adoptExternalDocument: (capturedDocument, externalDocument) => (
         adoptExternalDocumentRef.current(capturedDocument, externalDocument)

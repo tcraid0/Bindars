@@ -8,6 +8,7 @@ import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { documentDir, homeDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getActiveDialog } from "./components/DialogFrame";
@@ -106,6 +107,9 @@ import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, is
 import type { TextAnchor } from "./lib/text-anchoring";
 import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
+
+type MenuAction = "new" | "open" | "search-documents" | "save" | "copy-document" | "print"
+  | "find" | "find-next" | "find-previous" | "show-shortcuts";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -2558,6 +2562,46 @@ function App() {
     onUnsupportedDrop: handleUnsupportedDrop,
   });
 
+  const dispatchMenuAction = (action: MenuAction) => {
+    if (getActiveDialog() || printPhase !== null || isPrintInvoked() || documentTransitionInFlightRef.current
+      || boundaryFlushInFlightRef.current || showConfirmDialogRef.current || showConflictDialogRef.current
+      || loading || presentationMode) return;
+    switch (action) {
+      case "new": guardedNewFile(); break;
+      case "open": guardedOpenFile(); break;
+      case "search-documents": openCommandPalette(); break;
+      case "save": if (editing) handleSave(); break;
+      case "copy-document": if (documentOpen) guardAction({ kind: "copy-document" }); break;
+      case "print": if (documentOpen && !editing) handlePrint(); break;
+      case "find":
+        if (editing) editorSurfaceRef.current?.find();
+        else openSearch();
+        break;
+      case "find-next":
+      case "find-previous":
+        if (editing) {
+          if (action === "find-next") editorSurfaceRef.current?.findNext();
+          else editorSurfaceRef.current?.findPrevious();
+        } else if (!searchVisible) openSearch();
+        else if (action === "find-next") search.next();
+        else search.previous();
+        break;
+      case "show-shortcuts": setShortcutsVisible(true); break;
+    }
+  };
+  const menuActionRef = useRef(dispatchMenuAction);
+  menuActionRef.current = dispatchMenuAction;
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = listen<{ action: MenuAction }>("bindars://menu-action", event => {
+      if (active) menuActionRef.current(event.payload.action);
+    }).catch(() => () => {});
+    return () => {
+      active = false;
+      void unsubscribe.then(fn => fn()).catch(() => {});
+    };
+  }, []);
+
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent) => {
     if (e.defaultPrevented || getActiveDialog()?.dataset.appShortcuts === "blocked") return;
@@ -2619,7 +2663,7 @@ function App() {
       if (commandPaletteVisible) {
         closeCommandPalette();
       } else {
-        openCommandPalette();
+        dispatchMenuAction("search-documents");
       }
       return;
     }
@@ -2657,21 +2701,21 @@ function App() {
     // Ctrl+N: create a document (must run before inInput bail-out)
     if (ctrl && key === "n") {
       e.preventDefault();
-      guardedNewFile();
+      dispatchMenuAction("new");
       return;
     }
 
     // Ctrl+O: open a file (must run before the editor input bail-out)
     if (ctrl && key === "o") {
       e.preventDefault();
-      guardedOpenFile();
+      dispatchMenuAction("open");
       return;
     }
 
     // Ctrl+S: save in edit mode (must run before inInput bail-out)
     if (ctrl && key === "s") {
       e.preventDefault();
-      if (editing) handleSave();
+      dispatchMenuAction("save");
       return;
     }
 
@@ -2721,7 +2765,7 @@ function App() {
     if (inInput) return;
 
     if (shortcutsVisible) {
-      if (e.key === "?" && ctrl && !e.altKey) {
+      if (e.key === "?" && ctrl && !e.altKey && formatShortcutLabel("showShortcuts")) {
         e.preventDefault();
         closeShortcuts();
       }
@@ -2742,17 +2786,13 @@ function App() {
       if (documentOpen && !editing) toggleAnnotationsPanel();
     } else if (ctrl && key === "f" && !e.shiftKey) {
       e.preventDefault();
-      openSearch();
+      dispatchMenuAction("find");
     } else if (ctrl && key === "g" && !editing && !target?.closest?.("select")) {
       e.preventDefault();
-      if (!searchVisible) openSearch();
-      else if (e.shiftKey) search.previous();
-      else search.next();
+      dispatchMenuAction(e.shiftKey ? "find-previous" : "find-next");
     } else if (ctrl && key === "p") {
       e.preventDefault();
-      if (isDocumentOpen(content) && !editing) {
-        handlePrint();
-      }
+      dispatchMenuAction("print");
     } else if (key === "escape" && searchVisible) {
       e.preventDefault();
       closeSearch();
@@ -2804,9 +2844,9 @@ function App() {
     } else if (e.altKey && key === "arrowdown" && !ctrl && !e.shiftKey) {
       e.preventDefault();
       navigateScene(1);
-    } else if (e.key === "?" && ctrl && !e.altKey) {
+    } else if (e.key === "?" && ctrl && !e.altKey && formatShortcutLabel("showShortcuts")) {
       e.preventDefault();
-      setShortcutsVisible((v) => !v);
+      dispatchMenuAction("show-shortcuts");
     } else if (key === "f5") {
       e.preventDefault();
       if (isDocumentOpen(content) && !editing && !focusMode && fileType !== "fountain") {

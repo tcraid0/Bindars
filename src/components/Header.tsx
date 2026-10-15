@@ -492,7 +492,7 @@ function HeaderComponent({
           onClick={onShowShortcuts}
           aria-label="Keyboard Shortcuts"
           className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title={`Keyboard Shortcuts (${formatShortcutLabel("showShortcuts")})`}
+          title={`Keyboard Shortcuts${formatShortcutLabel("showShortcuts") ? ` (${formatShortcutLabel("showShortcuts")})` : ""}`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 1.5-2.5 3M12 16h.01" />
