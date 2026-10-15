@@ -130,12 +130,15 @@ contains no math.
   **Bindars Drafts** folder, and Folders browses one folder of your choice and
   its subfolders. Files stay where they are.
 - **Search documents** (**Cmd+K** on macOS, **Ctrl+K** on Linux) finds words and
-  phrases across those documents and opens the chosen result at the passage.
+  phrases across those documents. Choosing a passage result opens the document
+  at that passage.
 - The **Find in Document** button in the header opens the in-document search.
 - **View** zooms the whole interface from 75% to 300%, and the level is
   remembered between launches.
-- **Cmd/Ctrl +**, **−** and **0** now zoom the whole interface and return it to
-  actual size. Reading text size and **Reset** are in Reader settings.
+- **Cmd+plus**, **Cmd+minus** and **Cmd+0** on macOS, or **Ctrl+plus**,
+  **Ctrl+minus** and **Ctrl+0** on Linux, now zoom the whole interface and
+  return it to actual size. Reading text size and **Reset** are in Reader
+  Settings.
 - **Find Notes…** reconnects highlights, notes and bookmarks to a document that
   was renamed or moved outside Bindars.
 - Contents shows **Linked from**, the documents that link to the open document,

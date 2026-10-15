@@ -137,6 +137,12 @@ Adding or removing the optional browsing folder changes no document, annotation,
 or autosave destination. Existing `workspace:root` preferences and their legacy
 local-storage fallback continue to identify this one folder without conversion.
 
+On macOS, Drafts isn't listed until Bindars has saved a draft or **Show existing
+drafts** has found one, so launching doesn't ask for access to Documents. An
+empty `drafts-created` file in `~/Library/Application Support/io.github.tcraid0.bindars/`
+records this. It holds no document text or paths, and deleting it makes Drafts
+wait again. It is separate from the macOS permission to access Documents.
+
 Derived search data is stored separately in `document-search-v1.json` in the
 per-user app-cache directory, bounded to 8 MiB on disk. It contains document
 paths, names, headings, extracted prose excerpts and document links as ordinary,
