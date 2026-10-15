@@ -6,11 +6,12 @@ interface ReadingHintProps {
   onDismiss: () => void;
   readerRef: RefObject<HTMLElement | null>;
   settings: ReaderSettings;
+  hiddenForSearch?: boolean;
 }
 
-export function ReadingHint({ onDismiss, readerRef, settings }: ReadingHintProps) {
+export function ReadingHint({ onDismiss, readerRef, settings, hiddenForSearch }: ReadingHintProps) {
   return (
-    <div className="reading-hint print-hide w-full shrink-0 flex items-center gap-3 text-xs text-text-muted border-b border-border"
+    <div className={`reading-hint print-hide w-full shrink-0 flex items-center gap-3 text-xs text-text-muted border-b border-border${hiddenForSearch ? " invisible" : ""}`}
       style={{ maxWidth: settings.contentWidth * CONTENT_WIDTH_EM_PER_UNIT * settings.fontSize }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="m9 11 8-8 4 4-8 8-4-4Z" /><path d="m9 11-4 4 4 4 4-4M5 19l-2 2h6" />

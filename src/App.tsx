@@ -3025,7 +3025,7 @@ function App() {
           <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
             {readingHintVisible && readerDocumentReady && !editing && filePath
               && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
-              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} />
+              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}
