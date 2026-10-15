@@ -45,6 +45,7 @@
     "src/lib/document-state.ts",
     "src/lib/editor-save.ts",
     "src/lib/keyboard.ts",
+    "src/lib/context-menu.ts",
     "src/lib/shortcut-labels.ts",
     "src/lib/edit-navigation.ts",
     "src/lib/frontmatter.ts",
