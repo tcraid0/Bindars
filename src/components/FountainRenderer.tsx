@@ -229,6 +229,7 @@ function FountainElement({
           data-bindars-source-column={sourceColumn}
         >
           {text}
+          {token.scene_number && " "}
           {token.scene_number && (
             <span className="fountain-scene-number">
               {token.scene_number}

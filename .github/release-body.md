@@ -49,6 +49,9 @@ It introduces no new document, settings, or annotation format.
   assistive technology.
 - Highlight actions follow the selected passage when scrolling and stay below
   the document header.
+- Fountain scene numbers have a separating space in Contents and copied text.
+  Existing highlights near numbered scene headings may show **Location uncertain**
+  after updating; the saved highlights and their notes are retained.
 - Markdown lists continue on Enter in both Styled and Plain formatting modes.
   Enter on an empty list item ends the list. Fountain editing is unchanged.
 - Canceling a folder picker no longer interferes with loading the saved folder,
