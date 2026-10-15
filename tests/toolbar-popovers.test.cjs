@@ -146,6 +146,22 @@ for (const { platform, label, failureMessage } of [
   }
 }
 
+test("brand: the toolbar shows the app symbol, named Bindars but never focusable", async () => {
+  const view = await setup();
+  try {
+    const art = [...view.host.querySelectorAll("header svg")].filter((svg) => svg.querySelector("use"));
+    assert.deepEqual(art.map((svg) => svg.querySelector("use").getAttribute("href")), ["#bindars-symbol"]);
+    assert.equal(art[0].getAttribute("aria-hidden"), "true");
+    const brand = art[0].parentElement;
+    assert.equal(brand.textContent, "Bindars", "screen readers still get the app's name");
+    const focusable = "button, a, [tabindex]";
+    assert.ok(!brand.matches(focusable) && !brand.querySelector(focusable), "the brand is never a focus stop");
+    // src/main.tsx glides the startup mark to the first marked symbol, and the header comes
+    // before the welcome screen, so the toolbar must not carry the welcome symbol's markers.
+    assert.equal(view.host.querySelectorAll("header [data-startup-mark-target], header [data-startup-mark-passes]").length, 0);
+  } finally { view.cleanup(); }
+});
+
 for (const fileType of ["markdown", "fountain"]) {
   test(`Read/Edit buttons expose the current ${fileType} mode and only request a different mode`, async () => {
     let toggles = 0;

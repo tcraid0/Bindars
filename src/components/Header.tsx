@@ -142,7 +142,7 @@ function HeaderComponent({
       style={{ height: "var(--header-height, 52px)" }}
       data-tauri-drag-region
     >
-      {/* Left: sidebar toggle, back/forward, wordmark */}
+      {/* Left: sidebar toggle, back/forward, app symbol */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
@@ -182,8 +182,11 @@ function HeaderComponent({
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </button>
-        <span className="font-ui font-semibold text-[15px] text-text-primary tracking-tight ml-2">
-          Bindars
+        {/* The app's symbol: decorative, but still named for screen readers. The wider
+            margin keeps it from reading as another navigation button. */}
+        <span className="flex ml-3">
+          <svg className="size-5 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
+          <span className="sr-only">Bindars</span>
         </span>
       </div>
 

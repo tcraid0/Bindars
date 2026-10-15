@@ -14,10 +14,11 @@ the same delivery. Its 7 paths are unchanged. The `viewBox` is cropped to the
 wordmark, and its navy (`#0841B4`) is set once on the root element instead of
 on each path, so the app can draw it in another colour.
 
-The startup screen in `index.html` and the welcome screen in
-`src/components/EmptyState.tsx` also show this artwork. Vite inlines both
-artwork files into the sprite in `index.html` at build time, so the startup mark
-appears in the first frame and the welcome screen loads no images. Their
+The startup screen in `index.html`, the welcome screen in
+`src/components/EmptyState.tsx` and the toolbar in `src/components/Header.tsx`
+(the symbol alone, at 20 px) also show this artwork. Vite inlines both artwork
+files into the sprite in `index.html` at build time, so the startup mark appears
+in the first frame and the welcome screen and toolbar load no images. Their
 `viewBox` values there are the artwork's bounds, so update them if the
 artwork's geometry changes. The welcome screen draws the wordmark in navy on
 Light and Sepia, and in `#C9DFFF`, a pale tint of the front page's blue, on
