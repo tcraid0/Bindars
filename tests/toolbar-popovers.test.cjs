@@ -532,3 +532,18 @@ test("reader: values announce only real changes, reset coalesces, and selected g
     assert.equal(view.open("reader").querySelector('[role="status"]').textContent, "");
   } finally { view.cleanup(); }
 });
+
+test('View zoom controls share toolbar Escape dismissal and restore their trigger', async () => {
+  const directions = [];
+  const view = await setup({zoom:2,onZoom:direction => directions.push(direction)});
+  try {
+    const trigger = buttonWithText(view.host, 'View'); focus(trigger); click(trigger);
+    const panel = view.host.querySelector('[aria-label="Interface zoom"]');
+    assert.match(panel.textContent, /200%/);
+    const reset = buttonWithText(panel, 'Actual Size'); focus(reset); click(reset);
+    assert.deepEqual(directions, [0]);
+    pressKey('Escape');
+    assert.ok(document.activeElement === trigger);
+    assert.ok(view.host.querySelector('[aria-label="Interface zoom"]') === null);
+  } finally { view.cleanup(); }
+});

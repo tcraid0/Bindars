@@ -9,6 +9,10 @@ import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
 interface HeaderProps {
+  onFind?: () => void;
+  onSearchDocuments?: () => void;
+  zoom?: number;
+  onZoom?: (direction: number) => void;
   fileName: string | null;
   filePath: string | null;
   theme: Theme;
@@ -57,6 +61,7 @@ const themeLabels: Record<Theme, string> = {
 };
 
 function HeaderComponent({
+  onFind, onSearchDocuments, zoom = 1, onZoom,
   fileName,
   filePath,
   theme,
@@ -104,6 +109,11 @@ function HeaderComponent({
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
   const exportPanelRef = useRef<HTMLDivElement>(null);
   const exportId = useId();
+  const [viewOpen, setViewOpen] = useState(false);
+  const viewTriggerRef = useRef<HTMLButtonElement>(null);
+  const viewPanelRef = useRef<HTMLDivElement>(null);
+  const viewId = useId();
+  useDismissiblePopover({ open: viewOpen, triggerRef: viewTriggerRef, panelRef: viewPanelRef, onClose: () => setViewOpen(false) });
   const dismissExport = useDismissiblePopover({
     open: exportOpen && Boolean(fileName) && !isEditing,
     triggerRef: exportTriggerRef,
@@ -409,6 +419,18 @@ function HeaderComponent({
             </>
           )}
         </div>}
+        <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
+        {fileName && !isEditing && <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        <div className="relative text-sm">
+          <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
+            className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
+          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
+            <p>Interface: {Math.round(zoom * 100)}%</p>
+            <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
+            <button className="block p-2" onClick={() => onZoom?.(-1)}>Zoom Out</button>
+            <button className="block p-2" onClick={() => onZoom?.(0)}>Actual Size</button>
+          </div>}
+        </div>
         <button
           type="button"
           onClick={onToggleReaderControls}

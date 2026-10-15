@@ -26,9 +26,18 @@ impl Settings {
     /// Adopts the checked contents of `path`, unless settings are already
     /// loaded: the live cache may hold newer values, including one whose
     /// write failed, and a reread of the disk must not replace them.
-    pub(crate) fn load(&self, path: &Path, values: Map<String, Value>) {
+    pub(crate) fn load(&self, path: &Path, mut values: Map<String, Value>) {
         let mut loaded = self.lock();
         if loaded.is_none() {
+            // Derived search snapshots are disposable. Never rewrite them with
+            // ordinary preferences, even if deleting the legacy copy fails.
+            let before = values.len();
+            values.retain(|key, _| !key.starts_with("workspace:index:v"));
+            if before != values.len() {
+                if let Ok(content) = serde_json::to_string_pretty(&values) {
+                    let _ = write_contents_atomic_private(path, &content, ".bindars-settings");
+                }
+            }
             *loaded = Some(LoadedSettings {
                 path: path.to_path_buf(),
                 values,
@@ -118,6 +127,24 @@ mod tests {
         let settings = Settings::default();
         settings.load(path, values.as_object().cloned().unwrap());
         settings
+    }
+
+    #[test]
+    fn legacy_search_cache_is_removed_without_resetting_folder_or_preferences() {
+        let (root, path) = fixture();
+        let values = json!({"workspace:root":"/notes", "workspace:index:v8":{"body":"large derived cache"},"theme":"dark","reader-settings":{"reducedEffects":true},"session":{"filePath":"/a.md"}});
+        fs::write(&path, serde_json::to_vec(&values).unwrap()).unwrap();
+        let settings = loaded(&path, values);
+        assert_eq!(settings.get("workspace:index:v8").unwrap(), None);
+        settings
+            .set("reading-position".into(), json!("heading"))
+            .unwrap();
+        let saved = on_disk(&path);
+        assert_eq!(saved["workspace:root"], "/notes");
+        assert_eq!(saved["theme"], "dark");
+        assert_eq!(saved["reader-settings"]["reducedEffects"], true);
+        assert!(saved.get("workspace:index:v8").is_none());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

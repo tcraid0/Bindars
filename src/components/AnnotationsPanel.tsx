@@ -14,6 +14,7 @@ import { isImeCompositionKey } from "../lib/keyboard";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 
 interface AnnotationsPanelProps {
+  onFindNotes?: () => void;
   visible: boolean;
   filePath?: string | null;
   onRestoreRecord?: (record: unknown) => void;
@@ -43,7 +44,7 @@ interface AnnotationsPanelProps {
 }
 
 export const AnnotationsPanel = memo(function AnnotationsPanel({
-  visible,
+  visible, onFindNotes,
   saving, mutationsDisabled, dataWarning, locations, onRemoveBookmark, flushNoteRef, startNoteRef, filePath, onRestoreRecord,
   annotationStatus,
   annotationsReady,
@@ -267,6 +268,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
         onCancel={finishRecovery} onDismiss={finishRecovery} />
       {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving highlights and notes...</p>}
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
+      <button className="navigation-action" onClick={onFindNotes}>Find Notes…</button>
       {loadError && (
         <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{loadError}</p>

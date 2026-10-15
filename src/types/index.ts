@@ -166,18 +166,20 @@ export type WorkspaceStatus = "idle" | "indexing" | "ready" | "error";
 export interface WorkspaceState {
   rootPath: string | null;
   status: WorkspaceStatus;
-  fileCount: number;
-  processedCount: number;
-  indexedCount: number;
   indexedAt: number | null;
   error: string | null;
-  listSkippedCount: number;
   readFailedCount: number;
   complexitySkippedCount: number;
   limitHit: boolean;
+  directories?: string[];
+  issues?: string[];
+  draftsError?: string | null;
 }
 
 export interface WorkspaceFileMeta {
+  size?: number;
+  mtimeMs?: number;
+  sources?: ("recent" | "draft" | "folder")[];
   path: string;
   relPath: string;
   name: string;
@@ -230,7 +232,10 @@ export interface ScriptStats {
   characters: ScriptCharacterStats[];
 }
 
-export interface WorkspaceDocIndex {
+export interface WorkspaceDocIndex extends WorkspaceFileMeta {
+  coverage?: "pending" | "ready" | "partial" | "complexity" | "parse-error" | "missing" | "encoding" | "too-large" | "unreadable";
+  problem?: string;
+  draftLabel?: string;
   path: string;
   relPath: string;
   name: string;
@@ -241,7 +246,25 @@ export interface WorkspaceDocIndex {
   scenes: SceneItem[];
 }
 
+export interface SearchPassage {
+  findQuery?: string;
+  phrase: string;
+  block: string;
+  blockPrefix?: boolean;
+  blockOccurrence: number;
+  matchOccurrence: number;
+  fingerprint: string;
+  snippet: string;
+}
+
 export interface WorkspaceSearchHit {
+  name?: string;
+  title?: string | null;
+  problem?: string;
+  passages?: SearchPassage[];
+  passage?: SearchPassage;
+  passageCount?: number;
+
   path: string;
   relPath: string;
   kind: "title" | "heading" | "content";

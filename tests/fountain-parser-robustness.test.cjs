@@ -48,7 +48,7 @@ for (const [name, source] of Object.entries(hostileCases)) {
       assert.ok(indexed.doc.bodyText.length > 0, 'Search text is not empty');
       if (${name.startsWith("transition")}) {
         assert.ok(html.includes('bob'));
-        assert.equal(indexed.doc.bodyText, source.replace(/\s+/g, ' ').trim());
+        assert.equal(indexed.doc.bodyText, parsed.tokens.map(token => token.text.replace(/\s+/g, ' ').trim()).join('\n'));
       }
       process.stdout.write('ok');
     `], { input: source, timeout: CHILD_PROCESS_LIMIT_MS, killSignal: "SIGKILL", encoding: "utf8" });

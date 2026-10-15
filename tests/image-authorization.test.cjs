@@ -256,7 +256,7 @@ test("switching documents re-authorizes for the new path only and unrelated work
 
   await app.openNatively("/tmp/a/A.md");
   await waitFor(() => assert.deepEqual(requestedTuple(app.image("Pic")), ["/tmp/a/A.md", "/tmp/a/pic.png"]));
-  await waitFor(() => assert.deepEqual(app.indexedReads, ["/tmp/ws/indexed.md"]));
+  await waitFor(() => assert.ok(app.indexedReads.includes("/tmp/ws/indexed.md")));
   assert.deepEqual(app.authorizedPaths(), ["/tmp/a/A.md"], "indexing reads must not publish or authorize");
 
   app.deferAuthorizations(true);

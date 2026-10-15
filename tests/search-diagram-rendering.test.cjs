@@ -51,3 +51,54 @@ test('Mermaid completion and failure after an applied search both refresh search
     await act(async () => search.previous()); assert.ok(host.querySelector('mark.search-highlight-active').isConnected);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+test('document passages ignore diagram loading, labels and errors while Find includes them', async t => {
+  await installDom();
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  const { MarkdownRenderer } = require('../.tmp/workspace-tests/src/components/MarkdownRenderer.js');
+  const { ToastProvider } = require('../.tmp/workspace-tests/src/components/ToastProvider.js');
+  const { DEFAULT_READER_SETTINGS: settings } = require('../.tmp/workspace-tests/src/lib/reader-settings.js');
+  const { prepareCatalogDocument } = require('../.tmp/workspace-tests/src/lib/document-catalog.js');
+  const { searchWorkspaceDocs } = require('../.tmp/workspace-tests/src/lib/workspace-search.js');
+  const source = '```mermaid\ngraph TD\n A[Refund policy.]\n```\n\nRefund policy.\n\nRefund policy.';
+  const doc = prepareCatalogDocument({ path: '/diagram.md', name: 'diagram.md', relPath: 'diagram.md', size: source.length, mtimeMs: 1 }, source);
+  const hit = searchWorkspaceDocs([doc], 'refund policy', new Map())[0];
+  assert.equal(hit.passageCount, 2);
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const frames = new Map(); let frameId = 0;
+  t.mock.method(globalThis, 'requestAnimationFrame', callback => { frames.set(++frameId, callback); return frameId; });
+  t.mock.method(globalThis, 'cancelAnimationFrame', id => frames.delete(id));
+  let search;
+  function Probe({ content }) {
+    const ref = React.useRef(null); search = useSearch(ref);
+    return React.createElement(MarkdownRenderer, { content, filePath: '/diagram.md', settings, contentRef: ref, imagesAuthorized: true, onOpenFragment: () => false });
+  }
+  const render = async content => act(async () => root.render(React.createElement(ToastProvider, null, React.createElement(Probe, { content }))));
+  const frame = async () => act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(f => f(0)); });
+  const assertTarget = () => {
+    const paragraphs = [...host.querySelectorAll('article > p')];
+    assert.ok(paragraphs[1].contains(host.querySelector('mark.search-highlight-active')), 'the second body paragraph stays active');
+  };
+  try {
+    await render(source);
+    assert.ok(host.querySelector('.mermaid-loading'));
+    await act(async () => assert.equal(search.openPassage(hit.passages[1]), true));
+    assertTarget();
+    await act(async () => renders.shift().resolve({ svg: svg.replace('needle label', 'Refund policy.') }));
+    await frame();
+    assertTarget();
+    assert.equal(search.matchCount, 3, 'Find includes the diagram label');
+    for (let i = 0; i < 2; i++) {
+      await act(async () => assert.equal(search.openPassage(hit.passages[i]), true));
+      assert.ok(host.querySelectorAll('article > p')[i].contains(host.querySelector('mark.search-highlight-active')));
+    }
+    await render(source.replace('graph TD', 'invalid diagram'));
+    await act(async () => renders.shift().reject(new Error('Refund policy.')));
+    await frame();
+    assert.ok(host.querySelector('.mermaid-error'));
+    await act(async () => assert.equal(search.openPassage(hit.passages[1]), true));
+    assertTarget();
+    assert.ok(host.querySelector('.mermaid-error mark.search-highlight'), 'Find includes error output without counting it as a prose passage');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

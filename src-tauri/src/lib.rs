@@ -17,6 +17,7 @@ mod images;
 mod native_lifecycle;
 mod navigation;
 mod printing;
+mod search_cache;
 mod settings;
 #[cfg(test)]
 mod test_support;
@@ -81,6 +82,14 @@ fn register_macos_text_checking_defaults() {
     }
 }
 
+#[tauri::command]
+fn set_interface_zoom(window: tauri::WebviewWindow, factor: f64) -> Result<(), String> {
+    if !factor.is_finite() || !(0.75..=3.0).contains(&factor) {
+        return Err("Unsupported zoom".into());
+    }
+    window.set_zoom(factor).map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -118,10 +127,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             annotations::initialize_annotation_storage,
             annotations::load_annotations,
+            annotations::list_annotation_documents,
+            annotations::reconnect_annotations,
             annotations::save_annotations,
             annotations::check_copy_destination,
             annotations::export_annotation_recovery,
             annotations::read_annotation_recovery,
+            set_interface_zoom,
             settings::get_setting,
             settings::set_setting,
             printing::print_current_webview,
@@ -138,7 +150,11 @@ pub fn run() {
             exit_after_guarded_quit,
             watch_file,
             unwatch_file,
-            list_workspace_markdown_files
+            list_workspace_markdown_files,
+            workspace::inspect_document_files,
+            drafts::list_draft_documents,
+            search_cache::load_search_cache,
+            search_cache::save_search_cache
         ])
         .setup(|app| {
             #[cfg(desktop)]

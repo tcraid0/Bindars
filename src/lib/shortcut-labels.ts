@@ -64,7 +64,7 @@ export const SHORTCUT_SECTIONS = [
     shortcuts: [
       { id: "newFile", label: "New file" },
       { id: "openFile", label: "Open file" },
-      { id: "workspaceSwitcher", label: "Workspace quick switcher" },
+      { id: "workspaceSwitcher", label: "Search documents" },
       { id: "goBack", label: "Go back" },
       { id: "goForward", label: "Go forward" },
       { id: "previousScene", label: "Previous scene" },
@@ -84,15 +84,15 @@ export const SHORTCUT_SECTIONS = [
   {
     title: "Reading",
     shortcuts: [
-      { id: "searchDocument", label: "Search in document" },
+      { id: "searchDocument", label: "Find in Document" },
       { id: "findNext", label: "Find next" },
       { id: "findPrevious", label: "Find previous" },
       { id: "bookmarkHeading", label: "Bookmark current heading" },
       { id: "toggleAnnotations", label: "Toggle Highlights & notes" },
       { id: "print", label: "Print / export PDF" },
-      { id: "increaseFontSize", label: "Increase font size" },
-      { id: "decreaseFontSize", label: "Decrease font size" },
-      { id: "resetSettings", label: "Reset settings" },
+      { id: "increaseFontSize", label: "Zoom interface in" },
+      { id: "decreaseFontSize", label: "Zoom interface out" },
+      { id: "resetSettings", label: "Actual size (interface)" },
     ],
   },
   {

@@ -1789,7 +1789,7 @@ test("a saved-open sidebar is fitted at 600px after delayed startup, without a t
     await waitFor(() => assert.ok(r.host.querySelector(".empty-state-content")));
     await r.openLifecycleDocument(); await act(async () => {});
     const shown = [...r.host.querySelectorAll("[data-reader-panel]")].map(p => p.dataset.readerPanel);
-    assert.deepEqual(shown, ["toc"], "at 600px only the TOC fits beside a 320px reader");
+    assert.deepEqual(shown, ["sidebar"], "a saved-open navigation panel remains accessible at 600px");
     assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "fitting must not change the saved preference");
   } finally { await r.cleanup(); restore(); globalThis.localStorage = oldStorage; }
 });

@@ -197,7 +197,7 @@ test('recents ready mutations preserve order, limit, extra fields and headings w
   }); await settle();
   assert.equal(disk.writes.length, 4);
   const saved = disk.durable()['recent-files'].files;
-  assert.deepEqual(saved.map(f => f.path), ['/new.md', '/5.md', '/0.md', '/1.md', '/3.md', '/4.md', '/6.md', '/7.md', '/8.md']);
+  assert.deepEqual(saved.map(f => f.path), ['/new.md', '/5.md', '/0.md', '/1.md', '/3.md', '/4.md', '/6.md', '/7.md', '/8.md', '/9.md']);
   assert.equal(saved[1].lastHeadingId, 'updated'); assert.equal(saved[1].extra, 5);
   await view.unmount();
   const later = await mount(t, hooks.recents); await settle();
@@ -363,4 +363,16 @@ test('D1 a failed read after durable conversion cannot publish an empty list or 
   assert.equal(next.current.status, 'ready');
   assert.equal(next.current.recentFiles[0].lastHeadingId, 'user-content-intro');
   assert.equal(disk.writes.length, 1);
+});
+
+test('Recent retains 25 opened documents with their saved sections', async t => {
+  const original = Array.from({length:25}, (_, i) => recent(`/${i}.md`, `section-${i}`));
+  const disk = storage(t, {'recent-files':{version:1,files:original}});
+  const view = await mount(t, fresh().recents); await settle();
+  await act(async () => view.current.addRecent('/new.md', 'new.md')); await settle();
+  const saved = disk.durable()['recent-files'].files;
+  assert.equal(saved.length, 25);
+  assert.equal(saved[0].path, '/new.md');
+  assert.equal(saved[24].path, '/23.md');
+  assert.equal(saved[24].lastHeadingId, 'section-23');
 });

@@ -639,22 +639,24 @@ export function computeScriptStats(parsed: ParsedFountain): ScriptStats {
 
 export function fountainToSearchableText(parsed: ParsedFountain): string {
   const result: string[] = [];
-  let pendingSpace = false;
 
   const append = (text: string) => {
+    let blockStarted = false;
+    let pendingSpace = false;
     for (let index = 0; index < text.length && result.length < MAX_WORKSPACE_BODY_CHARS; index += 1) {
       if (isWhitespaceCodeUnit(text.charCodeAt(index))) {
-        pendingSpace = result.length > 0;
+        pendingSpace = blockStarted;
         continue;
       }
+      if (!blockStarted && result.length) result.push("\n");
       if (pendingSpace && result.length < MAX_WORKSPACE_BODY_CHARS) result.push(" ");
       pendingSpace = false;
       if (result.length < MAX_WORKSPACE_BODY_CHARS) result.push(text[index]);
+      blockStarted = true;
     }
-    pendingSpace = result.length > 0;
   };
 
-  for (const entry of parsed.titlePage) {
+  for (const entry of orderedFountainTitlePage(parsed.titlePage)) {
     append(fountainPlainText(entry.value));
     if (result.length >= MAX_WORKSPACE_BODY_CHARS) return result.join("");
   }
@@ -667,4 +669,13 @@ export function fountainToSearchableText(parsed: ParsedFountain): string {
   }
 
   return result.join("");
+}
+
+/** The displayed title-page order, keeping only the first primary-key entry. */
+export function orderedFountainTitlePage(entries: FountainTitlePageEntry[]): FountainTitlePageEntry[] {
+  const primaryKeys = ["title", "credit", "author", "draft date"];
+  return [
+    ...primaryKeys.flatMap(key => entries.find(entry => entry.key.toLowerCase() === key) ?? []),
+    ...entries.filter(entry => !primaryKeys.includes(entry.key.toLowerCase())),
+  ];
 }

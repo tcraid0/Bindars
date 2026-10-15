@@ -490,6 +490,31 @@ pub(crate) fn default_menu_with_guarded_quit(
         MenuItem::with_id(app, QUIT_MENU_ITEM_ID, quit_text, true, Some("CmdOrCtrl+Q"))?;
     app_submenu.append(&quit_item)?;
 
+    let zoom_in = MenuItem::with_id(app, "interface-zoom-in", "Zoom In", true, None::<&str>)?;
+    let zoom_out = MenuItem::with_id(app, "interface-zoom-out", "Zoom Out", true, None::<&str>)?;
+    let zoom_reset = MenuItem::with_id(
+        app,
+        "interface-zoom-reset",
+        "Actual Size",
+        true,
+        None::<&str>,
+    )?;
+    let view = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("View") => {
+            Some(submenu)
+        }
+        _ => None,
+    });
+    if let Some(view) = view {
+        view.append_items(&[&zoom_in, &zoom_out, &zoom_reset])?;
+    } else {
+        menu.append(&tauri::menu::Submenu::with_items(
+            app,
+            "View",
+            true,
+            &[&zoom_in, &zoom_out, &zoom_reset],
+        )?)?;
+    }
     Ok(menu)
 }
 
@@ -499,6 +524,16 @@ pub(crate) fn default_menu_with_guarded_quit(
 /// and invokes `exit_after_guarded_quit`.
 #[cfg(target_os = "macos")]
 pub(crate) fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    let zoom = match event.id().as_ref() {
+        "interface-zoom-in" => Some(1),
+        "interface-zoom-out" => Some(-1),
+        "interface-zoom-reset" => Some(0),
+        _ => None,
+    };
+    if let Some(direction) = zoom {
+        let _ = app.emit_to("main", "bindars://interface-zoom", direction);
+        return;
+    }
     if event.id() != QUIT_MENU_ITEM_ID {
         return;
     }

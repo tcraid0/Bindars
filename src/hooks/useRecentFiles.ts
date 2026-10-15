@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { loadRecentFiles, saveRecentFiles } from "../lib/recent-files";
 import type { RecentFile } from "../types";
 
-const MAX_RECENT = 10;
+const MAX_RECENT = 25;
 
 export function useRecentFiles() {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);

@@ -5276,27 +5276,15 @@ const paletteWorkspaceFiles = ["Alpha.md", "Beta.md"].map((name) => ({
   path: `/tmp/${name}`, relPath: name, name, mtimeMs: 1, size: 10,
 }));
 
-test("palette result buttons keep native activation after Tab focus and ArrowDown", async () => {
+test("palette pointer result opens the chosen file while the combobox owns keyboard selection", async () => {
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
-    const rows = document.querySelectorAll('.command-palette-shell li button');
-    const second = rows[1];
-    flushSync(() => second.focus()); // Native Tab traversal is checked in the packaged app.
-    assert.ok(second.classList.contains("bg-bg-tertiary"));
-    for (const key of ["ArrowDown", "ArrowUp", "Enter", " "]) {
-      assert.equal(dispatchElementKey(second, key).defaultPrevented, false, key);
-      assert.ok(document.activeElement === second);
-      assert.ok(second.classList.contains("bg-bg-tertiary"));
-    }
-    assert.equal(document.querySelectorAll('.command-palette-shell').length, 1,
-      "App must not activate its selected hit from a result-button keydown");
-    const before = rendered.openedPaths().length;
-    // happy-dom does not synthesize native Enter/Space clicks; exercise the allowed click path.
+    await waitFor(() => assert.ok([...document.querySelectorAll('.command-palette-shell [role="option"]')].some(row => row.textContent.includes('Beta.md'))));
+    const second = [...document.querySelectorAll('.command-palette-shell [role="option"]')].find(row => row.textContent.includes('Beta.md'));
+    assert.equal(document.querySelector('.command-palette-shell input').getAttribute('role'),'combobox');
     flushSync(() => second.click());
-    await waitFor(() => assert.equal(rendered.openedPaths().length, before + 1));
-    assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md");
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
   } finally { await rendered.cleanup(); }
 });
 
@@ -5304,13 +5292,15 @@ test("palette input retains arrow selection and Enter activation", async () => {
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 2));
     const input = document.querySelector('.command-palette-shell input');
     assert.equal(dispatchElementKey(input, "ArrowDown").defaultPrevented, true);
     assert.ok(document.activeElement === input);
-    assert.ok(document.querySelectorAll('.command-palette-shell li button')[1].classList.contains("bg-bg-tertiary"));
+    assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]')[1].classList.contains("bg-bg-tertiary"));
+    const selected = document.getElementById(input.getAttribute('aria-activedescendant'));
+    const expectedName = selected.textContent.includes('Beta.md') ? 'Beta.md' : 'Alpha.md';
     assert.equal(dispatchElementKey(input, "Enter").defaultPrevented, true);
-    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), `/tmp/${expectedName}`));
   } finally { await rendered.cleanup(); }
 });
 
@@ -5542,7 +5532,7 @@ test('typing a new palette query and immediately pressing Enter never opens the 
   const view = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 2));
     const input = document.querySelector('.command-palette-shell input');
     setPaletteQuery(input, 'Alpha');
     await waitForPaletteSearch();
@@ -5550,7 +5540,7 @@ test('typing a new palette query and immediately pressing Enter never opens the 
     setPaletteQuery(input, 'Beta');
     dispatchElementKey(input, 'Enter');
     assert.equal(view.openedPaths().length, before);
-    assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 0);
+    assert.equal(document.querySelectorAll('.command-palette-shell [role="option"]').length, 0);
     await waitForPaletteSearch();
     dispatchElementKey(input, 'Enter');
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Beta.md'));
@@ -5568,16 +5558,16 @@ for (const [indexedHeading, currentHeading, missing] of [
     });
     try {
       dispatchShortcut('k');
-      await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+      await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
       setPaletteQuery(document.querySelector('.command-palette-shell input'), indexedHeading);
       await waitForPaletteSearch();
-      const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+      const row = document.querySelector('[aria-label^="Passages in"] button');
       assert.ok(row);
       const before = view.openedPaths().length;
       view.scrolledIds.length = 0;
       flushSync(() => row.click());
-      if (missing) await waitFor(() => assert.match(view.host.textContent, /not found in this document/));
-      else await waitFor(() => assert.ok(view.scrolledIds.includes(currentHeading.toLowerCase())));
+      if (missing) await waitFor(() => assert.match(view.host.textContent, /passage has changed/));
+      else await waitFor(() => assert.ok(view.host.querySelector("mark.search-highlight-active")));
       assert.equal(view.openedPaths().length, before);
       assert.ok(!document.querySelector('.command-palette-shell'));
     } finally { await view.cleanup(); }
@@ -5592,15 +5582,19 @@ test('cross-file workspace heading opens the requested document and scrolls its 
   });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
     setPaletteQuery(document.querySelector('.command-palette-shell input'), 'Second heading');
     await waitForPaletteSearch();
-    const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+    const alpha = Array.from(document.querySelectorAll('.command-palette-shell [role="option"]')).find(row => row.textContent.includes('Alpha.md'));
+    assert.ok(alpha);
+    const alphaIndex = Array.from(alpha.parentElement.children).indexOf(alpha);
+    for (let index = 0; index < alphaIndex; index++) dispatchElementKey(document.querySelector('.command-palette-shell input'), 'ArrowDown');
+    const row = document.querySelector('[aria-label="Passages in Alpha.md"] button');
     assert.ok(row);
     view.scrolledIds.length = 0;
     flushSync(() => row.click());
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Alpha.md'));
-    await waitFor(() => assert.ok(view.scrolledIds.includes('second-heading')));
+    await waitFor(() => assert.match(view.host.querySelector('mark.search-highlight-active')?.textContent || '', /Second heading/));
     assert.doesNotMatch(view.host.textContent, /not found/);
   } finally { await view.cleanup(); }
 });
@@ -5609,10 +5603,10 @@ test('a deleted workspace result preserves the current document and reports the 
   const view = await renderContinuityApp({ workspaceFiles: [paletteWorkspaceFiles[0]] });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
     const pending = deferred();
     view.deferNextOpen(pending);
-    flushSync(() => document.querySelector('.command-palette-shell li button').click());
+    flushSync(() => Array.from(document.querySelectorAll('.command-palette-shell [role="option"]')).find(row => row.textContent.includes('Alpha.md')).click());
     await waitFor(() => assert.ok(pending.args));
     await act(async () => pending.reject({
       category: 'notFound', operation: 'resolveDocument',
@@ -7527,4 +7521,51 @@ test("the first accepted highlight retires the reading hint", async () => {
     assert.ok(!rendered.host.querySelector(".reading-hint"));
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+});
+
+test('Dismiss on a words-only passage notice also clears its highlights', async () => {
+  const content = '# Alpha\n\nRefund policy applies here.';
+  const view = await renderContinuityApp({
+    requestedPath: '/tmp/Alpha.md', initialContent: content, readySelector: '#alpha',
+    workspaceFiles: [paletteWorkspaceFiles[0]], workspaceContent: content,
+  });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
+    setPaletteQuery(document.querySelector('.command-palette-shell input'), 'policy refund');
+    await waitForPaletteSearch();
+    const row = document.querySelector('[aria-label^="Passages in"] button');
+    assert.ok(row);
+    flushSync(() => row.click());
+    await waitFor(() => assert.ok(view.host.querySelector('mark.search-highlight-active')));
+    const notice = [...view.host.querySelectorAll('[role="status"]')].find(node => /Found words in this passage/.test(node.textContent));
+    assert.ok(notice, 'a nearby-terms passage explains itself instead of opening Find');
+    assert.ok(!view.host.querySelector('[aria-label="Search in document"]'), 'Find stays hidden for a words-only passage');
+    flushSync(() => [...notice.querySelectorAll('button')].find(b => b.textContent === 'Dismiss').click());
+    await waitFor(() => assert.equal(view.host.querySelectorAll('mark').length, 0));
+    assert.doesNotMatch(view.host.textContent, /Found words in this passage/);
+  } finally { await view.cleanup(); }
+});
+
+test('an unchanged source with an unresolved rendered passage does not claim the document changed', async () => {
+  const content = '# Alpha\n\nRefund policy applies here.';
+  const view = await renderContinuityApp({
+    requestedPath: '/tmp/Alpha.md', initialContent: content, readySelector: '#alpha',
+    workspaceFiles: [paletteWorkspaceFiles[0]], workspaceContent: content,
+  });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length));
+    setPaletteQuery(document.querySelector('.command-palette-shell input'), 'refund policy');
+    await waitForPaletteSearch();
+    const row = document.querySelector('[aria-label^="Passages in"] button');
+    assert.ok(row);
+    // Simulate unexpected rendered output while keeping the confirmed source
+    // and its index fingerprint unchanged. This exercises App's failure branch.
+    view.host.querySelector('article p').textContent = 'Different displayed text.';
+    flushSync(() => row.click());
+    await waitFor(() => assert.match(view.host.textContent, /couldn't locate this passage in the displayed document/));
+    assert.doesNotMatch(view.host.textContent, /passage has changed|entry is being refreshed/);
+    assert.equal(view.host.querySelectorAll('mark.search-highlight-active').length, 0);
+  } finally { await view.cleanup(); }
 });

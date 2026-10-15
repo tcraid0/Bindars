@@ -13,7 +13,7 @@ const {
 } = require("../.tmp/workspace-tests/src/components/MarkdownFormattingToggle.js");
 const { ShortcutOverlay } = require("../.tmp/workspace-tests/src/components/ShortcutOverlay.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-const { WorkspacePanel } = require("../.tmp/workspace-tests/src/components/WorkspacePanel.js");
+const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js");
 const {
   detectShortcutPlatform,
   formatShortcutLabel,
@@ -23,12 +23,8 @@ const {
 const workspaceState = {
   rootPath: "/workspace",
   status: "ready",
-  fileCount: 1,
-  processedCount: 1,
-  indexedCount: 1,
   indexedAt: 1,
   error: null,
-  listSkippedCount: 0,
   readFailedCount: 0,
   complexitySkippedCount: 0,
   limitHit: false,
@@ -65,7 +61,8 @@ function renderPlatformLabels(navigatorValue) {
         recentFiles: [],
         onOpenRecent() {},
       }),
-      React.createElement(WorkspacePanel, {
+      React.createElement(Sidebar, {
+        visible: false,
         rootPath: "/workspace",
         state: workspaceState,
         backlinks: [],
@@ -191,8 +188,8 @@ test("visible shortcut components render macOS labels consistently", () => {
   assert.match(markup, /⌥⌘M/);
   assert.match(markup, /⇧⌘T/);
   assert.match(markup, /⌥←/);
-  assert.match(markup, /Quick switcher \(⌘K\)/);
-  assert.match(markup, /Enter opens\. Esc closes\./);
+  assert.match(markup, /Search documents \(⌘K\)/);
+  assert.match(markup, /Enter opens it/);
   assert.doesNotMatch(markup, /Ctrl\+|Alt\+/);
 });
 
@@ -203,7 +200,7 @@ test("visible shortcut components preserve Windows and Linux labels", () => {
   assert.match(markup, /Ctrl\+Alt\+M/);
   assert.match(markup, /Ctrl\+Shift\+T/);
   assert.match(markup, /Alt\+←/);
-  assert.match(markup, /Quick switcher \(Ctrl\+K\)/);
+  assert.match(markup, /Search documents \(Ctrl\+K\)/);
   assert.doesNotMatch(markup, /⌘|⌥|⇧/);
 });
 

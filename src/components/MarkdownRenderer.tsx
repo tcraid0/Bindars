@@ -150,7 +150,7 @@ const markdownComponents: Components = {
     // Keep image replacement inside a stable parent when search or annotations
     // have moved the paragraph's adjacent text into a mark.
     return (
-      <span>
+      <span className="markdown-image">
         <MarkdownImage
           src={src}
           alt={alt}

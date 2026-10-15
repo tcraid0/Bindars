@@ -457,6 +457,80 @@ fn annotated_paths_at(root: &Path) -> Result<HashSet<String>, String> {
 }
 
 #[tauri::command]
+pub(crate) async fn list_annotation_documents(
+    app: tauri::AppHandle,
+) -> Result<Value, NativeFileError> {
+    run(app, |root| {
+        let data = initialize_at(root)?;
+        let paths = annotated_paths_at(root)?;
+        Ok(Value::Array(paths.into_iter().map(|path| {
+            let record = &data["documents"][&path];
+            json!({"path": path, "highlights": record["highlights"].as_array().map(Vec::len),
+                "bookmarks": record["bookmarks"].as_array().map(Vec::len),
+                "notes": record["highlights"].as_array().map(|items| items.iter().filter(|item| item.get("note").is_some()).count())})
+        }).collect()))
+    }).await
+}
+
+fn reconnect_at(
+    root: &Path,
+    source: &str,
+    destination: &str,
+    expected: &Value,
+) -> Result<(), String> {
+    if source == destination {
+        return Err("Choose a different document.".into());
+    }
+    let mut data = initialize_at(root)?;
+    let documents = data["documents"]
+        .as_object_mut()
+        .expect("validated collection");
+    if documents.get(source) != Some(expected) {
+        return Err("The original notes changed. Preview again before reconnecting.".into());
+    }
+    // Even an unrecognized or future record is protected from overwrite.
+    if let Some(record) = documents.get(destination) {
+        let empty = record.as_object().is_some_and(|record| {
+            record.iter().all(|(key, value)| match key.as_str() {
+                "version" => [json!(1), json!(2), json!(3)].contains(value),
+                "highlights" | "bookmarks" => value.as_array().is_some_and(Vec::is_empty),
+                _ => false,
+            })
+        });
+        if !empty {
+            return Err("The destination already has annotations. Reconnecting cannot merge or overwrite them.".into());
+        }
+    }
+    documents.insert(destination.into(), expected.clone());
+    documents.remove(source);
+    write_json_text(&root.join(DATA), &serialize_json(&data)?)
+}
+
+#[tauri::command]
+pub(crate) async fn reconnect_annotations(
+    app: tauri::AppHandle,
+    source: String,
+    destination: String,
+    expected: Value,
+    revision: crate::document_io::FileRevision,
+) -> Result<(), NativeFileError> {
+    run(app, move |root| {
+        let canonical = crate::document_io::canonicalize_markdown_path(Path::new(&destination))
+            .map_err(|e| e.message)?;
+        if canonical.to_string_lossy() != destination {
+            return Err("Destination changed. Preview again.".into());
+        }
+        let current = crate::document_io::open_markdown_file_impl(destination.clone())
+            .map_err(|e| e.message)?;
+        if current.revision != revision {
+            return Err("Destination changed. Preview again before reconnecting.".into());
+        }
+        reconnect_at(root, &source, &destination, &expected)
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn check_copy_destination(
     app: tauri::AppHandle,
     path: String,
@@ -525,6 +599,72 @@ mod tests {
             "Couldn't access annotation storage. Existing data was preserved."
         );
         assert_eq!(failure.detail, "Stored JSON is damaged");
+    }
+
+    #[test]
+    fn reconnection_moves_every_field_and_preserves_other_documents() {
+        let root = fixture();
+        let record = json!({"version":3,"highlights":[{"id":"h","note":"keep","position":{"start":7},"future":42}],"bookmarks":[{"id":"b"}],"metadata":{"custom":true}});
+        save_at(&root, "/old.md", record.clone()).unwrap();
+        save_at(&root, "/other.md", json!({"note":"other"})).unwrap();
+        reconnect_at(&root, "/old.md", "/new.md", &record).unwrap();
+        let data = initialize_at(&root).unwrap();
+        assert!(data["documents"].get("/old.md").is_none());
+        assert_eq!(data["documents"]["/new.md"], record);
+        assert_eq!(data["documents"]["/other.md"], json!({"note":"other"}));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reconnection_refuses_stale_previews_and_any_unsafe_destination() {
+        let root = fixture();
+        let record = json!({"version":3,"highlights":[{"note":"latest"}],"bookmarks":[]});
+        save_at(&root, "/old.md", record.clone()).unwrap();
+        let before = fs::read(root.join(DATA)).unwrap();
+        assert!(reconnect_at(&root, "/old.md", "/new.md", &json!({})).is_err());
+        assert_eq!(fs::read(root.join(DATA)).unwrap(), before);
+        for target in [
+            json!({"highlights":[{"note":"existing"}],"bookmarks":[]}),
+            json!({"version":99,"highlights":[],"bookmarks":[]}),
+            json!({"highlights":[],"bookmarks":[],"unknown":"keep"}),
+        ] {
+            save_at(&root, "/new.md", target).unwrap();
+            let before = fs::read(root.join(DATA)).unwrap();
+            assert!(reconnect_at(&root, "/old.md", "/new.md", &record).is_err());
+            assert_eq!(fs::read(root.join(DATA)).unwrap(), before);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn failed_reconnection_keeps_original_records_byte_for_byte() {
+        let root = fixture();
+        let record = json!({"highlights":[{"note":"only copy"}],"bookmarks":[]});
+        save_at(&root, "/old.md", record.clone()).unwrap();
+        let path = root.join(DATA);
+        let before = fs::read(&path).unwrap();
+        assert!(std::process::Command::new("chflags")
+            .arg("uchg")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let result = reconnect_at(&root, "/old.md", "/new.md", &record);
+        assert!(std::process::Command::new("chflags")
+            .arg("nouchg")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        reconnect_at(&root, "/old.md", "/new.md", &record).unwrap();
+        assert_eq!(
+            initialize_at(&root).unwrap()["documents"]["/new.md"],
+            record
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

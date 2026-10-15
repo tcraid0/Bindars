@@ -13,18 +13,69 @@ const MAX_WORKSPACE_DEPTH: usize = 32;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceFileMeta {
+pub(crate) struct WorkspaceFileMeta {
     path: String,
     rel_path: String,
     name: String,
+    size: u64,
+    mtime_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceListResult {
-    files: Vec<WorkspaceFileMeta>,
+    canonical_root: Option<String>,
+    pub(crate) files: Vec<WorkspaceFileMeta>,
+    directories: Vec<String>,
+    issues: Vec<String>,
     skipped_count: usize,
     limit_hit: bool,
+}
+
+impl WorkspaceListResult {
+    pub(crate) fn empty() -> Self {
+        Self {
+            canonical_root: None,
+            files: vec![],
+            directories: vec![],
+            issues: vec![],
+            skipped_count: 0,
+            limit_hit: false,
+        }
+    }
+}
+
+/// Stat only explicitly supplied recent files; this never scans their parents.
+#[tauri::command]
+pub(crate) async fn inspect_document_files(
+    paths: Vec<String>,
+) -> Result<Vec<WorkspaceFileMeta>, NativeFileError> {
+    run_blocking_file_io(move || {
+        Ok(paths
+            .into_iter()
+            .take(25)
+            .filter_map(|path| {
+                let canonical =
+                    crate::document_io::canonicalize_markdown_path(std::path::Path::new(&path))
+                        .ok()?;
+                let metadata = fs::metadata(&canonical).ok()?;
+                let name = canonical.file_name()?.to_string_lossy().into_owned();
+                Some(WorkspaceFileMeta {
+                    path: canonical.to_string_lossy().into_owned(),
+                    rel_path: name.clone(),
+                    name,
+                    size: metadata.len(),
+                    mtime_ms: metadata
+                        .modified()
+                        .ok()?
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()?
+                        .as_millis(),
+                })
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -35,7 +86,7 @@ pub(crate) async fn list_workspace_markdown_files(
     run_blocking_file_io(move || list_workspace_markdown_files_impl(root, max_files)).await
 }
 
-fn list_workspace_markdown_files_impl(
+pub(crate) fn list_workspace_markdown_files_impl(
     root: String,
     max_files: Option<usize>,
 ) -> Result<WorkspaceListResult, NativeFileError> {
@@ -52,21 +103,57 @@ fn list_workspace_markdown_files_impl(
     let mut files_by_rel = BTreeMap::<String, WorkspaceFileMeta>::new();
     let mut skipped_count: usize = 0;
     let mut limit_hit = false;
+    let mut directories = Vec::new();
+    let mut issues = Vec::new();
+    let mut visited = 0;
 
     for entry_result in WalkDir::new(&canonical_root)
         .follow_links(false)
         .max_depth(MAX_WORKSPACE_DEPTH)
+        .sort_by_file_name()
         .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || !entry.file_type().is_dir()
+                || (!entry.file_name().to_string_lossy().starts_with('.')
+                    && !matches!(
+                        entry.file_name().to_str(),
+                        Some("node_modules" | "target" | "vendor")
+                    ))
+        })
     {
         let entry = match entry_result {
             Ok(entry) => entry,
-            Err(_) => {
+            Err(error) => {
                 skipped_count += 1;
+                if issues.len() < 100 {
+                    issues.push(error.to_string());
+                }
                 continue;
             }
         };
 
+        visited += 1;
+        if visited > 100_000 {
+            limit_hit = true;
+            break;
+        }
         let path = entry.path();
+        if entry.file_type().is_dir() && entry.depth() > 0 {
+            if entry.depth() == MAX_WORKSPACE_DEPTH {
+                limit_hit = true;
+            }
+            if directories.len() < 20_000 {
+                directories.push(
+                    path.strip_prefix(&canonical_root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            } else {
+                limit_hit = true;
+            }
+        }
         if !entry.file_type().is_file() || !is_markdown_path(path) {
             continue;
         }
@@ -74,20 +161,36 @@ fn list_workspace_markdown_files_impl(
         // Resolve to the true target and ensure it stays inside the workspace root.
         let canonical_file = match dunce::canonicalize(path) {
             Ok(p) => p,
-            Err(_) => {
+            Err(error) => {
                 skipped_count += 1;
+                if issues.len() < 100 {
+                    issues.push(format!("{}: {}", path.display(), error));
+                }
                 continue;
             }
         };
         if !canonical_file.starts_with(&canonical_root) {
             skipped_count += 1;
+            if issues.len() < 100 {
+                issues.push(format!("{}: resolved outside this folder", path.display()));
+            }
             continue;
         }
 
-        match fs::metadata(&canonical_file) {
-            Ok(m) if m.is_file() => (),
-            _ => {
+        let metadata = match fs::metadata(&canonical_file) {
+            Ok(m) if m.is_file() => m,
+            result => {
                 skipped_count += 1;
+                if issues.len() < 100 {
+                    issues.push(format!(
+                        "{}: {}",
+                        canonical_file.display(),
+                        result
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| "no longer a regular file".into())
+                    ));
+                }
                 continue;
             }
         };
@@ -108,6 +211,12 @@ fn list_workspace_markdown_files_impl(
             .to_string();
         if name.is_empty() {
             skipped_count += 1;
+            if issues.len() < 100 {
+                issues.push(format!(
+                    "{}: filename cannot be represented as text",
+                    canonical_file.display()
+                ));
+            }
             continue;
         }
 
@@ -117,6 +226,13 @@ fn list_workspace_markdown_files_impl(
                 path: canonical_file.to_string_lossy().into_owned(),
                 rel_path: rel_path_string,
                 name,
+                size: metadata.len(),
+                mtime_ms: metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0),
             },
         );
 
@@ -130,7 +246,10 @@ fn list_workspace_markdown_files_impl(
 
     let files = files_by_rel.into_values().collect();
     Ok(WorkspaceListResult {
+        canonical_root: Some(canonical_root.to_string_lossy().into_owned()),
         files,
+        directories,
+        issues,
         skipped_count,
         limit_hit,
     })
@@ -144,6 +263,25 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn discovery_keeps_unreadable_text_and_empty_subfolders_but_excludes_dependencies() {
+        let root = temp_dir("catalog");
+        for name in ["empty", ".hidden", "node_modules", "target", "vendor"] {
+            fs::create_dir_all(root.join(name)).unwrap();
+        }
+        fs::write(root.join("bad.md"), [0xff, 0xfe]).unwrap();
+        fs::write(root.join("node_modules/dependency.md"), "hidden").unwrap();
+        fs::write(root.join(".hidden/secret.md"), "hidden").unwrap();
+        let result =
+            list_workspace_markdown_files_impl(root.to_string_lossy().into_owned(), None).unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].name, "bad.md");
+        assert_eq!(result.files[0].size, 2);
+        assert!(result.files[0].mtime_ms > 0);
+        assert_eq!(result.directories, vec!["empty"]);
+        cleanup_dir(&root);
+    }
 
     #[test]
     fn list_workspace_finds_markdown_files_recursively() {
@@ -210,6 +348,25 @@ mod tests {
         assert_eq!(result.files[1].rel_path, "m.md");
         assert!(result.limit_hit);
 
+        cleanup_dir(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn listing_reports_canonical_root_for_an_alias_even_when_empty() {
+        let root = temp_dir("workspace-root-identity");
+        fs::create_dir_all(&root).unwrap();
+        let alias = root.with_extension("alias");
+        symlink(&root, &alias).expect("create root alias");
+        let canonical = dunce::canonicalize(&root).unwrap();
+        let result = list_workspace_markdown_files_impl(alias.to_string_lossy().into_owned(), None)
+            .expect("list aliased folder");
+        assert_eq!(
+            result.canonical_root,
+            Some(canonical.to_string_lossy().into_owned())
+        );
+        assert!(result.files.is_empty());
+        fs::remove_file(&alias).unwrap();
         cleanup_dir(&root);
     }
 

@@ -1,6 +1,37 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isOpenableDocumentPath } from "./openable-files";
 
+export function fileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+export function parentPath(path: string): string {
+  const parent = getDirectoryPath(toPosixPath(path));
+  return /^[A-Za-z]:$/.test(parent) ? `${parent}/` : parent;
+}
+
+/** Compact context for document lists; disclosures expose the complete path. */
+export function locationLabel(path: string): string {
+  const parent = parentPath(path);
+  return parent.split("/").filter(Boolean).slice(-2).join(" › ") || parent;
+}
+
+export function isRelativeDocumentPath(path: string): boolean {
+  const posix = toPosixPath(path);
+  return !!posix && !posix.startsWith("/") && !/^[A-Za-z]:/.test(posix)
+    && posix.split("/").every(part => !!part && part !== "." && part !== "..");
+}
+
+/** Lexical containment only. Use the native discovery root for canonical paths. */
+export function relativeDocumentPath(root: string, path: string): string | null {
+  const prefix = `${toPathIdentityKey(root).replace(/\/$/, "")}/`;
+  const identity = toPathIdentityKey(path);
+  if (!identity.startsWith(prefix) || identity === prefix) return null;
+  const depth = identity.slice(prefix.length).split("/").length;
+  // Compare normalized identities, but keep the filename's original case.
+  return normalizePath(path).split("/").slice(-depth).join("/");
+}
+
 /**
  * The custom protocol reads image bytes through a native directory capability.
  * Passing both paths lets that reader enforce the document folder before every

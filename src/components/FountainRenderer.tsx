@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { normalizeCharacterName, splitFountainInline } from "../lib/fountain";
+import { normalizeCharacterName, orderedFountainTitlePage, splitFountainInline } from "../lib/fountain";
 import type { FountainToken, FountainTitlePageEntry, ParsedFountain } from "../lib/fountain";
 import { resolveParagraphSpacingCss, resolveReaderSurfaceStyle } from "../lib/reader-settings";
 import type { ReaderSettings } from "../types";
@@ -169,38 +169,25 @@ function FountainRendererComponent({
 
 export const FountainRenderer = memo(FountainRendererComponent);
 
-function FountainTitlePage({ entries }: { entries: FountainTitlePageEntry[] }) {
-  const title = entries.find(
-    (e) => e.key.toLowerCase() === "title",
-  )?.value;
-  const credit = entries.find(
-    (e) => e.key.toLowerCase() === "credit",
-  )?.value;
-  const author = entries.find(
-    (e) => e.key.toLowerCase() === "author",
-  )?.value;
-  const draftDate = entries.find(
-    (e) => e.key.toLowerCase() === "draft date",
-  )?.value;
+const TITLE_PAGE_CLASSES = new Map([
+  ["title", "fountain-title"],
+  ["credit", "fountain-credit"],
+  ["author", "fountain-author"],
+  ["draft date", "fountain-draft-date"],
+]);
 
+function FountainTitlePage({ entries }: { entries: FountainTitlePageEntry[] }) {
   return (
     <header className="fountain-title-page">
-      {title && <h1 className="fountain-title">{renderFountainText(title)}</h1>}
-      {credit && <p className="fountain-credit">{renderFountainText(credit)}</p>}
-      {author && <p className="fountain-author">{renderFountainText(author)}</p>}
-      {draftDate && <p className="fountain-draft-date">{renderFountainText(draftDate)}</p>}
-      {entries
-        .filter(
-          (e) =>
-            !["title", "credit", "author", "draft date"].includes(
-              e.key.toLowerCase(),
-            ),
-        )
-        .map((e, i) => (
-          <p key={i} className="fountain-title-entry">
-            {renderFountainText(e.value)}
-          </p>
-        ))}
+      {orderedFountainTitlePage(entries).map((entry, index) => {
+        const key = entry.key.toLowerCase();
+        const Tag = key === "title" ? "h1" : "p";
+        return entry.value ? (
+          <Tag key={index} className={TITLE_PAGE_CLASSES.get(key) ?? "fountain-title-entry"}>
+            {renderFountainText(entry.value)}
+          </Tag>
+        ) : null;
+      })}
     </header>
   );
 }

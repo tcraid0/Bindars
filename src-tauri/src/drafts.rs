@@ -29,6 +29,27 @@ fn drafts_dir(app: &AppHandle) -> Result<PathBuf, NativeFileError> {
         })
 }
 
+/// Listing never creates Documents or the draft directory.
+#[tauri::command]
+pub(crate) async fn list_draft_documents(
+    app: AppHandle,
+) -> Result<crate::workspace::WorkspaceListResult, NativeFileError> {
+    let dir = drafts_dir(&app)?;
+    run_blocking_file_io(move || {
+        if !dir
+            .try_exists()
+            .map_err(|e| NativeFileError::from_io(NativeFileOperation::InspectWorkspace, &dir, e))?
+        {
+            return Ok(crate::workspace::WorkspaceListResult::empty());
+        }
+        crate::workspace::list_workspace_markdown_files_impl(
+            dir.to_string_lossy().into_owned(),
+            Some(5_000),
+        )
+    })
+    .await
+}
+
 fn create_draft_in(
     dir: &Path,
     stem: &str,
