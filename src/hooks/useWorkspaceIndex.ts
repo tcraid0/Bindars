@@ -42,6 +42,7 @@ interface Listing {
   directories?: string[];
   issues?: string[];
   limitHit: boolean;
+  skipped?: boolean;
 }
 const EMPTY_LIST: Listing = { files: [], limitHit: false };
 
@@ -77,6 +78,13 @@ export function useWorkspaceIndex(
   rootRef.current = rootPath;
   const recentPaths = JSON.stringify(recentFiles.map((f) => f.path).sort());
   const reindex = useCallback(() => setRefresh((n) => n + 1), []);
+  // On macOS a launch listing skips the Drafts folder until a draft exists;
+  // this lists it anyway, which may raise the Documents access prompt.
+  const forceDrafts = useRef(false);
+  const showDrafts = useCallback(() => {
+    forceDrafts.current = true;
+    reindex();
+  }, [reindex]);
   const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcile = useCallback(() => {
     if (reconcileTimer.current !== null) clearTimeout(reconcileTimer.current);
@@ -175,6 +183,8 @@ export function useWorkspaceIndex(
     let cancelled = false;
     const active = () => !cancelled && id === runId.current;
     const savedAtStart = saveVersion.current;
+    const force = forceDrafts.current;
+    forceDrafts.current = false;
     const lastKnown = [...entries.current.values()];
     const candidates = new Map(entries.current);
     const paths = JSON.parse(recentPaths) as string[];
@@ -236,7 +246,7 @@ export function useWorkspaceIndex(
               : Promise.resolve(EMPTY_LIST),
           priorListing
             ? Promise.resolve(priorListing.drafts)
-            : invoke<Listing>("list_draft_documents"),
+            : invoke<Listing>("list_draft_documents", { force }),
           invoke<WorkspaceFileMeta[]>("inspect_document_files", { paths }),
         ]);
       if (!active()) return;
@@ -347,6 +357,7 @@ export function useWorkspaceIndex(
         directories: folder.directories ?? [],
         issues: folder.issues ?? [],
         limitHit: folder.limitHit || drafts.limitHit,
+        draftsSkipped: drafts.skipped ?? false,
         error:
           folderResult.status === "rejected"
             ? normalizeFileError(
@@ -419,5 +430,13 @@ export function useWorkspaceIndex(
       cancelled = true;
     };
   }, [rootPath, recentPaths, refresh, reindex]);
-  return { state, docs, reindex, reconcile, updateSaved, removeDocument };
+  return {
+    state,
+    docs,
+    reindex,
+    reconcile,
+    showDrafts,
+    updateSaved,
+    removeDocument,
+  };
 }

@@ -30,6 +30,8 @@ pub(crate) struct WorkspaceListResult {
     issues: Vec<String>,
     skipped_count: usize,
     limit_hit: bool,
+    /// The listing was not attempted; see `drafts::list_drafts_in`.
+    pub(crate) skipped: bool,
 }
 
 impl WorkspaceListResult {
@@ -41,6 +43,14 @@ impl WorkspaceListResult {
             issues: vec![],
             skipped_count: 0,
             limit_hit: false,
+            skipped: false,
+        }
+    }
+
+    pub(crate) fn skipped() -> Self {
+        Self {
+            skipped: true,
+            ..Self::empty()
         }
     }
 }
@@ -252,6 +262,7 @@ pub(crate) fn list_workspace_markdown_files_impl(
         issues,
         skipped_count,
         limit_hit,
+        skipped: false,
     })
 }
 

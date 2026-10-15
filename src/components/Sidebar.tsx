@@ -8,6 +8,7 @@ import { RecentFiles } from "./RecentFiles";
 import { DocumentList } from "./DocumentList";
 import { PathDetails } from "./PathDetails";
 import { fileName, parentPath } from "../lib/paths";
+import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 
 interface SidebarProps {
@@ -27,6 +28,7 @@ interface SidebarProps {
   onClearWorkspaceRoot: () => void;
   onRestoreFolder?: (path: string) => void;
   onReindexWorkspace: () => void;
+  onShowDrafts: () => void;
   onOpenWorkspacePath: (path: string) => void;
   onOpenCommandPalette: () => void;
   onFindNotes?: (path?: string) => void;
@@ -46,6 +48,7 @@ function SidebarComponent(props: SidebarProps) {
   const [folderLimit, setFolderLimit] = useState(100);
   const panelRef = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
+  const isMac = detectShortcutPlatform() === "macos";
   useEffect(() => {
     setDirectory("");
     if (root) setRemoved(null);
@@ -172,10 +175,18 @@ function SidebarComponent(props: SidebarProps) {
             {state.draftsError && (
               <p role="status" className="navigation-help">
                 {state.draftsError}{" "}
+                {isMac &&
+                  "Allow access in System Settings › Privacy & Security › Files and Folders. "}
                 <button onClick={props.onReindexWorkspace}>Retry</button>
               </p>
             )}
-            {!drafts.length && !state.draftsError && (
+            {!drafts.length && !state.draftsError && state.draftsSkipped && (
+              <div className="navigation-help">
+                <p>Drafts you create are saved in Documents › Bindars Drafts.</p>
+                <button onClick={props.onShowDrafts}>Show existing drafts</button>
+              </div>
+            )}
+            {!drafts.length && !state.draftsError && !state.draftsSkipped && (
               <p className="navigation-help">
                 {state.status === "indexing"
                   ? "Looking for drafts…"

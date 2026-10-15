@@ -2975,6 +2975,7 @@ function App() {
           onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
+          onShowDrafts={workspaceIndex.showDrafts}
           onOpenWorkspacePath={openWorkspacePath}
           onOpenCommandPalette={openCommandPalette}
           onFindNotes={path => guardAction({ kind: "find-notes", path })}
