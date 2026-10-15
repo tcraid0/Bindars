@@ -722,6 +722,11 @@ test("a skipped drafts listing offers Show existing drafts, which lists with for
   assert.equal(view.get().state.draftsSkipped, false);
   assert.doesNotMatch(view.host.textContent, /Show existing drafts/);
   assert.match(view.host.textContent, /An old draft/);
+  // The focus recheck after the system prompt must not undo the answer.
+  const checkedAt = view.get().state.indexedAt;
+  await act(async () => view.get().reconcile());
+  await until(() => assert.ok(view.get().state.indexedAt > checkedAt));
+  assert.deepEqual(forces, [false, true, true]);
 });
 test("newly saved drafts are immediately discoverable without another folder scan", async (t) => {
   let scans = 0;

@@ -79,7 +79,9 @@ export function useWorkspaceIndex(
   const recentPaths = JSON.stringify(recentFiles.map((f) => f.path).sort());
   const reindex = useCallback(() => setRefresh((n) => n + 1), []);
   // On macOS a launch listing skips the Drafts folder until a draft exists;
-  // this lists it anyway, which may raise the Documents access prompt.
+  // this lists it anyway, which may raise the Documents access prompt. Once
+  // asked, every later run in the session lists too, so a denied folder keeps
+  // showing its error through the focus recheck that follows the prompt.
   const forceDrafts = useRef(false);
   const showDrafts = useCallback(() => {
     forceDrafts.current = true;
@@ -184,7 +186,6 @@ export function useWorkspaceIndex(
     const active = () => !cancelled && id === runId.current;
     const savedAtStart = saveVersion.current;
     const force = forceDrafts.current;
-    forceDrafts.current = false;
     const lastKnown = [...entries.current.values()];
     const candidates = new Map(entries.current);
     const paths = JSON.parse(recentPaths) as string[];
