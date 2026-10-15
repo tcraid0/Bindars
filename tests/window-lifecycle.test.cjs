@@ -1492,7 +1492,7 @@ test("opening identical text in another file resets search and observes the new 
       const headings = [...rendered.host.querySelectorAll('.markdown-body h1, .markdown-body h2')];
       assert.equal(headings.length, 2);
       assert.ok(headings.every((node) => rendered.observedHeadings().includes(node)), "TOC must observe the replacement document");
-      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+      assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
     });
     assert.ok(!rendered.host.querySelector("mark.search-highlight-active"));
   } finally {
@@ -1511,7 +1511,7 @@ test("identical Fountain content at another path clears search without losing te
     await rendered.requestNativeOpen("/tmp/identical.fountain");
     await waitFor(() => {
       assert.ok(rendered.host.textContent.includes("identical.fountain"));
-      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+      assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
     });
     assert.ok(article === rendered.host.querySelector('.fountain-body'), "identical Fountain source retains its article");
     assert.equal(article.textContent, originalText);

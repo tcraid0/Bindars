@@ -23,16 +23,17 @@ async function waitFor(assertion) {
 async function reader(t) {
   const calls = [];
   const openedPaths = [];
-  const content = "# Find fixture\n\nalpha beta alpha\n\nalpha end";
+  let content = "# Find fixture\n\nalpha beta alpha\n\nalpha end";
+  const nativeOpen = createNativeOpenIpc("/tmp/find.md");
   mockWindows("main");
-  const ipc = createNativeOpenIpc("/tmp/find.md").wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     calls.push(cmd);
     if (cmd === "initialize_annotation_storage") return { settingsReady: true };
     if (cmd === "get_setting") return args.key === "recent-files" ? { version: 1, files: [] } : null;
     if (cmd === "open_markdown_file") {
       openedPaths.push(args.path);
       return { canonicalPath: args.path, name: args.path.split("/").at(-1), content,
-        revision: { mtimeMs: 1, size: content.length, contentHash: "find-fixture" } };
+        revision: { mtimeMs: 1, size: content.length, contentHash: content } };
     }
     if (cmd === "is_draft_document") return false;
     if (["load_annotations", "set_setting", "watch_file", "unwatch_file", "authorize_document_images",
@@ -53,8 +54,51 @@ async function reader(t) {
   });
   await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
   main.focus();
-  return { ...view, main, calls, openedPaths, field: () => view.host.querySelector('input[aria-label="Search in document"]') };
+  return { ...view, main, calls, openedPaths,
+    async open(path) {
+      nativeOpen.setPendingPath(path);
+      await act(async () => emit("bindars://native-open-available"));
+    },
+    async reload(text) {
+      content = text;
+      await act(async () => emit("file-changed", { path: openedPaths.at(-1) }));
+    },
+    field: () => view.host.querySelector('input[aria-label="Search in document"]') };
 }
+
+test("Find closes for another path with identical text, including an empty query", async t => {
+  const view = await reader(t);
+  for (const text of ["alpha", ""]) {
+    view.main.focus(); pressKey("f", { ctrlKey: true }); query(view.field(), text);
+    await view.open(`/tmp/other-${text}.md`);
+    await waitFor(() => assert.ok(!view.field(), "Find should be closed"));
+    assert.ok(document.activeElement === view.main);
+    await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+    pressKey("f", { ctrlKey: true }); assert.equal(view.field().value, "");
+  }
+});
+
+test("Find closes on external edits, transferring focus only from Find", async t => {
+  const view = await reader(t);
+  for (const inFind of [true, false]) {
+    view.main.focus(); pressKey("f", { ctrlKey: true }); query(view.field(), "alpha");
+    const outside = view.host.querySelector('[aria-label="Edit mode"]');
+    if (!inFind) outside.focus();
+    await view.reload(`# Find fixture\n\nalpha new ${inFind}`);
+    await waitFor(() => assert.ok(!view.field(), "Find should be closed"));
+    assert.ok(document.activeElement === (inFind ? view.main : outside));
+  }
+});
+
+test("a cancelled open and a query without matches keep Find and its query", async t => {
+  const view = await reader(t);
+  pressKey("f", { ctrlKey: true }); query(view.field(), "no matches here");
+  await waitFor(() => assert.match(view.host.textContent, /No results/));
+  pressKey("o", { ctrlKey: true });
+  await waitFor(() => assert.ok(view.calls.includes("plugin:dialog|open")));
+  await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+  assert.equal(view.field().value, "no matches here");
+});
 
 test("drops explain unsupported-only payloads once and keep mixed and empty behavior", async t => {
   const view = await reader(t);
@@ -145,7 +189,7 @@ for (const [platform, modifier, other] of [["MacIntel", "metaKey", "ctrlKey"], [
     }
     const note = document.createElement("textarea"); view.host.append(note); note.focus();
     assert.equal(key("g").defaultPrevented, false); assert.match(view.host.textContent, /1 of 3/);
-    note.remove(); view.main.focus(); pressKey("Escape"); assert.equal(view.field(), null);
+    note.remove(); view.main.focus(); pressKey("Escape"); assert.ok(!view.field(), "Find should be closed");
     key("g"); assert.equal(view.field().value, "");
   });
 }
@@ -182,7 +226,7 @@ test("CodeMirror keeps Find, next/previous and Escape ownership in Edit mode", a
   flushSync(() => input.dispatchEvent(new Event("change", { bubbles: true })));
   pressKey("g", { ctrlKey: true });
   assert.equal(editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to), "alpha");
-  assert.equal(view.field(), null);
+  assert.ok(!view.field(), "Find should be closed");
   pressKey("Escape");
   assert.ok(!view.host.querySelector(".cm-search")); assert.ok(view.host.querySelector(".cm-editor"));
   // Even when a toolbar control has focus, the app must not open reader Find for Mod-G.

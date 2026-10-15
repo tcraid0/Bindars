@@ -5547,6 +5547,7 @@ test('cross-file workspace heading opens the requested document and scrolls its 
     flushSync(() => row.click());
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Alpha.md'));
     await waitFor(() => assert.match(view.host.querySelector('mark.search-highlight-active')?.textContent || '', /Second heading/));
+    assert.equal(view.host.querySelector('input[aria-label="Search in document"]')?.value, 'second heading');
     assert.doesNotMatch(view.host.textContent, /not found/);
   } finally { await view.cleanup(); }
 });

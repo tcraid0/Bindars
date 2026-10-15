@@ -1600,6 +1600,10 @@ function App() {
   useEffect(() => {
     const previous = prevSearchDocumentRef.current;
     if (previous.content !== content || previous.filePath !== filePath) {
+      if (document.activeElement?.closest(".search-bar")) {
+        mainScrollRef.current?.focus({ preventScroll: true });
+      }
+      setSearchVisible(false);
       prevSearchDocumentRef.current = { content, filePath };
       setPassageNotice(null);
       setPendingSearchPassage(pending => pending?.path === filePath ? pending : null);
@@ -2690,14 +2694,13 @@ function App() {
       return;
     }
 
-    // Allow Escape and Enter/Shift+Enter in search input
+    // SearchBar owns Enter and primary-G in its field; Escape closes Find.
     if (inInput && searchVisible) {
       if (key === "escape") {
         e.preventDefault();
         closeSearch();
         return;
       }
-      // Let SearchBar handle Enter/Shift+Enter internally
       return;
     }
 
