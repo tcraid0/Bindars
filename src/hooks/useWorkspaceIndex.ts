@@ -80,8 +80,8 @@ export function useWorkspaceIndex(
   const reindex = useCallback(() => setRefresh((n) => n + 1), []);
   // On macOS a launch listing skips the Drafts folder until a draft exists;
   // this lists it anyway, which may raise the Documents access prompt. Once
-  // asked, every later run in the session lists too, so a denied folder keeps
-  // showing its error through the focus recheck that follows the prompt.
+  // asked, later runs keep listing so the focus recheck after the prompt
+  // does not replace its result with the skipped state.
   const forceDrafts = useRef(false);
   const showDrafts = useCallback(() => {
     forceDrafts.current = true;

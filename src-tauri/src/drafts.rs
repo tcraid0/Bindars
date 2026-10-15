@@ -40,6 +40,7 @@ fn drafts_marker(app: &AppHandle) -> Option<PathBuf> {
     app.path()
         .app_data_dir()
         .ok()
+        .filter(|_| LISTING_NEEDS_MARKER)
         .map(|dir| dir.join(DRAFTS_MARKER_NAME))
 }
 
@@ -48,7 +49,7 @@ fn write_drafts_marker(marker: &Path) {
     if let Some(parent) = marker.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(marker, "");
+    let _ = fs::File::create_new(marker);
 }
 
 /// Listing never creates Documents or the draft directory.
@@ -67,7 +68,7 @@ fn list_drafts_in(
     marker: Option<&Path>,
     force: bool,
 ) -> Result<WorkspaceListResult, NativeFileError> {
-    if LISTING_NEEDS_MARKER && !force && marker.is_some_and(|marker| !marker.exists()) {
+    if LISTING_NEEDS_MARKER && !force && !marker.is_some_and(|marker| marker.exists()) {
         return Ok(WorkspaceListResult::skipped());
     }
     if !dir
@@ -80,7 +81,7 @@ fn list_drafts_in(
         dir.to_string_lossy().into_owned(),
         Some(5_000),
     )?;
-    if let Some(marker) = marker.filter(|_| !listed.files.is_empty()) {
+    if let Some(marker) = marker.filter(|_| force && !listed.files.is_empty()) {
         write_drafts_marker(marker);
     }
     Ok(listed)
@@ -373,8 +374,11 @@ mod tests {
 
         assert_eq!(listed.skipped, LISTING_NEEDS_MARKER);
         assert_eq!(listed.files.len(), usize::from(!LISTING_NEEDS_MARKER));
-        // A listing that found drafts records them; a skipped one records nothing.
-        assert_eq!(marker.exists(), !LISTING_NEEDS_MARKER);
+        // Ordinary listings do not write the marker on any platform.
+        assert!(!marker.exists());
+        // An app-data folder that can't be found counts as no marker.
+        let unknown = list_drafts_in(&dir, None, false).unwrap();
+        assert_eq!(unknown.skipped, LISTING_NEEDS_MARKER);
         cleanup(&dir);
         cleanup_marker(&marker);
     }

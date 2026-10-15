@@ -184,7 +184,6 @@ function SidebarComponent(props: SidebarProps) {
             )}
             {!drafts.length && !state.draftsError && state.draftsSkipped && (
               <div className="navigation-help">
-                <p>Drafts you create are saved in Documents › Bindars Drafts.</p>
                 <button onClick={props.onShowDrafts}>Show existing drafts</button>
               </div>
             )}

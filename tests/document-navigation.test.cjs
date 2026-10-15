@@ -705,7 +705,7 @@ test("a skipped drafts listing offers Show existing drafts, which lists with for
   await act(async () =>
     view.host.querySelector("#navigation-tab-Drafts").click(),
   );
-  assert.match(view.host.textContent, /Drafts you create are saved in Documents › Bindars Drafts\./);
+  assert.equal((view.host.textContent.match(/Documents › Bindars Drafts/g) || []).length, 1);
   assert.doesNotMatch(view.host.textContent, /No drafts yet|Looking for drafts/);
   const button = [...view.host.querySelectorAll("button")].find(
     (node) => node.textContent === "Show existing drafts",
