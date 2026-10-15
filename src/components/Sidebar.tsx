@@ -31,7 +31,7 @@ interface SidebarProps {
   onShowDrafts: () => void;
   onOpenWorkspacePath: (path: string) => void;
   onOpenCommandPalette: () => void;
-  onFindNotes?: (path?: string) => void;
+  onFindNotes?: (path: string) => void;
 }
 const views = ["Recent", "Drafts", "Folders"] as const;
 function SidebarComponent(props: SidebarProps) {
@@ -341,12 +341,6 @@ function SidebarComponent(props: SidebarProps) {
             ? "Some documents have limited search coverage. Their names remain searchable."
             : ""}
       </p>
-      <button
-        className="navigation-action"
-        onClick={() => props.onFindNotes?.()}
-      >
-        Find Notes…
-      </button>
     </aside>
   );
 }
