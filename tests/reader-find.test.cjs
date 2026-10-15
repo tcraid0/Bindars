@@ -1,10 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const Module = require("node:module");
+const { createAppView } = require("./_helpers/render-app.cjs");
 const React = require("react");
 const { act } = React;
 const { flushSync } = require("react-dom");
-const { mockIPC, mockWindows, clearMocks } = require("@tauri-apps/api/mocks");
+const { mockWindows, clearMocks } = require("@tauri-apps/api/mocks");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 const { renderComponent, pressKey } = require("./_helpers/component-view.cjs");
 const { withShortcutPlatform } = require("./_helpers/shortcut-platform.cjs");
@@ -20,13 +20,10 @@ async function waitFor(assertion) {
 }
 
 async function reader(t) {
-  const observer = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
-  t.after(() => { globalThis.IntersectionObserver = observer; });
   const calls = [];
   const content = "# Find fixture\n\nalpha beta alpha\n\nalpha end";
   mockWindows("main");
-  mockIPC(createNativeOpenIpc("/tmp/find.md").wrap((cmd, args = {}) => {
+  const ipc = createNativeOpenIpc("/tmp/find.md").wrap((cmd, args = {}) => {
     calls.push(cmd);
     if (cmd === "initialize_annotation_storage") return { settingsReady: true };
     if (cmd === "get_setting") return args.key === "recent-files" ? { version: 1, files: [] } : null;
@@ -36,18 +33,11 @@ async function reader(t) {
     if (["load_annotations", "set_setting", "watch_file", "unwatch_file", "authorize_document_images",
       "plugin:window|set_title", "plugin:dialog|open"].includes(cmd)) return null;
     throw new Error(`Unexpected IPC ${cmd}`);
-  }), { shouldMockEvents: true });
-  const load = Module._load;
-  Module._load = function(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome";
-    return load.call(this, request, parent, isMain);
-  };
-  let App;
-  try { App = require("../.tmp/workspace-tests/src/App.js").default; }
-  finally { Module._load = load; }
-  const view = renderComponent(App);
+  });
+  const view = createAppView({ ipc, strictMode: true });
+  view.render();
   t.after(async () => {
-    await act(async () => view.cleanup());
+    await view.cleanup();
     window.getSelection().removeAllRanges();
     clearMocks();
   });

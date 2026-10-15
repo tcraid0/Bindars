@@ -1,9 +1,9 @@
+const { createAppView } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
-const { createRoot } = require("react-dom/client");
-const { clearMocks, mockIPC, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
+const { clearMocks, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
@@ -39,20 +39,6 @@ async function waitFor(assertion) {
     }
   }
   throw lastError;
-}
-
-function loadApp() {
-  const Module = require("node:module");
-  const originalLoad = Module._load;
-  Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture";
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return require("../.tmp/workspace-tests/src/App.js").default;
-  } finally {
-    Module._load = originalLoad;
-  }
 }
 
 function keyboardEvent(key, options = {}) {
@@ -127,13 +113,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     removeEventListener() {},
     dispatchEvent() { return false; },
   });
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
   const observedHeadings = new Set();
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe(node) { observedHeadings.add(node); }
-    unobserve(node) { observedHeadings.delete(node); }
-    disconnect() { observedHeadings.clear(); }
-  };
 
   // The App freezes its window close policy from the call-time platform
   // detector, so the navigator must report the platform under test before
@@ -163,7 +143,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
   const fileWrites = [];
   const nativeOpen = createNativeOpenIpc();
 
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
@@ -279,16 +259,11 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
-
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  flushSync(() => {
-    root.render(React.createElement(ToastProvider, null, React.createElement(App)));
   });
+
+  const view = createAppView({ ipc, observedHeadings });
+  const { host } = view;
+  view.render();
   if (!initialSessionOperation) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
 
   async function openLifecycleDocument() {
@@ -336,13 +311,8 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     requestClose,
     requestQuit,
     async cleanup() {
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       window.matchMedia = originalMatchMedia;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
       Object.defineProperty(globalThis, "navigator", originalNavigator);
       clearMocks();
     },
@@ -1282,7 +1252,6 @@ test("non-macOS dirty close Discard completes the programmatic close handshake",
   }
 });
 
-
 const MIXED_READER_CONTENT = "# Lifecycle\n\n[Jump](#deeper) words `code` more words.\n\n## Deeper\n\n[Next](next.md) words after link.\n";
 
 async function searchReader(host, query) {
@@ -1469,7 +1438,6 @@ test("reader search survives mixed inline text, clearing, and a different docume
   }
 });
 
-
 test("saved highlights survive search and panel changes, then a saved edit returns to the reader", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [{
     id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
@@ -1513,7 +1481,6 @@ test("Fountain search survives replacing mixed-emphasis screenplay content", asy
   }
 });
 
-
 test("opening identical text in another file resets search and observes the new headings", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
   try {
@@ -1532,7 +1499,6 @@ test("opening identical text in another file resets search and observes the new 
     await rendered.cleanup();
   }
 });
-
 
 test("identical Fountain content at another path clears search without losing text", async () => {
   const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
@@ -1697,7 +1663,6 @@ for (const platform of ["windows", "linux"]) {
   });
 }
 
-
 test("a note draft entered after close acknowledgement cancels the old discard decision", async () => {
   const writes = [];
   const rendered = await renderLifecycleApp({ platform: "windows",
@@ -1766,7 +1731,6 @@ test("a delayed image failure preserves an adjacent saved annotation without sea
     });
   }
 });
-
 
 function narrowWindow(t, width) {
   const innerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
@@ -1865,7 +1829,6 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
     assert.ok(document.activeElement === main, "the returning chip does not steal focus");
   } finally { await r.cleanup(); }
 });
-
 
 test("unknown highlight colors render yellow while notes stay editable and removable", async () => {
   const writes = [];

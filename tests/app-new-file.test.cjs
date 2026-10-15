@@ -1,6 +1,6 @@
+const { createAppView, loadApp } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const Module = require("node:module");
 const { withShortcutPlatform } = require("./_helpers/shortcut-platform.cjs");
 const React = require("react");
 const { act } = React;
@@ -125,19 +125,6 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
   await waitFor(() => assert.ok(rendered.host.textContent.includes(fileName)));
 }
 
-function loadApp() {
-  const originalLoad = Module._load;
-  Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture\n\nSave with {{shortcut:saveFile}}.";
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return require("../.tmp/workspace-tests/src/App.js").default;
-  } finally {
-    Module._load = originalLoad;
-  }
-}
-
 function keyboardEvent(key, options = {}) {
   const { altGraph = false, ...eventOptions } = options;
   const event = new window.KeyboardEvent("keydown", {
@@ -216,12 +203,7 @@ async function renderEditorApp({
   await installDom();
   ({ flushSync } = require("react-dom"));
   ({ createRoot } = require("react-dom/client"));
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+
   const originalMatchMedia = window.matchMedia;
   window.matchMedia = (query) => ({
     matches: false,
@@ -261,7 +243,7 @@ async function renderEditorApp({
   let windowCloseCount = 0;
   let guardedExitCount = 0;
   const nativeOpen = createNativeOpenIpc();
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
@@ -327,26 +309,14 @@ async function renderEditorApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
+  });
 
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-
-  const app = React.createElement(App);
-  const renderedApp = onRender
-    ? React.createElement(React.Profiler, { id: "App", onRender }, app)
-    : app;
-  const render = (activityMode = "visible") => {
-    const appContent = withActivity
-      ? React.createElement(React.Activity, { mode: activityMode }, renderedApp)
-      : renderedApp;
-    const content = React.createElement(ToastProvider, null, appContent);
-    root.render(strictMode ? React.createElement(React.StrictMode, null, content) : content);
-  };
-  flushSync(() => render());
+  const view = createAppView({ ipc, strictMode, wrap(app, activityMode = "visible") {
+    const rendered = onRender ? React.createElement(React.Profiler, { id: "App", onRender }, app) : app;
+    return withActivity ? React.createElement(React.Activity, { mode: activityMode }, rendered) : rendered;
+  } });
+  const { host, render } = view;
+  render();
   if (waitUntilReady) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
   if (startNew) {
     dispatchShortcut("n");
@@ -369,15 +339,10 @@ async function renderEditorApp({
     windowCloseCount: () => windowCloseCount,
     guardedExitCount: () => guardedExitCount,
     async cleanup() {
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       window.localStorage.removeItem("bindars-theme");
       window.localStorage.removeItem("markdown-reader-theme");
       window.matchMedia = originalMatchMedia;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
       clearMocks();
     },
   };
@@ -1965,12 +1930,7 @@ async function renderContinuityApp({
   ({ flushSync } = require("react-dom"));
   ({ createRoot } = require("react-dom/client"));
   window.localStorage.clear();
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+
   mockWindows("main");
   let diskContent = initialContent ?? [
     "# First",
@@ -2007,7 +1967,7 @@ async function renderContinuityApp({
   const nativeOpen = createNativeOpenIpc(initialNativePath === undefined
     ? (restoreHeadingId === undefined ? requestedPath : null)
     : initialNativePath);
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return bootstrapRead ?? { settingsReady: true, settingsError: null };
@@ -2184,7 +2144,7 @@ async function renderContinuityApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
+  });
 
   if (freshStorage) {
     for (const key of Object.keys(require.cache)) {
@@ -2196,11 +2156,8 @@ async function renderContinuityApp({
       delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
     }
   }
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
+  const view = createAppView({ ipc });
+  const { host } = view;
   const scrolledIds = [];
   let firstEditorLineVisible = false;
   const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
@@ -2249,7 +2206,7 @@ async function renderContinuityApp({
     main.getBoundingClientRect = () => ({ top: 50, bottom: 450, height: 400, left: 0, right: 800, width: 800, x: 0, y: 50, toJSON() {} });
   }
 
-  flushSync(() => root.render(React.createElement(ToastProvider, null, React.createElement(App))));
+  view.render();
   if (readySelector) {
     await waitFor(() => assert.ok(host.querySelector(readySelector)));
     positionReaderAtFirst();
@@ -2304,12 +2261,7 @@ async function renderContinuityApp({
     async cleanup() {
       window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
       window.HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       clearMocks();
     },
   };
@@ -6225,7 +6177,6 @@ for (const outcome of ['success', 'failure']) {
   });
 }
 
-
 test('saving feedback follows an empty draft through Focus mode and saved-file adoption', async () => {
   const rendered = await renderEditorApp();
   try {
@@ -6966,7 +6917,6 @@ test("Command-S does not write a pathname after its folder moved", async () => {
   } finally { await rendered.cleanup(); }
 });
 
-
 for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
   test(`startup deadline exposes working controls with pending ${heldStage}`, async (context) => {
     const restoreLocalStorage = bindAppLocalStorage();
@@ -7210,7 +7160,6 @@ test("startup restoration persists the same heading across two launches", async 
     restoreLocalStorage();
   }
 });
-
 
 test("Focus mode retains a focused selection-toolbar action that remains visible", async () => {
   const rendered = await renderContinuityApp();
