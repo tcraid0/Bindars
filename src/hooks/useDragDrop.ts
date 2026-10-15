@@ -6,9 +6,10 @@ interface UseDragDropOptions {
   onDragEnter: () => void;
   onDragLeave: () => void;
   onDrop: (paths: string[]) => void;
+  onUnsupportedDrop: () => void;
 }
 
-export function useDragDrop({ onDragEnter, onDragLeave, onDrop }: UseDragDropOptions) {
+export function useDragDrop({ onDragEnter, onDragLeave, onDrop, onUnsupportedDrop }: UseDragDropOptions) {
   useEffect(() => {
     const window = getCurrentWindow();
 
@@ -22,6 +23,8 @@ export function useDragDrop({ onDragEnter, onDragLeave, onDrop }: UseDragDropOpt
         const paths = event.payload.paths.filter(isOpenableDocumentPath);
         if (paths.length > 0) {
           onDrop(paths);
+        } else if (event.payload.paths.length > 0) {
+          onUnsupportedDrop();
         }
       }
     });
@@ -33,5 +36,5 @@ export function useDragDrop({ onDragEnter, onDragLeave, onDrop }: UseDragDropOpt
           // Best effort cleanup.
         });
     };
-  }, [onDragEnter, onDragLeave, onDrop]);
+  }, [onDragEnter, onDragLeave, onDrop, onUnsupportedDrop]);
 }

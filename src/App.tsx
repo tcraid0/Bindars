@@ -51,6 +51,7 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
+import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSessionRestore } from "./hooks/useSessionRestore";
 import { useReadingHint } from "./hooks/useReadingHint";
@@ -2543,10 +2544,14 @@ function App() {
   );
 
   // Drag and drop
+  const handleUnsupportedDrop = useCallback(() => {
+    toast(`Only ${OPENABLE_FILE_TYPES_DESCRIPTION} files can be opened.`, "error");
+  }, [toast]);
   useDragDrop({
     onDragEnter: handleDragEnter,
     onDragLeave: handleDragLeave,
     onDrop: handleDropPaths,
+    onUnsupportedDrop: handleUnsupportedDrop,
   });
 
   // Keyboard shortcuts

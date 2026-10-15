@@ -5,6 +5,7 @@ const React = require("react");
 const { act } = React;
 const { flushSync } = require("react-dom");
 const { mockWindows, clearMocks } = require("@tauri-apps/api/mocks");
+const { emit, TauriEvent } = require("@tauri-apps/api/event");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 const { renderComponent, pressKey } = require("./_helpers/component-view.cjs");
 const { withShortcutPlatform } = require("./_helpers/shortcut-platform.cjs");
@@ -21,14 +22,18 @@ async function waitFor(assertion) {
 
 async function reader(t) {
   const calls = [];
+  const openedPaths = [];
   const content = "# Find fixture\n\nalpha beta alpha\n\nalpha end";
   mockWindows("main");
   const ipc = createNativeOpenIpc("/tmp/find.md").wrap((cmd, args = {}) => {
     calls.push(cmd);
     if (cmd === "initialize_annotation_storage") return { settingsReady: true };
     if (cmd === "get_setting") return args.key === "recent-files" ? { version: 1, files: [] } : null;
-    if (cmd === "open_markdown_file") return { canonicalPath: args.path, name: "find.md", content,
-      revision: { mtimeMs: 1, size: content.length, contentHash: "find-fixture" } };
+    if (cmd === "open_markdown_file") {
+      openedPaths.push(args.path);
+      return { canonicalPath: args.path, name: args.path.split("/").at(-1), content,
+        revision: { mtimeMs: 1, size: content.length, contentHash: "find-fixture" } };
+    }
     if (cmd === "is_draft_document") return false;
     if (["load_annotations", "set_setting", "watch_file", "unwatch_file", "authorize_document_images",
       "plugin:window|set_title", "plugin:dialog|open"].includes(cmd)) return null;
@@ -48,8 +53,27 @@ async function reader(t) {
   });
   await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
   main.focus();
-  return { ...view, main, calls, field: () => view.host.querySelector('input[aria-label="Search in document"]') };
+  return { ...view, main, calls, openedPaths, field: () => view.host.querySelector('input[aria-label="Search in document"]') };
 }
+
+test("drops explain unsupported-only payloads once and keep mixed and empty behavior", async t => {
+  const view = await reader(t);
+  const drop = paths => act(async () => emit(TauriEvent.DRAG_DROP, { paths, position: { x: 0, y: 0 } }));
+  await drop([]);
+  await act(async () => emit(TauriEvent.DRAG_LEAVE));
+  assert.equal(view.host.querySelectorAll('[role="alert"]').length, 0);
+  await drop(["/tmp/probe.pdf", "/tmp/image.png", "/tmp/folder"]);
+  assert.equal(view.host.querySelectorAll('[role="alert"]').length, 1);
+  assert.match(view.host.querySelector('[role="alert"]').textContent, /Only .md, .markdown, or .fountain files can be opened\./);
+  assert.deepEqual(view.openedPaths, ["/tmp/find.md"]);
+  flushSync(() => view.host.querySelector('[aria-label="Dismiss notification"]').click());
+  await drop(["/tmp/probe.pdf", "/tmp/other.md", "/tmp/second.md", "/tmp/image.png"]);
+  await waitFor(() => assert.match(view.host.textContent, /other.md/));
+  assert.deepEqual(view.openedPaths, ["/tmp/find.md", "/tmp/other.md"]);
+  assert.equal(view.host.querySelectorAll('[role="alert"]').length, 0);
+  await drop(["/tmp/folder.md"]);
+  await waitFor(() => assert.ok(view.openedPaths.includes("/tmp/folder.md")));
+});
 
 function select(node) {
   const range = document.createRange();
