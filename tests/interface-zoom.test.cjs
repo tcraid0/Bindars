@@ -83,4 +83,14 @@ test("zoom shortcuts work inside dialogs and editors and reset only interface zo
     ["interface-zoom", "interface-zoom"],
   );
   assert.deepEqual(factors, [1.5, 1.75, 1]);
+  for (const [platform, modifiers, expected] of [
+    ["MacIntel", { ctrlKey: true }, 1],
+    ["MacIntel", { metaKey: true }, 1.1],
+    ["Linux x86_64", { metaKey: true }, 1.1],
+    ["Linux x86_64", { ctrlKey: true }, 1.25],
+  ]) {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: platform });
+    await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "+", bubbles: true, cancelable: true, ...modifiers })));
+    assert.equal(api.zoom, expected);
+  }
 });

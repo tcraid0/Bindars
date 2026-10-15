@@ -9,7 +9,7 @@ It introduces no new document, settings, or annotation format.
 - The welcome screen leads with **Open File…** and **Try an Example…**, explains
   where the example is saved, and shows recent files with their original folder
   paths. Keyboard shortcuts are available from the welcome screen and header;
-  press **Cmd+?** on macOS or **Ctrl+?** on Linux.
+  choose **Help > Keyboard Shortcuts** on macOS or press **Ctrl+?** on Linux.
 - Missing and unavailable files have clear recovery messages with **Retry**,
   **Dismiss**, and **Remove** actions. Retrying or canceling an open keeps the
   relevant filename, and confirmed missing files are not reopened automatically

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { storeGet, storeSet } from "../lib/store";
-import { detectShortcutPlatform } from "../lib/shortcut-labels";
+import { isPrimaryModifier } from "../lib/shortcut-labels";
 import { isImeCompositionKey } from "../lib/keyboard";
 export const ZOOM_STEPS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 export function nextZoom(value: number, direction: number) {
@@ -50,10 +50,8 @@ export function useInterfaceZoom() {
         apply(saved, false);
     });
     const onKey = (event: KeyboardEvent) => {
-      const primary =
-        detectShortcutPlatform() === "macos" ? event.metaKey : event.ctrlKey;
       if (
-        !primary ||
+        !isPrimaryModifier(event) ||
         event.altKey ||
         isImeCompositionKey(event) ||
         !["+", "=", "-", "0"].includes(event.key)

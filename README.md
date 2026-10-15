@@ -29,7 +29,8 @@ native testing and code signing.
 - Optional Markdown heading formatting with an instant plain-markup fallback
 - macOS spelling underlines and native right-click suggestions while editing
 - Print the document or save it as PDF; export highlights and notes separately as Markdown
-- Keyboard-driven workflow - press Cmd+? (Ctrl+? on Linux) for the full shortcut list
+- Keyboard-driven workflow - choose **Help > Keyboard Shortcuts** on macOS or
+  press Ctrl+? on Linux for the full shortcut list
 
 See [highlights, notes, and recovery](docs/annotations.md) for location, saving,
 and document-path limitations. You can also paste plain text into a new document.
@@ -88,6 +89,9 @@ or unresolved passage produces an explanation and refreshes search. **Find in
 Document** (Cmd+F / Ctrl+F) finds a phrase in the displayed document; only valid
 phrase results populate it. Unordered-term results highlight their passage
 without putting search operators into Find.
+
+Use Cmd+G / Ctrl+G for the next Find match and Shift+Cmd+G / Ctrl+Shift+G
+for the previous match.
 
 Both searches ignore case, ordinary prose whitespace, and soft line breaks.
 They equate straight/curly quotes, `--`/en dash, `---`/em dash, and `...`/ellipsis.
