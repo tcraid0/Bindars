@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { WorkspaceDocIndex } from "../types";
 import { MAX_WORKSPACE_BODY_CHARS } from "../lib/workspace-limits";
 import { PathDetails } from "./PathDetails";
-import { invoke } from "@tauri-apps/api/core";
+import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { useToast } from "./ToastProvider";
 
 export function DocumentList({
@@ -63,17 +63,13 @@ export function DocumentList({
                   <button
                     type="button"
                     onClick={() =>
-                      void invoke("reveal_markdown_file_in_folder", {
-                        path: doc.path,
-                      }).catch(() =>
-                        toast(
-                          "Couldn't show this file. Check its location and permissions.",
-                          "error",
-                        ),
-                      )
+                      void revealDocument(
+                        doc.path,
+                        "Couldn't show this file. Check its location and permissions.",
+                      ).catch((error: Error) => toast(error.message, "error"))
                     }
                   >
-                    Show in folder
+                    {revealDocumentLabel()}
                   </button>
                 )}
               </div>

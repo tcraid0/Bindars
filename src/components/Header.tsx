@@ -1,7 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback, useId } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { Theme, FileType } from "../types";
-import { normalizeFileError } from "../lib/native-file-error";
+import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
@@ -103,7 +102,7 @@ function HeaderComponent({
 }: HeaderProps) {
   const { toast } = useToast();
   const isMac = detectShortcutPlatform() === "macos";
-  const revealLabel = isMac ? "Show in Finder" : "Show in folder";
+  const revealLabel = revealDocumentLabel();
   const hasSaveFeedback = Boolean(saveWarning || isDraft || isDirty || isSavedFlash);
   const [exportOpen, setExportOpen] = useState(false);
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
@@ -135,15 +134,10 @@ function HeaderComponent({
     onPresent();
   }, [dismissExport, onPresent]);
 
-  const handleRevealFile = useCallback(async () => {
+  const handleRevealFile = useCallback(() => {
     if (!filePath) return;
-    try {
-      await invoke("reveal_markdown_file_in_folder", { path: filePath });
-    } catch (err) {
-      console.warn("[reveal-file] Failed to show document location:", err);
-      const fallback = isMac ? "Couldn't show this file in Finder" : "Couldn't show this file in its folder";
-      toast(normalizeFileError(err, fallback).native?.message ?? fallback, "error");
-    }
+    const fallback = isMac ? "Couldn't show this file in Finder" : "Couldn't show this file in its folder";
+    void revealDocument(filePath, fallback).catch((error: Error) => toast(error.message, "error"));
   }, [filePath, isMac, toast]);
 
   return (

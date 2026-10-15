@@ -81,16 +81,17 @@ test("retired document commands are absent from the registered IPC surface", () 
   assert.match(registration[1], /\bprint_current_webview\b/);
 });
 
-test("Header reveals documents through the validated backend command", () => {
-  const headerSource = fs.readFileSync(
-    path.join(projectRoot, "src/components/Header.tsx"),
+test("documents are revealed through the one validated backend command", () => {
+  const helperSource = fs.readFileSync(
+    path.join(projectRoot, "src/lib/reveal-document.ts"),
     "utf8",
   );
-  assert.match(
-    headerSource,
-    /invoke\("reveal_markdown_file_in_folder", \{ path: filePath \}\)/,
-  );
-  assert.doesNotMatch(headerSource, /\b(?:openPath|revealItemInDir)\(/);
+  assert.match(helperSource, /invoke\("reveal_markdown_file_in_folder", \{ path \}\)/);
+  for (const file of ["src/components/Header.tsx", "src/components/DocumentList.tsx"]) {
+    const source = fs.readFileSync(path.join(projectRoot, file), "utf8");
+    assert.match(source, /from "\.\.\/lib\/reveal-document"/);
+    assert.doesNotMatch(source, /reveal_markdown_file_in_folder|\b(?:openPath|revealItemInDir)\(/);
+  }
   assert.equal(capabilities.permissions.includes("opener:allow-reveal-item-in-dir"), false);
 });
 
