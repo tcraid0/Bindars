@@ -894,8 +894,7 @@ button:active:not(:disabled),
 
 /* ── Active navigation item background ── */
 
-.toc-active-item,
-.sidebar-active-item {
+.toc-active-item {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 

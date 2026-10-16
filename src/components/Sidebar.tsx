@@ -270,7 +270,7 @@ function SidebarComponent(props: SidebarProps) {
                   {subfolders.slice(0, folderLimit).map((path) => (
                     <li key={path}>
                       <button
-                        className="document-open"
+                        className="document-open document-row"
                         onClick={() => moveDirectory(path)}
                       >
                         ▸ {fileName(path)}
