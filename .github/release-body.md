@@ -1,129 +1,8 @@
-## Changes in 1.5.2
+## Changes in 1.6.0
 
-This update makes saving safer, restores reading sections more reliably, and
-improves the welcome screen and printed output for Markdown and Fountain files.
-It introduces no new document, settings, or annotation format.
-
-### Opening files and getting started
-
-- The welcome screen leads with **Open File…** and **Try an Example…**, explains
-  where the example is saved, and shows recent files with their original folder
-  paths. Keyboard shortcuts are available from the welcome screen and header;
-  choose **Help > Keyboard Shortcuts** on macOS or press **Ctrl+?** on Linux.
-- Missing and unavailable files have clear recovery messages with **Retry**,
-  **Dismiss**, and **Remove** actions. Retrying or canceling an open keeps the
-  relevant filename, and confirmed missing files are not reopened automatically
-  on every launch. Dismiss keeps recent history; Remove deletes the recent entry.
-- Open File receives keyboard focus after the startup screen leaves, without
-  taking focus from another control. Document-only panels stay hidden until a
-  document opens, and the one-time annotation hint sits outside the document's
-  scrolling area to preserve the restored reading section.
-
-### Reading and editing
-
-- Toggle Highlights & notes with **Shift+Cmd+M** on macOS or **Ctrl+Shift+M**
-  on Linux. Plain **Ctrl+M** no longer toggles Notes; **Cmd+M** minimizes on macOS.
-- Contents and saved reading sections load reliably when the reader opens.
-  The restored section stays consistent across repeated launches, and closing
-  or quitting records the current section.
-- Search results and highlights refresh when Mermaid diagrams finish rendering
-  or redraw. Search highlighting is batched to keep larger documents responsive,
-  and replacing an unavailable image no longer disrupts marked text beside it.
-- Reader panels fit the available window width from startup. Opening or closing
-  panels preserves keyboard focus, and entering Focus mode moves focus out of
-  controls that disappear.
-- Clearer text in all four themes, including links, search results, and labels
-  on filled buttons. Sepia keeps its warm background with stronger text contrast.
-- Refreshed themes and a new app icon. Light uses blue accents on its off-white
-  surfaces, Dark and Midnight use cool charcoal surfaces, and Sepia stays warm.
-  Code coloring reads clearly in every theme, and search results stand apart
-  from saved highlights.
-- The reader's keyboard focus ring stays clear of the scrollbar and is not
-  printed.
-- Save sits with New and Open in the header, and Reader settings sits beside
-  the theme toggle.
-- The operating system's Reduce Motion preference now also stops smooth reader
-  scrolling. The Saved confirmation stays visible, and the startup screen stops
-  animating. Bindars' own Reduced effects setting still removes texture and blur.
-- Dialogs keep keyboard focus and interaction inside the active dialog, including
-  error notifications. Closing them restores focus to the previous control.
-- The current section and selected screenplay character expose their state to
-  assistive technology.
-- Highlight actions follow the selected passage when scrolling and stay below
-  the document header.
-- Fountain scene numbers have a separating space in Contents and copied text.
-  Existing highlights near numbered scene headings may show **Location uncertain**
-  after updating; the saved highlights and their notes are retained.
-- Markdown lists continue on Enter in both Styled and Plain formatting modes.
-  Enter on an empty list item ends the list. Fountain editing is unchanged.
-- Canceling a folder picker no longer interferes with loading the saved folder,
-  and an older picker cannot replace a newer choice or Clear action.
-- Mermaid diagrams accept mixed-case fence languages such as `Mermaid`.
-- Markdown files beginning with a byte-order mark recognize frontmatter correctly,
-  including when calculating reading statistics.
-
-### Printing and PDF
-
-- Wide Markdown tables wrap within the printable width instead of clipping
-  their last columns. Printed tables use equal-width columns; screen tables
-  keep horizontal scrolling.
-- Strikethrough text, code substitutions, and author/date separators remain
-  readable on white paper in every reader theme.
-- Reading progress refreshes when the controls return after printing or
-  canceling the print dialog.
-
-### Safer saving and recovery
-
-- Settings updates now write a complete replacement file. A failed write leaves
-  the previous settings file intact instead of truncating it.
-- Leaving the editor or quitting waits for pending saves, then checks the latest
-  text again. This protects changes restored with Undo while a save is still
-  running, including when Save is pressed repeatedly.
-- On macOS and Linux, saving stops and offers **Save As** if the document's
-  folder has been replaced since it was opened.
-- On macOS, replacement saves and exports preserve access permissions, Finder
-  tags, and other extended attributes. If those attributes cannot be read or
-  copied, the destination stays unchanged and the failure details are shown.
-- **Make a copy…**, under **Export options** while reading, creates a fresh file
-  and opens that copy for editing. It refuses existing files and names with saved
-  annotations. Canceling or a failed copy leaves the original open for reading.
-- Saving to a new location confirms the destination folder.
-- A successful Save As adds the destination to Recent files immediately.
-- Recovery-copy imports run one at a time through file selection and confirmation,
-  so overlapping attempts cannot restore the wrong copy.
-- Settings and annotation files with duplicate JSON keys are refused and
-  preserved rather than silently rewritten with missing entries.
-- Annotation recovery exports cannot overwrite files in Bindars' app-data folder.
-- Notes with a recognizable newer record version ask you to use a newer Bindars
-  instead of treating them as damaged. See [Annotations](https://github.com/tcraid0/Bindars/blob/main/docs/annotations.md)
-  for backup and repair guidance.
-- Unrecognized stored highlight colors display as yellow while retaining their
-  original values through note edits and recovery imports. Choosing a supported
-  color explicitly replaces the stored value.
-- Document, annotation, and export writes also ask the system to sync the containing
-  folder. This improves durability on supported systems; it does not guarantee
-  recovery from every power failure or storage failure.
-
-Editing an existing document autosaves to that same file. Use **Make a copy…**
-before editing to keep the original unchanged. Copies contain document text;
-highlights, notes, and bookmarks remain with the original path.
-
-New drafts become ordinary files in **Bindars Drafts** at their first autosave.
-**Save** lets you choose a name and location. Save As can replace an existing file
-selected with a supported extension; when Bindars adds a missing extension, it
-refuses an existing file at the resulting name. Before removing a draft saved
-elsewhere, Bindars checks that both files still contain the versions it expects.
-It keeps the draft and shows a notice if those checks fail. Drafts with annotations,
-or whose annotation state cannot be confirmed, also stay at their original paths.
-
-### Diagram math
-
-Math inside Mermaid diagrams now follows the same safety limits as Markdown math
-and is checked before rendering starts. Diagrams with math that exceeds those
-limits, or transformations that cannot be checked safely, show their source
-instead of rendering. A diagram with a dollar sign next to a tag, or text that
-could decode to one such as the color `#036;`, is also refused even when it
-contains no math.
+This update adds new ways to find and move between documents, zooms the whole
+interface, and makes everyday reading and editing steadier. It introduces no new
+document, settings, or annotation format.
 
 ### Finding and navigating documents
 
@@ -146,9 +25,40 @@ contains no math.
 - Contents shows **Linked from**, the documents that link to the open document,
   and **Unlinked mentions**, the documents that name its title without a link.
 
+### Reading and editing
+
+- Toggle Highlights & notes with **Shift+Cmd+M** on macOS or **Ctrl+Shift+M**
+  on Linux. Plain **Ctrl+M** no longer toggles Notes; **Cmd+M** minimizes on macOS.
+- With Find open, **Ctrl+F** returns to its field, and **Ctrl+G** and
+  **Ctrl+Shift+G** go to the next and previous match while you read (**Cmd+F**,
+  **Cmd+G** and **Shift+Cmd+G** on macOS). Find closes when another document
+  opens or the file changes on disk, and the one-time annotation hint hides
+  while Find is open.
+- Dragging to select text, or **Select All**, stays within the document instead
+  of also selecting the sidebar, Contents and Notes.
+- Error messages stay until you dismiss them. A message raised in a dialog
+  appears in that dialog.
+- Dropping a file Bindars can't open, or clicking a web or email link the system
+  won't open, now shows a message.
+- Right-clicking a link or an empty area no longer opens the web view's own menu.
+  Text fields, images and selected text keep their menus.
+- The toolbar shows the Bindars symbol in place of the wordmark.
+- Fountain scene numbers have a separating space in Contents and copied text.
+  Existing highlights near numbered scene headings may show **Location uncertain**
+  after updating; the saved highlights and their notes are retained.
+
+### Reliability
+
+- A document or recovery copy that has been replaced by a named pipe is refused
+  instead of leaving Bindars waiting.
+- Document headings such as "Loading screen" no longer pick up the startup
+  screen's styles.
+
 ## Upgrading
 
-People already using 1.5.x can update without a new format migration.
+People already using 1.5.x can update without a new format migration. Search
+data moves out of the settings file into a separate cache that Bindars rebuilds
+when needed.
 
 Since 1.5.0, Bindars has used ordinary Drafts files instead of hidden recovery
 snapshots. Older snapshots are neither read nor deleted by current builds.
@@ -170,8 +80,8 @@ for storage locations and details.
 - A heading such as `user-content-fn-1` can capture a footnote's internal link.
 - A quote block followed by tens of thousands of unmarked continuation lines
   can still be slow to open.
-- Renaming or moving a document outside Bindars does not move its annotations.
-  Orphaned notes stay stored but are not automatically recovered.
+- Renaming or moving a document outside Bindars does not move its annotations
+  automatically. Use **Find Notes…** to reconnect them.
 - A damaged annotation collection is preserved and can also prevent settings
   and recent files from loading. External repair may be needed; back up the
   original storage files first.
