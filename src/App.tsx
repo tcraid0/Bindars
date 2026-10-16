@@ -2563,7 +2563,7 @@ function App() {
   });
 
   const dispatchMenuAction = (action: MenuAction) => {
-    if (getActiveDialog() || printPhase !== null || isPrintInvoked() || documentTransitionInFlightRef.current
+    if (printPhase !== null || isPrintInvoked() || documentTransitionInFlightRef.current
       || boundaryFlushInFlightRef.current || showConfirmDialogRef.current || showConflictDialogRef.current
       || loading || presentationMode) return;
     switch (action) {
@@ -2594,7 +2594,8 @@ function App() {
   useEffect(() => {
     let active = true;
     const unsubscribe = listen<{ action: MenuAction }>("bindars://menu-action", event => {
-      if (active) menuActionRef.current(event.payload.action);
+      // Keys keep their per-dialog rules; a menu click acts only when no dialog is open.
+      if (active && !getActiveDialog()) menuActionRef.current(event.payload.action);
     }).catch(() => () => {});
     return () => {
       active = false;

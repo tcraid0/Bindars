@@ -5256,7 +5256,7 @@ test("palette input retains arrow selection and Enter activation", async () => {
   } finally { await rendered.cleanup(); }
 });
 
-test("App blocks Search Documents while the Shortcuts dialog is open", async () => {
+test("App preserves shortcuts under Cmd+K and dismisses one dialog per Escape", async () => {
   const rendered = await renderEditorApp({ startNew: false });
   try {
     const opener = rendered.host.querySelector("button");
@@ -5265,6 +5265,8 @@ test("App blocks Search Documents while the Shortcuts dialog is open", async () 
     const close = document.querySelector('[role="dialog"] button');
     assert.ok(document.activeElement === close);
     dispatchShortcut("k");
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 2);
+    dispatchElementKey(document.activeElement, "Escape");
     assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
     assert.ok(document.activeElement === close);
     dispatchElementKey(close, "Escape");
