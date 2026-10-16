@@ -51,10 +51,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         const next = [...prev, { id, message, variant, context }];
         return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
       });
+      if (variant === "error") return;
+      const timerId = setTimeout(() => {
+        dismiss(id);
+        timersRef.current.delete(id);
+      }, AUTO_DISMISS_MS);
+      timersRef.current.set(id, timerId);
     },
-    [],
+    [dismiss],
   );
 
+  // A closed dialog's remaining messages move to whatever is visible now.
   useEffect(() => {
     setToasts(prev => {
       if (!prev.some(t => t.context && !t.context.isConnected)) return prev;
@@ -67,18 +74,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         return [moved];
       });
     });
-    for (const [id, timer] of timersRef.current) {
-      if (!toasts.some(t => t.id === id)) {
-        clearTimeout(timer);
-        timersRef.current.delete(id);
-      }
-    }
-    for (const t of toasts) {
-      if (t.variant !== "error" && !timersRef.current.has(t.id)) {
-        timersRef.current.set(t.id, setTimeout(() => dismiss(t.id), AUTO_DISMISS_MS));
-      }
-    }
-  }, [activeDialog, toasts, dismiss]);
+  }, [activeDialog]);
 
   // Clear all timers on unmount
   useEffect(() => {
