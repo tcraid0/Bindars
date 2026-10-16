@@ -7630,6 +7630,34 @@ test("sidebar keeps display order through opens and fitting while welcome and st
   }
 });
 
+for (const moveFocus of [false, true]) {
+  test(`welcome Recent hands focus to the reader after opening, unless focus moved (${moveFocus})`, async () => {
+    const history = { version: 3, value: { version: 1, files: [{
+      path: "/tmp/welcome.md", name: "welcome.md", openedAt: 1, lastHeadingId: null,
+    }] }, writes: [] };
+    const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
+    const pending = deferred();
+    const content = "# Opened from welcome\n";
+    const opened = { canonicalPath: "/tmp/welcome.md", name: "welcome.md", content,
+      revision: { mtimeMs: 2, size: content.length, contentHash: "welcome" } };
+    try {
+      rendered.deferNextOpen(pending);
+      const row = rendered.host.querySelector('.empty-state [aria-label^="Open welcome.md"]');
+      await act(async () => { row.focus(); row.click(); });
+      await waitFor(() => assert.equal(pending.args?.path, opened.canonicalPath));
+      assert.ok(document.activeElement === row, "the opening row retains focus while reading");
+      const other = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      if (moveFocus) other.focus();
+      await act(async () => { pending.resolve(opened); await pending.promise; });
+      await waitFor(() => assert.ok(!rendered.host.querySelector(".empty-state")));
+      await waitFor(() => assert.ok(document.activeElement === (moveFocus ? other : rendered.host.querySelector('main[aria-label="Document"]'))));
+    } finally {
+      pending.resolve(opened);
+      await rendered.cleanup();
+    }
+  });
+}
+
 test("Recent records Back at the prior heading, clears Forward, and ignores same-file and failed opens", async () => {
   const history = { version: 3, value: { version: 1, files: ["A", "B", "C"].map(name => ({
     path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 1, lastHeadingId: "second",

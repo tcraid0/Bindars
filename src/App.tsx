@@ -2132,11 +2132,19 @@ function App() {
     retryAction: RetryablePendingAction,
   ) => {
     const pos = currentPositionRef.current;
+    const opener = document.activeElement;
+    const openedFromWelcome = Boolean(opener?.closest(".empty-state"));
     const result = await openPathAndScroll(path, anchor, retryAction);
     if (result.status === "opened" && pos.filePath) {
       pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
     }
-  }, [openPathAndScroll, pushEntry]);
+    // Welcome disappears on success. Sidebar rows remain mounted and retain
+    // their focus; a user who moved elsewhere during the read keeps that choice.
+    if (result.status === "opened" && openedFromWelcome &&
+      (document.activeElement === opener || (!opener?.isConnected && document.activeElement === document.body))) {
+      requestReaderFocus();
+    }
+  }, [openPathAndScroll, pushEntry, requestReaderFocus]);
 
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(
