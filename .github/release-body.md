@@ -9,7 +9,7 @@ It introduces no new document, settings, or annotation format.
 - The welcome screen leads with **Open File…** and **Try an Example…**, explains
   where the example is saved, and shows recent files with their original folder
   paths. Keyboard shortcuts are available from the welcome screen and header;
-  press **Cmd+?** on macOS or **Ctrl+?** on Linux.
+  choose **Help > Keyboard Shortcuts** on macOS or press **Ctrl+?** on Linux.
 - Missing and unavailable files have clear recovery messages with **Retry**,
   **Dismiss**, and **Remove** actions. Retrying or canceling an open keeps the
   relevant filename, and confirmed missing files are not reopened automatically
@@ -21,6 +21,8 @@ It introduces no new document, settings, or annotation format.
 
 ### Reading and editing
 
+- Toggle Highlights & notes with **Shift+Cmd+M** on macOS or **Ctrl+Shift+M**
+  on Linux. Plain **Ctrl+M** no longer toggles Notes; **Cmd+M** minimizes on macOS.
 - Contents and saved reading sections load reliably when the reader opens.
   The restored section stays consistent across repeated launches, and closing
   or quitting records the current section.
@@ -49,6 +51,9 @@ It introduces no new document, settings, or annotation format.
   assistive technology.
 - Highlight actions follow the selected passage when scrolling and stay below
   the document header.
+- Fountain scene numbers have a separating space in Contents and copied text.
+  Existing highlights near numbered scene headings may show **Location uncertain**
+  after updating; the saved highlights and their notes are retained.
 - Markdown lists continue on Enter in both Styled and Plain formatting modes.
   Enter on an empty list item ends the list. Fountain editing is unchanged.
 - Canceling a folder picker no longer interferes with loading the saved folder,
@@ -119,6 +124,27 @@ limits, or transformations that cannot be checked safely, show their source
 instead of rendering. A diagram with a dollar sign next to a tag, or text that
 could decode to one such as the color `#036;`, is also refused even when it
 contains no math.
+
+### Finding and navigating documents
+
+- The sidebar's **Recent**, **Drafts** and **Folders** tabs replace the Workspace
+  panel. Recent lists documents opened from any location, Drafts lists the
+  **Bindars Drafts** folder, and Folders browses one folder of your choice and
+  its subfolders. Files stay where they are.
+- **Search documents** (**Cmd+K** on macOS, **Ctrl+K** on Linux) finds words and
+  phrases across those documents. Choosing a passage result opens the document
+  at that passage.
+- The **Find in Document** button in the header opens the in-document search.
+- **View** zooms the whole interface from 75% to 300%, and the level is
+  remembered between launches.
+- **Cmd+plus**, **Cmd+minus** and **Cmd+0** on macOS, or **Ctrl+plus**,
+  **Ctrl+minus** and **Ctrl+0** on Linux, now zoom the whole interface and
+  return it to actual size. Reading text size and **Reset** are in Reader
+  Settings.
+- **Find Notes…** reconnects highlights, notes and bookmarks to a document that
+  was renamed or moved outside Bindars.
+- Contents shows **Linked from**, the documents that link to the open document,
+  and **Unlinked mentions**, the documents that name its title without a link.
 
 ## Upgrading
 

@@ -1,12 +1,13 @@
+const { createAppView } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
-const { createRoot } = require("react-dom/client");
-const { clearMocks, mockIPC, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
+const { clearMocks, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { findEditorView, replaceEditorDocument } = require("./_helpers/codemirror.cjs");
+const { detectShortcutPlatform } = require("../.tmp/workspace-tests/src/lib/shortcut-labels.js");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 
 const DOC_PATH = "/tmp/lifecycle.md";
@@ -40,20 +41,6 @@ async function waitFor(assertion) {
   throw lastError;
 }
 
-function loadApp() {
-  const Module = require("node:module");
-  const originalLoad = Module._load;
-  Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture";
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return require("../.tmp/workspace-tests/src/App.js").default;
-  } finally {
-    Module._load = originalLoad;
-  }
-}
-
 function keyboardEvent(key, options = {}) {
   return new window.KeyboardEvent("keydown", {
     key,
@@ -64,7 +51,8 @@ function keyboardEvent(key, options = {}) {
 }
 
 function dispatchShortcut(key, options = {}) {
-  const event = keyboardEvent(key, { ctrlKey: true, ...options });
+  const modifier = detectShortcutPlatform() === "macos" ? { metaKey: true } : { ctrlKey: true };
+  const event = keyboardEvent(key, { ...modifier, ...options });
   flushSync(() => window.dispatchEvent(event));
   return event;
 }
@@ -125,13 +113,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     removeEventListener() {},
     dispatchEvent() { return false; },
   });
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
   const observedHeadings = new Set();
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe(node) { observedHeadings.add(node); }
-    unobserve(node) { observedHeadings.delete(node); }
-    disconnect() { observedHeadings.clear(); }
-  };
 
   // The App freezes its window close policy from the call-time platform
   // detector, so the navigator must report the platform under test before
@@ -161,7 +143,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
   const fileWrites = [];
   const nativeOpen = createNativeOpenIpc();
 
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
@@ -277,16 +259,11 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
-
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  flushSync(() => {
-    root.render(React.createElement(ToastProvider, null, React.createElement(App)));
   });
+
+  const view = createAppView({ ipc, observedHeadings });
+  const { host } = view;
+  view.render();
   if (!initialSessionOperation) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
 
   async function openLifecycleDocument() {
@@ -334,13 +311,8 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
     requestClose,
     requestQuit,
     async cleanup() {
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       window.matchMedia = originalMatchMedia;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
       Object.defineProperty(globalThis, "navigator", originalNavigator);
       clearMocks();
     },
@@ -1280,7 +1252,6 @@ test("non-macOS dirty close Discard completes the programmatic close handshake",
   }
 });
 
-
 const MIXED_READER_CONTENT = "# Lifecycle\n\n[Jump](#deeper) words `code` more words.\n\n## Deeper\n\n[Next](next.md) words after link.\n";
 
 async function searchReader(host, query) {
@@ -1346,7 +1317,7 @@ test("reader keeps its focused link and skips the Markdown pipeline on unrelated
     link.focus();
     dispatchShortcut("b");
     dispatchShortcut("j");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     assert.ok(link.isConnected, "sidebar and panel toggles must retain document nodes");
     assert.ok(document.activeElement === link, "focused link must retain focus");
     assert.equal(globalThis.__BINDARS_DOCUMENT_PERFORMANCE_EVENTS__.length, 0);
@@ -1412,7 +1383,7 @@ test("narrow panels preserve preferences, honor the latest opening, and restore 
   try {
     await rendered.openLifecycleDocument();
     dispatchShortcut("b");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     assert.deepEqual(shown(), ["sidebar", "toc", "notes"]);
     assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true");
     rendered.host.querySelector('[data-reader-panel="toc"] button').focus();
@@ -1424,7 +1395,7 @@ test("narrow panels preserve preferences, honor the latest opening, and restore 
     for (const nextWidth of [600, 599, 579, 539]) {
       resize(nextWidth);
       for (const [key, panel] of [["b", "sidebar"], ["j", "toc"], ["m", "notes"]]) {
-        dispatchShortcut(key);
+        dispatchShortcut(key, { shiftKey: key === "m" });
         assert.deepEqual(shown(), [panel], `opening ${panel} at ${nextWidth}px must reveal it`);
       }
       assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "temporary hides must preserve the sidebar preference");
@@ -1467,7 +1438,6 @@ test("reader search survives mixed inline text, clearing, and a different docume
   }
 });
 
-
 test("saved highlights survive search and panel changes, then a saved edit returns to the reader", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [{
     id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
@@ -1477,7 +1447,7 @@ test("saved highlights survive search and panel changes, then a saved edit retur
     await rendered.openLifecycleDocument();
     await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
     await searchReader(rendered.host, "wo");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     flushSync(() => rendered.host.querySelector('[aria-label="Close search"]').click());
     assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]'));
     assert.ok(rendered.host.textContent.includes("Saved note"));
@@ -1511,7 +1481,6 @@ test("Fountain search survives replacing mixed-emphasis screenplay content", asy
   }
 });
 
-
 test("opening identical text in another file resets search and observes the new headings", async () => {
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT });
   try {
@@ -1523,14 +1492,13 @@ test("opening identical text in another file resets search and observes the new 
       const headings = [...rendered.host.querySelectorAll('.markdown-body h1, .markdown-body h2')];
       assert.equal(headings.length, 2);
       assert.ok(headings.every((node) => rendered.observedHeadings().includes(node)), "TOC must observe the replacement document");
-      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+      assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
     });
     assert.ok(!rendered.host.querySelector("mark.search-highlight-active"));
   } finally {
     await rendered.cleanup();
   }
 });
-
 
 test("identical Fountain content at another path clears search without losing text", async () => {
   const rendered = await renderLifecycleApp({ content: "INT. OFFICE - DAY\n\nSome *emphasis* words and **bold** words." });
@@ -1543,7 +1511,7 @@ test("identical Fountain content at another path clears search without losing te
     await rendered.requestNativeOpen("/tmp/identical.fountain");
     await waitFor(() => {
       assert.ok(rendered.host.textContent.includes("identical.fountain"));
-      assert.equal(rendered.host.querySelector('[aria-label="Search in document"]').value, "");
+      assert.ok(!rendered.host.querySelector('[aria-label="Search in document"]'));
     });
     assert.ok(article === rendered.host.querySelector('.fountain-body'), "identical Fountain source retains its article");
     assert.equal(article.textContent, originalText);
@@ -1560,7 +1528,7 @@ const ANNOTATION_FIXTURE = { id: "pending-note", prefix: "", exact: "Opening wor
   color: "yellow", note: "Keep me", nearestHeadingId: "lifecycle", createdAt: 1 };
 async function removeFixtureAnnotation(rendered) {
   await rendered.openLifecycleDocument();
-  dispatchShortcut("m");
+  dispatchShortcut("m", { shiftKey: true });
   await waitFor(() => assert.ok(rendered.host.querySelector('[aria-label="Remove highlight"]')));
   flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
 }
@@ -1641,7 +1609,7 @@ test("failed location evidence removes stale paint while keeping notes accessibl
     await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
     const anchoring = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
     t.mock.method(anchoring, "prepareAnnotationDocument", async () => { throw new Error("digest unavailable"); });
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     flushSync(() => rendered.host.querySelector('[aria-label="Remove highlight"]').click());
     await waitFor(() => assert.match(rendered.host.textContent, /Location uncertain/));
     assert.ok(!rendered.host.querySelector('mark[data-highlight-id]'));
@@ -1694,7 +1662,6 @@ for (const platform of ["windows", "linux"]) {
     } finally { await rendered.cleanup(); }
   });
 }
-
 
 test("a note draft entered after close acknowledgement cancels the old discard decision", async () => {
   const writes = [];
@@ -1765,7 +1732,6 @@ test("a delayed image failure preserves an adjacent saved annotation without sea
   }
 });
 
-
 function narrowWindow(t, width) {
   const innerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
   Object.defineProperty(window, "innerWidth", { configurable: true, get: () => width });
@@ -1787,7 +1753,7 @@ test("a saved-open sidebar is fitted at 600px after delayed startup, without a t
     await waitFor(() => assert.ok(r.host.querySelector(".empty-state-content")));
     await r.openLifecycleDocument(); await act(async () => {});
     const shown = [...r.host.querySelectorAll("[data-reader-panel]")].map(p => p.dataset.readerPanel);
-    assert.deepEqual(shown, ["toc"], "at 600px only the TOC fits beside a 320px reader");
+    assert.deepEqual(shown, ["sidebar"], "a saved-open navigation panel remains accessible at 600px");
     assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "fitting must not change the saved preference");
   } finally { await r.cleanup(); restore(); globalThis.localStorage = oldStorage; }
 });
@@ -1798,7 +1764,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
     try {
       await r.openLifecycleDocument();
       const main = r.host.querySelector("main");
-      if (route === "notes-button") dispatchShortcut("m");
+      if (route === "notes-button") dispatchShortcut("m", { shiftKey: true });
       if (route === "settings-button") {
         flushSync(() => r.host.querySelector('[aria-label="Toggle reader settings"]').click());
       }
@@ -1813,7 +1779,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
       if (route === "nothing-focused") document.activeElement?.blur?.(); else { assert.ok(target, route); target.focus(); }
       const before = document.activeElement;
       if (target) assert.ok(before === target, `${route} must really have focus before the shortcut`);
-      const key = new window.KeyboardEvent("keydown", { key: "f", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      const key = new window.KeyboardEvent("keydown", { key: "f", metaKey: true, shiftKey: true, bubbles: true, cancelable: true });
       flushSync(() => (before && before !== document.body ? before : window).dispatchEvent(key));
       await act(async () => {});
       assert.ok(!r.host.querySelector("header"), "focus mode engaged");
@@ -1852,7 +1818,7 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
     exit.focus();
     assert.ok(document.activeElement === exit, "the character Exit button must have focus before the shortcut");
     const main = r.host.querySelector("main");
-    flushSync(() => exit.dispatchEvent(keyboardEvent("f", { ctrlKey: true, shiftKey: true })));
+    flushSync(() => exit.dispatchEvent(keyboardEvent("f", { metaKey: true, shiftKey: true })));
     await act(async () => {});
     assert.ok(!r.host.querySelector("header"), "Focus mode engaged");
     assert.ok(!r.host.querySelector('[aria-label="Exit character focus"]'), "the character chip is hidden");
@@ -1863,7 +1829,6 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
     assert.ok(document.activeElement === main, "the returning chip does not steal focus");
   } finally { await r.cleanup(); }
 });
-
 
 test("unknown highlight colors render yellow while notes stay editable and removable", async () => {
   const writes = [];
@@ -1876,7 +1841,7 @@ test("unknown highlight colors render yellow while notes stay editable and remov
     const mark = await waitFor(() => rendered.host.querySelector('mark[data-highlight-id="unknown"]') || assert.fail("highlight not painted"));
     assert.ok(mark.classList.contains("annotation-highlight-yellow"));
     assert.equal(writes.length, 0, "painting a fallback must not save a replacement color");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     const panel = rendered.host.querySelector('[data-reader-panel="notes"]');
     assert.match(panel.textContent, /Remember this/);
     assert.equal(panel.querySelector('li span[style]').style.backgroundColor, "var(--highlight-yellow)");

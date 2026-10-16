@@ -22,8 +22,7 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 
-// Notifications follow the active dialog so their controls and announcements
-// remain inside the modal's accessible, keyboard-reachable subtree.
+// Notifications raised in a dialog belong inside its accessible subtree.
 export function useActiveDialog() {
   return useSyncExternalStore(subscribe, getActiveDialog, () => null);
 }
@@ -65,8 +64,10 @@ function isTopDialog(element: HTMLDivElement | null) {
 
 function focusableElements(dialog: HTMLDivElement) {
   return Array.from(dialog.querySelectorAll<HTMLElement>(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-  )).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled"));
+    'button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => (element.tabIndex >= 0 || element.tagName === "SUMMARY") && !element.matches(":disabled")
+    && !element.closest("[inert], [hidden]")
+    && !Array.from(dialog.querySelectorAll("details:not([open])")).some(details => details.contains(element) && details.querySelector("summary") !== element));
 }
 
 function focusInside(dialog: HTMLDivElement) {

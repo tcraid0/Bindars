@@ -12,7 +12,7 @@ function restoreHiddenPanelFocus(visible: ReaderPanels, reader: HTMLElement | nu
 // render and panels never appear and then disappear during startup.
 export function useReaderPanels({ sidebar, toc, notes }: ReaderPanels, readerRef: RefObject<HTMLElement | null>) {
   const [width, setWidth] = useState(() => window.innerWidth);
-  const [preferred, setPreferred] = useState<ReaderPanel>("notes");
+  const [preferred, setPreferred] = useState<ReaderPanel>("sidebar");
 
   useLayoutEffect(() => {
     const update = () => {

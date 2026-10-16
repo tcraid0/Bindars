@@ -10,7 +10,6 @@ import type {
   WorkspaceDocIndex,
   WorkspaceFileMeta,
   WorkspaceHeading,
-  WorkspaceState,
 } from "../types";
 import { extractFrontmatter } from "./frontmatter";
 import type { DocumentComplexityOptions } from "./document-complexity";
@@ -18,7 +17,7 @@ import { assertDocumentComplexity, isDocumentComplexityError } from "./document-
 import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
 import { remarkPlugins } from "./markdown-plugins";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
-import { replaceOpenableDocumentExtension } from "./openable-files";
+import { documentFileType, replaceOpenableDocumentExtension } from "./openable-files";
 import { MAX_WORKSPACE_BODY_CHARS } from "./workspace-limits";
 
 /**
@@ -30,153 +29,28 @@ import { MAX_WORKSPACE_BODY_CHARS } from "./workspace-limits";
  * still compares the two, because the reader adds sanitize and KaTeX after
  * slugging and this pipeline stops at the slug.
  *
- * Cost: about 0.9 ms per KiB on Node (measured on a 408-file, 1.7 MiB corpus:
- * 1.5 s against 55 ms for the markdown-it parser this replaced, most of it in
- * SmartyPants). Indexing reads files in batches of eight and yields between
- * batches, so a batch of typical 5-20 KiB documents costs 40-150 ms of
- * main-thread time. The app runs in JavaScriptCore, where a single paragraph of
- * several hundred KiB or a table of several thousand rows cost seconds until
- * the micromark patches in patches/ and micromark-extension-gfm-table 2.1.2;
- * `npm run verify:jsc` guards that. With them, eight 525 KiB documents still
- * make one batch of about 0.8 s. Small indexes can be cached; stale or
- * oversized indexes are rebuilt in full when the workspace loads or the user
- * chooses Reindex.
+ * The catalog yields after each document and publishes incremental results.
+ * Matching stat metadata avoids reparsing unchanged documents. The bounded
+ * native cache is disposable and is never stored in preferences. JavaScriptCore
+ * performance is guarded by `npm run verify:jsc`, alongside the shared reader
+ * complexity limits and the parser patches in patches/.
  */
 const indexPipeline = unified()
   .use(remarkParse)
   .use(remarkPlugins)
   .use(remarkRehype)
   .use(rehypeSlug);
-// v8: searchable text comes from the parsed tree; persist only used metadata.
-export const WORKSPACE_INDEX_CACHE_KEY = "workspace:index:v8";
-export const LEGACY_WORKSPACE_INDEX_CACHE_KEYS = [
-  "workspace:index:v1",
-  "workspace:index:v2",
-  "workspace:index:v3",
-  "workspace:index:v4",
-  "workspace:index:v5",
-  "workspace:index:v6",
-  "workspace:index:v7",
-] as const;
-export const WORKSPACE_INDEX_CACHE_VERSION = 8 as const;
-export const WORKSPACE_INDEX_CACHE_KEYS = [
-  ...LEGACY_WORKSPACE_INDEX_CACHE_KEYS,
-  WORKSPACE_INDEX_CACHE_KEY,
-] as const;
-
-interface HeadingWithLine extends WorkspaceHeading {
-  line: number;
-}
-
-export interface WorkspaceIndexCache {
-  version: typeof WORKSPACE_INDEX_CACHE_VERSION;
-  rootPath: string;
-  indexedAt: number;
-  fileCount: number;
-  docs: WorkspaceDocIndex[];
-  readFailedCount: number;
-  complexitySkippedCount: number;
-  listSkippedCount: number;
-  limitHit: boolean;
-}
-
+interface HeadingWithLine extends WorkspaceHeading { line: number }
 export type WorkspaceDocumentBuildResult =
   | { status: "indexed"; doc: WorkspaceDocIndex }
   | { status: "too-complex" };
-
-// Derived data has no recovery value: reject malformed snapshots and rebuild.
-export function isWorkspaceIndexCache(cache: unknown, rootPath: string): cache is WorkspaceIndexCache {
-  return isRecord(cache)
-    && cache.version === WORKSPACE_INDEX_CACHE_VERSION
-    && cache.rootPath === rootPath
-    && typeof cache.indexedAt === "number" && Number.isFinite(cache.indexedAt) && cache.indexedAt >= 0
-    && isCount(cache.fileCount)
-    && isCount(cache.readFailedCount)
-    && isCount(cache.complexitySkippedCount)
-    && isCount(cache.listSkippedCount)
-    && typeof cache.limitHit === "boolean"
-    && Array.isArray(cache.docs) && cache.docs.every(isWorkspaceDoc)
-    && cache.docs.length + cache.readFailedCount + cache.complexitySkippedCount === cache.fileCount;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function isCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isWorkspaceDoc(doc: unknown): doc is WorkspaceDocIndex {
-  return isRecord(doc)
-    && typeof doc.path === "string" && doc.path.length > 0
-    && typeof doc.relPath === "string" && typeof doc.name === "string"
-    && (doc.title === null || typeof doc.title === "string")
-    && typeof doc.bodyText === "string"
-    && Array.isArray(doc.headings) && doc.headings.every((heading) => isRecord(heading)
-      && typeof heading.id === "string" && typeof heading.text === "string")
-    && Array.isArray(doc.links) && doc.links.every((link) => typeof link === "string")
-    && Array.isArray(doc.scenes) && doc.scenes.every((scene) => isRecord(scene)
-      && typeof scene.id === "string" && typeof scene.label === "string"
-      && isCount(scene.line) && (scene.headingId === null || typeof scene.headingId === "string"));
-}
-
-export function buildWorkspaceStateFromCache(
-  cache: WorkspaceIndexCache,
-): WorkspaceState {
-  return {
-    rootPath: cache.rootPath,
-    status: "ready",
-    fileCount: cache.fileCount,
-    processedCount: cache.fileCount,
-    indexedCount: cache.docs.length,
-    indexedAt: cache.indexedAt,
-    error: null,
-    listSkippedCount: cache.listSkippedCount,
-    readFailedCount: cache.readFailedCount,
-    complexitySkippedCount: cache.complexitySkippedCount,
-    limitHit: cache.limitHit,
-  };
-}
-
-export function buildWorkspaceErrorState(
-  previous: WorkspaceState,
-  rootPath: string,
-  error: string,
-): WorkspaceState {
-  const preservePrevious = previous.rootPath === rootPath;
-
-  return {
-    rootPath,
-    status: "error",
-    fileCount: preservePrevious ? previous.fileCount : 0,
-    processedCount: preservePrevious ? previous.processedCount : 0,
-    indexedCount: preservePrevious ? previous.indexedCount : 0,
-    indexedAt: preservePrevious ? previous.indexedAt : null,
-    error,
-    listSkippedCount: preservePrevious ? previous.listSkippedCount : 0,
-    readFailedCount: preservePrevious ? previous.readFailedCount : 0,
-    complexitySkippedCount: preservePrevious ? previous.complexitySkippedCount : 0,
-    limitHit: preservePrevious ? previous.limitHit : false,
-  };
-}
-
-export function buildWorkspaceRefreshErrorState(
-  previous: WorkspaceState,
-  lastGoodState: WorkspaceState | null,
-  rootPath: string,
-  error: string,
-): WorkspaceState {
-  const baseState = lastGoodState?.rootPath === rootPath ? lastGoodState : previous;
-  return buildWorkspaceErrorState(baseState, rootPath, error);
-}
 
 export function buildWorkspaceDoc(
   meta: WorkspaceFileMeta,
   content: string,
   complexityOptions: DocumentComplexityOptions = {},
 ): WorkspaceDocIndex {
-  if (meta.name.toLowerCase().endsWith(".fountain")) {
+  if (documentFileType(meta.name) === "fountain") {
     return buildFountainDoc(meta, content, complexityOptions);
   }
 
@@ -224,7 +98,7 @@ function buildFountainDoc(
   const parsed = parseFountain(content, complexityOptions);
 
   const titleEntry = parsed.titlePage.find((e) => e.key.toLowerCase() === "title");
-  const title = titleEntry?.value || meta.name.replace(/\.fountain$/i, "").trim() || null;
+  const title = titleEntry?.value || replaceOpenableDocumentExtension(meta.name, "").trim() || null;
 
   const headings: WorkspaceHeading[] = parsed.scenes.map((s) => ({
     id: s.id,
@@ -347,7 +221,7 @@ function toSearchableText(tree: HastRoot): string {
     // Code includes math and diagram source. Neither that source nor image alt
     // text is part of the body excerpt. Keep a boundary across omitted content.
     if (node.tagName === "code" || node.tagName === "pre" || node.tagName === "img"
-      || elementClassNames(node).includes("sr-only") || node.properties.dataFootnoteBackref) {
+      || elementClassNames(node).includes("sr-only") || node.properties.dataFootnoteBackref !== undefined) {
       parts.push("\n");
       return SKIP;
     }

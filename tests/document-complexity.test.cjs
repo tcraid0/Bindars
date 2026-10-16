@@ -34,7 +34,7 @@ const {
 const {
   DocumentNotice,
 } = require("../.tmp/workspace-tests/src/components/DocumentNotice.js");
-const { WorkspacePanel } = require("../.tmp/workspace-tests/src/components/WorkspacePanel.js");
+const { prepareCatalogDocument } = require("../.tmp/workspace-tests/src/lib/document-catalog.js");
 
 function contentWithExactUnits(format, units) {
   if (units === 0) return "";
@@ -832,31 +832,8 @@ test("reader preparation rejects a deep-container document before any Markdown p
   assert.deepEqual(prepared, { status: "too-complex", message: DOCUMENT_COMPLEXITY_MESSAGE });
 });
 
-test("workspace diagnostics explain complexity skips separately from read failures", () => {
-  const html = renderToStaticMarkup(React.createElement(WorkspacePanel, {
-    rootPath: "/workspace",
-    state: {
-      rootPath: "/workspace",
-      status: "ready",
-      fileCount: 2,
-      processedCount: 2,
-      indexedCount: 1,
-      indexedAt: 1,
-      error: null,
-      listSkippedCount: 0,
-      readFailedCount: 0,
-      complexitySkippedCount: 1,
-      limitHit: false,
-    },
-    backlinks: [],
-    mentions: [],
-    onChooseRoot() {},
-    onClearRoot() {},
-    onReindex() {},
-    onOpenPath() {},
-    onOpenPalette() {},
-  }));
-
-  assert.match(html, /1 file was too large or complex to index safely/);
-  assert.doesNotMatch(html, /failed to read/);
+test("catalog complexity failures preserve filename and explain the reader limit", () => {
+  const doc = prepareCatalogDocument(makeMeta("complex.md"), `${"> ".repeat(MARKDOWN_MAX_CONTAINER_DEPTH + 1)}deep`);
+  assert.equal(doc.name, "complex.md"); assert.equal(doc.coverage, "complexity");
+  assert.match(doc.problem, /Too complex to display/); assert.doesNotMatch(doc.problem, /failed to read/);
 });

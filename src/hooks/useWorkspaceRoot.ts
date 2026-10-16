@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { storeGet, storeSet } from "../lib/store";
-import { WORKSPACE_INDEX_CACHE_KEYS } from "../lib/workspace-index";
 
 const STORE_KEY = "workspace:root";
 const LS_KEY = "bindars-workspace-root";
@@ -10,6 +9,7 @@ export function useWorkspaceRoot() {
   const [rootPath, setRootPathState] = useState<string | null>(null);
   const userSetRef = useRef(false);
   const pickerSequenceRef = useRef(0);
+  const persistence = useRef(Promise.resolve());
 
   useEffect(() => {
     let active = true;
@@ -40,7 +40,10 @@ export function useWorkspaceRoot() {
   }, []);
 
   const persist = useCallback((path: string | null) => {
-    storeSet(STORE_KEY, path);
+    // Rapid Remove/Add Back choices must reach disk in the same order as the UI.
+    persistence.current = persistence.current.then(async () => {
+      await storeSet(STORE_KEY, path);
+    });
     try {
       if (path) {
         localStorage.setItem(LS_KEY, path);
@@ -52,18 +55,26 @@ export function useWorkspaceRoot() {
     }
   }, []);
 
-  const setRootPath = useCallback((path: string | null) => {
-    pickerSequenceRef.current += 1;
-    userSetRef.current = true;
-    setRootPathState(path);
-    persist(path);
-  }, [persist]);
+  const setRootPath = useCallback(
+    (path: string | null) => {
+      pickerSequenceRef.current += 1;
+      userSetRef.current = true;
+      setRootPathState(path);
+      persist(path);
+    },
+    [persist],
+  );
 
   const chooseRoot = useCallback(async () => {
     const sequence = ++pickerSequenceRef.current;
     try {
       const selected = await open({ directory: true, multiple: false });
-      if (sequence !== pickerSequenceRef.current || !selected || Array.isArray(selected)) return null;
+      if (
+        sequence !== pickerSequenceRef.current ||
+        !selected ||
+        Array.isArray(selected)
+      )
+        return null;
 
       setRootPath(selected);
       return selected;
@@ -75,9 +86,6 @@ export function useWorkspaceRoot() {
 
   const clearRoot = useCallback(() => {
     setRootPath(null);
-    for (const key of WORKSPACE_INDEX_CACHE_KEYS) {
-      void storeSet(key, null);
-    }
   }, [setRootPath]);
 
   return {

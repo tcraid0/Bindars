@@ -70,7 +70,11 @@ export const MATH_MAX_NODE_CHARS = 5_000;
 export const MATH_MAX_TOTAL_CHARS = 10_000;
 /** KaTeX macro-expansion cap; ordinary math needed under 64 in measurement. */
 export const MATH_MAX_EXPAND = 256;
-/** KaTeX user-sizing cap in em; the default is Infinity (a 1e9em rule renders). */
+/**
+ * KaTeX maxSize option for Markdown math, in em (upstream default: Infinity).
+ * This limits positive rule widths, not every layout dimension: negative sizes
+ * and raisebox MathML offsets bypass it. Mermaid does not pass this option.
+ */
 export const MATH_MAX_SIZE = 100;
 /** Inclusive: documents with exactly this many prose words keep smartypants. */
 export const SMARTYPANTS_MAX_WORDS = 32_768;

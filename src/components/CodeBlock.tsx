@@ -93,7 +93,7 @@ export const CodeBlock = memo(function CodeBlock({
           type="button"
           onClick={handleCopy}
           aria-label="Copy code to clipboard"
-          className="code-copy-button"
+          className="code-copy-button select-none"
         >
           {copied ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

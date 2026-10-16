@@ -13,7 +13,7 @@ const {
 } = require("../.tmp/workspace-tests/src/components/MarkdownFormattingToggle.js");
 const { ShortcutOverlay } = require("../.tmp/workspace-tests/src/components/ShortcutOverlay.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-const { WorkspacePanel } = require("../.tmp/workspace-tests/src/components/WorkspacePanel.js");
+const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js");
 const {
   detectShortcutPlatform,
   formatShortcutLabel,
@@ -23,12 +23,8 @@ const {
 const workspaceState = {
   rootPath: "/workspace",
   status: "ready",
-  fileCount: 1,
-  processedCount: 1,
-  indexedCount: 1,
   indexedAt: 1,
   error: null,
-  listSkippedCount: 0,
   readFailedCount: 0,
   complexitySkippedCount: 0,
   limitHit: false,
@@ -65,7 +61,8 @@ function renderPlatformLabels(navigatorValue) {
         recentFiles: [],
         onOpenRecent() {},
       }),
-      React.createElement(WorkspacePanel, {
+      React.createElement(Sidebar, {
+        visible: false,
         rootPath: "/workspace",
         state: workspaceState,
         backlinks: [],
@@ -148,6 +145,8 @@ test("platform detection handles current macOS, Windows, and Linux navigator sig
 });
 
 test("shortcut formatting covers modifiers, arrows, symbols, and modifier-free keys", () => {
+  assert.equal(formatShortcutLabel("toggleAnnotations", "macos"), "⇧⌘M");
+  assert.equal(formatShortcutLabel("toggleAnnotations", "windows-linux"), "Ctrl+Shift+M");
   assert.equal(formatShortcutLabel("newFile", "macos"), "⌘N");
   assert.equal(formatShortcutLabel("toggleMarkdownFormatting", "macos"), "⌥⌘M");
   assert.equal(formatShortcutLabel("cycleTheme", "macos"), "⇧⌘T");
@@ -188,11 +187,13 @@ test("visible shortcut components render macOS labels consistently", () => {
   const markup = renderPlatformLabels({ platform: "MacIntel" });
 
   assert.match(markup, /⌘N/);
+  assert.doesNotMatch(markup, /⌘\?|Keyboard Shortcuts \(\)|<kbd[^>]*><\/kbd>/);
+  assert.match(markup, /title="Keyboard Shortcuts"/);
   assert.match(markup, /⌥⌘M/);
   assert.match(markup, /⇧⌘T/);
   assert.match(markup, /⌥←/);
-  assert.match(markup, /Quick switcher \(⌘K\)/);
-  assert.match(markup, /Enter opens\. Esc closes\./);
+  assert.match(markup, /Search documents \(⌘K\)/);
+  assert.match(markup, /Enter opens it/);
   assert.doesNotMatch(markup, /Ctrl\+|Alt\+/);
 });
 
@@ -200,10 +201,11 @@ test("visible shortcut components preserve Windows and Linux labels", () => {
   const markup = renderPlatformLabels({ platform: "Linux x86_64" });
 
   assert.match(markup, /Ctrl\+N/);
+  assert.match(markup, /Keyboard Shortcuts \(Ctrl\+\?\)/);
   assert.match(markup, /Ctrl\+Alt\+M/);
   assert.match(markup, /Ctrl\+Shift\+T/);
   assert.match(markup, /Alt\+←/);
-  assert.match(markup, /Quick switcher \(Ctrl\+K\)/);
+  assert.match(markup, /Search documents \(Ctrl\+K\)/);
   assert.doesNotMatch(markup, /⌘|⌥|⇧/);
 });
 
@@ -217,11 +219,11 @@ test("the real Welcome template renders only explicit shortcut tokens", () => {
 
   assert.match(template, /\{\{shortcut:saveFile\}\}/);
   assert.match(macosContent, /\*\*⌘S\*\*/);
-  assert.match(macosContent, /\*\*⌘M\*\*/);
+  assert.match(macosContent, /\*\*⇧⌘M\*\*/);
   assert.doesNotMatch(macosContent, /\{\{shortcut:/);
   assert.doesNotMatch(macosContent, /Ctrl\+|Alt\+/);
   assert.match(windowsLinuxContent, /\*\*Ctrl\+S\*\*/);
-  assert.match(windowsLinuxContent, /\*\*Ctrl\+M\*\*/);
+  assert.match(windowsLinuxContent, /\*\*Ctrl\+Shift\+M\*\*/);
   assert.doesNotMatch(windowsLinuxContent, /\{\{shortcut:/);
 
   assert.equal(

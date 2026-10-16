@@ -13,6 +13,7 @@ type ShortcutModifier = "primary" | "alt" | "shift";
 interface ShortcutDefinition {
   readonly modifiers: readonly ShortcutModifier[];
   readonly key: string;
+  readonly hideOnMac?: boolean;
 }
 
 const SHORTCUT_DEFINITIONS = {
@@ -29,8 +30,10 @@ const SHORTCUT_DEFINITIONS = {
   focusMode: { modifiers: ["primary", "shift"], key: "F" },
   cycleTheme: { modifiers: ["primary", "shift"], key: "T" },
   searchDocument: { modifiers: ["primary"], key: "F" },
+  findNext: { modifiers: ["primary"], key: "G" },
+  findPrevious: { modifiers: ["primary", "shift"], key: "G" },
   bookmarkHeading: { modifiers: ["primary"], key: "D" },
-  toggleAnnotations: { modifiers: ["primary"], key: "M" },
+  toggleAnnotations: { modifiers: ["primary", "shift"], key: "M" },
   print: { modifiers: ["primary"], key: "P" },
   increaseFontSize: { modifiers: ["primary"], key: "+" },
   decreaseFontSize: { modifiers: ["primary"], key: "−" },
@@ -39,7 +42,7 @@ const SHORTCUT_DEFINITIONS = {
   saveFile: { modifiers: ["primary"], key: "S" },
   toggleMarkdownFormatting: { modifiers: ["primary", "alt"], key: "M" },
   escape: { modifiers: [], key: "Esc" },
-  showShortcuts: { modifiers: ["primary"], key: "?" },
+  showShortcuts: { modifiers: ["primary"], key: "?", hideOnMac: true },
   presentation: { modifiers: [], key: "F5" },
   enter: { modifiers: [], key: "Enter" },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -62,7 +65,7 @@ export const SHORTCUT_SECTIONS = [
     shortcuts: [
       { id: "newFile", label: "New file" },
       { id: "openFile", label: "Open file" },
-      { id: "workspaceSwitcher", label: "Workspace quick switcher" },
+      { id: "workspaceSwitcher", label: "Search documents" },
       { id: "goBack", label: "Go back" },
       { id: "goForward", label: "Go forward" },
       { id: "previousScene", label: "Previous scene" },
@@ -82,13 +85,15 @@ export const SHORTCUT_SECTIONS = [
   {
     title: "Reading",
     shortcuts: [
-      { id: "searchDocument", label: "Search in document" },
+      { id: "searchDocument", label: "Find in Document" },
+      { id: "findNext", label: "Find next" },
+      { id: "findPrevious", label: "Find previous" },
       { id: "bookmarkHeading", label: "Bookmark current heading" },
       { id: "toggleAnnotations", label: "Toggle Highlights & notes" },
       { id: "print", label: "Print / export PDF" },
-      { id: "increaseFontSize", label: "Increase font size" },
-      { id: "decreaseFontSize", label: "Decrease font size" },
-      { id: "resetSettings", label: "Reset settings" },
+      { id: "increaseFontSize", label: "Zoom interface in" },
+      { id: "decreaseFontSize", label: "Zoom interface out" },
+      { id: "resetSettings", label: "Actual size (interface)" },
     ],
   },
   {
@@ -153,10 +158,18 @@ export function detectShortcutPlatform(
   return "windows-linux";
 }
 
+export function isPrimaryModifier(
+  event: Pick<KeyboardEvent, "ctrlKey" | "metaKey">,
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): boolean {
+  return platform === "macos" ? event.metaKey : event.ctrlKey;
+}
+
 function formatShortcut(
   definition: ShortcutDefinition,
   platform: ShortcutPlatform,
 ): string {
+  if (platform === "macos" && definition.hideOnMac) return "";
   const separator = platform === "macos" ? "" : "+";
   const modifiers = MODIFIER_DISPLAY_ORDER[platform]
     .filter((modifier) => definition.modifiers.includes(modifier))

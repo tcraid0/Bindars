@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppError, FileRevision, FileType, OpenFileResult } from "../types";
 import type { SavedFileSnapshot } from "../lib/editor-save";
-import { OPENABLE_FILE_EXTENSIONS } from "../lib/openable-files";
+import { OPENABLE_FILE_EXTENSIONS, documentFileType } from "../lib/openable-files";
 import { appErrorFromNative } from "../lib/native-file-error";
 import { boundOperation } from "../lib/bounded-operation";
 import type { BoundedOperation } from "../lib/bounded-operation";
@@ -289,8 +289,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     cancelActiveOperation("cancelled");
   }, [cancelActiveOperation]);
 
-  const fileType: FileType =
-    filePath?.toLowerCase().endsWith(".fountain") ? "fountain" : "markdown";
+  const fileType: FileType = filePath ? documentFileType(filePath) : "markdown";
 
   const openFilePathWithStatus = useCallback(async (
     path: string,

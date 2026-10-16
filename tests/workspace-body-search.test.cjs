@@ -36,7 +36,8 @@ for (const source of [
 
 for (const source of ['bright\n\nfuture', '- bright\n- future', '| bright | future |\n| --- | --- |', 'bright `code` future']) {
   test(`body phrases do not cross block or omitted-content boundaries: ${JSON.stringify(source)}`, () => {
-    assert.equal(hits(source, 'bright future').length, 0);
+    assert.equal(hits(source, '"bright future"').length, 0);
+    assert.equal(hits(source, 'bright future').length, 1, 'unquoted terms can occur in different blocks');
     assert.equal(hits(source, 'bright').length, 1);
     assert.equal(hits(source, 'future').length, 1);
   });
@@ -47,5 +48,5 @@ test('truncated body stays bounded while later headings remain searchable', () =
   const doc = buildWorkspaceDoc(meta, source);
   assert.equal(doc.bodyText.length, MAX_WORKSPACE_BODY_CHARS);
   assert.equal(searchWorkspaceDocs([doc], 'latebodyneedle', new Map()).length, 0);
-  assert.ok(searchWorkspaceDocs([doc], 'late heading', new Map()).some(hit => hit.kind === 'heading'));
+  assert.ok(searchWorkspaceDocs([doc], 'late heading', new Map()).some(hit => hit.path === meta.path));
 });

@@ -18,7 +18,9 @@ native testing and code signing.
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
 - Highlights & notes, plus bookmarks for returning to headings
-- Workspace quick switcher for Markdown and Fountain files
+  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
+- Recent, Drafts, and an optional folder browser, with Search documents and passage navigation
+- Persistent whole-interface zoom, separate from reading typography
 - Fountain screenplay rendering with character focus and scene navigation
 - Focus mode and presentation mode
 - Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
@@ -27,7 +29,8 @@ native testing and code signing.
 - Optional Markdown heading formatting with an instant plain-markup fallback
 - macOS spelling underlines and native right-click suggestions while editing
 - Print the document or save it as PDF; export highlights and notes separately as Markdown
-- Keyboard-driven workflow - press Cmd+? (Ctrl+? on Linux) for the full shortcut list
+- Keyboard-driven workflow - choose **Help > Keyboard Shortcuts** on macOS or
+  press Ctrl+? on Linux for the full shortcut list
 
 See [highlights, notes, and recovery](docs/annotations.md) for location, saving,
 and document-path limitations. You can also paste plain text into a new document.
@@ -55,19 +58,71 @@ Substitutions choices can override those defaults. See the
 [validation notes](docs/macos-spellcheck-validation.md) for tested behavior
 and remaining platform coverage.
 
-### Workspace search
+### Finding documents
 
-Choose a folder in the Workspace panel, then use Search or the quick switcher
-shortcut to find filenames, document titles, headings, and body excerpts.
-Choose **Refresh** after files change: editing, saving, adding, renaming, or
-deleting a file does not automatically update the workspace snapshot.
+Bindars opens documents where they already are. **Recent** holds the last 25
+opened documents from any location. **Drafts** lists existing files in Documents
+› Bindars Drafts, including drafts no longer in Recent, using a heading or opening
+text alongside the filename. The header and folder browser keep filenames.
 
-Results appear when indexing finishes; the previous snapshot stays available
-during a refresh. Search covers the first 30,000 characters of body text and
-up to two matching headings per file. Markdown body excerpts omit code, math,
-diagrams, and images. A heading result jumps to that heading; a content result
-opens the document, where you can use in-document search to find the phrase.
-This is a quick navigation tool, not an exhaustive full-document search.
+On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
+to your Documents folder. Choose **Show existing drafts** to list it; once
+Bindars has saved a draft or found existing ones, later launches list Drafts
+automatically.
+
+In **Folders**, choose **Add Folder…** to browse one folder's supported files and
+subfolders. Opening another file does not add or scan its parent folder. Browsing
+does not change where new documents autosave. **Remove from Sidebar** removes
+only this folder reference; the inline **Add Back** action restores it. Neither
+action moves or deletes documents or notes.
+
+**Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
+Its Scope menu can narrow results to that folder. Unquoted words may occur in
+any order; double quotes request a phrase within a text block. Results group by
+document, with separate passage counts. Filename/title matches rank first, then
+exact phrases, nearby terms, and scattered terms. Up to 50 documents and five
+passages per document are shown, with totals when results are truncated.
+
+Choose a passage to open it and highlight the requested occurrence, including
+in the document already open. Repeated passages keep their occurrence. A changed
+or unresolved passage produces an explanation and refreshes search. **Find in
+Document** (Cmd+F / Ctrl+F) finds a phrase in the displayed document; only valid
+phrase results populate it. Unordered-term results highlight their passage
+without putting search operators into Find.
+
+Use Cmd+G / Ctrl+G for the next Find match and Shift+Cmd+G / Ctrl+Shift+G
+for the previous match.
+
+Both searches ignore case, ordinary prose whitespace, and soft line breaks.
+They equate straight/curly quotes, `--`/en dash, `---`/em dash, and `...`/ellipsis.
+Other punctuation stays literal. Find includes displayed code and rendered
+math, retaining their literal punctuation and whitespace. Document Search excludes code, math,
+diagrams and images, and covers the first 30,000 extracted body characters plus
+headings and names. These forgiving search rules do not change annotation
+identity or location rules.
+
+Files appear before text preparation finishes and remain findable by filename
+when reading or parsing fails. Status and recovery actions distinguish missing,
+unreadable, invalid-encoding, oversized and overly complex documents. There is
+no promise that every discovered file can be displayed. The folder browser skips
+hidden folders, `node_modules`, `target`, `vendor`, and symbolic links. Discovery
+is bounded to 5,000 documents per folder/Drafts source, 100,000 visited entries,
+20,000 subfolders and 32 levels; a partial-list notice identifies these limits.
+Lists initially render 100 entries and provide buttons for more.
+
+Successful saves update Search immediately. Returning to the app reconciles
+external changes; unchanged file size and modification time avoid reparsing.
+Discovery and text work publish incrementally and discard obsolete results when
+the configured folder changes. Continuous folder watching is not enabled.
+Actual incoming links live in the collapsed **Linked from** section in Contents;
+**Unlinked mentions** remains a separate collapsed section.
+
+### Interface zoom
+
+Use **View** or Cmd+plus/minus (Ctrl equivalents on Linux) to zoom the entire
+interface from 75% to 300%. Cmd+0 / Ctrl+0 chooses **Actual Size** and changes only
+interface zoom. Zoom is saved between launches. Reader Settings still provides
+independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
 
 ### Rendering rules
 

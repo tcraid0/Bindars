@@ -5,6 +5,7 @@ export type PendingAction =
   | { kind: "close-window" }
   | { kind: "quit-app" }
   | { kind: "new-file" }
+  | { kind: "find-notes"; path?: string }
   | { kind: "open-file-dialog" }
   | { kind: "try-sample" }
   | { kind: "copy-document" }
@@ -13,7 +14,7 @@ export type PendingAction =
   | { kind: "go-back" }
   | { kind: "go-forward" }
   | { kind: "navigate"; path: string; anchor: string | null }
-  | { kind: "open-workspace-hit"; path: string; headingId: string | null }
+  | { kind: "open-workspace-hit"; path: string; headingId: string | null; passage?: import("../types").SearchPassage }
   | { kind: "restore-session"; path: string; headingId: string | null };
 
 export type RetryablePendingAction = Extract<

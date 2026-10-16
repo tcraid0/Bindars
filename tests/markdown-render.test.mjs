@@ -32,6 +32,42 @@ function renderMarkdown(markdown) {
   );
 }
 
+test("document headings cannot inherit startup styles, including reduced motion", async () => {
+  const { Window } = await import("happy-dom");
+  const win = new Window();
+  try {
+    const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
+    win.document.write(html);
+    const headings = ["Brand Artwork", "Loading Screen", "Loading Screen Mark",
+      "Loading Screen Progress", "Loading Screen Status"];
+    const root = win.document.getElementById("root");
+    root.innerHTML = renderMarkdown(headings.map(title => `# ${title}`).join("\n\n"));
+    assert.equal(root.querySelectorAll("h1").length, headings.length);
+    const screen = win.document.querySelector("body > #loading-screen");
+
+    for (const reducedMotion of [false, true]) {
+      win.document.documentElement.classList.toggle("reduced-motion", reducedMotion);
+      assert.equal(win.getComputedStyle(screen).position, "fixed");
+      assert.equal(win.getComputedStyle(screen.querySelector("svg")).position, "absolute");
+      assert.equal(win.getComputedStyle(screen.querySelector("p")).display,
+        reducedMotion ? "block" : "none");
+      screen.classList.add("fade-out");
+      assert.equal(win.getComputedStyle(screen).opacity, "0");
+      for (const heading of root.querySelectorAll("h1")) {
+        const style = win.getComputedStyle(heading);
+        assert.ok(!["fixed", "absolute"].includes(style.position), heading.id);
+        assert.notEqual(style.opacity, "0", heading.id);
+        assert.notEqual(style.display, "none", heading.id);
+        assert.notEqual(style.width, "0px", heading.id);
+      }
+      screen.classList.remove("fade-out");
+    }
+  } finally {
+    await win.happyDOM.close();
+  }
+});
+
 function buildMeta(name = "doc.md") {
   return {
     path: `/workspace/${name}`,

@@ -682,3 +682,23 @@ test('unknown highlight colors survive unrelated saves, note edits, recovery and
   await view.change(api => api.removeHighlight('h'));
   assert.deepEqual(disk.get('/a.md').highlights, [], 'unknown-color notes remain ordinary removable notes');
 });
+
+test('reconnection waits for queued writes, blocks mutations, and reloads both identities', async t => {
+  const { disk }=backingStore(t); const gate=deferred();let invoked=false;
+  t.mock.method(storage,'saveAnnotations',async(path,data)=>{await gate.promise;disk.set(path,copy(data));});
+  mockIPC((command,args)=>{assert.equal(command,'reconnect_annotations');invoked=true;assert.equal(disk.get('/a.md').highlights[0].note,'pending');disk.set(args.destination,copy(disk.get(args.source)));disk.delete(args.source);});
+  t.after(clearMocks);const view=await mount(t);
+  await view.change(api=>api.updateHighlight('h',{note:'pending'}));
+  let pending;await act(async()=>{pending=view.api().reconnect('/a.md','/b.md',record('pending'),{size:3,mtimeMs:1,contentHash:'x'});});
+  assert.equal(invoked,false);await view.change(api=>api.updateHighlight('h',{note:'too late'}));assert.equal(view.api().highlights[0].note,'pending');
+  await act(async()=>gate.resolve());await act(async()=>pending);assert.equal(invoked,true);assert.equal(disk.has('/a.md'),false);
+  await view.render('/b.md');assert.equal(view.api().highlights[0].note,'pending');
+});
+test('reconnection refuses pending failed writes and preserves session records on native failure',async t=>{
+ const {disk}=backingStore(t);let invoked=0;mockIPC(()=>{invoked++;throw Error('destination occupied');});t.after(clearMocks);
+ const view=await mount(t);await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}));
+ assert.equal(view.api().highlights[0].note,'original');assert.equal(disk.has('/b.md'),false);
+ t.mock.method(storage,'saveAnnotations',async()=>{throw Error('disk full');});await view.change(api=>api.updateHighlight('h',{note:'unsaved'}));
+ await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}),/pending/);
+ assert.equal(invoked,1);assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note,'unsaved');
+});

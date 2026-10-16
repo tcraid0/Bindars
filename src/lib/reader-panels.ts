@@ -1,4 +1,4 @@
-export const READER_PANEL_WIDTHS = { sidebar: 260, toc: 220, notes: 280 } as const;
+export const READER_PANEL_WIDTHS = { sidebar: 280, toc: 220, notes: 280 } as const;
 export type ReaderPanel = keyof typeof READER_PANEL_WIDTHS;
 export type ReaderPanels = Record<ReaderPanel, boolean>;
 const MIN_READER_WIDTH = 320;

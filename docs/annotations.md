@@ -35,7 +35,7 @@ matching cannot reconstruct evidence that was never saved. A legacy highlight
 can therefore attach to a sole remaining identical passage after deletion.
 
 Annotations belong to the canonical path returned when opening a document.
-Renaming or moving a file does not migrate its annotations. Replacing a file at
+Renaming or moving a file does not automatically migrate its annotations. Replacing a file at
 the same path keeps the collection, subject to the location checks above.
 Bookmarks remain shortcuts to heading IDs: reordering duplicate headings can
 change which heading has that ID. They do not have highlight-style evidence.
@@ -55,6 +55,29 @@ artwork are excluded. Visible math and HTML inside diagram labels can be marked
 where the platform permits selecting that text; a selection spanning excluded
 text is rejected instead of silently clipped. Search can cross annotation marks.
 Diagrams reapply saved highlights after their asynchronous rendering finishes.
+
+## Reconnecting notes after a rename or move
+
+Choose **Find Notes…** in Highlights & notes or document navigation. A missing
+Recent document also offers **Locate / reconnect notes…**. Select the original
+document; its full path and counts distinguish collections with the same name.
+Choose the destination file to preview how many highlighted passages are located,
+uncertain, or missing using the existing conservative annotation rules. The
+preview also counts matching bookmark headings. Images and diagram content that
+has not rendered cannot be confirmed in this preview.
+
+**Reconnect these notes** explicitly moves the complete stored record, including
+notes, bookmarks, unknown supported metadata and unresolved passages. No document
+text changes. It refuses a destination with annotations or unrecognized stored
+data; automatic merging is not supported. Reconnection waits for pending note
+edits and queued writes, blocks conflicting annotation mutations, and rechecks
+the source record and destination file revision before the atomic storage update.
+A stale preview or failed write leaves the original records intact. Both paths'
+in-memory annotation records are invalidated after success.
+
+This is a deliberate recovery action, not automatic file-identity tracking.
+Similar titles or text never authorize moving notes. It also works for a kept
+annotated draft after saving its text elsewhere.
 
 ## Saving and recovery
 

@@ -5,7 +5,10 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ToastProvider } from "./components/ToastProvider";
 import { getActiveDialog } from "./components/DialogFrame";
 import { appReadyPromise, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
+import { installContextMenuPolicy } from "./lib/context-menu";
 import "./app.css";
+
+installContextMenuPolicy();
 
 function renderApp() {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

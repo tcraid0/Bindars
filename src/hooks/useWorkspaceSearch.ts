@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RecentFile, WorkspaceDocIndex, WorkspaceSearchHit } from "../types";
-import { createRecentBoostMap, searchWorkspaceDocs } from "../lib/workspace-search";
+import type {
+  RecentFile,
+  WorkspaceDocIndex,
+  WorkspaceSearchHit,
+} from "../types";
+import {
+  compareSearchHits,
+  createRecentBoostMap,
+  searchWorkspaceDocs,
+} from "../lib/workspace-search";
 
 const SEARCH_DEBOUNCE_MS = 100;
 
@@ -10,7 +18,11 @@ interface UseWorkspaceSearchArgs {
   maxResults?: number;
 }
 
-export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWorkspaceSearchArgs) {
+export function useWorkspaceSearch({
+  docs,
+  recentFiles,
+  maxResults = 50,
+}: UseWorkspaceSearchArgs) {
   const [query, setQueryState] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -30,18 +42,74 @@ export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWo
     };
   }, []);
 
+  const recentPaths = JSON.stringify(recentFiles.map((file) => file.path));
   const recentBoostByPath = useMemo(
-    () => createRecentBoostMap(recentFiles.map((f) => f.path)),
-    [recentFiles],
+    () => createRecentBoostMap(JSON.parse(recentPaths) as string[]),
+    [recentPaths],
   );
 
-  const settledResults = useMemo(
-    () => searchWorkspaceDocs(docs, debouncedQuery, recentBoostByPath, maxResults),
-    [docs, debouncedQuery, recentBoostByPath, maxResults],
+  const scope = useMemo(
+    () => JSON.stringify(docs.map((doc) => doc.path)),
+    [docs],
+  );
+  const searchKey = JSON.stringify([debouncedQuery, recentPaths, scope]);
+  const latest = useRef({ docs, searchKey });
+  latest.current = { docs, searchKey };
+  const generation = useRef(0);
+  const runningKey = useRef<string | null>(null);
+  const [settled, setSettled] = useState<{
+    key: string;
+    hits: WorkspaceSearchHit[];
+  } | null>(null);
+  useEffect(() => {
+    // Content preparation must not starve a running search. Finish its current
+    // snapshot, then catch up. A different query or scope cancels immediately.
+    if (runningKey.current === searchKey) return;
+    const id = ++generation.current;
+    runningKey.current = searchKey;
+    const run = async () => {
+      while (
+        id === generation.current &&
+        latest.current.searchKey === searchKey
+      ) {
+        const snapshot = latest.current.docs;
+        const hits: WorkspaceSearchHit[] = [];
+        for (let start = 0; start < snapshot.length; start += 8) {
+          if (
+            id !== generation.current ||
+            latest.current.searchKey !== searchKey
+          )
+            return;
+          hits.push(
+            ...searchWorkspaceDocs(
+              snapshot.slice(start, start + 8),
+              debouncedQuery,
+              recentBoostByPath,
+              8,
+            ),
+          );
+          if (start + 8 < snapshot.length)
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        if (id !== generation.current) return;
+        setSettled({ key: searchKey, hits: hits.sort(compareSearchHits) });
+        if (snapshot === latest.current.docs) break;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (id === generation.current) runningKey.current = null;
+    };
+    void run();
+  }, [docs, searchKey, debouncedQuery, recentBoostByPath]);
+  useEffect(
+    () => () => {
+      generation.current++;
+      runningKey.current = null;
+    },
+    [],
   );
   // Never let Enter or a result button act on a different query than the input.
-  const pending = query !== debouncedQuery;
-  const results = pending ? [] : settledResults;
+  const pending = query !== debouncedQuery || settled?.key !== searchKey;
+  const results = pending ? [] : settled!.hits.slice(0, maxResults);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -62,7 +130,9 @@ export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWo
   }, [results.length]);
 
   const selectedHit: WorkspaceSearchHit | null =
-    results.length > 0 ? results[Math.min(selectedIndex, results.length - 1)] : null;
+    results.length > 0
+      ? results[Math.min(selectedIndex, results.length - 1)]
+      : null;
 
   const reset = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -76,6 +146,7 @@ export function useWorkspaceSearch({ docs, recentFiles, maxResults = 50 }: UseWo
     pending,
     setQuery,
     results,
+    totalDocuments: pending ? 0 : settled!.hits.length,
     selectedIndex,
     setSelectedIndex,
     selectedHit,

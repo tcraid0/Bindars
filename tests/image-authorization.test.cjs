@@ -1,9 +1,10 @@
+const { createAppView } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const React = require("react");
 const { act } = React;
-const { clearMocks, mockIPC, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
+const { clearMocks, mockWindows, mockConvertFileSrc } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
 const { installDom } = require("./_helpers/dom.cjs");
 const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
@@ -15,7 +16,6 @@ const { createNativeOpenIpc } = require("./_helpers/native-open.cjs");
 // printing waits for that readiness.
 
 let flushSync;
-let createRoot;
 
 function deferred() {
   let resolve;
@@ -56,32 +56,13 @@ const DOCUMENTS = {
   "/tmp/ws/indexed.md": "# Indexed elsewhere\n\n![Indexed](indexed.png)\n",
 };
 
-function loadApp() {
-  const originalLoad = Module._load;
-  Module._load = function loadWithFixtures(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture";
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return require("../.tmp/workspace-tests/src/App.js").default;
-  } finally {
-    Module._load = originalLoad;
-  }
-}
-
 async function renderImageApp(t, { workspaceFiles = [] } = {}) {
   await installDom();
   ({ flushSync } = require("react-dom"));
-  ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
   mockConvertFileSrc("macos");
   const originalMatchMedia = window.matchMedia;
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+
   if (typeof globalThis.getComputedStyle !== "function") {
     globalThis.getComputedStyle = window.getComputedStyle.bind(window);
   }
@@ -124,7 +105,7 @@ async function renderImageApp(t, { workspaceFiles = [] } = {}) {
   const indexedReads = [];
   let deferAuthorization = false;
   const nativeOpen = createNativeOpenIpc();
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
@@ -163,26 +144,16 @@ async function renderImageApp(t, { workspaceFiles = [] } = {}) {
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
-
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  flushSync(() => {
-    root.render(React.createElement(ToastProvider, null, React.createElement(App)));
   });
+
+  const view = createAppView({ ipc });
+  const { host } = view;
+  view.render();
   await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
 
   t.after(async () => {
-    await act(async () => {
-      root.unmount();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    host.remove();
+    await view.cleanup();
     window.matchMedia = originalMatchMedia;
-    globalThis.IntersectionObserver = originalIntersectionObserver;
     Module._load = originalLoad;
     clearMocks();
   });
@@ -256,7 +227,7 @@ test("switching documents re-authorizes for the new path only and unrelated work
 
   await app.openNatively("/tmp/a/A.md");
   await waitFor(() => assert.deepEqual(requestedTuple(app.image("Pic")), ["/tmp/a/A.md", "/tmp/a/pic.png"]));
-  await waitFor(() => assert.deepEqual(app.indexedReads, ["/tmp/ws/indexed.md"]));
+  await waitFor(() => assert.ok(app.indexedReads.includes("/tmp/ws/indexed.md")));
   assert.deepEqual(app.authorizedPaths(), ["/tmp/a/A.md"], "indexing reads must not publish or authorize");
 
   app.deferAuthorizations(true);

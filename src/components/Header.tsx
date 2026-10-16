@@ -1,7 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback, useId } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { Theme, FileType } from "../types";
-import { normalizeFileError } from "../lib/native-file-error";
+import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
@@ -9,6 +8,10 @@ import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
 interface HeaderProps {
+  onFind?: () => void;
+  onSearchDocuments?: () => void;
+  zoom?: number;
+  onZoom?: (direction: number) => void;
   fileName: string | null;
   filePath: string | null;
   theme: Theme;
@@ -57,6 +60,7 @@ const themeLabels: Record<Theme, string> = {
 };
 
 function HeaderComponent({
+  onFind, onSearchDocuments, zoom = 1, onZoom,
   fileName,
   filePath,
   theme,
@@ -98,12 +102,17 @@ function HeaderComponent({
 }: HeaderProps) {
   const { toast } = useToast();
   const isMac = detectShortcutPlatform() === "macos";
-  const revealLabel = isMac ? "Show in Finder" : "Show in folder";
+  const revealLabel = revealDocumentLabel();
   const hasSaveFeedback = Boolean(saveWarning || isDraft || isDirty || isSavedFlash);
   const [exportOpen, setExportOpen] = useState(false);
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
   const exportPanelRef = useRef<HTMLDivElement>(null);
   const exportId = useId();
+  const [viewOpen, setViewOpen] = useState(false);
+  const viewTriggerRef = useRef<HTMLButtonElement>(null);
+  const viewPanelRef = useRef<HTMLDivElement>(null);
+  const viewId = useId();
+  useDismissiblePopover({ open: viewOpen, triggerRef: viewTriggerRef, panelRef: viewPanelRef, onClose: () => setViewOpen(false) });
   const dismissExport = useDismissiblePopover({
     open: exportOpen && Boolean(fileName) && !isEditing,
     triggerRef: exportTriggerRef,
@@ -125,15 +134,10 @@ function HeaderComponent({
     onPresent();
   }, [dismissExport, onPresent]);
 
-  const handleRevealFile = useCallback(async () => {
+  const handleRevealFile = useCallback(() => {
     if (!filePath) return;
-    try {
-      await invoke("reveal_markdown_file_in_folder", { path: filePath });
-    } catch (err) {
-      console.warn("[reveal-file] Failed to show document location:", err);
-      const fallback = isMac ? "Couldn't show this file in Finder" : "Couldn't show this file in its folder";
-      toast(normalizeFileError(err, fallback).native?.message ?? fallback, "error");
-    }
+    const fallback = isMac ? "Couldn't show this file in Finder" : "Couldn't show this file in its folder";
+    void revealDocument(filePath, fallback).catch((error: Error) => toast(error.message, "error"));
   }, [filePath, isMac, toast]);
 
   return (
@@ -142,7 +146,7 @@ function HeaderComponent({
       style={{ height: "var(--header-height, 52px)" }}
       data-tauri-drag-region
     >
-      {/* Left: sidebar toggle, back/forward, wordmark */}
+      {/* Left: sidebar toggle, back/forward, app symbol */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
@@ -182,8 +186,11 @@ function HeaderComponent({
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </button>
-        <span className="font-ui font-semibold text-[15px] text-text-primary tracking-tight ml-2">
-          Bindars
+        {/* The app's symbol: decorative, but still named for screen readers. The wider
+            margin keeps it from reading as another navigation button. */}
+        <span className="flex ml-3">
+          <svg className="size-5 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
+          <span className="sr-only">Bindars</span>
         </span>
       </div>
 
@@ -406,6 +413,18 @@ function HeaderComponent({
             </>
           )}
         </div>}
+        <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
+        {fileName && !isEditing && <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        <div className="relative text-sm">
+          <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
+            className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
+          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
+            <p>Interface: {Math.round(zoom * 100)}%</p>
+            <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
+            <button className="block p-2" onClick={() => onZoom?.(-1)}>Zoom Out</button>
+            <button className="block p-2" onClick={() => onZoom?.(0)}>Actual Size</button>
+          </div>}
+        </div>
         <button
           type="button"
           onClick={onToggleReaderControls}
@@ -473,7 +492,7 @@ function HeaderComponent({
           onClick={onShowShortcuts}
           aria-label="Keyboard Shortcuts"
           className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title={`Keyboard Shortcuts (${formatShortcutLabel("showShortcuts")})`}
+          title={`Keyboard Shortcuts${formatShortcutLabel("showShortcuts") ? ` (${formatShortcutLabel("showShortcuts")})` : ""}`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 1.5-2.5 3M12 16h.01" />

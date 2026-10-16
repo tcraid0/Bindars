@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::document_io::{
-    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path, read_bounded_file,
-    reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult, FileRevision,
-    NewMarkdownFile,
+    canonicalize_directory_path, canonicalize_markdown_path, is_markdown_path, open_regular_file,
+    read_bounded_file, reject_oversized_markdown, write_new_markdown_file, ConditionalWriteResult,
+    FileRevision, NewMarkdownFile,
 };
 use crate::file_errors::{
     run_blocking_file_io, NativeFileError, NativeFileErrorCategory, NativeFileOperation,
 };
+use crate::workspace::WorkspaceListResult;
 
 const DRAFTS_DIR_NAME: &str = "Bindars Drafts";
 
@@ -27,6 +28,63 @@ fn drafts_dir(app: &AppHandle) -> Result<PathBuf, NativeFileError> {
                 error.to_string(),
             )
         })
+}
+
+/// macOS asks for Documents access the first time an app looks there, so a
+/// launch listing waits until Bindars has made or shown a draft on this Mac.
+/// The marker records that in the app-data folder, never in Documents.
+const LISTING_NEEDS_MARKER: bool = cfg!(target_os = "macos");
+const DRAFTS_MARKER_NAME: &str = "drafts-created";
+
+fn drafts_marker(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .filter(|_| LISTING_NEEDS_MARKER)
+        .map(|dir| dir.join(DRAFTS_MARKER_NAME))
+}
+
+/// Best effort: without the marker the next launch listing is skipped again.
+fn write_drafts_marker(marker: &Path) {
+    if let Some(parent) = marker.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::File::create_new(marker);
+}
+
+/// Listing never creates Documents or the draft directory.
+#[tauri::command]
+pub(crate) async fn list_draft_documents(
+    app: AppHandle,
+    force: bool,
+) -> Result<WorkspaceListResult, NativeFileError> {
+    let dir = drafts_dir(&app)?;
+    let marker = drafts_marker(&app);
+    run_blocking_file_io(move || list_drafts_in(&dir, marker.as_deref(), force)).await
+}
+
+fn list_drafts_in(
+    dir: &Path,
+    marker: Option<&Path>,
+    force: bool,
+) -> Result<WorkspaceListResult, NativeFileError> {
+    if LISTING_NEEDS_MARKER && !force && !marker.is_some_and(|marker| marker.exists()) {
+        return Ok(WorkspaceListResult::skipped());
+    }
+    if !dir
+        .try_exists()
+        .map_err(|e| NativeFileError::from_io(NativeFileOperation::InspectWorkspace, dir, e))?
+    {
+        return Ok(WorkspaceListResult::empty());
+    }
+    let listed = crate::workspace::list_workspace_markdown_files_impl(
+        dir.to_string_lossy().into_owned(),
+        Some(5_000),
+    )?;
+    if let Some(marker) = marker.filter(|_| force && !listed.files.is_empty()) {
+        write_drafts_marker(marker);
+    }
+    Ok(listed)
 }
 
 fn create_draft_in(
@@ -163,13 +221,11 @@ fn delete_draft_in(
     if canonical_path == canonical_saved_path {
         return Ok(DraftRetirement::NothingToRemove);
     }
-    let open_for_comparison = |path: &Path| {
-        fs::File::open(path).map_err(|error| {
-            NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
-        })
-    };
-    let draft_file = open_for_comparison(&canonical_path)?;
-    let saved_file = open_for_comparison(&canonical_saved_path)?;
+    let draft_file = open_regular_file(&canonical_path, NativeFileOperation::InspectSavedDocument)?;
+    let saved_file = open_regular_file(
+        &canonical_saved_path,
+        NativeFileOperation::InspectSavedDocument,
+    )?;
     let metadata_for_comparison = |file: &fs::File, path: &Path| {
         cap_std::fs::Metadata::from_file(file).map_err(|error| {
             NativeFileError::from_io(NativeFileOperation::InspectSavedDocument, path, error)
@@ -225,10 +281,24 @@ pub(crate) async fn create_draft_document(
     content: String,
 ) -> Result<ConditionalWriteResult, NativeFileError> {
     let annotated = crate::annotations::annotated_paths(app.clone()).await?;
+    let marker = drafts_marker(&app);
     run_blocking_file_io(move || {
-        create_draft_in(&drafts_dir(&app)?, "Untitled", &content, &annotated)
+        create_draft_and_mark(&drafts_dir(&app)?, marker.as_deref(), &content, &annotated)
     })
     .await
+}
+
+fn create_draft_and_mark(
+    dir: &Path,
+    marker: Option<&Path>,
+    content: &str,
+    annotated: &HashSet<String>,
+) -> Result<ConditionalWriteResult, NativeFileError> {
+    let created = create_draft_in(dir, "Untitled", content, annotated)?;
+    if let Some(marker) = marker {
+        write_drafts_marker(marker);
+    }
+    Ok(created)
 }
 
 #[tauri::command]
@@ -280,9 +350,86 @@ mod tests {
         unique_temp_path("drafts").with_file_name(DRAFTS_DIR_NAME)
     }
 
+    /// A marker path whose app-data folder does not exist yet.
+    fn temp_marker() -> PathBuf {
+        crate::test_support::unique_temp_dir("drafts-marker").join(DRAFTS_MARKER_NAME)
+    }
+
     fn cleanup(dir: &Path) {
         let _ = fs::remove_dir_all(dir);
         cleanup_temp_path(dir);
+    }
+
+    fn cleanup_marker(marker: &Path) {
+        let _ = fs::remove_dir_all(marker.parent().unwrap());
+    }
+
+    #[test]
+    fn launch_listing_without_the_marker_skips_only_where_documents_prompts() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "draft", &HashSet::new()).unwrap();
+        let marker = temp_marker();
+
+        let listed = list_drafts_in(&dir, Some(&marker), false).unwrap();
+
+        assert_eq!(listed.skipped, LISTING_NEEDS_MARKER);
+        assert_eq!(listed.files.len(), usize::from(!LISTING_NEEDS_MARKER));
+        // Ordinary listings do not write the marker on any platform.
+        assert!(!marker.exists());
+        // An app-data folder that can't be found counts as no marker.
+        let unknown = list_drafts_in(&dir, None, false).unwrap();
+        assert_eq!(unknown.skipped, LISTING_NEEDS_MARKER);
+        cleanup(&dir);
+        cleanup_marker(&marker);
+    }
+
+    #[test]
+    fn forced_listing_lists_drafts_and_writes_the_marker_for_later_launches() {
+        let dir = temp_drafts_dir();
+        create_draft_in(&dir, "Untitled", "draft", &HashSet::new()).unwrap();
+        let marker = temp_marker();
+
+        let forced = list_drafts_in(&dir, Some(&marker), true).unwrap();
+        assert!(!forced.skipped);
+        assert_eq!(forced.files.len(), 1);
+        assert!(marker.is_file());
+
+        let later = list_drafts_in(&dir, Some(&marker), false).unwrap();
+        assert!(!later.skipped);
+        assert_eq!(later.files.len(), 1);
+        cleanup(&dir);
+        cleanup_marker(&marker);
+    }
+
+    #[test]
+    fn forced_listing_without_drafts_writes_no_marker_and_creates_nothing() {
+        let dir = temp_drafts_dir();
+        let marker = temp_marker();
+
+        let listed = list_drafts_in(&dir, Some(&marker), true).unwrap();
+
+        assert!(!listed.skipped);
+        assert!(listed.files.is_empty());
+        assert!(!marker.exists());
+        assert!(!dir.exists());
+        cleanup(&dir);
+        cleanup_marker(&marker);
+    }
+
+    #[test]
+    fn creating_a_draft_writes_the_marker_only_on_success() {
+        let dir = temp_drafts_dir();
+        let marker = temp_marker();
+
+        let oversized = "x".repeat(MAX_MARKDOWN_BYTES as usize + 1);
+        assert!(create_draft_and_mark(&dir, Some(&marker), &oversized, &HashSet::new()).is_err());
+        assert!(!marker.exists());
+
+        create_draft_and_mark(&dir, Some(&marker), "draft", &HashSet::new()).unwrap();
+        assert!(dir.join("Untitled.md").is_file());
+        assert!(marker.is_file());
+        cleanup(&dir);
+        cleanup_marker(&marker);
     }
 
     /// The revision Bindars would hold for `path` after reading or writing it.

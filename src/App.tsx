@@ -1,8 +1,14 @@
+import { ReconnectNotesDialog } from "./components/ReconnectNotesDialog";
+import { useInterfaceZoom } from "./hooks/useInterfaceZoom";
+import { fileName as pathFileName } from "./lib/paths";
+import { buildWorkspaceDoc } from "./lib/workspace-index";
+import { textFingerprint } from "./lib/search-text";
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
 import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { documentDir, homeDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getActiveDialog } from "./components/DialogFrame";
@@ -46,6 +52,7 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
+import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSessionRestore } from "./hooks/useSessionRestore";
 import { useReadingHint } from "./hooks/useReadingHint";
@@ -96,10 +103,13 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
-import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform } from "./lib/shortcut-labels";
+import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isPrimaryModifier } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
 import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
+
+type MenuAction = "new" | "open" | "search-documents" | "save" | "copy-document" | "print"
+  | "find" | "find-next" | "find-previous" | "show-shortcuts";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -163,6 +173,7 @@ function App() {
   const printPause = { paused: printPhase === "printing", isPaused: isPrintInvoked };
   const { theme, setTheme, cycleTheme } = useTheme(printPause);
   const { settings, updateSettings, resetSettings } = useReaderSettings(printPause);
+  const interfaceZoom = useInterfaceZoom();
   const markdownFormatting = useMarkdownFormatting();
   const markdownFormattingEnabled = markdownFormatting.loaded && markdownFormatting.enabled;
   const {
@@ -200,8 +211,11 @@ function App() {
   const { canGoBack, canGoForward, pushEntry, peekBack, commitBack, peekForward, commitForward } =
     useNavigationHistory();
   const workspaceRoot = useWorkspaceRoot();
-  const workspaceIndex = useWorkspaceIndex(workspaceRoot.rootPath);
-  const workspaceSearch = useWorkspaceSearch({ docs: workspaceIndex.docs, recentFiles });
+  const workspaceIndex = useWorkspaceIndex(workspaceRoot.rootPath, recentFiles);
+  const [searchFolderOnly, setSearchFolderOnly] = useState(false);
+  const searchDocs = useMemo(() => searchFolderOnly ? workspaceIndex.docs.filter(doc => doc.sources?.includes("folder")) : workspaceIndex.docs, [workspaceIndex.docs, searchFolderOnly]);
+  const incompleteCount = useMemo(() => searchDocs.filter(doc => doc.coverage !== "ready").length, [searchDocs]);
+  const workspaceSearch = useWorkspaceSearch({ docs: searchDocs, recentFiles });
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
 
   const editorSurfaceRef = useRef<MarkdownEditorHandle | null>(null);
@@ -224,6 +238,7 @@ function App() {
   const parsedFountain = readerDocumentReady ? preparedDocument.parsedFountain : null;
 
   const {
+    reconnect: reconnectAnnotations,
     status: annotationStatus,
     ready: annotationsReady,
     loadError: annotationLoadError,
@@ -272,6 +287,7 @@ function App() {
   });
   const sidebarUpdatedRef = useRef(false);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
+  const [reconnectSource, setReconnectSource] = useState<string | null | undefined>(undefined);
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
   const flushAnnotationNoteRef = useRef<(() => void) | null>(null);
   const startNoteRef = useRef<((id: string) => void) | null>(null);
@@ -286,6 +302,7 @@ function App() {
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [currentFileIsDraft, setCurrentFileIsDraft] = useState(false);
   const [editorSessionKey, setEditorSessionKey] = useState(0);
@@ -449,6 +466,33 @@ function App() {
   // In-document search
   const search = useSearch(contentRef, reducedMotion);
 
+  const [pendingSearchPassage, setPendingSearchPassage] = useState<{ path: string; passage: import("./types").SearchPassage } | null>(null);
+  const [passageNotice, setPassageNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingSearchPassage || editing || pendingSearchPassage.path !== filePath || !contentRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      const { passage } = pendingSearchPassage;
+      let current = false;
+      try {
+        const doc = buildWorkspaceDoc({ path: filePath!, name: fileName!, relPath: fileName! }, content ?? "");
+        current = textFingerprint(doc.bodyText) === passage.fingerprint;
+      } catch { /* Reader may no longer support this document. */ }
+      if (current && search.openPassage(passage)) {
+        setSearchVisible(Boolean(passage.findQuery));
+        setPassageNotice(passage.findQuery ? null : `Found words in this passage: ${passage.phrase}`);
+        mainScrollRef.current?.focus({ preventScroll: true });
+      } else {
+        search.clear(); setSearchVisible(false);
+        setPassageNotice(current
+          ? "Search couldn't locate this passage in the displayed document. Try Find in Document to locate its text."
+          : "This passage has changed since Search last read the document. Its search entry is being refreshed.");
+        if (!current) workspaceIndex.reindex();
+      }
+      setPendingSearchPassage(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingSearchPassage, filePath, fileName, content, editing, search.openPassage, search.clear, workspaceIndex.reindex]);
+
   const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
     const path = getPublishedDocument().filePath;
     readerFocusRequestRef.current = {
@@ -572,6 +616,8 @@ function App() {
     if (adoptsWrittenDestination(result)) {
       editingFilePathRef.current = result.file.canonicalPath;
       adoptSavedFile(result.file);
+      workspaceIndex.updateSaved(result.file.canonicalPath, result.file.content, result.file.revision,
+        (!filePath && !!options.quiet) || (result.file.canonicalPath === filePath && currentFileIsDraftRef.current));
       if (result.file.canonicalPath !== filePath) {
         // Record the destination here, not only from the effect on the
         // published path: a departure waiting on this save may replace that
@@ -585,7 +631,7 @@ function App() {
     }
 
     return result;
-  }, [addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
+  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
@@ -808,7 +854,7 @@ function App() {
 
   const retireDraft = useCallback(async (draft: RetiringDraft | null, saved: SavedFileSnapshot) => {
     if (!draft) return;
-    const name = draft.path.split(/[\\/]/).pop() || draft.path;
+    const name = pathFileName(draft.path);
     // Annotations belong to the draft's path. Deleting an annotated draft would
     // hide its notes and let the next draft with that name inherit them.
     if (toPathIdentityKey(draft.path) !== toPathIdentityKey(saved.canonicalPath)) {
@@ -834,14 +880,14 @@ function App() {
         draftRevision: draft.revision,
         savedRevision: saved.revision,
       });
-      if (retirement === "removed") removeRecent(draft.path);
+      if (retirement === "removed") { removeRecent(draft.path); workspaceIndex.removeDocument(draft.path); }
       if (retirement === "kept") {
         toast(`Bindars kept the draft ${name} because it or the new file changed outside Bindars during the save.`, "info");
       }
     } catch (error) {
       console.warn("[drafts] Saved the document but could not remove its old draft:", error);
     }
-  }, [annotationRecordState, removeRecent, toast]);
+  }, [annotationRecordState, removeRecent, toast, workspaceIndex.removeDocument]);
 
   // Every manual save runs through here so a departure can wait until the save
   // has recorded its outcome. Overlapping saves join rather than replace: a
@@ -1537,20 +1583,39 @@ function App() {
 
   const openSearch = useCallback(() => {
     if (!isDocumentOpen(content) || editing || !readerDocumentReady) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const text = selection.toString().trim();
+      const ancestor = range.commonAncestorContainer;
+      const element = ancestor.nodeType === Node.ELEMENT_NODE ? ancestor as Element : ancestor.parentElement;
+      if (mainScrollRef.current?.contains(ancestor)
+        && text.length > 0 && text.length <= 100 && !/[\r\n\u2028\u2029]/.test(text)
+        && !element?.closest(".katex") && !range.cloneContents().querySelector(".katex")) {
+        search.setQuery(text);
+      }
+    }
     setSearchVisible(true);
-  }, [content, editing, readerDocumentReady]);
+    setSearchFocusRequest((request) => request + 1);
+  }, [content, editing, readerDocumentReady, search.setQuery]);
 
   // Reset search when the reader document changes, including identical text in another file.
   const prevSearchDocumentRef = useRef({ content, filePath });
   useEffect(() => {
     const previous = prevSearchDocumentRef.current;
     if (previous.content !== content || previous.filePath !== filePath) {
+      if (document.activeElement?.closest(".search-bar")) {
+        mainScrollRef.current?.focus({ preventScroll: true });
+      }
+      setSearchVisible(false);
       prevSearchDocumentRef.current = { content, filePath };
-      if (searchVisible) {
+      setPassageNotice(null);
+      setPendingSearchPassage(pending => pending?.path === filePath ? pending : null);
+      if (search.query) {
         search.clear();
       }
     }
-  }, [content, filePath, searchVisible, search.clear]);
+  }, [content, filePath, search.query, search.clear]);
 
   const updateReadingProgressNow = useCallback(() => {
     const scrollEl = mainScrollRef.current;
@@ -1935,6 +2000,7 @@ function App() {
 
   useReconciliationLifecycle({
     onSignal: (signal) => {
+      workspaceIndex.reconcile();
       fileWatcher.retry();
       scheduleReconciliation(signal);
     },
@@ -2197,6 +2263,7 @@ function App() {
   }, []);
 
   const openCommandPalette = useCallback(() => {
+    setSearchFolderOnly(false);
     setCommandPaletteVisible(true);
   }, []);
 
@@ -2258,9 +2325,23 @@ function App() {
     [guardAction],
   );
 
+  // Memoised so the Contents panel does not re-render on every App render.
+  const connections = useMemo(() => (
+    <div className="navigation-help">
+      <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
+        {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}
+        {!workspaceInsights.backlinks.length && <p>No incoming links in searchable documents.</p>}
+      </details>
+      <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
+        <p>Documents that mention this document’s title without a link.</p>
+        {workspaceInsights.mentions.map(link => <button className="block py-2 break-all" key={link.path} onClick={() => openWorkspacePath(link.path)}>{link.relPath}</button>)}
+      </details>
+    </div>
+  ), [workspaceInsights.backlinks, workspaceInsights.mentions, openWorkspacePath]);
+
   const openWorkspaceHit = useCallback(
     (hit: WorkspaceSearchHit) => {
-      guardAction({ kind: "open-workspace-hit", path: hit.path, headingId: hit.headingId });
+      guardAction({ kind: "open-workspace-hit", path: hit.path, headingId: hit.headingId, passage: hit.passage });
       closeCommandPalette();
     },
     [guardAction, closeCommandPalette],
@@ -2344,6 +2425,7 @@ function App() {
           if (adoptsWrittenDestination(result)) {
             adopted = true;
             adoptSavedFile(result.file);
+            workspaceIndex.updateSaved(result.file.canonicalPath, result.file.content, result.file.revision);
             beginEditSession(result.file.content, result.file.revision, result.file.canonicalPath);
             toast(`Copy saved to ${result.file.canonicalPath}`, "success");
           } else if (result.status === "error") {
@@ -2400,6 +2482,11 @@ function App() {
       case "open-file-path":
         await openFilePath(action.path, action);
         return;
+      case "find-notes":
+        flushSync(() => flushAnnotationNoteRef.current?.());
+        await waitForAnnotationSaves();
+        setReconnectSource(action.path ?? null);
+        return;
       case "open-recent":
         await handleOpenRecent(action.path, action);
         return;
@@ -2412,9 +2499,14 @@ function App() {
       case "navigate":
         await handleNavigateToFile(action.path, action.anchor, action);
         return;
-      case "open-workspace-hit":
+      case "open-workspace-hit": {
         await handleNavigateToFile(action.path, action.headingId, action);
+        const published = getPublishedDocument();
+        if (action.passage && published.filePath && toPathIdentityKey(published.filePath) === toPathIdentityKey(action.path)) {
+          setPendingSearchPassage({ path: published.filePath, passage: action.passage });
+        }
         return;
+      }
       case "restore-session":
         await openPathAndScroll(action.path, action.headingId, action);
         return;
@@ -2460,11 +2552,56 @@ function App() {
   );
 
   // Drag and drop
+  const handleUnsupportedDrop = useCallback(() => {
+    toast(`Only ${OPENABLE_FILE_TYPES_DESCRIPTION} files can be opened.`, "error");
+  }, [toast]);
   useDragDrop({
     onDragEnter: handleDragEnter,
     onDragLeave: handleDragLeave,
     onDrop: handleDropPaths,
+    onUnsupportedDrop: handleUnsupportedDrop,
   });
+
+  const dispatchMenuAction = (action: MenuAction) => {
+    if (printPhase !== null || isPrintInvoked() || documentTransitionInFlightRef.current
+      || boundaryFlushInFlightRef.current || showConfirmDialogRef.current || showConflictDialogRef.current
+      || loading || presentationMode) return;
+    switch (action) {
+      case "new": guardedNewFile(); break;
+      case "open": guardedOpenFile(); break;
+      case "search-documents": openCommandPalette(); break;
+      case "save": if (editing) handleSave(); break;
+      case "copy-document": if (documentOpen) guardAction({ kind: "copy-document" }); break;
+      case "print": if (documentOpen && !editing) handlePrint(); break;
+      case "find":
+        if (editing) editorSurfaceRef.current?.find();
+        else openSearch();
+        break;
+      case "find-next":
+      case "find-previous":
+        if (editing) {
+          if (action === "find-next") editorSurfaceRef.current?.findNext();
+          else editorSurfaceRef.current?.findPrevious();
+        } else if (!searchVisible) openSearch();
+        else if (action === "find-next") search.next();
+        else search.previous();
+        break;
+      case "show-shortcuts": setShortcutsVisible(true); break;
+    }
+  };
+  const menuActionRef = useRef(dispatchMenuAction);
+  menuActionRef.current = dispatchMenuAction;
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = listen<{ action: MenuAction }>("bindars://menu-action", event => {
+      // Keys keep their per-dialog rules; a menu click acts only when no dialog is open.
+      if (active && !getActiveDialog()) menuActionRef.current(event.payload.action);
+    }).catch(() => () => {});
+    return () => {
+      active = false;
+      void unsubscribe.then(fn => fn()).catch(() => {});
+    };
+  }, []);
 
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent) => {
@@ -2473,13 +2610,13 @@ function App() {
     // reader, skip app shortcuts but let system keys such as Cmd-Q through;
     // only a second Cmd/Ctrl-P must lose its default action.
     if (isPrintInvoked()) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") e.preventDefault();
+      if (isPrimaryModifier(e) && e.key.toLowerCase() === "p") e.preventDefault();
       return;
     }
     if (showConfirmDialog || showConflictDialog) return;
     if (isImeCompositionKey(e)) return;
 
-    const ctrl = e.ctrlKey || e.metaKey;
+    const ctrl = isPrimaryModifier(e);
     const key = e.key.toLowerCase();
     const altGraph = e.getModifierState?.("AltGraph") ?? false;
     const target = e.target as HTMLElement | null;
@@ -2527,7 +2664,7 @@ function App() {
       if (commandPaletteVisible) {
         closeCommandPalette();
       } else {
-        openCommandPalette();
+        dispatchMenuAction("search-documents");
       }
       return;
     }
@@ -2552,8 +2689,8 @@ function App() {
     }
 
     // App owns this persisted view preference. Reader and Fountain sessions
-    // deliberately leave Ctrl+Alt+M inert rather than borrowing Ctrl+M's
-    // annotations behavior.
+    // deliberately leave Ctrl+Alt+M inert rather than borrowing the Notes
+    // shortcut's behavior.
     if (ctrl && e.altKey && !altGraph && key === "m") {
       if (editing && fileType === "markdown") {
         e.preventDefault();
@@ -2565,21 +2702,21 @@ function App() {
     // Ctrl+N: create a document (must run before inInput bail-out)
     if (ctrl && key === "n") {
       e.preventDefault();
-      guardedNewFile();
+      dispatchMenuAction("new");
       return;
     }
 
     // Ctrl+O: open a file (must run before the editor input bail-out)
     if (ctrl && key === "o") {
       e.preventDefault();
-      guardedOpenFile();
+      dispatchMenuAction("open");
       return;
     }
 
     // Ctrl+S: save in edit mode (must run before inInput bail-out)
     if (ctrl && key === "s") {
       e.preventDefault();
-      if (editing) handleSave();
+      dispatchMenuAction("save");
       return;
     }
 
@@ -2602,14 +2739,13 @@ function App() {
       return;
     }
 
-    // Allow Escape and Enter/Shift+Enter in search input
+    // SearchBar owns Enter and primary-G in its field; Escape closes Find.
     if (inInput && searchVisible) {
       if (key === "escape") {
         e.preventDefault();
         closeSearch();
         return;
       }
-      // Let SearchBar handle Enter/Shift+Enter internally
       return;
     }
 
@@ -2630,7 +2766,7 @@ function App() {
     if (inInput) return;
 
     if (shortcutsVisible) {
-      if (e.key === "?" && ctrl && !e.altKey) {
+      if (e.key === "?" && ctrl && !e.altKey && formatShortcutLabel("showShortcuts")) {
         e.preventDefault();
         closeShortcuts();
       }
@@ -2646,17 +2782,18 @@ function App() {
           toggleBookmark(heading.id, heading.text);
         }
       }
-    } else if (ctrl && key === "m") {
+    } else if (ctrl && e.shiftKey && !e.altKey && key === "m") {
       e.preventDefault();
       if (documentOpen && !editing) toggleAnnotationsPanel();
     } else if (ctrl && key === "f" && !e.shiftKey) {
       e.preventDefault();
-      openSearch();
+      dispatchMenuAction("find");
+    } else if (ctrl && key === "g" && !editing && !target?.closest?.("select")) {
+      e.preventDefault();
+      dispatchMenuAction(e.shiftKey ? "find-previous" : "find-next");
     } else if (ctrl && key === "p") {
       e.preventDefault();
-      if (isDocumentOpen(content) && !editing) {
-        handlePrint();
-      }
+      dispatchMenuAction("print");
     } else if (key === "escape" && searchVisible) {
       e.preventDefault();
       closeSearch();
@@ -2696,15 +2833,6 @@ function App() {
         e.preventDefault();
         setFocusedCharacter(null);
       }
-    } else if (ctrl && (e.key === "=" || e.key === "+")) {
-      e.preventDefault();
-      updateSettings({ fontSize: settings.fontSize + 1 });
-    } else if (ctrl && key === "-") {
-      e.preventDefault();
-      updateSettings({ fontSize: settings.fontSize - 1 });
-    } else if (ctrl && key === "0") {
-      e.preventDefault();
-      resetSettings();
     } else if (e.altKey && key === "arrowleft") {
       e.preventDefault();
       guardedGoBack();
@@ -2717,9 +2845,9 @@ function App() {
     } else if (e.altKey && key === "arrowdown" && !ctrl && !e.shiftKey) {
       e.preventDefault();
       navigateScene(1);
-    } else if (e.key === "?" && ctrl && !e.altKey) {
+    } else if (e.key === "?" && ctrl && !e.altKey && formatShortcutLabel("showShortcuts")) {
       e.preventDefault();
-      setShortcutsVisible((v) => !v);
+      dispatchMenuAction("show-shortcuts");
     } else if (key === "f5") {
       e.preventDefault();
       if (isDocumentOpen(content) && !editing && !focusMode && fileType !== "fountain") {
@@ -2862,6 +2990,10 @@ function App() {
           canToggleEdit={canToggleEdit}
           onToggleEdit={toggleEditMode}
           onSave={handleSave}
+          onFind={openSearch}
+          onSearchDocuments={openCommandPalette}
+          zoom={interfaceZoom.zoom}
+          onZoom={interfaceZoom.change}
           onMakeCopy={() => guardAction({ kind: "copy-document" })}
           statsSummary={statsSummary}
           progressTextRef={progressTextRef}
@@ -2898,8 +3030,8 @@ function App() {
           openingPath={openingPath}
           workspaceRootPath={workspaceRoot.rootPath}
           workspaceState={workspaceIndex.state}
-          backlinks={workspaceInsights.backlinks}
-          mentions={workspaceInsights.mentions}
+          docs={workspaceIndex.docs}
+          onRestoreFolder={workspaceRoot.setRootPath}
           onOpenRecent={guardedOpenRecent}
           onRemoveRecent={removeRecentFile}
           recovery={recentRecovery}
@@ -2907,15 +3039,20 @@ function App() {
           onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
+          onShowDrafts={workspaceIndex.showDrafts}
           onOpenWorkspacePath={openWorkspacePath}
           onOpenCommandPalette={openCommandPalette}
+          onFindNotes={path => guardAction({ kind: "find-notes", path })}
         />
 
         {/* Search stays above the scroller so navigating a match cannot hide it. */}
         <div className="reader-column flex flex-col flex-1 min-w-0 min-h-0 relative" inert={presentationMode}>
+          {interfaceZoom.error && <p role="status" className="p-3 text-sm">{interfaceZoom.error}</p>}
+          {passageNotice && <p role="status" className="p-3 text-sm">{passageNotice} <button onClick={() => { setPassageNotice(null); search.clear(); }}>Dismiss</button></p>}
           {!editing && (
             <SearchBar
               visible={searchVisible}
+              focusRequest={searchFocusRequest}
               query={search.query}
               matchCount={search.matchCount}
               currentIndex={search.currentIndex}
@@ -2929,7 +3066,7 @@ function App() {
           <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
             {readingHintVisible && readerDocumentReady && !editing && filePath
               && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
-              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} />
+              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}
@@ -3047,6 +3184,7 @@ function App() {
         </div>
 
         <ReaderNavigation
+          connections={connections}
           ref={readerNavigationRef}
           visible={visiblePanels.toc}
           headings={headings}
@@ -3066,6 +3204,7 @@ function App() {
         />
 
         <AnnotationsPanel
+          onFindNotes={() => guardAction({ kind: "find-notes" })}
           key={filePath}
           flushNoteRef={flushAnnotationNoteRef}
           startNoteRef={startNoteRef}
@@ -3171,6 +3310,8 @@ function App() {
         />
       )}
       <DropZone visible={isDragging} />
+      {reconnectSource !== undefined && <ReconnectNotesDialog sourcePath={reconnectSource} settings={settings}
+        onClose={() => setReconnectSource(undefined)} onReconnect={reconnectAnnotations} onOpen={openWorkspacePath} />}
       <ShortcutOverlay visible={shortcutsVisible} onClose={closeShortcuts} />
       <CommandPalette
         visible={commandPaletteVisible}
@@ -3179,6 +3320,11 @@ function App() {
         results={workspaceSearch.results}
         selectedIndex={workspaceSearch.selectedIndex}
         status={workspaceIndex.state.status}
+        folderName={workspaceRoot.rootPath ? pathFileName(workspaceRoot.rootPath) : undefined}
+        folderOnly={searchFolderOnly}
+        onFolderOnly={setSearchFolderOnly}
+        totalDocuments={workspaceSearch.totalDocuments}
+        incompleteCount={incompleteCount}
         onQueryChange={workspaceSearch.setQuery}
         onClose={closeCommandPalette}
         onOpenHit={openWorkspaceHit}

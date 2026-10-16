@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useActiveDialog } from "./DialogFrame";
+import { getActiveDialog, useActiveDialog } from "./DialogFrame";
 import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 
@@ -9,6 +9,7 @@ interface Toast {
   id: number;
   message: string;
   variant: ToastVariant;
+  context: HTMLDivElement | null;
 }
 
 interface ToastContextValue {
@@ -44,10 +45,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback(
     (message: string, variant: ToastVariant = "success") => {
       const id = ++idRef.current;
+      const context = getActiveDialog();
       setToasts((prev) => {
-        const next = [...prev, { id, message, variant }];
+        if (variant === "error" && prev.some(t => t.context === context && t.variant === variant && t.message === message)) return prev;
+        const next = [...prev, { id, message, variant, context }];
         return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
       });
+      if (variant === "error") return;
       const timerId = setTimeout(() => {
         dismiss(id);
         timersRef.current.delete(id);
@@ -56,6 +60,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [dismiss],
   );
+
+  // A closed dialog's remaining messages move to whatever is visible now.
+  useEffect(() => {
+    setToasts(prev => {
+      if (!prev.some(t => t.context && !t.context.isConnected)) return prev;
+      const visible = prev.filter(t => t.context === activeDialog);
+      return prev.flatMap(t => {
+        if (!t.context || t.context.isConnected) return [t];
+        if (visible.some(other => other.variant === t.variant && other.message === t.message)) return [];
+        const moved = { ...t, context: activeDialog };
+        visible.push(moved);
+        return [moved];
+      });
+    });
+  }, [activeDialog]);
 
   // Clear all timers on unmount
   useEffect(() => {
@@ -68,13 +87,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const contextValue = useMemo(() => ({ toast }), [toast]);
 
-  const notifications = (
+  const notifications = (context: HTMLDivElement | null) => (
       <div
-        className={activeDialog ? "print-hide mt-4 flex flex-col gap-2" : "print-hide fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex flex-col-reverse items-center gap-2 pointer-events-none"}
+        className={context ? "print-hide mt-4 flex flex-col gap-2" : "print-hide fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex flex-col-reverse items-center gap-2 pointer-events-none"}
+        style={{ visibility: !context && activeDialog ? "hidden" : undefined }}
         role="status"
         aria-live="polite"
       >
-        {toasts.map((t) => (
+        {toasts.filter(t => t.context === context).map((t) => (
           <div
             key={t.id}
             role={t.variant === "error" ? "alert" : undefined}
@@ -127,7 +147,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      {activeDialog ? createPortal(notifications, activeDialog) : notifications}
+      {notifications(null)}
+      {activeDialog && createPortal(notifications(activeDialog), activeDialog)}
     </ToastContext.Provider>
   );
 }

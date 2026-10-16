@@ -82,3 +82,62 @@ test('matching title and filename yield one file result; equal basenames retain 
   const results = searchWorkspaceDocs(docs, 'notes', new Map());
   assert.deepEqual(results.map(hit => hit.path), docs.map(doc => doc.path));
 });
+
+test('matching respects whole Unicode case folds and punctuation expansions in both searches', () => {
+  const {phraseMatches} = require('../.tmp/workspace-tests/src/lib/search-text.js');
+  for (const [text, query, expected] of [['İ', 'i', 0], ['İ', 'i̇', 1], ['—', '--', 0], ['—', '---', 1], ['😀', '😀', 1]]) {
+    const docs = [makeDoc('/a.md', 'A', text)];
+    assert.equal(searchWorkspaceDocs(docs, query, new Map()).length, expected, query);
+    assert.equal(phraseMatches(text, query).length, expected, query);
+  }
+});
+test('recent boosts do not move nearby or scattered terms ahead of exact phrases', () => {
+  const docs = [makeDoc('/a.md', 'A', 'refund policy'), makeDoc('/b.md', 'B', 'policy about refund'), makeDoc('/c.md', 'C', 'refund\npolicy')];
+  const results = searchWorkspaceDocs(docs, 'refund policy', createRecentBoostMap(['/c.md','/b.md']));
+  assert.deepEqual(results.map(hit => hit.path), ['/a.md','/b.md','/c.md']);
+});
+
+test('later nearby terms outrank scattered matches despite distant first occurrences', () => {
+  const nearby = makeDoc('/near.md', null, 'Payment ' + 'ordinary explanation '.repeat(18) + 'refund payment terms apply.');
+  const exact = makeDoc('/exact.md', null, 'Payment refund terms apply.');
+  const scattered = makeDoc('/far.md', null, 'Payment ' + 'ordinary explanation '.repeat(18) + 'refund terms apply.');
+  const hits = searchWorkspaceDocs([scattered, nearby, exact], 'payment refund', new Map());
+  assert.deepEqual(hits.map(hit => hit.path), ['/exact.md', '/near.md', '/far.md']);
+  assert.equal(hits[1].passages[0].phrase, 'refund payment');
+  assert.equal(hits[1].passages[0].findQuery, undefined);
+  assert.match(hits[1].passages[0].snippet, /refund payment terms apply/);
+  assert.equal(hits[2].passageCount, 0);
+});
+
+for (const [query, body, expected] of [
+  ['payment refund', 'Payment about a refund; later refund payment.', 'refund payment'],
+  ['refund refund payment', 'Payment about refund.', 'payment about refund'],
+  ['"refund policy" payment', 'Payment ' + 'detail '.repeat(40) + 'refund policy payment.', 'refund policy payment'],
+  ['refund 😀', '😀 ' + 'detail '.repeat(40) + 'Refund 😀.', 'refund 😀'],
+  ['refund ---', '— ' + 'detail '.repeat(40) + 'Refund —.', 'refund ---'],
+  ['refund i̇', 'İ ' + 'detail '.repeat(40) + 'Refund İ.', 'refund i̇'],
+]) {
+  test(`nearby windows preserve phrases, duplicate terms and Unicode: ${query}`, () => {
+    const hit = searchWorkspaceDocs([makeDoc('/a.md', null, body)], query, new Map())[0];
+    assert.equal(hit.passages[0].phrase, expected);
+  });
+}
+
+test('nearby matching cannot cross blocks or partial punctuation expansions', () => {
+  const doc = makeDoc('/a.md', null, 'refund\npayment\nRefund —.');
+  assert.equal(searchWorkspaceDocs([doc], 'refund payment', new Map())[0].passageCount, 0);
+  assert.deepEqual(searchWorkspaceDocs([doc], 'refund --', new Map()), []);
+});
+
+test('heading fallback covers code-formatted headings and headings beyond the body ceiling', () => {
+  const { buildWorkspaceDoc } = require('../.tmp/workspace-tests/src/lib/workspace-index.js');
+  for (const [source, query, heading] of [
+    ['# Install `npm` first\n\nBody.', 'install npm', 'install-npm-first'],
+    ['word '.repeat(7000) + '\n\n## Late heading here\n\nAfter', 'late heading', 'late-heading-here'],
+  ]) {
+    const doc = buildWorkspaceDoc({ path: '/a.md', name: 'a.md', relPath: 'a.md' }, source);
+    const hit = searchWorkspaceDocs([doc], query, new Map())[0];
+    assert.equal(hit.headingId, heading);
+    assert.equal(hit.passages.length, 0);
+  }
+});

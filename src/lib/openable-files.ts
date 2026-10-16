@@ -25,6 +25,11 @@ export function isOpenableDocumentPath(path: string): boolean {
   return OPENABLE_FILE_EXTENSION_PATTERN.test(path);
 }
 
+/** The reader's format for a supported path; anything that is not Fountain renders as Markdown. */
+export function documentFileType(path: string): "markdown" | "fountain" {
+  return /\.fountain$/i.test(path) ? "fountain" : "markdown";
+}
+
 export function replaceOpenableDocumentExtension(path: string, replacement: string): string {
   return path.replace(OPENABLE_FILE_EXTENSION_PATTERN, replacement);
 }

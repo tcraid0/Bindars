@@ -217,7 +217,7 @@ test("macro expansions immediately below and at the cap render, above it degrade
   assert.ok(countMatches(html, /<span/g) < 100);
 });
 
-test("math sizes immediately below and at the cap are preserved, above it is clamped", () => {
+test("Markdown math preserves positive rule widths up to maxSize and clamps above it", () => {
   const renderedWidth = (em) => {
     const html = renderMarkdown(`$$\n\\rule{${em}em}{1em}\n$$\n`);
     const match = /border-right-width:([0-9.]+)em/.exec(html);
@@ -230,7 +230,7 @@ test("math sizes immediately below and at the cap are preserved, above it is cla
   assert.equal(renderedWidth(MATH_MAX_SIZE + 1), MATH_MAX_SIZE);
 });
 
-test("user-specified math sizes are capped so layout cannot be driven to extremes", () => {
+test("Markdown math clamps a billion-em positive rule width", () => {
   const html = renderMarkdown("$$\n\\rule{1000000000em}{1em}\n$$\n");
   // Only layout-bearing values matter; the MathML annotation echoes the
   // original LaTeX source and costs nothing to lay out.

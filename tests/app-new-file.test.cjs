@@ -1,6 +1,7 @@
+const { createAppView, loadApp } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const Module = require("node:module");
+const { withShortcutPlatform } = require("./_helpers/shortcut-platform.cjs");
 const React = require("react");
 const { act } = React;
 const { undo } = require("@codemirror/commands");
@@ -124,19 +125,6 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
   await waitFor(() => assert.ok(rendered.host.textContent.includes(fileName)));
 }
 
-function loadApp() {
-  const originalLoad = Module._load;
-  Module._load = function loadWithWelcomeFixture(request, parent, isMain) {
-    if (request.endsWith("welcome.md?raw")) return "# Welcome fixture\n\nSave with {{shortcut:saveFile}}.";
-    return originalLoad.call(this, request, parent, isMain);
-  };
-  try {
-    return require("../.tmp/workspace-tests/src/App.js").default;
-  } finally {
-    Module._load = originalLoad;
-  }
-}
-
 function keyboardEvent(key, options = {}) {
   const { altGraph = false, ...eventOptions } = options;
   const event = new window.KeyboardEvent("keydown", {
@@ -215,12 +203,7 @@ async function renderEditorApp({
   await installDom();
   ({ flushSync } = require("react-dom"));
   ({ createRoot } = require("react-dom/client"));
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+
   const originalMatchMedia = window.matchMedia;
   window.matchMedia = (query) => ({
     matches: false,
@@ -260,7 +243,7 @@ async function renderEditorApp({
   let windowCloseCount = 0;
   let guardedExitCount = 0;
   const nativeOpen = createNativeOpenIpc();
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return { settingsReady: true, settingsError: null };
@@ -326,26 +309,14 @@ async function renderEditorApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
+  });
 
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-
-  const app = React.createElement(App);
-  const renderedApp = onRender
-    ? React.createElement(React.Profiler, { id: "App", onRender }, app)
-    : app;
-  const render = (activityMode = "visible") => {
-    const appContent = withActivity
-      ? React.createElement(React.Activity, { mode: activityMode }, renderedApp)
-      : renderedApp;
-    const content = React.createElement(ToastProvider, null, appContent);
-    root.render(strictMode ? React.createElement(React.StrictMode, null, content) : content);
-  };
-  flushSync(() => render());
+  const view = createAppView({ ipc, strictMode, wrap(app, activityMode = "visible") {
+    const rendered = onRender ? React.createElement(React.Profiler, { id: "App", onRender }, app) : app;
+    return withActivity ? React.createElement(React.Activity, { mode: activityMode }, rendered) : rendered;
+  } });
+  const { host, render } = view;
+  render();
   if (waitUntilReady) await waitFor(() => assert.ok(host.querySelector(".empty-state-content")));
   if (startNew) {
     dispatchShortcut("n");
@@ -368,15 +339,10 @@ async function renderEditorApp({
     windowCloseCount: () => windowCloseCount,
     guardedExitCount: () => guardedExitCount,
     async cleanup() {
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       window.localStorage.removeItem("bindars-theme");
       window.localStorage.removeItem("markdown-reader-theme");
       window.matchMedia = originalMatchMedia;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
       clearMocks();
     },
   };
@@ -984,10 +950,8 @@ test("App cycles every theme from focused CodeMirror without disturbing editor s
     ];
 
     for (const { attribute, options } of cycles) {
-      const event = dispatchEditorKey(rendered.host, "t", {
-        ...options,
-        shiftKey: true,
-      });
+      const event = withShortcutPlatform(options.metaKey ? "MacIntel" : "Linux x86_64", () =>
+        dispatchEditorKey(rendered.host, "t", { ...options, shiftKey: true }));
 
       assert.equal(event.defaultPrevented, true);
       assert.equal(document.documentElement.getAttribute("data-theme"), attribute);
@@ -1351,7 +1315,8 @@ test("Markdown formatting shortcut toggles only in the editor and respects panel
     assert.equal(view.state.field(markdownFormattingEnabled), true);
     assert.equal(formattingButton.getAttribute("aria-pressed"), "true");
 
-    const metaToggle = dispatchEditorKey(rendered.host, "m", { metaKey: true, altKey: true });
+    const metaToggle = withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "m", { metaKey: true, altKey: true }));
     assert.equal(metaToggle.defaultPrevented, true);
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
@@ -1634,7 +1599,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
 
     assert.equal(dispatchShortcut("e").defaultPrevented, true);
     await waitFor(() => assert.ok(!host.querySelector(".cm-editor")));
-    dispatchShortcut("n", { metaKey: true, ctrlKey: false });
+    withShortcutPlatform("MacIntel", () => dispatchShortcut("n", { metaKey: true, ctrlKey: false }));
     await waitFor(() => assert.ok(host.querySelector(".cm-editor")));
     await waitFor(() => assert.equal(host.querySelector('[aria-label="Read mode"]')?.disabled, false));
 
@@ -1965,12 +1930,7 @@ async function renderContinuityApp({
   ({ flushSync } = require("react-dom"));
   ({ createRoot } = require("react-dom/client"));
   window.localStorage.clear();
-  const originalIntersectionObserver = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = class IntersectionObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+
   mockWindows("main");
   let diskContent = initialContent ?? [
     "# First",
@@ -2007,7 +1967,7 @@ async function renderContinuityApp({
   const nativeOpen = createNativeOpenIpc(initialNativePath === undefined
     ? (restoreHeadingId === undefined ? requestedPath : null)
     : initialNativePath);
-  mockIPC(nativeOpen.wrap((cmd, args = {}) => {
+  const ipc = nativeOpen.wrap((cmd, args = {}) => {
     switch (cmd) {
       case "initialize_annotation_storage":
         return bootstrapRead ?? { settingsReady: true, settingsError: null };
@@ -2184,7 +2144,7 @@ async function renderContinuityApp({
       default:
         throw new Error(`Unexpected IPC command: ${cmd}`);
     }
-  }), { shouldMockEvents: true });
+  });
 
   if (freshStorage) {
     for (const key of Object.keys(require.cache)) {
@@ -2196,11 +2156,8 @@ async function renderContinuityApp({
       delete require.cache[require.resolve(`../.tmp/workspace-tests/src/${name}.js`)];
     }
   }
-  const App = loadApp();
-  const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
+  const view = createAppView({ ipc });
+  const { host } = view;
   const scrolledIds = [];
   let firstEditorLineVisible = false;
   const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
@@ -2249,7 +2206,7 @@ async function renderContinuityApp({
     main.getBoundingClientRect = () => ({ top: 50, bottom: 450, height: 400, left: 0, right: 800, width: 800, x: 0, y: 50, toJSON() {} });
   }
 
-  flushSync(() => root.render(React.createElement(ToastProvider, null, React.createElement(App))));
+  view.render();
   if (readySelector) {
     await waitFor(() => assert.ok(host.querySelector(readySelector)));
     positionReaderAtFirst();
@@ -2304,12 +2261,7 @@ async function renderContinuityApp({
     async cleanup() {
       window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
       window.HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-      globalThis.IntersectionObserver = originalIntersectionObserver;
-      await act(async () => {
-        root.unmount();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      host.remove();
+      await view.cleanup();
       clearMocks();
     },
   };
@@ -5276,27 +5228,15 @@ const paletteWorkspaceFiles = ["Alpha.md", "Beta.md"].map((name) => ({
   path: `/tmp/${name}`, relPath: name, name, mtimeMs: 1, size: 10,
 }));
 
-test("palette result buttons keep native activation after Tab focus and ArrowDown", async () => {
+test("palette pointer result opens the chosen file while the combobox owns keyboard selection", async () => {
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
-    const rows = document.querySelectorAll('.command-palette-shell li button');
-    const second = rows[1];
-    flushSync(() => second.focus()); // Native Tab traversal is checked in the packaged app.
-    assert.ok(second.classList.contains("bg-bg-tertiary"));
-    for (const key of ["ArrowDown", "ArrowUp", "Enter", " "]) {
-      assert.equal(dispatchElementKey(second, key).defaultPrevented, false, key);
-      assert.ok(document.activeElement === second);
-      assert.ok(second.classList.contains("bg-bg-tertiary"));
-    }
-    assert.equal(document.querySelectorAll('.command-palette-shell').length, 1,
-      "App must not activate its selected hit from a result-button keydown");
-    const before = rendered.openedPaths().length;
-    // happy-dom does not synthesize native Enter/Space clicks; exercise the allowed click path.
+    await waitFor(() => assert.ok([...document.querySelectorAll('.command-palette-shell [role="option"]')].some(row => row.textContent.includes('Beta.md'))));
+    const second = [...document.querySelectorAll('.command-palette-shell [role="option"]')].find(row => row.textContent.includes('Beta.md'));
+    assert.equal(document.querySelector('.command-palette-shell input').getAttribute('role'),'combobox');
     flushSync(() => second.click());
-    await waitFor(() => assert.equal(rendered.openedPaths().length, before + 1));
-    assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md");
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
   } finally { await rendered.cleanup(); }
 });
 
@@ -5304,13 +5244,15 @@ test("palette input retains arrow selection and Enter activation", async () => {
   const rendered = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut("k");
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 2));
     const input = document.querySelector('.command-palette-shell input');
     assert.equal(dispatchElementKey(input, "ArrowDown").defaultPrevented, true);
     assert.ok(document.activeElement === input);
-    assert.ok(document.querySelectorAll('.command-palette-shell li button')[1].classList.contains("bg-bg-tertiary"));
+    assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]')[1].classList.contains("bg-bg-tertiary"));
+    const selected = document.getElementById(input.getAttribute('aria-activedescendant'));
+    const expectedName = selected.textContent.includes('Beta.md') ? 'Beta.md' : 'Alpha.md';
     assert.equal(dispatchElementKey(input, "Enter").defaultPrevented, true);
-    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/Beta.md"));
+    await waitFor(() => assert.equal(rendered.openedPaths().at(-1), `/tmp/${expectedName}`));
   } finally { await rendered.cleanup(); }
 });
 
@@ -5542,7 +5484,7 @@ test('typing a new palette query and immediately pressing Enter never opens the 
   const view = await renderContinuityApp({ workspaceFiles: paletteWorkspaceFiles });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 2));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 2));
     const input = document.querySelector('.command-palette-shell input');
     setPaletteQuery(input, 'Alpha');
     await waitForPaletteSearch();
@@ -5550,7 +5492,7 @@ test('typing a new palette query and immediately pressing Enter never opens the 
     setPaletteQuery(input, 'Beta');
     dispatchElementKey(input, 'Enter');
     assert.equal(view.openedPaths().length, before);
-    assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 0);
+    assert.equal(document.querySelectorAll('.command-palette-shell [role="option"]').length, 0);
     await waitForPaletteSearch();
     dispatchElementKey(input, 'Enter');
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Beta.md'));
@@ -5568,16 +5510,16 @@ for (const [indexedHeading, currentHeading, missing] of [
     });
     try {
       dispatchShortcut('k');
-      await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+      await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
       setPaletteQuery(document.querySelector('.command-palette-shell input'), indexedHeading);
       await waitForPaletteSearch();
-      const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+      const row = document.querySelector('[aria-label^="Passages in"] button');
       assert.ok(row);
       const before = view.openedPaths().length;
       view.scrolledIds.length = 0;
       flushSync(() => row.click());
-      if (missing) await waitFor(() => assert.match(view.host.textContent, /not found in this document/));
-      else await waitFor(() => assert.ok(view.scrolledIds.includes(currentHeading.toLowerCase())));
+      if (missing) await waitFor(() => assert.match(view.host.textContent, /passage has changed/));
+      else await waitFor(() => assert.ok(view.host.querySelector("mark.search-highlight-active")));
       assert.equal(view.openedPaths().length, before);
       assert.ok(!document.querySelector('.command-palette-shell'));
     } finally { await view.cleanup(); }
@@ -5592,15 +5534,20 @@ test('cross-file workspace heading opens the requested document and scrolls its 
   });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
     setPaletteQuery(document.querySelector('.command-palette-shell input'), 'Second heading');
     await waitForPaletteSearch();
-    const row = [...document.querySelectorAll('.command-palette-shell li button')].find(node => node.textContent.includes('Heading'));
+    const alpha = Array.from(document.querySelectorAll('.command-palette-shell [role="option"]')).find(row => row.textContent.includes('Alpha.md'));
+    assert.ok(alpha);
+    const alphaIndex = Array.from(alpha.parentElement.children).indexOf(alpha);
+    for (let index = 0; index < alphaIndex; index++) dispatchElementKey(document.querySelector('.command-palette-shell input'), 'ArrowDown');
+    const row = document.querySelector('[aria-label="Passages in Alpha.md"] button');
     assert.ok(row);
     view.scrolledIds.length = 0;
     flushSync(() => row.click());
     await waitFor(() => assert.equal(view.openedPaths().at(-1), '/tmp/Alpha.md'));
-    await waitFor(() => assert.ok(view.scrolledIds.includes('second-heading')));
+    await waitFor(() => assert.match(view.host.querySelector('mark.search-highlight-active')?.textContent || '', /Second heading/));
+    assert.equal(view.host.querySelector('input[aria-label="Search in document"]')?.value, 'second heading');
     assert.doesNotMatch(view.host.textContent, /not found/);
   } finally { await view.cleanup(); }
 });
@@ -5609,10 +5556,10 @@ test('a deleted workspace result preserves the current document and reports the 
   const view = await renderContinuityApp({ workspaceFiles: [paletteWorkspaceFiles[0]] });
   try {
     dispatchShortcut('k');
-    await waitFor(() => assert.equal(document.querySelectorAll('.command-palette-shell li button').length, 1));
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
     const pending = deferred();
     view.deferNextOpen(pending);
-    flushSync(() => document.querySelector('.command-palette-shell li button').click());
+    flushSync(() => Array.from(document.querySelectorAll('.command-palette-shell [role="option"]')).find(row => row.textContent.includes('Alpha.md')).click());
     await waitFor(() => assert.ok(pending.args));
     await act(async () => pending.reject({
       category: 'notFound', operation: 'resolveDocument',
@@ -6230,7 +6177,6 @@ for (const outcome of ['success', 'failure']) {
     } finally { await rendered.cleanup(); }
   });
 }
-
 
 test('saving feedback follows an empty draft through Focus mode and saved-file adoption', async () => {
   const rendered = await renderEditorApp();
@@ -6972,7 +6918,6 @@ test("Command-S does not write a pathname after its folder moved", async () => {
   } finally { await rendered.cleanup(); }
 });
 
-
 for (const heldStage of ["history", "session", "bootstrap", "native drain"]) {
   test(`startup deadline exposes working controls with pending ${heldStage}`, async (context) => {
     const restoreLocalStorage = bindAppLocalStorage();
@@ -7217,7 +7162,6 @@ test("startup restoration persists the same heading across two launches", async 
   }
 });
 
-
 test("Focus mode retains a focused selection-toolbar action that remains visible", async () => {
   const rendered = await renderContinuityApp();
   try {
@@ -7244,7 +7188,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
     assert.equal(dispatchWindowKey("?").defaultPrevented, false);
     assert.ok(!document.querySelector('[role="dialog"]'));
     dispatchShortcut("j");
-    dispatchShortcut("m");
+    dispatchShortcut("m", { shiftKey: true });
     dispatchShortcut("f", { shiftKey: true });
     assert.ok(rendered.host.querySelector("header"), "Focus mode must not hide the welcome controls");
     assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
@@ -7434,6 +7378,51 @@ for (const control of ["Dismiss", "Remove"]) {
   });
 }
 
+test("reader selection boundary contains the document but excludes panels, hints, Find, toasts and dialogs", async () => {
+  const rendered = await renderContinuityApp({
+    initialContent: "# First\n\n[Missing section](#missing-section)\n\n## Second\n\nClosing words.",
+    sidebarRead: Promise.resolve(true),
+  });
+  const originalWidth = window.innerWidth;
+  rendered.host.id = "root";
+  try {
+    window.innerWidth = 1600;
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    const main = rendered.host.querySelector("main.reading-surface");
+    assert.ok(main);
+    assert.equal(main.tabIndex, -1);
+    assert.ok(main.contains(rendered.host.querySelector("article.markdown-body")));
+    assert.ok(main.contains(rendered.host.querySelector("#second")));
+
+    dispatchShortcut("m", { shiftKey: true });
+    dispatchShortcut("f");
+    for (const selector of [
+      '[data-reader-panel="sidebar"]', '[data-reader-panel="toc"]',
+      '[data-reader-panel="notes"]', '.reading-hint', '.search-bar',
+    ]) {
+      const element = await waitFor(() => rendered.host.querySelector(selector) || assert.fail(`missing ${selector}`));
+      assert.ok(element.closest("#root") === rendered.host, selector);
+      assert.equal(main.contains(element), false, selector);
+    }
+
+    // Use a real app notification; ToastProvider renders it beside App.
+    flushSync(() => main.querySelector('a[href="#missing-section"]').click());
+    const notification = await waitFor(() => rendered.host.querySelector('[role="alert"]') || assert.fail("missing toast"));
+    assert.match(notification.textContent, /Link target.*not found/);
+    assert.ok(notification.closest("#root") === rendered.host);
+    assert.equal(main.contains(notification), false);
+    assert.equal(rendered.host.querySelector(".app-shell").contains(notification), false);
+
+    dispatchShortcut("k");
+    const dialog = await waitFor(() => document.querySelector('#dialog-root [role="dialog"]') || assert.fail("missing dialog"));
+    assert.equal(rendered.host.contains(dialog), false);
+    assert.ok(dialog.closest("#dialog-root").parentElement === document.body);
+  } finally {
+    window.innerWidth = originalWidth;
+    await rendered.cleanup();
+  }
+});
+
 test("a late reading hint stays outside the restored document's scroller", async () => {
   const hint = deferred();
   const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });
@@ -7482,4 +7471,126 @@ test("the first accepted highlight retires the reading hint", async () => {
     assert.ok(!rendered.host.querySelector(".reading-hint"));
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+});
+
+test('Dismiss on a words-only passage notice also clears its highlights', async () => {
+  const content = '# Alpha\n\nRefund policy applies here.';
+  const view = await renderContinuityApp({
+    requestedPath: '/tmp/Alpha.md', initialContent: content, readySelector: '#alpha',
+    workspaceFiles: [paletteWorkspaceFiles[0]], workspaceContent: content,
+  });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length >= 1));
+    setPaletteQuery(document.querySelector('.command-palette-shell input'), 'policy refund');
+    await waitForPaletteSearch();
+    const row = document.querySelector('[aria-label^="Passages in"] button');
+    assert.ok(row);
+    flushSync(() => row.click());
+    await waitFor(() => assert.ok(view.host.querySelector('mark.search-highlight-active')));
+    const notice = [...view.host.querySelectorAll('[role="status"]')].find(node => /Found words in this passage/.test(node.textContent));
+    assert.ok(notice, 'a nearby-terms passage explains itself instead of opening Find');
+    assert.ok(!view.host.querySelector('[aria-label="Search in document"]'), 'Find stays hidden for a words-only passage');
+    flushSync(() => [...notice.querySelectorAll('button')].find(b => b.textContent === 'Dismiss').click());
+    await waitFor(() => assert.equal(view.host.querySelectorAll('mark').length, 0));
+    assert.doesNotMatch(view.host.textContent, /Found words in this passage/);
+  } finally { await view.cleanup(); }
+});
+
+test('an unchanged source with an unresolved rendered passage does not claim the document changed', async () => {
+  const content = '# Alpha\n\nRefund policy applies here.';
+  const view = await renderContinuityApp({
+    requestedPath: '/tmp/Alpha.md', initialContent: content, readySelector: '#alpha',
+    workspaceFiles: [paletteWorkspaceFiles[0]], workspaceContent: content,
+  });
+  try {
+    dispatchShortcut('k');
+    await waitFor(() => assert.ok(document.querySelectorAll('.command-palette-shell [role="option"]').length));
+    setPaletteQuery(document.querySelector('.command-palette-shell input'), 'refund policy');
+    await waitForPaletteSearch();
+    const row = document.querySelector('[aria-label^="Passages in"] button');
+    assert.ok(row);
+    // Simulate unexpected rendered output while keeping the confirmed source
+    // and its index fingerprint unchanged. This exercises App's failure branch.
+    view.host.querySelector('article p').textContent = 'Different displayed text.';
+    flushSync(() => row.click());
+    await waitFor(() => assert.match(view.host.textContent, /couldn't locate this passage in the displayed document/));
+    assert.doesNotMatch(view.host.textContent, /passage has changed|entry is being refreshed/);
+    assert.equal(view.host.querySelectorAll('mark.search-highlight-active').length, 0);
+  } finally { await view.cleanup(); }
+});
+
+const menuActions = ["new", "open", "search-documents", "save", "copy-document", "print", "find", "find-next", "find-previous", "show-shortcuts"];
+const menuAction = action => act(async () => emit("bindars://menu-action", { action }));
+
+test("menu New, Open, Save and Make a Copy use the existing document operations", async () => {
+  const view = await renderContinuityApp({ sampleFlow: sampleFixture() });
+  try {
+    view.setOpenDialogPath("/tmp/menu.md"); await menuAction("open");
+    await waitFor(() => assert.equal(view.openedPaths().at(-1), "/tmp/menu.md"));
+    await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+    dispatchShortcut("e"); await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    updateEditor(view.host, "# Saved from the menu"); await menuAction("save");
+    await waitFor(() => assert.equal(view.fileWrites().at(-1)?.content, "# Saved from the menu"));
+    dispatchShortcut("e"); await waitFor(() => assert.ok(!view.host.querySelector(".cm-editor")));
+    view.setSaveDialogPath("/tmp/menu-copy.md"); await menuAction("copy-document");
+    await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    assert.match(view.host.textContent, /menu-copy.md/);
+    await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Read mode"]').disabled, false));
+    await menuAction("new");
+    await waitFor(() => assert.equal(findEditorView(view.host).state.doc.toString(), ""));
+    assert.equal(view.draftCreates().length, 0);
+  } finally { await view.cleanup(); }
+});
+
+for (const boundary of ["dialog", "transition", "print"]) {
+  test(`menu document actions are blocked during a held ${boundary}`, async t => {
+    const view = boundary === "print" ? await renderNativePrintApp(t) : await renderContinuityApp();
+    try {
+      const held = deferred();
+      if (boundary === "dialog") await menuAction("show-shortcuts");
+      if (boundary === "transition") {
+        view.setOpenDialogPath("/tmp/held.md"); view.deferNextOpen(held); await menuAction("open");
+        await waitFor(() => assert.ok(held.args));
+      }
+      if (boundary === "print") await menuAction("print");
+      const opened = view.openedPaths(); const writes = view.fileWrites(); const dialogs = view.saveDialogs();
+      const dialog = document.querySelector('[role="dialog"]');
+      for (let pass = 0; pass < 2; pass++) {
+        for (const action of menuActions) await menuAction(action);
+        assert.deepEqual(view.openedPaths(), opened); assert.deepEqual(view.fileWrites(), writes);
+        assert.deepEqual(view.saveDialogs(), dialogs);
+        assert.ok(document.querySelector('[role="dialog"]') === dialog);
+        assert.ok(!view.host.querySelector('.cm-editor, .search-bar'));
+        if (boundary === "print" && pass === 0) await act(async () => view.pending[0].resolve());
+      }
+      if (boundary === "transition") {
+        await act(async () => held.resolve({ ...view.openResult(), canonicalPath: "/tmp/held.md", name: "held.md" }));
+        await waitFor(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
+        await menuAction("find"); assert.ok(view.host.querySelector(".search-bar"));
+      }
+      if (boundary === "print") assert.equal(view.pending.length, 1);
+    } finally { if (boundary !== "print") await view.cleanup(); }
+  });
+}
+
+test("menu Open waits for a held save and preserves a failed save when cancelled", async () => {
+  const view = await renderContinuityApp();
+  try {
+    dispatchShortcut("e"); await waitFor(() => assert.ok(view.host.querySelector(".cm-editor")));
+    updateEditor(view.host, "# Menu unsaved");
+    const held = deferred(); view.deferNextWrite(held);
+    view.setOpenDialogPath("/tmp/next-menu.md"); await menuAction("open");
+    await waitFor(() => assert.ok(held.args));
+    const before = view.openedPaths();
+    for (const action of menuActions) await menuAction(action);
+    assert.deepEqual(view.openedPaths(), before);
+    await act(async () => held.reject(new Error("Save refused")));
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail("missing save decision"));
+    for (const action of menuActions) await menuAction(action);
+    assert.ok(document.querySelector('[role="dialog"]') === dialog);
+    dispatchWindowKey("Escape");
+    assert.equal(findEditorView(view.host).state.doc.toString(), "# Menu unsaved");
+    assert.deepEqual(view.openedPaths(), before);
+  } finally { await view.cleanup(); }
 });

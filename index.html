@@ -63,13 +63,14 @@
       })();
     </script>
     <style>
-      #brand-artwork {
+      /* Document headings can share these IDs; startup styles stay outside #root. */
+      body > #brand-artwork {
         position: absolute;
         width: 0;
         height: 0;
         overflow: hidden;
       }
-      #loading-screen {
+      body > #loading-screen {
         --ls-center-y: 47%;
         --ls-mark-size: 112px;
         --ls-feedback-delay: 900ms;
@@ -80,11 +81,11 @@
         background: var(--ls-bg, #FAFAF8);
         transition: opacity 200ms ease-out;
       }
-      #loading-screen.fade-out { opacity: 0; }
+      body > #loading-screen.fade-out { opacity: 0; }
       /* The app icon, a little above the middle. Margins centre it so the exit
          can use transform. The mark leaves just ahead of the background, so it
          barely overlaps the app underneath. */
-      #loading-screen-mark {
+      body > #loading-screen > #loading-screen-mark {
         position: absolute;
         left: 50%;
         top: var(--ls-center-y);
@@ -94,18 +95,18 @@
         margin: calc(var(--ls-mark-size) / -2) 0 0 calc(var(--ls-mark-size) / -2);
         transition: opacity 140ms ease-out, transform 140ms ease-out;
       }
-      #loading-screen.fade-out #loading-screen-mark {
+      body > #loading-screen.fade-out > #loading-screen-mark {
         opacity: 0;
         transform: scale(0.985);
       }
       /* Loading feedback is for slow starts only: nothing shows before 0.9 s.
          Both sit outside the layout, so their arrival never moves the mark. */
-      #loading-screen-progress,
-      #loading-screen-status {
+      body > #loading-screen > #loading-screen-progress,
+      body > #loading-screen > #loading-screen-status {
         position: absolute;
         opacity: 0;
       }
-      #loading-screen-progress {
+      body > #loading-screen > #loading-screen-progress {
         left: 50%;
         top: calc(var(--ls-center-y) + var(--ls-mark-size) / 2 + 30px);
         width: 44px;
@@ -116,7 +117,7 @@
         background: color-mix(in srgb, var(--ls-text) 16%, transparent);
         animation: ls-appear 400ms ease-out var(--ls-feedback-delay) forwards;
       }
-      #loading-screen-progress::after {
+      body > #loading-screen > #loading-screen-progress::after {
         content: "";
         position: absolute;
         inset: 0;
@@ -125,7 +126,7 @@
         background: var(--ls-indicator);
         animation: ls-slide 1.5s cubic-bezier(0.45, 0, 0.55, 1) var(--ls-feedback-delay) infinite both;
       }
-      #loading-screen-status {
+      body > #loading-screen > #loading-screen-status {
         display: none;
         left: 0;
         right: 0;
@@ -146,15 +147,15 @@
       }
       /* Reduced motion: nothing moves or loops. A slow start shows the word
          instead of the sliding line, and the exit is a short dissolve. */
-      .reduced-motion #loading-screen { transition-duration: 150ms; }
-      .reduced-motion #loading-screen-mark { transition: opacity var(--ls-reduced-mark-fade) ease-out; }
-      .reduced-motion #loading-screen.fade-out #loading-screen-mark { transform: none; }
-      .reduced-motion #loading-screen-progress { display: none; }
-      .reduced-motion #loading-screen-status { display: block; }
+      .reduced-motion body > #loading-screen { transition-duration: 150ms; }
+      .reduced-motion body > #loading-screen > #loading-screen-mark { transition: opacity var(--ls-reduced-mark-fade) ease-out; }
+      .reduced-motion body > #loading-screen.fade-out > #loading-screen-mark { transform: none; }
+      .reduced-motion body > #loading-screen > #loading-screen-progress { display: none; }
+      .reduced-motion body > #loading-screen > #loading-screen-status { display: block; }
       /* Opening to the welcome screen, which shows the symbol too. With motion, src/main.tsx
          moves the mark into place. Without it, the mark leaves before the screen dissolves,
          so the two never show at once. */
-      .reduced-motion #loading-screen.to-welcome { transition-delay: var(--ls-reduced-mark-fade); }
+      .reduced-motion body > #loading-screen.to-welcome { transition-delay: var(--ls-reduced-mark-fade); }
     </style>
     <title>Bindars</title>
   </head>

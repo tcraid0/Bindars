@@ -128,3 +128,37 @@ downgrade conversion. Back up settings before switching back to an older build
 if you need to retain recent files and their saved sections. This history
 format change does not alter document contents, annotations, or session
 precedence.
+
+## Document navigation and disposable search data
+
+Recent keeps up to 25 opened documents. Drafts lists the existing Bindars Drafts
+folder independently of Recent; opening that view does not create the folder.
+Adding or removing the optional browsing folder changes no document, annotation,
+or autosave destination. Existing `workspace:root` preferences and their legacy
+local-storage fallback continue to identify this one folder without conversion.
+
+On macOS, Drafts isn't listed until Bindars has saved a draft or **Show existing
+drafts** has found one, so launching doesn't ask for access to Documents. An
+empty `drafts-created` file in `~/Library/Application Support/io.github.tcraid0.bindars/`
+records this. It holds no document text or paths, and deleting it makes Drafts
+wait again. It is separate from the macOS permission to access Documents.
+
+Derived search data is stored separately in `document-search-v1.json` in the
+per-user app-cache directory, bounded to 8 MiB on disk. It contains document
+paths, names, headings, extracted prose excerpts and document links as ordinary,
+unencrypted local data. Typical cache roots are `~/.cache/io.github.tcraid0.bindars/`
+on Linux and `~/Library/Caches/io.github.tcraid0.bindars/` on macOS. The cache is
+an optimization, not a document backup; it may contain an earlier excerpt until
+reconciliation completes. It can be deleted while Bindars is closed and will be
+rebuilt. Cache failure does not block document, preference or annotation access.
+The payload versions both its structure and text extraction. Older versions are
+discarded and rebuilt from the documents even when file sizes and modification
+times are unchanged; rebuilding replaces the same cache file.
+
+Old `workspace:index:v*` keys are removed from the loaded settings map and
+atomically cleaned from `settings.json` when possible. A failed cleanup does not
+reset unrelated settings; subsequent ordinary settings writes also omit those
+keys. Reading-position and preference updates no longer rewrite the search
+cache. Historical annotation-migration backups may still contain earlier settings
+bytes and are preserved. Interface zoom has its own `interface-zoom` preference;
+Actual Size never resets reader settings.

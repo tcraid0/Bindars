@@ -8,6 +8,7 @@ import type {
 } from "../types";
 
 export interface TableOfContentsProps {
+  connections?: React.ReactNode;
   visible: boolean;
   headings: HeadingItem[];
   activeId: string | null;
@@ -98,6 +99,7 @@ const TOCItem = memo(function TOCItem({
 });
 
 function TableOfContentsComponent({
+  connections,
   visible,
   headings,
   activeId,
@@ -250,6 +252,7 @@ function TableOfContentsComponent({
           ))}
         </ul>
       )}
+      {connections}
     </nav>
   );
 }

@@ -1,4 +1,7 @@
-import { collectText, type TextSpan } from "../lib/dom-text";
+import { phraseMatches, searchText } from "../lib/search-text";
+import type { SearchPassage } from "../types";
+import type { TextSpan } from "../lib/dom-text";
+import { collectSearchRuns, type SearchRun } from "../lib/search-runs";
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   clearMarks,
@@ -21,6 +24,7 @@ interface UseSearchResult {
   next: () => void;
   previous: () => void;
   clear: () => void;
+  openPassage: (passage: SearchPassage) => boolean;
 }
 
 const DEBOUNCE_MS = 150;
@@ -30,37 +34,27 @@ export function clearSearchHighlights(container: HTMLElement) {
 }
 
 export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[][] {
-  if (!query.trim()) return [];
-  const { spans } = collectText(container);
-  // Search across inline formatting and marks, but not across block boundaries
-  // or hidden/unsupported renderer text.
-  const runs: { text: string; spans: TextSpan[] }[] = [];
-  let previous: TextSpan | undefined;
-  let previousBlock: Element | null = null;
-  for (const span of spans) {
-    const block = span.node.parentElement?.closest("p, h1, h2, h3, h4, h5, h6, pre, li, td, th, .mermaid-diagram") ?? container;
-    if (!previous || previous.end !== span.start || block !== previousBlock) runs.push({ text: "", spans: [] });
-    const run = runs[runs.length - 1];
-    run.spans.push({ node: span.node, start: run.text.length, end: run.text.length + span.node.length });
-    run.text += span.node.data;
-    previous = span;
-    previousBlock = block;
-  }
+  return paintSearchRuns(collectSearchRuns(container), query).matches;
+}
+function paintSearchRuns(runs: SearchRun[], query: string) {
   const matches: HTMLElement[][] = [];
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Regex indices remain UTF-16 DOM offsets even when case folding expands a
-  // character; indexing a lowercased copy did not provide that guarantee.
+  const byRun = new Map<SearchRun, HTMLElement[][]>();
+  if (!query.trim()) return { matches, byRun };
+
+  // Original offsets remain UTF-16 DOM offsets when case folding expands text.
   for (const run of runs) {
-    const found = [...run.text.matchAll(new RegExp(escaped, "giu"))];
+    const runMatches: HTMLElement[][] = [];
+    byRun.set(run, runMatches);
+    const found = phraseMatches(run.text, query, !run.code);
     const byNode = new Map<TextSpan, { start: number; end: number; fragments: HTMLElement[] }[]>();
     let spanIndex = 0;
     for (const match of found) {
-      const start = match.index!;
-      const end = start + match[0].length;
+      const { start, end } = match;
       while (run.spans[spanIndex].end <= start) spanIndex++;
       // One logical match can span several formatting or annotation nodes.
       const fragments: HTMLElement[] = [];
       matches.push(fragments);
+      runMatches.push(fragments);
       for (let i = spanIndex; i < run.spans.length && run.spans[i].start < end; i++) {
         const span = run.spans[i];
         const ranges = byNode.get(span) ?? [];
@@ -99,7 +93,7 @@ export function highlightSearchMatches(container: HTMLElement, query: string): H
       else (first as Element).replaceChildren(node);
     }
   }
-  return matches;
+  return { matches, byRun };
 }
 
 function setActiveMatch(matches: HTMLElement[][], index: number, prevIndex: number, reducedMotion: boolean, scroll = true) {
@@ -183,6 +177,28 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
     [cancelPendingWork, contentRef, performSearch],
   );
 
+  const openPassage = useCallback((passage: SearchPassage): boolean => {
+    cancelPendingWork();
+    const container = contentRef.current;
+    if (!container) return false;
+    clearSearchHighlights(container);
+    // Resolve the whole normalized block and its ordinal before painting any
+    // match. Identical passages are distinct; an unresolved target paints none.
+    const runs = collectSearchRuns(container);
+    const blocks = runs.filter(run => run.passageEligible
+      && (passage.blockPrefix ? searchText(run.text).startsWith(passage.block) : searchText(run.text) === passage.block));
+    const block = blocks[passage.blockOccurrence];
+    if (!block) { matchesRef.current = []; setState({ query: "", matchCount: 0, currentIndex: -1 }); return false; }
+    const { matches, byRun } = paintSearchRuns(runs, passage.phrase);
+    const target = byRun.get(block)?.[passage.matchOccurrence];
+    if (!target) { clearSearchHighlights(container); return false; }
+    const index = matches.indexOf(target);
+    matchesRef.current = matches;
+    setActiveMatch(matches, index, -1, reducedMotionRef.current);
+    setState({ query: passage.phrase, matchCount: matches.length, currentIndex: index });
+    return true;
+  }, [cancelPendingWork, contentRef]);
+
   const next = useCallback(() => {
     const matches = matchesRef.current;
     if (matches.length === 0) return;
@@ -250,5 +266,6 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
     next,
     previous,
     clear,
+    openPassage,
   };
 }

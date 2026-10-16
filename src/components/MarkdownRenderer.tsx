@@ -150,7 +150,7 @@ const markdownComponents: Components = {
     // Keep image replacement inside a stable parent when search or annotations
     // have moved the paragraph's adjacent text into a mark.
     return (
-      <span>
+      <span className="markdown-image">
         <MarkdownImage
           src={src}
           alt={alt}
@@ -183,7 +183,10 @@ const markdownComponents: Components = {
       e.preventDefault();
       if (isExternal || isMailto) {
         void openUrl(href).catch(() => {
-          // No-op: if system opener fails, keep app stable.
+          toast(
+            "Couldn't ask the system to open this link. Try opening it in your browser or mail app.",
+            "error",
+          );
         });
         return;
       }

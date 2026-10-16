@@ -1,3 +1,5 @@
+import { fileName } from "../lib/paths";
+import { invoke } from "@tauri-apps/api/core";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { loadAnnotations, saveAnnotations } from "../lib/annotation-storage";
 import { readAnnotationRecord, storedAnnotationRecord, type AnnotationRecord } from "../lib/annotation-record";
@@ -14,13 +16,12 @@ interface Entry extends AnnotationRecord {
   saveError: string | null;
 }
 
-function fileLabel(path: string) { return path.split(/[\\/]/).pop() || path; }
-
 export function useAnnotations(filePath: string | null) {
   const entries = useRef(new Map<string, Entry>());
   const queue = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(false);
   const locked = useRef(false);
+  const reconnecting = useRef(false);
   // Close consent must detect new work across paths, including entries whose
   // per-document revision counters were reset by a clean reload.
   const mutationVersion = useRef(0);
@@ -46,7 +47,7 @@ export function useAnnotations(filePath: string | null) {
           entry.saveError = null;
         } catch {
           errorVersion.current++;
-          entry.saveError = `Couldn't save annotations for ${fileLabel(path)}. Your changes are still available in this session.`;
+          entry.saveError = `Couldn't save annotations for ${fileName(path)}. Your changes are still available in this session.`;
           if (entry.revision === revision) break;
         }
       }
@@ -84,7 +85,7 @@ export function useAnnotations(filePath: string | null) {
   }, [filePath, loadRetryNonce, notify]);
 
   const mutate = useCallback((change: (annotations: FileAnnotations) => FileAnnotations) => {
-    if (!filePath || locked.current) return;
+    if (!filePath || locked.current || reconnecting.current) return;
     const entry = entries.current.get(filePath);
     if (!entry || entry.status !== "ready") return;
     const next = change(entry.annotations);
@@ -126,7 +127,7 @@ export function useAnnotations(filePath: string | null) {
   }, [mutate]);
 
   const restoreRecord = useCallback((value: unknown) => {
-    if (!filePath || locked.current) return;
+    if (!filePath || locked.current || reconnecting.current) return;
     const entry = entries.current.get(filePath);
     if (!entry || entry.status !== "ready") return;
     Object.assign(entry, readAnnotationRecord(value));
@@ -155,6 +156,22 @@ export function useAnnotations(filePath: string | null) {
   const setLocked = useCallback((value: boolean) => { locked.current = value; }, []);
   const getMutationVersion = useCallback(() => mutationVersion.current, []);
   const retryLoad = useCallback(() => setLoadRetryNonce((v) => v + 1), []);
+  const reconnect = useCallback(async (source: string, destination: string, expected: unknown, revision: import("../types").FileRevision) => {
+    if (locked.current || reconnecting.current) throw new Error("Another annotation operation is in progress.");
+    reconnecting.current = true;
+    const operation = queue.current.then(async () => {
+      if ([...entries.current.values()].some(entry => entry.revision !== entry.savedRevision)) {
+        throw new Error("Save pending annotation changes, then preview again.");
+      }
+      await invoke("reconnect_annotations", { source, destination, expected, revision });
+      // Invalidate both cached identities before unlocking mutations.
+      entries.current.delete(source); entries.current.delete(destination);
+      mutationVersion.current++;
+      setLoadRetryNonce(n => n + 1); notify();
+    });
+    queue.current = operation.catch(() => {});
+    try { await operation; } finally { reconnecting.current = false; }
+  }, [notify]);
   const current = filePath ? entries.current.get(filePath) : undefined;
   const annotations = current?.annotations ?? EMPTY_ANNOTATIONS;
   const isBookmarked = useCallback((id: string) => annotations.bookmarks.some((b) => b.headingId === id), [annotations.bookmarks]);
@@ -169,6 +186,6 @@ export function useAnnotations(filePath: string | null) {
       ? "Some annotation records could not be displayed. Their original data has been preserved." : null,
     highlights: annotations.highlights, bookmarks: annotations.bookmarks,
     addHighlight, removeHighlight, updateHighlight, toggleBookmark, removeBookmark, isBookmarked,
-    restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
+    reconnect, restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
   };
 }

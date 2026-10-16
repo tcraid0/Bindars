@@ -79,22 +79,27 @@ test("recent files show their folders below Open File without an unverified Resu
   }
 });
 
-for (const [path, parent] of [
-  ["/Users/Shared/Notes/notes.md", "/Users/Shared/Notes"],
-  ["/Users/another/Notes/notes.md", "/Users/another/Notes"],
-  ["/home/another/Notes/notes.md", "/home/another/Notes"],
-  ["C:\\Users\\reader\\Notes\\notes.md", "C:\\Users\\reader\\Notes"],
-  ["\\\\server\\share\\notes.md", "\\\\server\\share"],
+for (const [path, label] of [
+  ["/Users/Shared/Notes/notes.md", "Shared › Notes"],
+  ["/Users/another/Notes/notes.md", "another › Notes"],
+  ["/home/another/Notes/notes.md", "another › Notes"],
+  ["C:\\Users\\reader\\Notes\\notes.md", "reader › Notes"],
+  ["\\\\server\\share\\notes.md", "server › share"],
   ["/notes.md", "/"],
-  ["C:\\notes.md", "C:\\"],
+  ["C:\\notes.md", "C:"],
 ]) {
-  test("recent folder labels preserve the original path: " + path, async () => {
+  test("recent locations use compact labels with the original full path available: " + path, async () => {
     await installDom();
     const view = renderEmptyState({ recentFiles: [{ path, name: "notes.md", openedAt: 1, lastHeadingId: null }] });
     try {
-      const label = view.host.querySelector('[aria-label="Open notes.md"] span[title]');
-      assert.equal(label.textContent, parent);
-      assert.equal(label.title, path, "the tooltip includes the original complete file path");
+      const details = view.host.querySelector("details.document-location");
+      const summary = details.querySelector("summary");
+      assert.equal(summary.textContent, label);
+      assert.equal(details.querySelector("p").textContent, path);
+      assert.equal(details.open, false);
+      assert.match(summary.getAttribute("aria-label"), /Location of notes.md/);
+      click(summary);
+      assert.equal(details.open, true, "full path disclosure opens without relying on hover");
     } finally { view.cleanup(); }
   });
 }
