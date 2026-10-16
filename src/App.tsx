@@ -2104,6 +2104,18 @@ function App() {
     scrollToHeading(headingId);
   }, [scrollToHeading]);
 
+  const openAndRecordHistory = useCallback(async (
+    path: string,
+    anchor: string | null,
+    retryAction: RetryablePendingAction,
+  ) => {
+    const pos = currentPositionRef.current;
+    const result = await openPathAndScroll(path, anchor, retryAction);
+    if (result.status === "opened" && pos.filePath) {
+      pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
+    }
+  }, [openPathAndScroll, pushEntry]);
+
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(
     async (
@@ -2121,15 +2133,9 @@ function App() {
         return;
       }
 
-      const pos = currentPositionRef.current;
-      const result = await openPathAndScroll(path, anchor, retryAction);
-      if (result.status === "opened") {
-        if (pos.filePath) {
-          pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
-        }
-      }
+      await openAndRecordHistory(path, anchor, retryAction);
     },
-    [filePath, pushEntry, openPathAndScroll, scrollToFragment, toast],
+    [filePath, openAndRecordHistory, scrollToFragment, toast],
   );
 
   const handleGoBack = useCallback(async (
@@ -2189,9 +2195,9 @@ function App() {
         return;
       }
 
-      await openPathAndScroll(path, savedHeading, retryAction);
+      await openAndRecordHistory(path, savedHeading, retryAction);
     },
-    [filePath, getActiveHeadingId, getScrollPosition, openPathAndScroll, scrollToHeading],
+    [filePath, getActiveHeadingId, getScrollPosition, openAndRecordHistory, scrollToHeading],
   );
 
   // Guarded versions that depend on navigation/file handlers

@@ -7629,3 +7629,38 @@ test("sidebar keeps display order through opens and fitting while welcome and st
     await rendered.cleanup();
   }
 });
+
+test("Recent records Back at the prior heading, clears Forward, and ignores same-file and failed opens", async () => {
+  const history = { version: 3, value: { version: 1, files: ["A", "B", "C"].map(name => ({
+    path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 1, lastHeadingId: "second",
+  })) }, writes: [] };
+  const rendered = await renderContinuityApp({ requestedPath: "/tmp/A.md", restoreHeadingId: "second", recentStorage: history, sidebarRead: Promise.resolve(true) });
+  const back = () => rendered.host.querySelector('[aria-label="Go back"]');
+  const forward = () => rendered.host.querySelector('[aria-label="Go forward"]');
+  const open = name => act(async () => rendered.host.querySelector(`[aria-label^="Open ${name}.md"]`).click());
+  const current = name => assert.ok(rendered.host.querySelector(`[aria-label^="Open ${name}.md"][aria-current="page"]`));
+  try {
+    await waitFor(() => assert.ok(rendered.scrolledIds.includes("second")));
+    await open("A");
+    assert.equal(back().disabled, true, "same-file scrolling is not a new history entry");
+    const failed = deferred();
+    rendered.deferNextOpen(failed);
+    await open("B");
+    await waitFor(() => assert.equal(failed.args?.path, "/tmp/B.md"));
+    await act(async () => failed.reject({ category: "notFound", message: "Missing file" }));
+    current("A");
+    assert.equal(back().disabled, true, "failed reads do not create history entries");
+    await act(async () => rendered.host.querySelector('[aria-label="Retry opening B.md"]').click());
+    await waitFor(() => { current("B"); assert.equal(back().disabled, false); });
+    rendered.scrolledIds.length = 0;
+    flushSync(() => back().click());
+    await waitFor(() => { current("A"); assert.ok(rendered.scrolledIds.includes("second")); });
+    assert.equal(forward().disabled, false);
+    await open("C");
+    await waitFor(() => current("C"));
+    assert.equal(forward().disabled, true, "a new Recent navigation clears Forward");
+    flushSync(() => back().click());
+    await waitFor(() => current("A"));
+    assert.equal(back().disabled, true, "only successful document changes were recorded");
+  } finally { await rendered.cleanup(); }
+});
