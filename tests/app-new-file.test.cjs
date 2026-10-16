@@ -7630,8 +7630,8 @@ test("sidebar keeps display order through opens and fitting while welcome and st
   }
 });
 
-for (const moveFocus of [false, true]) {
-  test(`welcome Recent hands focus to the reader after opening, unless focus moved (${moveFocus})`, async () => {
+for (const moveFocus of ["row", "welcome", "toolbar"]) {
+  test(`welcome Recent hands focus to the reader unless focus moved outside welcome (${moveFocus})`, async () => {
     const history = { version: 3, value: { version: 1, files: [{
       path: "/tmp/welcome.md", name: "welcome.md", openedAt: 1, lastHeadingId: null,
     }] }, writes: [] };
@@ -7646,11 +7646,16 @@ for (const moveFocus of [false, true]) {
       await act(async () => { row.focus(); row.click(); });
       await waitFor(() => assert.equal(pending.args?.path, opened.canonicalPath));
       assert.ok(document.activeElement === row, "the opening row retains focus while reading");
-      const other = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
-      if (moveFocus) other.focus();
+      const other = moveFocus === "welcome"
+        ? rendered.host.querySelector(".empty-state-content button")
+        : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      if (moveFocus !== "row") {
+        other.focus();
+        assert.ok(document.activeElement === other);
+      }
       await act(async () => { pending.resolve(opened); await pending.promise; });
       await waitFor(() => assert.ok(!rendered.host.querySelector(".empty-state")));
-      await waitFor(() => assert.ok(document.activeElement === (moveFocus ? other : rendered.host.querySelector('main[aria-label="Document"]'))));
+      await waitFor(() => assert.ok(document.activeElement === (moveFocus === "toolbar" ? other : rendered.host.querySelector('main[aria-label="Document"]'))));
     } finally {
       pending.resolve(opened);
       await rendered.cleanup();

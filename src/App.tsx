@@ -2132,16 +2132,19 @@ function App() {
     retryAction: RetryablePendingAction,
   ) => {
     const pos = currentPositionRef.current;
-    const opener = document.activeElement;
-    const openedFromWelcome = Boolean(opener?.closest(".empty-state"));
+    const openedFromWelcome = Boolean(document.activeElement?.closest(".empty-state"));
     const result = await openPathAndScroll(path, anchor, retryAction);
     if (result.status === "opened" && pos.filePath) {
       pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
     }
-    // Welcome disappears on success. Sidebar rows remain mounted and retain
-    // their focus; a user who moved elsewhere during the read keeps that choice.
+    // All welcome controls disappear on success. Keep a user's focus choice
+    // only when it moved to a connected control outside welcome.
+    const focused = document.activeElement;
+    const focusMovedOutsideWelcome = focused?.isConnected
+      && focused !== document.body && focused !== document.documentElement
+      && !focused.closest(".empty-state");
     if (result.status === "opened" && openedFromWelcome &&
-      (document.activeElement === opener || (!opener?.isConnected && document.activeElement === document.body))) {
+      !focusMovedOutsideWelcome) {
       requestReaderFocus();
     }
   }, [openPathAndScroll, pushEntry, requestReaderFocus]);
