@@ -68,15 +68,15 @@ export function RecentFiles({
             <div className="flex-1 min-w-0">
               <button
                 type="button"
-                onClick={() => { if (!isOpening) onOpen(file.path); }}
+                onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
                 aria-label={`Open ${file.name}, ${location}`}
                 title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
-                aria-disabled={isOpening || undefined}
-                // The explicit Retry control is the one action for an unavailable file.
-                disabled={isUnavailable}
+                aria-disabled={isOpening || isUnavailable || undefined}
+                // Keep focus on failure; Tab advances to the explicit Retry action.
+                tabIndex={isUnavailable ? -1 : undefined}
               >
                 <div
                   className="text-sm font-medium text-text-primary break-words"
@@ -94,7 +94,10 @@ export function RecentFiles({
             {isUnavailable && onRetry && (
               <button
                 type="button"
-                onClick={onRetry}
+                onClick={(event) => {
+                  event.currentTarget.parentElement?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+                  onRetry();
+                }}
                 disabled={isOpening || recovery.retryDisabled}
                 className="text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none"
                 aria-label={`Retry opening ${file.name}`}

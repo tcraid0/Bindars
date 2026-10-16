@@ -175,8 +175,9 @@ test("recovery Retry, Dismiss and removal are explicit, and the next recent file
   try {
     const retry = view.host.querySelector('[aria-label="Retry opening draft.md"]');
     assert.equal(retry.disabled, true);
-    assert.equal(view.host.querySelector('[aria-label="Open draft.md, reader › Documents"]').disabled, true,
-      "the unavailable entry offers one retry action");
+    const unavailable = view.host.querySelector('[aria-label="Open draft.md, reader › Documents"]');
+    assert.equal(unavailable.getAttribute("aria-disabled"), "true");
+    assert.equal(unavailable.tabIndex, -1, "Tab goes to the explicit Retry action");
     assert.ok(!view.host.querySelector('[aria-label="Retry draft.md"]'));
     view.render({ recovery: { path: recentFiles[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
     click(retry);

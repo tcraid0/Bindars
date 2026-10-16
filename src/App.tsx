@@ -1158,6 +1158,7 @@ function App() {
 
   const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
     void (async () => {
+      const openedFromWelcome = Boolean(document.querySelector(".empty-state"));
       try {
         const terminating = admitted.action.kind === "quit-app" || (admitted.action.kind === "close-window" && closePolicy !== "hide");
         // Commit the note buffer while its originating document can still mutate.
@@ -1167,6 +1168,16 @@ function App() {
           if (!await annotationExit.requestExit()) return;
         }
         await executePendingActionRef.current(admitted.action, getAnnotationMutationVersion());
+        // Welcome disappears after any successful document entry. Preserve a
+        // user's focus choice on a surviving control outside that surface.
+        const focused = document.activeElement;
+        const focusMovedOutsideWelcome = focused?.isConnected
+          && focused !== document.body && focused !== document.documentElement
+          && !focused.closest(".empty-state");
+        if (openedFromWelcome && isDocumentOpen(getPublishedDocument().content)
+          && actionAdmissionOwnerRef.current === admitted.admissionId && !focusMovedOutsideWelcome) {
+          requestReaderFocus();
+        }
       } catch (error) {
         console.error("[action-guard] Admitted action failed:", error);
       } finally {
@@ -1174,7 +1185,7 @@ function App() {
         finishActionAdmission(admitted.admissionId);
       }
     })();
-  }, [finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion]);
+  }, [finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion, getPublishedDocument, requestReaderFocus]);
 
   const resolvePendingAction = useCallback(() => {
     const admitted = pendingActionRef.current;
@@ -2132,22 +2143,11 @@ function App() {
     retryAction: RetryablePendingAction,
   ) => {
     const pos = currentPositionRef.current;
-    const openedFromWelcome = Boolean(document.activeElement?.closest(".empty-state"));
     const result = await openPathAndScroll(path, anchor, retryAction);
     if (result.status === "opened" && pos.filePath) {
       pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
     }
-    // All welcome controls disappear on success. Keep a user's focus choice
-    // only when it moved to a connected control outside welcome.
-    const focused = document.activeElement;
-    const focusMovedOutsideWelcome = focused?.isConnected
-      && focused !== document.body && focused !== document.documentElement
-      && !focused.closest(".empty-state");
-    if (result.status === "opened" && openedFromWelcome &&
-      !focusMovedOutsideWelcome) {
-      requestReaderFocus();
-    }
-  }, [openPathAndScroll, pushEntry, requestReaderFocus]);
+  }, [openPathAndScroll, pushEntry]);
 
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(

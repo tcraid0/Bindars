@@ -213,6 +213,41 @@ test("an unfinished note commits to its originating document when the panel is r
 });
 
 for (const welcome of [false, true]) {
+  test(`unavailable Recent preserves focus and Retry returns it to the row (welcome=${welcome})`, async () => {
+    await installDom();
+    const opened = [];
+    let retries = 0;
+    const view = renderComponent(Recents, { welcome, onOpen: path => opened.push(path), onRetry() {
+      retries += 1;
+      assert.ok(document.activeElement === row, "handoff precedes disabling or removing Retry");
+      view.render({ openingPath: "/first.md" });
+    } });
+    const row = view.host.querySelector('[aria-label^="Open first"]');
+    try {
+      focus(row);
+      click(row);
+      view.render({ recovery: { path: "/first.md", error: { category: "not-found" }, retryDisabled: false } });
+      assert.equal(row.disabled, false, "native disabled loses focus in WebKit");
+      assert.equal(row.getAttribute("aria-disabled"), "true");
+      assert.equal(row.tabIndex, -1);
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"], "the unavailable row cannot bypass Retry");
+      const retry = view.host.querySelector('[aria-label="Retry opening first"]');
+      focus(retry);
+      click(retry);
+      assert.equal(retries, 1);
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"]);
+      view.render({ recovery: null, openingPath: null, currentFilePath: "/first.md" });
+      assert.ok(document.activeElement === row);
+      assert.equal(row.tabIndex, 0);
+      assert.equal(row.hasAttribute("aria-disabled"), false);
+      assert.ok(view.host.querySelector('[aria-label="Retry opening first"]') === null);
+    } finally { view.cleanup(); }
+  });
+
   test(`opening a Recent row stays focusable and ignores repeated activation (welcome=${welcome})`, async () => {
     await installDom();
     const opened = [];

@@ -7630,26 +7630,55 @@ test("sidebar keeps display order through opens and fitting while welcome and st
   }
 });
 
-for (const moveFocus of ["row", "welcome", "toolbar"]) {
-  test(`welcome Recent hands focus to the reader unless focus moved outside welcome (${moveFocus})`, async () => {
+for (const [route, moveFocus] of [
+  ...["row", "welcome", "toolbar"].map(move => ["Recent", move]),
+  ...["Open File", "palette", "example", "session Retry"].flatMap(route =>
+    ["unchanged", "toolbar"].map(move => [route, move])),
+]) {
+  test(`welcome ${route} hands focus to the reader unless focus moved outside welcome (${moveFocus})`, async () => {
     const history = { version: 3, value: { version: 1, files: [{
       path: "/tmp/welcome.md", name: "welcome.md", openedAt: 1, lastHeadingId: null,
     }] }, writes: [] };
-    const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
+    if (route === "session Retry") history.value.files = [];
+    const rendered = await renderContinuityApp({
+      initialNativePath: null, recentStorage: history,
+      readySelector: route === "session Retry" ? ".empty-state-recovery" : ".empty-state",
+      initialSessionOperation: route === "session Retry" ? { promise: Promise.resolve({
+        filePath: "/tmp/welcome.md", headingId: null, savedAt: 1, restoreDisabled: true,
+      }) } : null,
+      sampleFlow: sampleFixture(), workspaceContent: "# Welcome\n",
+    });
     const pending = deferred();
     const content = "# Opened from welcome\n";
     const opened = { canonicalPath: "/tmp/welcome.md", name: "welcome.md", content,
       revision: { mtimeMs: 2, size: content.length, contentHash: "welcome" } };
     try {
       rendered.deferNextOpen(pending);
+      const primary = [...rendered.host.querySelectorAll(".empty-state button")]
+        .find(button => button.textContent.trim() === "Open File…");
+      primary.focus();
       const row = rendered.host.querySelector('.empty-state [aria-label^="Open welcome.md"]');
-      await act(async () => { row.focus(); row.click(); });
+      if (route === "Recent") {
+        await act(async () => { row.focus(); row.click(); });
+      } else if (route === "palette") {
+        dispatchShortcut("k");
+        await waitFor(() => assert.ok(document.querySelector('[role="option"]')));
+        dispatchElementKey(document.activeElement, "Enter");
+      } else if (route === "Open File") {
+        rendered.setOpenDialogPath(opened.canonicalPath);
+        await act(async () => primary.click());
+      } else {
+        rendered.setSaveDialogPath(opened.canonicalPath);
+        const trigger = [...rendered.host.querySelectorAll(".empty-state button")]
+          .find(button => button.textContent.trim() === (route === "example" ? "Try an Example…" : "Retry"));
+        await act(async () => { trigger.focus(); trigger.click(); });
+      }
       await waitFor(() => assert.equal(pending.args?.path, opened.canonicalPath));
-      assert.ok(document.activeElement === row, "the opening row retains focus while reading");
+      if (route === "Recent") assert.ok(document.activeElement === row, "the opening row retains focus while reading");
       const other = moveFocus === "welcome"
         ? rendered.host.querySelector(".empty-state-content button")
         : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
-      if (moveFocus !== "row") {
+      if (moveFocus === "welcome" || moveFocus === "toolbar") {
         other.focus();
         assert.ok(document.activeElement === other);
       }
@@ -7660,6 +7689,34 @@ for (const moveFocus of ["row", "welcome", "toolbar"]) {
       pending.resolve(opened);
       await rendered.cleanup();
     }
+  });
+}
+
+for (const outcome of ["cancel", "failure"]) {
+  test(`welcome Open File ${outcome} keeps the surviving focus choice`, async () => {
+    const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state" });
+    const pending = deferred();
+    try {
+      const toolbar = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      if (outcome === "cancel") rendered.deferNextOpenDialog(pending);
+      else {
+        rendered.setOpenDialogPath("/tmp/failed-welcome.md");
+        rendered.deferNextOpen(pending);
+      }
+      clickButton(rendered.host, "Open File…");
+      await waitFor(() => assert.ok(pending.args));
+      toolbar.focus();
+      assert.ok(document.activeElement === toolbar);
+      await act(async () => {
+        if (outcome === "cancel") pending.resolve(null);
+        else pending.reject({ category: "notFound", message: "Missing file" });
+      });
+      await waitFor(() => assert.equal([...rendered.host.querySelectorAll("button")]
+        .find(button => button.textContent.trim() === "Try an Example…").disabled, false));
+      assert.ok(rendered.host.querySelector(".empty-state"));
+      assert.ok(document.activeElement === toolbar);
+      assert.ok(!rendered.host.querySelector("article"));
+    } finally { pending.resolve(null); await rendered.cleanup(); }
   });
 }
 
@@ -7678,13 +7735,26 @@ test("Recent records Back at the prior heading, clears Forward, and ignores same
     assert.equal(back().disabled, true, "same-file scrolling is not a new history entry");
     const failed = deferred();
     rendered.deferNextOpen(failed);
+    const row = rendered.host.querySelector('[aria-label^="Open B.md"]');
+    row.focus();
     await open("B");
     await waitFor(() => assert.equal(failed.args?.path, "/tmp/B.md"));
     await act(async () => failed.reject({ category: "notFound", message: "Missing file" }));
     current("A");
+    assert.equal(row.disabled, false);
+    assert.ok(document.activeElement === row, "a failed open retains row focus");
     assert.equal(back().disabled, true, "failed reads do not create history entries");
-    await act(async () => rendered.host.querySelector('[aria-label="Retry opening B.md"]').click());
+    const retryRead = deferred();
+    rendered.deferNextOpen(retryRead);
+    const retry = rendered.host.querySelector('[aria-label="Retry opening B.md"]');
+    await act(async () => { retry.focus(); retry.click(); });
+    await waitFor(() => assert.equal(retryRead.args?.path, "/tmp/B.md"));
+    assert.ok(document.activeElement === row, "Retry hands focus back before its held read");
+    await act(async () => row.click());
+    assert.equal(rendered.openedPaths().filter(path => path === "/tmp/B.md").length, 2);
+    await act(async () => retryRead.resolve({ ...rendered.openResult(), canonicalPath: "/tmp/B.md", name: "B.md" }));
     await waitFor(() => { current("B"); assert.equal(back().disabled, false); });
+    assert.ok(document.activeElement === row, "removing Retry on success retains row focus");
     rendered.scrolledIds.length = 0;
     flushSync(() => back().click());
     await waitFor(() => { current("A"); assert.ok(rendered.scrolledIds.includes("second")); });
