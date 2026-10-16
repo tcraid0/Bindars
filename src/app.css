@@ -15,8 +15,7 @@
 /* KaTeX math rendering */
 @import "katex/dist/katex.min.css";
 
-/* Keep document actions and save feedback readable in compact native windows.
-   ReaderControls shares this height for its viewport-relative position. */
+/* Keep document actions and save feedback readable in compact native windows. */
 .app-shell {
   --header-height: var(--header-row-height, 52px);
 }

@@ -100,16 +100,13 @@ function ReaderControlsComponent({
       ref={panelRef}
       role="dialog"
       aria-labelledby={titleId}
-      className="print-hide fixed right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2 overflow-y-auto"
+      className="print-hide absolute right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2 overflow-y-auto"
       style={{
-        top: "var(--header-height, 52px)",
-        // Fixed (viewport-relative), not absolute: the panel is rendered inside
-        // the `.relative` body container that already begins below the header, so
-        // an absolute `top: header` double-counted the header and pushed the
-        // bottom past the viewport, clipping controls at small heights. `dvh` is
-        // the WebKit-accurate viewport height. Bounded so every control stays
-        // reachable at the 400px minimum window height.
-        maxHeight: "calc(100dvh - var(--header-height, 52px) - 24px)",
+        // The positioned body container starts below the header and stays out
+        // of document scrolling. Use its available height without counting the
+        // header again or guessing how much its controls wrapped.
+        top: 0,
+        maxHeight: "calc(100% - 24px)",
       }}
     >
       <div className="flex items-center justify-between mb-3">
