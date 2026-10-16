@@ -6,7 +6,7 @@ export function focusAfterRemoval(row: HTMLElement | null, fallback: HTMLElement
   const index = rows.indexOf(row);
   const candidates = [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
   for (const candidate of candidates) {
-    const button = candidate.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    const button = candidate.querySelector<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"])');
     if (button) {
       button.focus();
       return;

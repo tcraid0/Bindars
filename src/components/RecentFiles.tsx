@@ -70,13 +70,14 @@ export function RecentFiles({
             <div className="flex-1 min-w-0">
               <button
                 type="button"
-                onClick={() => onOpen(file.path)}
+                onClick={() => { if (!isOpening) onOpen(file.path); }}
                 className="flex-1 min-w-0 text-left"
                 aria-label={`Open ${file.name}`}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
+                aria-disabled={isOpening || undefined}
                 // The explicit Retry control is the one action for an unavailable file.
-                disabled={isOpening || isUnavailable}
+                disabled={isUnavailable}
               >
                 <div
                   className="text-sm font-medium text-text-primary break-words"

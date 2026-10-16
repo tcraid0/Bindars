@@ -211,3 +211,29 @@ test("an unfinished note commits to its originating document when the panel is r
     assert.ok(!view.host.querySelector("textarea"));
   } finally { view.cleanup(); }
 });
+
+for (const welcome of [false, true]) {
+  test(`opening a Recent row stays focusable and ignores repeated activation (welcome=${welcome})`, async () => {
+    await installDom();
+    const opened = [];
+    const view = renderComponent(Recents, { welcome, onOpen: path => opened.push(path) });
+    const row = view.host.querySelector('[aria-label^="Open first"]');
+    try {
+      focus(row);
+      click(row);
+      view.render({ openingPath: "/first.md" });
+      assert.equal(row.disabled, false, "native disabled makes WebKit drop focus");
+      assert.equal(row.getAttribute("aria-disabled"), "true");
+      assert.equal(row.getAttribute("aria-busy"), "true");
+      assert.match(row.textContent, /Opening…/);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"]);
+      view.render({ openingPath: null, currentFilePath: "/first.md" });
+      assert.equal(row.hasAttribute("aria-disabled"), false);
+      assert.equal(row.getAttribute("aria-current"), "page");
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md", "/first.md"]);
+    } finally { view.cleanup(); }
+  });
+}
