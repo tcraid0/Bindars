@@ -61,10 +61,22 @@ and remaining platform coverage.
 ### Finding documents
 
 Bindars opens documents where they already are. **Recent** holds the last 25
-opened documents from any location. **Drafts** lists existing files in Documents
-› Bindars Drafts, including drafts no longer in Recent, using a heading or opening
-text alongside the filename. New documents are saved here until you save them
-somewhere else. The header and folder browser keep filenames.
+opened documents from any location. Its rows keep their order while you use the
+sidebar, returning to most-recent-first when you hide and show it or relaunch.
+Resizing the window does not reshuffle it.
+New documents enter at the top, and each row shows its location and last-opened
+time on one quiet line. **Back** returns to documents opened from Recent.
+
+The sidebar starts hidden and remembers your choice. A one-time note offers
+**Show Sidebar** when you open a second distinct document; if the reading hint
+is showing, it waits for a later document open. Use the toolbar button or
+Cmd+B / Ctrl+B to toggle it;
+on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
+
+**Drafts** lists existing files in Documents › Bindars Drafts, including drafts
+no longer in Recent, using a heading or opening text alongside the filename.
+New documents are saved here until you save them somewhere else. The header
+and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
 to your Documents folder. Choose **Show existing drafts** to list it; once
@@ -72,11 +84,12 @@ Bindars has saved a draft or found existing ones, later launches list Drafts
 automatically.
 
 In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Nothing is moved or copied. Opening another file does not add or scan
-its parent folder. Browsing
-does not change where new documents autosave. **Remove from Sidebar** removes
-only this folder reference; the inline **Add Back** action restores it. Neither
-action moves or deletes documents or notes.
+subfolders. Nothing is moved or copied. The picker starts in the folder of the
+document you are reading. Opening another file does not add or scan its parent
+folder, and saving a document keeps its place in the folder list. Browsing does
+not change where new documents autosave. **Remove from Sidebar** removes only
+this folder reference; the inline **Add Back** action restores it. Neither action
+moves or deletes documents or notes.
 
 **Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
 Its Scope menu can narrow results to that folder. Unquoted words may occur in
