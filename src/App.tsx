@@ -54,6 +54,7 @@ import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
 import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
+import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
 import { useReadingHint } from "./hooks/useReadingHint";
 import type { WelcomeRecovery } from "./lib/welcome-recovery";
@@ -286,6 +287,7 @@ function App() {
     }
   });
   const sidebarUpdatedRef = useRef(false);
+  const sidebarRecentFiles = useSteadyRecentOrder(recentFiles, sidebarVisible);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [reconnectSource, setReconnectSource] = useState<string | null | undefined>(undefined);
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
@@ -3024,7 +3026,7 @@ function App() {
       <div className="flex flex-1 min-h-0 relative">
         <Sidebar
           visible={visiblePanels.sidebar}
-          recentFiles={recentFiles}
+          recentFiles={sidebarRecentFiles}
           recentHistoryUnavailable={recentFilesStatus !== "ready"}
           currentFilePath={filePath}
           openingPath={openingPath}

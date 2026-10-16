@@ -7594,3 +7594,38 @@ test("menu Open waits for a held save and preserves a failed save when cancelled
     assert.deepEqual(view.openedPaths(), before);
   } finally { await view.cleanup(); }
 });
+
+test("sidebar keeps display order through opens and fitting while welcome and storage stay newest-first", async () => {
+  const files = ["A", "B", "C", "D", "E", "F"].map((name, i) => ({
+    path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 10 - i, lastHeadingId: null,
+  }));
+  const history = { version: 3, value: { version: 1, files }, writes: [] };
+  const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
+  const names = scope => [...scope.querySelectorAll('button[aria-label^="Open "]')]
+    .map(button => button.getAttribute("aria-label").slice(5).split(",")[0]);
+  const sidebar = () => rendered.host.querySelector('[aria-label="Document navigation"]');
+  const oldWidth = window.innerWidth;
+  try {
+    assert.deepEqual(names(rendered.host.querySelector(".empty-state-recents")), ["A.md", "B.md", "C.md", "D.md", "E.md"]);
+    dispatchShortcut("b");
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    flushSync(() => sidebar().querySelector('[aria-label^="Open C.md"]').click());
+    await waitFor(() => assert.equal(history.value.files[0].name, "C.md"));
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    assert.equal(sidebar().querySelector('[aria-current="page"]').getAttribute("aria-label").startsWith("Open C.md"), true);
+    // Prefer Notes, then let the fit hide/re-show the sidebar without changing intent.
+    dispatchShortcut("m", { shiftKey: true });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    assert.equal(sidebar(), null);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    dispatchShortcut("b");
+    flushSync(() => rendered.host.querySelector('[aria-label="Toggle sidebar"]').click());
+    assert.deepEqual(names(sidebar()), ["C.md", "A.md", "B.md", "D.md", "E.md", "F.md"]);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth });
+    await rendered.cleanup();
+  }
+});
