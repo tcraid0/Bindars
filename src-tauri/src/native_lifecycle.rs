@@ -441,8 +441,9 @@ fn is_predefined_quit_text(text: &str) -> bool {
     text.trim().to_ascii_lowercase().starts_with("quit")
 }
 
-/// Builds the default macOS menu with the predefined Quit item replaced by a
-/// custom item. The predefined item terminates through AppKit
+/// Builds the macOS menu: the default application submenu, with its predefined
+/// Quit item replaced by a custom item, followed by Bindars' File, Edit, View,
+/// Window and Help menus. The predefined item terminates through AppKit
 /// (`sel!(terminate:)`) without any Tauri or webview event, which would bypass
 /// the frontend unsaved-change guard, so a replacement failure is an error
 /// instead of a silent fallback to the data-loss path.
@@ -579,10 +580,11 @@ fn menu_action(id: &str) -> Option<&str> {
     }
 }
 
-/// Forwards the custom Quit menu item to the frontend guard. The window is
-/// revealed first so a resulting Save/Discard/Cancel dialog can never open in
-/// a hidden window. The process exits only when the frontend guard completes
-/// and invokes `exit_after_guarded_quit`.
+/// Forwards custom menu items to the main window. Document actions and Quit
+/// reveal it first, because closing only hides it: their results, including a
+/// Save/Discard/Cancel dialog, can never open in a hidden window. The process
+/// exits only when the frontend guard completes and invokes
+/// `exit_after_guarded_quit`.
 #[cfg(target_os = "macos")]
 pub(crate) fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     let zoom = match event.id().as_ref() {
@@ -596,6 +598,7 @@ pub(crate) fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu
         return;
     }
     if let Some(action) = menu_action(event.id().as_ref()) {
+        reveal_main_window(app);
         let _ = app.emit_to(
             "main",
             "bindars://menu-action",
