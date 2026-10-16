@@ -69,8 +69,8 @@ test("recent files show their folders below Open File without an unverified Resu
     const sample = buttonWithText(view.host, "Try an Example…");
     assert.doesNotMatch(sample.className, /\bbg-accent-fill\b/);
     assert.match(sample.className, /\bborder-border\b/);
-    assert.match(view.host.textContent, /\/Users\/reader\/Documents/);
-    assert.match(view.host.textContent, /\/Users\/reader\/Downloads/);
+    assert.match(view.host.textContent, /reader › Documents/);
+    assert.match(view.host.textContent, /reader › Downloads/);
     assert.doesNotMatch(view.host.textContent, /Resume:/);
     click(sample);
     assert.equal(sampleCount, 1);
@@ -88,18 +88,16 @@ for (const [path, label] of [
   ["/notes.md", "/"],
   ["C:\\notes.md", "C:"],
 ]) {
-  test("recent locations use compact labels with the original full path available: " + path, async () => {
+  test("recent locations are visible and spoken, with the full path as a supplemental title: " + path, async () => {
     await installDom();
     const view = renderEmptyState({ recentFiles: [{ path, name: "notes.md", openedAt: 1, lastHeadingId: null }] });
     try {
-      const details = view.host.querySelector("details.document-location");
-      const summary = details.querySelector("summary");
-      assert.equal(summary.textContent, label);
-      assert.equal(details.querySelector("p").textContent, path);
-      assert.equal(details.open, false);
-      assert.match(summary.getAttribute("aria-label"), /Location of notes.md/);
-      click(summary);
-      assert.equal(details.open, true, "full path disclosure opens without relying on hover");
+      const row = view.host.querySelector('button[aria-label^="Open notes.md"]');
+      assert.equal(row.getAttribute("aria-label"), `Open notes.md, ${label}`);
+      assert.equal(row.title, path);
+      assert.ok(row.textContent.includes(label), "location is available without hover");
+      assert.doesNotMatch(row.textContent, /ago|just now/, "welcome continues to hide timestamps");
+      assert.ok(!view.host.querySelector("details.document-location"));
     } finally { view.cleanup(); }
   });
 }
@@ -177,7 +175,7 @@ test("recovery Retry, Dismiss and removal are explicit, and the next recent file
   try {
     const retry = view.host.querySelector('[aria-label="Retry opening draft.md"]');
     assert.equal(retry.disabled, true);
-    assert.equal(view.host.querySelector('[aria-label="Open draft.md"]').disabled, true,
+    assert.equal(view.host.querySelector('[aria-label="Open draft.md, reader › Documents"]').disabled, true,
       "the unavailable entry offers one retry action");
     assert.ok(!view.host.querySelector('[aria-label="Retry draft.md"]'));
     view.render({ recovery: { path: recentFiles[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
@@ -192,7 +190,7 @@ test("recovery Retry, Dismiss and removal are explicit, and the next recent file
     remove.focus();
     click(remove);
     assert.deepEqual(removed, [recentFiles[0].path]);
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Open plan.md");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Open plan.md, reader › Downloads");
   } finally { view.cleanup(); }
 });
 

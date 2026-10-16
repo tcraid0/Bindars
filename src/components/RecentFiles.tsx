@@ -1,4 +1,4 @@
-import { PathDetails } from "./PathDetails";
+import { locationLabel } from "../lib/paths";
 import type { RecentFile } from "../types";
 import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
@@ -58,21 +58,20 @@ export function RecentFiles({
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
         const isUnavailable = file.path === recovery?.path;
+        const location = locationLabel(file.path);
         return (
           <div
             key={file.path}
-            className={`w-full flex items-center gap-2 text-left px-3 py-2.5 hover:bg-bg-tertiary transition-colors duration-120 group relative ${welcome ? "border-t border-border" : ""} ${
-              isActive
-                ? "border-l-[3px] border-l-accent-indicator sidebar-active-item"
-                : "border-l-[3px] border-l-transparent"
-            }`}
+            data-current={isActive || undefined}
+            className={`document-row flex items-center gap-2 group ${welcome ? "border-t border-border" : ""}`}
           >
             <div className="flex-1 min-w-0">
               <button
                 type="button"
                 onClick={() => { if (!isOpening) onOpen(file.path); }}
-                className="flex-1 min-w-0 text-left"
-                aria-label={`Open ${file.name}`}
+                className="block w-full min-w-0 text-left"
+                aria-label={`Open ${file.name}, ${location}`}
+                title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
                 aria-disabled={isOpening || undefined}
@@ -85,19 +84,12 @@ export function RecentFiles({
                 >
                   {file.name}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-text-muted shrink-0">
-                    {isOpening
-                      ? "Opening…"
-                      : isUnavailable
-                        ? "Unavailable"
-                        : welcome
-                          ? null
-                          : timeAgo(file.openedAt)}
-                  </span>
+                <div className="text-xs text-text-muted break-words mt-0.5">
+                  {location}
+                  {(isOpening || isUnavailable || !welcome) && " · "}
+                  {isOpening ? "Opening…" : isUnavailable ? "Unavailable" : !welcome && timeAgo(file.openedAt)}
                 </div>
               </button>
-              <PathDetails path={file.path} />
             </div>
             {isUnavailable && onRetry && (
               <button

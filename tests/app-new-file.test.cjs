@@ -7361,7 +7361,7 @@ for (const control of ["Dismiss", "Remove"]) {
       flushSync(() => button.click());
       assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
       assert.match(rendered.host.textContent, /Read, highlight, and add your thoughts/);
-      const entry = rendered.host.querySelector('[aria-label="Open missing.md"]');
+      const entry = rendered.host.querySelector('[aria-label="Open missing.md, tmp"]');
       if (control === "Remove") {
         assert.equal(entry, null);
         await waitFor(() => assert.deepEqual(fixture.recentStorage.value.files, []));

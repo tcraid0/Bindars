@@ -50,11 +50,11 @@ test("recent removals reveal on focus, skip disabled rows, and preserve focus th
     assert.ok(remove("second"));
     assertFocusReveal(remove("first"));
     click(remove("first"));
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Open third");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Open third, /");
     view.render({ openingPath: null });
     assertFocusReveal(remove("third"));
     click(remove("third"));
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Open second");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Open second, /");
     assertFocusReveal(remove("second"));
     click(remove("second"));
     assert.equal(document.activeElement.getAttribute("aria-label"), "Recent files");

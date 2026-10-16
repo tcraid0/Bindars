@@ -135,9 +135,6 @@ function SidebarComponent(props: SidebarProps) {
       >
         {view === "Recent" && (
           <>
-            <p className="navigation-help">
-              Documents opened from any location.
-            </p>
             <RecentFiles
               files={props.recentFiles.map((file) => {
                 const draft = drafts.find((doc) => doc.path === file.path);

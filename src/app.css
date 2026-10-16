@@ -237,8 +237,7 @@ select,
 .command-palette-shell,
 .command-palette-input-wrap,
 .drop-zone-overlay,
-.toc-active-item,
-.sidebar-active-item {
+.toc-active-item {
   transition: background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
 }
 
@@ -2188,7 +2187,6 @@ body[data-printing] .print-hide {
 .document-open {
   display: block;
   width: 100%;
-  padding: 0.7rem 0.9rem;
   text-align: left;
   overflow-wrap: anywhere;
   font-size: 0.875rem;
@@ -2199,12 +2197,18 @@ body[data-printing] .print-hide {
   font-size: 0.75rem;
   margin-top: 0.25rem;
 }
-.document-open:hover,
-.document-open[aria-current] {
+.document-row {
+  padding: 0.5625rem 0.75rem;
+  border-left: 3px solid transparent;
+  transition: background-color 120ms;
+}
+.document-row:hover {
   background: var(--bg-tertiary);
 }
-.document-open[aria-current] {
-  border-left: 3px solid var(--accent-indicator);
+.document-row[aria-current],
+.document-row[data-current] {
+  border-left-color: var(--accent-indicator);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .document-problem {
   padding: 0 0.9rem 0.75rem;
