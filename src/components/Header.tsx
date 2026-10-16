@@ -332,7 +332,7 @@ function HeaderComponent({
                       ref={exportPanelRef}
                       role="group"
                       aria-label="Export options"
-                      className="absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
+                      className="document-header-popover absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
                       style={{ animation: "fadeIn 100ms ease" }}
                     >
                       {onMakeCopy && filePath && (
@@ -418,7 +418,7 @@ function HeaderComponent({
         <div className="relative text-sm">
           <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
             className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
-          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
+          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="document-header-popover interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
             <p>Interface: {Math.round(zoom * 100)}%</p>
             <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
             <button className="block p-2" onClick={() => onZoom?.(-1)}>Zoom Out</button>

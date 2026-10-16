@@ -2267,3 +2267,33 @@ body[data-printing] .print-hide {
     overflow-wrap: anywhere;
   }
 }
+
+/* At high interface zoom a minimum-size window is only 300 × 184 CSS px.
+   Keep room for the document and lists; pointer scrolling and keyboard focus
+   can bring every header control into view without shrinking its text. */
+@media (max-width: 1050px) and (max-height: 480px) {
+  .document-header,
+  .has-document .document-header {
+    max-height: 40dvh;
+    overflow-y: auto;
+    align-items: flex-start;
+  }
+
+  .document-header-actions,
+  .has-document .document-header-actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Escape the scrolling header and bound the existing disclosures to the
+     viewport. Their existing Tab/Escape/focus-return behavior is unchanged. */
+  .document-header-popover {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    margin-top: 0;
+    overflow-y: auto;
+  }
+}
