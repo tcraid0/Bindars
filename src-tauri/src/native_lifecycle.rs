@@ -7,7 +7,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(target_os = "macos")]
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 
 use crate::document_io::is_markdown_path;
 
@@ -493,7 +493,7 @@ pub(crate) fn default_menu_with_guarded_quit(
 
     menu.remove(&app_submenu)?;
     let action = |id, text| MenuItem::with_id(app, id, text, true, None::<&str>);
-    Menu::with_items(
+    let menu = Menu::with_items(
         app,
         &[
             &app_submenu,
@@ -538,14 +538,17 @@ pub(crate) fn default_menu_with_guarded_quit(
                     )?,
                 ],
             )?,
-            &Submenu::with_items(
+            &Submenu::with_id_and_items(
                 app,
+                "view",
                 "View",
                 true,
                 &[
                     &action("interface-zoom-in", "Zoom In")?,
                     &action("interface-zoom-out", "Zoom Out")?,
                     &action("interface-zoom-reset", "Actual Size")?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &action("toggle-sidebar", "Show Sidebar")?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::fullscreen(app, None)?,
                 ],
@@ -568,14 +571,35 @@ pub(crate) fn default_menu_with_guarded_quit(
                 &[&action("show-shortcuts", "Keyboard Shortcuts")?],
             )?,
         ],
-    )
+    )?;
+    let handle = app.clone();
+    app.listen("bindars://sidebar-visible", move |event| {
+        let Ok(visible) = serde_json::from_str::<bool>(event.payload()) else {
+            return;
+        };
+        let Some(MenuItemKind::Submenu(view)) = handle.menu().and_then(|menu| menu.get("view"))
+        else {
+            return;
+        };
+        let Some(MenuItemKind::MenuItem(item)) = view.get("toggle-sidebar") else {
+            return;
+        };
+        if let Err(error) = item.set_text(if visible {
+            "Hide Sidebar"
+        } else {
+            "Show Sidebar"
+        }) {
+            log::warn!("Failed to update the sidebar menu title: {error}");
+        }
+    });
+    Ok(menu)
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn menu_action(id: &str) -> Option<&str> {
     match id {
         "new" | "open" | "search-documents" | "save" | "copy-document" | "print" | "find"
-        | "find-next" | "find-previous" | "show-shortcuts" => Some(id),
+        | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" => Some(id),
         _ => None,
     }
 }
@@ -641,6 +665,7 @@ mod tests {
             "find-next",
             "find-previous",
             "show-shortcuts",
+            "toggle-sidebar",
         ] {
             assert_eq!(super::menu_action(action), Some(action));
         }

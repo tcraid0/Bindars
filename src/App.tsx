@@ -1,6 +1,6 @@
 import { ReconnectNotesDialog } from "./components/ReconnectNotesDialog";
 import { useInterfaceZoom } from "./hooks/useInterfaceZoom";
-import { fileName as pathFileName } from "./lib/paths";
+import { fileName as pathFileName, parentPath } from "./lib/paths";
 import { buildWorkspaceDoc } from "./lib/workspace-index";
 import { textFingerprint } from "./lib/search-text";
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
@@ -8,7 +8,7 @@ import { flushSync } from "react-dom";
 import type { CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { documentDir, homeDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getActiveDialog } from "./components/DialogFrame";
@@ -17,7 +17,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
-import { ReadingHint } from "./components/ReadingHint";
+import { HintBar } from "./components/HintBar";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { DocumentNotice } from "./components/DocumentNotice";
 import { DOCUMENT_COMPLEXITY_REASON } from "./lib/document-complexity";
@@ -56,7 +56,7 @@ import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
-import { useReadingHint } from "./hooks/useReadingHint";
+import { useOneTimeHint } from "./hooks/useOneTimeHint";
 import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
@@ -110,7 +110,7 @@ import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSc
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type MenuAction = "new" | "open" | "search-documents" | "save" | "copy-document" | "print"
-  | "find" | "find-next" | "find-previous" | "show-shortcuts";
+  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -267,7 +267,11 @@ function App() {
   } = useAnnotations(filePath);
 
   const annotationExit = useAnnotationExit(pendingAnnotationRecords, waitForAnnotationSaves, retryAnnotationSave);
-  const { visible: readingHintVisible, dismiss: dismissReadingHint } = useReadingHint();
+  const { visible: readingHintVisible, loaded: readingHintLoaded, dismiss: dismissReadingHint } = useOneTimeHint("reading-hint-dismissed", "bindars-reading-hint-dismissed");
+  const { visible: sidebarHintAvailable, loaded: sidebarHintLoaded, dismiss: dismissSidebarHint } = useOneTimeHint("sidebar-hint-dismissed", "bindars-sidebar-hint-dismissed");
+  const openedDocumentsRef = useRef(new Set<string>());
+  const consideredHintPathRef = useRef<string | null>(null);
+  const [sidebarHintRequested, setSidebarHintRequested] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -2008,6 +2012,24 @@ function App() {
     },
   });
 
+  const canShowDocumentHint = readerDocumentReady && !editing && !!filePath
+    && annotationsReady && !printing && !presentationMode && !focusMode;
+  const showReadingHint = readingHintVisible && canShowDocumentHint && highlights.length === 0;
+  useEffect(() => {
+    if (filePath) openedDocumentsRef.current.add(toPathIdentityKey(filePath));
+  }, [filePath]);
+  useEffect(() => {
+    // Wait for both preferences and this document's annotations; a late read
+    // must neither lose an earlier open nor show two hints for the same open.
+    if (!filePath || !canShowDocumentHint || !readingHintLoaded || !sidebarHintLoaded
+      || consideredHintPathRef.current === filePath) return;
+    consideredHintPathRef.current = filePath;
+    setSidebarHintRequested(openedDocumentsRef.current.size >= 2 && !sidebarVisible && !showReadingHint);
+  }, [filePath, canShowDocumentHint, readingHintLoaded, sidebarHintLoaded, sidebarVisible, showReadingHint]);
+  useEffect(() => {
+    if (sidebarVisible && sidebarHintRequested && sidebarHintAvailable) dismissSidebarHint();
+  }, [sidebarVisible, sidebarHintRequested, sidebarHintAvailable, dismissSidebarHint]);
+
   // Annotations: highlight handler
   const handleHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, headingId: string | null) => {
     if (addHighlight(anchor, color, headingId)) dismissReadingHint();
@@ -2224,14 +2246,21 @@ function App() {
     [],
   );
 
-  const toggleSidebar = useCallback(() => {
+  const changeSidebarVisibility = useCallback((next: boolean) => {
     sidebarUpdatedRef.current = true;
-    const next = !visiblePanels.sidebar;
     preparePanelChange("sidebar", next);
     setSidebarVisible(next);
     try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
     void storeSet("sidebar-visible", next);
-  }, [visiblePanels.sidebar, preparePanelChange]);
+  }, [preparePanelChange]);
+  const toggleSidebar = useCallback(() => {
+    changeSidebarVisibility(!visiblePanels.sidebar);
+  }, [visiblePanels.sidebar, changeSidebarVisibility]);
+  useEffect(() => {
+    void emit("bindars://sidebar-visible", sidebarVisible).catch(error => {
+      console.warn("[sidebar] Failed to update the menu title:", error);
+    });
+  }, [sidebarVisible]);
 
   const toggleToc = useCallback(() => {
     if (!documentOpen) return;
@@ -2595,6 +2624,7 @@ function App() {
         else search.previous();
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
+      case "toggle-sidebar": changeSidebarVisibility(!sidebarVisible); break;
     }
   };
   const menuActionRef = useRef(dispatchMenuAction);
@@ -3044,7 +3074,7 @@ function App() {
           onRemoveRecent={removeRecentFile}
           recovery={recentRecovery}
           onRetry={retryDocumentOpen}
-          onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
+          onChooseWorkspaceRoot={() => workspaceRoot.chooseRoot(filePath ? parentPath(filePath) : undefined)}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
           onShowDrafts={workspaceIndex.showDrafts}
@@ -3072,9 +3102,16 @@ function App() {
           )}
 
           <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
-            {readingHintVisible && readerDocumentReady && !editing && filePath
-              && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
-              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+            {showReadingHint && (
+              <HintBar text="Select text to highlight it or add a note." dismissLabel="Dismiss reading hint"
+                icon={<><path d="m9 11 8-8 4 4-8 8-4-4Z" /><path d="m9 11-4 4 4 4 4-4M5 19l-2 2h6" /></>}
+                onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+            )}
+            {sidebarHintRequested && sidebarHintAvailable && !sidebarVisible && !showReadingHint && canShowDocumentHint && (
+              <HintBar text="Your recent documents are in the sidebar." dismissLabel="Dismiss sidebar hint"
+                icon={<><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>}
+                action={{ label: "Show Sidebar", onClick: () => { dismissSidebarHint(); toggleSidebar(); } }}
+                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}

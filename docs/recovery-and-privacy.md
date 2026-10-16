@@ -133,6 +133,8 @@ precedence.
 
 Recent keeps up to 25 opened documents. Drafts lists the existing Bindars Drafts
 folder independently of Recent; opening that view does not create the folder.
+The sidebar explains: “New documents are saved here until you save them somewhere
+else.” Saving elsewhere follows the retirement and notes rules above.
 Adding or removing the optional browsing folder changes no document, annotation,
 or autosave destination. Existing `workspace:root` preferences and their legacy
 local-storage fallback continue to identify this one folder without conversion.

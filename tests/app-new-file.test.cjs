@@ -7398,7 +7398,7 @@ test("reader selection boundary contains the document but excludes panels, hints
     dispatchShortcut("f");
     for (const selector of [
       '[data-reader-panel="sidebar"]', '[data-reader-panel="toc"]',
-      '[data-reader-panel="notes"]', '.reading-hint', '.search-bar',
+      '[data-reader-panel="notes"]', '.hint-bar', '.search-bar',
     ]) {
       const element = await waitFor(() => rendered.host.querySelector(selector) || assert.fail(`missing ${selector}`));
       assert.ok(element.closest("#root") === rendered.host, selector);
@@ -7428,16 +7428,16 @@ test("a late reading hint stays outside the restored document's scroller", async
   const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });
   try {
     assert.ok(rendered.scrolledIds.includes("second"));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     await act(async () => hint.resolve(null));
-    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".hint-bar")));
     const main = rendered.host.querySelector("main");
-    assert.equal(main.contains(rendered.host.querySelector(".reading-hint")), false);
+    assert.equal(main.contains(rendered.host.querySelector(".hint-bar")), false);
     const dismiss = rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
     dismiss.focus();
     flushSync(() => dismiss.click());
     assert.ok(document.activeElement === main);
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     assert.ok(main.querySelector("#second"));
   } finally { await rendered.cleanup(); }
 });
@@ -7450,13 +7450,13 @@ test("welcome hint dismisses once without reopening when another document is rea
     const main = rendered.host.querySelector("main");
     dismiss.focus();
     flushSync(() => dismiss.click());
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector('[aria-label="Dismiss reading hint"]'));
     assert.ok(document.activeElement === main);
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value === true)));
     rendered.setOpenDialogPath("/tmp/another.md");
     clickButton(rendered.host, "Open");
     await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/another.md"));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector('[aria-label="Dismiss reading hint"]'));
   } finally { await rendered.cleanup(); }
 });
 
@@ -7464,11 +7464,11 @@ test("the first accepted highlight retires the reading hint", async () => {
   const history = { value: { version: 1, files: [] }, writes: [] };
   const rendered = await renderContinuityApp({ recentStorage: history });
   try {
-    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".hint-bar")));
     await selectReaderParagraph(rendered);
     flushSync(() => rendered.host.querySelector('[aria-label="Highlight Yellow"]').click());
     await waitFor(() => assert.ok(rendered.annotationWrites.length));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });

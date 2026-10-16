@@ -63,7 +63,8 @@ and remaining platform coverage.
 Bindars opens documents where they already are. **Recent** holds the last 25
 opened documents from any location. **Drafts** lists existing files in Documents
 › Bindars Drafts, including drafts no longer in Recent, using a heading or opening
-text alongside the filename. The header and folder browser keep filenames.
+text alongside the filename. New documents are saved here until you save them
+somewhere else. The header and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
 to your Documents folder. Choose **Show existing drafts** to list it; once
@@ -71,7 +72,8 @@ Bindars has saved a draft or found existing ones, later launches list Drafts
 automatically.
 
 In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Opening another file does not add or scan its parent folder. Browsing
+subfolders. Nothing is moved or copied. Opening another file does not add or scan
+its parent folder. Browsing
 does not change where new documents autosave. **Remove from Sidebar** removes
 only this folder reference; the inline **Add Back** action restores it. Neither
 action moves or deletes documents or notes.

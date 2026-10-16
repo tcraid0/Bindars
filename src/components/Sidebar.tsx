@@ -168,8 +168,7 @@ function SidebarComponent(props: SidebarProps) {
         {view === "Drafts" && (
           <>
             <p className="navigation-help">
-              New documents autosave in Documents › Bindars Drafts until you
-              save them elsewhere. Drafts with notes may be kept.
+              New documents are saved here until you save them somewhere else.
             </p>
             {state.draftsError && (
               <p role="status" className="navigation-help">
@@ -205,8 +204,7 @@ function SidebarComponent(props: SidebarProps) {
           <>
             {!root && (
               <p className="navigation-help">
-                Add a folder to browse its documents. Your files stay where they
-                are.
+                Add a folder to browse the documents in it. Nothing is moved or copied.
               </p>
             )}
             <button
