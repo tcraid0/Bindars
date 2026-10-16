@@ -942,3 +942,47 @@ test("removed metadata-heavy folders obey retention bounds and reuse only surviv
   await view.render('/folder-0'); await ready('/folder-0');
   assert.equal(reads.length, 19, 'old metadata-heavy entry was evicted and must be read again');
 });
+
+test("saving replaces cached Folder and Draft rows in place; only new files append", async t => {
+  const folders = Object.freeze(["a", "b", "c"].map(name => meta(`/folder/${name}.md`)));
+  const drafts = Object.freeze(["Untitled", "Untitled 2", "Untitled 3"].map(name => meta(`/draft/${name}.md`)));
+  let folderListings = 0, draftListings = 0;
+  ipc({
+    list_workspace_markdown_files: () => { folderListings++; return listing(folders); },
+    list_draft_documents: () => { draftListings++; return listing(drafts); },
+    inspect_document_files: ({ paths }) => paths.map(path => meta(path)),
+  });
+  const recents = [];
+  const view = await mount(t, "/folder", recents);
+  const order = source => view.get().docs.filter(doc => doc.sources.includes(source)).map(doc => doc.name);
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  await act(async () => {
+    view.get().updateSaved("/folder/a.md", "# Saved chapter", { size: 15, mtimeMs: 2 });
+    view.get().updateSaved("/draft/Untitled.md", "# Saved draft", { size: 13, mtimeMs: 2 }, true);
+  });
+  // A previously unseen Recent path causes discovery to republish the cached lists.
+  recents.push({ path: "/elsewhere/new.md", name: "new.md", openedAt: 1 });
+  await view.render("/folder");
+  await until(() => {
+    assert.equal(view.get().state.status, "ready");
+    assert.ok(view.get().docs.some(doc => doc.path === "/elsewhere/new.md"));
+  });
+  assert.deepEqual(order("folder"), ["a.md", "b.md", "c.md"]);
+  assert.deepEqual(order("draft"), ["Untitled.md", "Untitled 2.md", "Untitled 3.md"]);
+  await act(async () => {
+    view.get().updateSaved("/folder/d.md", "# New chapter", { size: 13, mtimeMs: 3 });
+    view.get().updateSaved("/draft/Untitled 4.md", "# New draft", { size: 11, mtimeMs: 3 }, true);
+  });
+  recents.push({ path: "/elsewhere/another.md", name: "another.md", openedAt: 2 });
+  await view.render("/folder");
+  await until(() => {
+    assert.equal(view.get().state.status, "ready");
+    assert.ok(view.get().docs.some(doc => doc.path === "/elsewhere/another.md"));
+  });
+  assert.deepEqual(order("folder"), ["a.md", "b.md", "c.md", "d.md"]);
+  assert.deepEqual(order("draft"), ["Untitled.md", "Untitled 2.md", "Untitled 3.md", "Untitled 4.md"]);
+  assert.equal(folderListings, 1, "both catalog runs reused the cached listing");
+  assert.equal(draftListings, 1);
+  assert.equal(folders[0].mtimeMs, 1, "the discovered metadata and source arrays remain immutable");
+  assert.equal(drafts[0].mtimeMs, 1);
+});

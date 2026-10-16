@@ -157,10 +157,9 @@ export function useWorkspaceIndex(
             meta.sources?.includes(source) &&
             (source !== "folder" || listing.root === root)
           ) {
-            list.files = [
-              ...list.files.filter((file) => file.path !== path),
-              meta,
-            ];
+            list.files = list.files.some((file) => file.path === path)
+              ? list.files.map((file) => file.path === path ? meta : file)
+              : [...list.files, meta];
           }
         }
       setDocs([...entries.current.values()]);
