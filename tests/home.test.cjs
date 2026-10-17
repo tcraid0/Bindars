@@ -476,3 +476,20 @@ test("a control chosen while the launch view reads keeps focus after the restore
   await arriveAt(app, "A.md");
   assert.ok(document.activeElement === theme);
 });
+
+test("a Finder or command-line open resumes at the section Recent saved", async t => {
+  const app = await mount(t, { recentFiles: [{ path: "/fixture/F.md", name: "F.md", openedAt: 2, lastHeadingId: "second" }] });
+  app.scrolled.length = 0;
+  await app.open("/fixture/F.md");
+  await until(() => assert.ok(app.scrolled.includes("second")));
+});
+
+test("a missing file named at launch is reported on Home instead of reopening the last place", async t => {
+  const path = "/fixture/gone/notes.md";
+  const app = await mount(t, { initialPath: path, holds: [path],
+    session: { filePath: "/fixture/A.md", headingId: null, savedAt: 1 },
+    recentFiles: [{ path: "/fixture/A.md", name: "A.md", openedAt: 2, lastHeadingId: null }] });
+  await act(async () => app.launchHolds.get(path).reject({ category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" }));
+  await until(() => assert.match(app.host().querySelector(".empty-state-recovery-message")?.textContent ?? "", /notes\.md/));
+  assert.deepEqual(app.opened, [path], "the explicit file wins over restoration, even when it is missing");
+});

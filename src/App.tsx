@@ -2631,7 +2631,8 @@ function App() {
         return;
       }
       case "open-file-path":
-        await openAndRecordHistory(action.path, null, action);
+        // Finder, the command line and drops resume where Recent last left the file.
+        await openAndRecordHistory(action.path, getScrollPosition(action.path), action);
         return;
       case "find-notes":
         flushSync(() => flushAnnotationNoteRef.current?.());

@@ -314,11 +314,15 @@ pub(crate) fn cli_open_path_from_args(
     args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Option<PathBuf> {
     let path = args.into_iter().nth(1).map(PathBuf::from)?;
-    if !path.exists() || !is_markdown_path(&path) {
+    if !is_markdown_path(&path) {
         return None;
     }
 
-    let canonical_path = dunce::canonicalize(&path).ok()?;
+    // A file that cannot be resolved (missing, or behind a folder it cannot
+    // read) still wins over session restore, so the app can report it.
+    let Ok(canonical_path) = dunce::canonicalize(&path) else {
+        return std::path::absolute(&path).ok();
+    };
     if is_markdown_path(&canonical_path) {
         return Some(canonical_path);
     }
@@ -803,20 +807,34 @@ mod tests {
     }
 
     #[test]
-    fn cli_open_ignores_missing_and_unsupported_first_arguments() {
+    fn cli_open_ignores_unsupported_but_passes_a_missing_supported_file_on() {
         let unsupported = temp_path("txt");
         fs::write(&unsupported, "not supported").expect("write unsupported CLI fixture");
         let unsupported_args = [
             std::ffi::OsString::from("bindars"),
             unsupported.clone().into_os_string(),
         ];
+        let missing = temp_path("md");
         let missing_args = [
             std::ffi::OsString::from("bindars"),
-            temp_path("md").into_os_string(),
+            missing.clone().into_os_string(),
+        ];
+        let relative_args = [
+            std::ffi::OsString::from("bindars"),
+            std::ffi::OsString::from("missing-notes.md"),
         ];
 
         assert_eq!(cli_open_path_from_args(unsupported_args), None);
-        assert_eq!(cli_open_path_from_args(missing_args), None);
+        // Reported by the normal open instead of being replaced by restoration.
+        assert_eq!(cli_open_path_from_args(missing_args), Some(missing));
+        assert_eq!(
+            cli_open_path_from_args(relative_args),
+            Some(
+                std::env::current_dir()
+                    .expect("current directory")
+                    .join("missing-notes.md")
+            )
+        );
         cleanup(&unsupported);
     }
 
