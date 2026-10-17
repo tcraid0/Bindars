@@ -62,6 +62,7 @@ export function RecentFiles({
         return (
           <div
             key={file.path}
+            data-path={file.path}
             data-current={isActive || undefined}
             className={`document-row flex items-center gap-2 group ${welcome ? "border-t border-border" : ""}`}
           >

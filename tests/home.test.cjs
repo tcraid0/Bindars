@@ -33,7 +33,8 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
   const priorPlatform = Object.getOwnPropertyDescriptor(navigator, "platform");
   Object.defineProperty(navigator, "platform", { configurable: true, value: platform });
   const settings = { session, "recent-files": { version: 1, files: recentFiles } };
-  const writes = [], opened = [], held = new Map();
+  const writes = [], opened = [], held = new Map(), removed = new Set(), scrolled = [];
+  const dialogs = { open: null, save: null };
   const launchHolds = new Map(holds.map(path => [path, deferred()]));
   for (const [path, operation] of launchHolds) held.set(path, operation);
   let native, view, exits = 0;
@@ -49,10 +50,20 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
       opened.push(args.path);
       const hold = held.get(args.path);
       if (hold) { held.delete(args.path); return hold.promise; }
-      if (args.path.includes("missing")) throw { category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" };
+      if (args.path.includes("missing") || removed.has(args.path)) {
+        throw { category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" };
+      }
       return documentFor(args.path);
     }
-    if (cmd === "plugin:dialog|open") return null;
+    if (cmd === "plugin:dialog|open") return dialogs.open;
+    if (cmd === "plugin:dialog|save") return dialogs.save;
+    if (cmd === "plugin:path|resolve_directory") return "/fixture/Documents";
+    if (cmd === "check_copy_destination") return args.path;
+    if (cmd === "write_markdown_file_if_unmodified") {
+      return { conflict: false, canonicalPath: args.path, name: args.path.split("/").at(-1),
+        currentRevision: { mtimeMs: 2, size: args.content.length, contentHash: `${args.path}:2` } };
+    }
+    if (cmd === "export_markdown_file") return null;
     if (cmd === "exit_after_guarded_quit") { exits += 1; return null; }
     if (cmd === "list_draft_documents") return { files: [], limitHit: false, skipped: true };
     if (cmd === "inspect_document_files") return [];
@@ -71,6 +82,9 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
     view.render();
     await until(() => assert.ok(view.host.querySelector("main")));
   }
+  const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+  window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { if (this.id) scrolled.push(this.id); };
+  t.after(() => { window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView; });
   await launch(initialPath);
   if (initialPath && !launchHolds.has(initialPath)) {
     await until(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]')?.disabled, false));
@@ -83,7 +97,7 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
   });
   const home = () => view.host.querySelector("header button[title^='Home']");
   return {
-    host: () => view.host, settings, writes, opened, home, launchHolds,
+    host: () => view.host, settings, writes, opened, home, launchHolds, dialogs, removed, scrolled,
     hold(path) { const operation = deferred(); held.set(path, operation); return operation; },
     async open(path) {
       native.setPendingPath(path);
@@ -263,4 +277,134 @@ test("a missing document at launch shows Home with its message; Quit keeps it, D
   await app.relaunch();
   assert.ok(atHome(app));
   assert.equal(message(), null, "the dismissed file does not return at the next launch");
+});
+
+const header = app => app.host().querySelector(".document-header-filename")?.textContent ?? "";
+const toolbar = (app, label) => app.host().querySelector(`header [aria-label="${label}"]`);
+async function settle(app) {
+  await until(() => assert.equal(app.host().querySelector('header button[title^="Open"]').disabled, false));
+  await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+}
+async function arriveAt(app, name) {
+  if (name === "Home") await until(() => assert.ok(atHome(app)));
+  else await until(() => assert.equal(header(app), name));
+  await settle(app);
+}
+async function press(app, label) {
+  await until(() => assert.equal(toolbar(app, label).disabled, false));
+  click(toolbar(app, label));
+}
+
+const routes = {
+  async "Open File…"(app) { app.dialogs.open = "/fixture/B.md"; click(app.host().querySelector('header button[title^="Open"]')); return "B.md"; },
+  async "Finder open"(app) { await app.open("/fixture/F.md"); return "F.md"; },
+  async "New"(app) { pressKey("n", { ctrlKey: true }); await until(() => assert.ok(app.host().querySelector(".cm-editor"))); return "Untitled.md"; },
+  async "Make a Copy…"(app) {
+    app.dialogs.save = "/fixture/A copy.md";
+    click(app.host().querySelector('[aria-label="Export options"]'));
+    click([...app.host().querySelectorAll("button")].find(button => button.textContent === "Make a copy…"));
+    return "A copy.md";
+  },
+  async "Home"(app) { click(app.home()); return "Home"; },
+  async "Try an Example…"(app) {
+    click(app.home());
+    await arriveAt(app, "Home");
+    app.dialogs.save = "/fixture/Example.md";
+    click([...app.host().querySelectorAll(".empty-state button")].find(button => button.textContent === "Try an Example…"));
+    return "Example.md";
+  },
+};
+
+for (const [route, go] of Object.entries(routes)) {
+  test(`${route} records the place it leaves: Back returns there and Forward repeats the move`, async t => {
+    const app = await mount(t);
+    const from = route === "Try an Example…" ? "Home" : "A.md";
+    const to = await go(app);
+    await arriveAt(app, to);
+    await press(app, "Go back");
+    await arriveAt(app, from);
+    await press(app, "Go forward");
+    // An untitled document that was never saved counts as Home.
+    await arriveAt(app, route === "New" ? "Home" : to);
+  });
+}
+
+test("Home and documents move both ways through Back and Forward", async t => {
+  const app = await mount(t, { recentFiles: [{ path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null }] });
+  click(app.home());
+  await arriveAt(app, "Home");
+  click(app.host().querySelector('.empty-state [aria-label^="Open B.md"]'));
+  await arriveAt(app, "B.md");
+  for (const [label, place] of [["Go back", "Home"], ["Go back", "A.md"], ["Go forward", "Home"], ["Go forward", "B.md"]]) {
+    await press(app, label);
+    await arriveAt(app, place);
+  }
+  assert.equal(toolbar(app, "Go forward").disabled, true);
+});
+
+test("Home → New → Home records nothing, and leaving an untitled document records Home", async t => {
+  const app = await mount(t);
+  click(app.home());
+  await arriveAt(app, "Home");
+  pressKey("n", { ctrlKey: true });
+  await until(() => assert.ok(app.host().querySelector(".cm-editor")));
+  app.homeKey(document.body);
+  await arriveAt(app, "Home");
+  await press(app, "Go back");
+  await arriveAt(app, "A.md");
+  assert.equal(toolbar(app, "Go back").disabled, true, "Home → New → Home added no entry of its own");
+
+  pressKey("n", { ctrlKey: true });
+  await until(() => assert.ok(app.host().querySelector(".cm-editor")));
+  await app.open("/fixture/F.md");
+  await press(app, "Go back");
+  await arriveAt(app, "Home");
+  await press(app, "Go back");
+  await arriveAt(app, "A.md");
+});
+
+test("Back to a deleted file drops its entry, and Retry opens that file", async t => {
+  const app = await mount(t);
+  await app.open("/fixture/F.md");
+  app.removed.add("/fixture/A.md");
+  await press(app, "Go back");
+  await until(() => assert.match(app.host().querySelector('[role="alert"]')?.textContent ?? "", /A\.md/));
+  assert.equal(header(app), "F.md");
+  assert.equal(toolbar(app, "Go back").disabled, true, "the gone file lost its entry");
+  app.removed.delete("/fixture/A.md");
+  click([...app.host().querySelectorAll('[role="alert"] button')].find(button => button.textContent === "Retry"));
+  await arriveAt(app, "A.md");
+  await press(app, "Go back");
+  await arriveAt(app, "F.md");
+});
+
+test("launch opens record nothing, and cancelled or failed opens change nothing", async t => {
+  const finder = await mount(t, { initialPath: "/fixture/Launch.md" });
+  assert.equal(toolbar(finder, "Go back").disabled, true, "an explicit open at launch records nothing");
+  finder.dialogs.open = null;
+  click(finder.host().querySelector('header button[title^="Open"]'));
+  await settle(finder);
+  await finder.open("/fixture/missing.md").catch(() => {});
+  await settle(finder);
+  assert.equal(header(finder), "Launch.md");
+  assert.equal(toolbar(finder, "Go back").disabled, true, "a cancelled dialog and a failed open record nothing");
+});
+
+test("a launch restore records nothing", async t => {
+  const app = await mount(t, { initialPath: null, session: { filePath: "/fixture/A.md", headingId: "second", savedAt: 1 } });
+  await arriveAt(app, "A.md");
+  assert.equal(toolbar(app, "Go back").disabled, true);
+});
+
+test("an entry recorded straight after an open never carries the previous document's heading", async t => {
+  const app = await mount(t, { initialPath: null, session: { filePath: "/fixture/A.md", headingId: "second", savedAt: 1 } });
+  await arriveAt(app, "A.md");
+  assert.ok(app.scrolled.includes("second"));
+  await app.open("/fixture/F.md");
+  click(app.home());
+  await arriveAt(app, "Home");
+  app.scrolled.length = 0;
+  await press(app, "Go back");
+  await arriveAt(app, "F.md");
+  assert.ok(!app.scrolled.includes("second"), "F was left at its top, not at A's heading");
 });

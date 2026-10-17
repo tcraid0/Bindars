@@ -106,7 +106,7 @@ import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
 import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isGoHomeShortcut, isPrimaryModifier } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { DraftRetirement, FileRevision, HighlightColor, NavigationEntry, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type MenuAction = "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
@@ -165,6 +165,12 @@ function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
 }
 
+function samePlace(left: NavigationEntry, right: NavigationEntry | null): boolean {
+  if (!right) return false;
+  if (left.filePath === null || right.filePath === null) return left.filePath === right.filePath;
+  return toPathIdentityKey(left.filePath) === toPathIdentityKey(right.filePath);
+}
+
 function App() {
   const [printPhase, setPrintPhase] = useState<"preparing" | "printing" | null>(null);
   const printSessionRef = useRef<{ invoked: boolean; nativePending: boolean } | null>(null);
@@ -192,7 +198,6 @@ function App() {
     getPublishedDocument,
     getOpenOwnership,
     openFile,
-    openFilePath,
     openFilePathWithStatus,
     reportMissingFile,
     setVirtualContent,
@@ -1800,6 +1805,8 @@ function App() {
       const result = await openFilePathWithStatus(path, retryAction);
       if (openAttemptIdRef.current !== openAttemptId) return { status: "superseded" };
 
+      // Until the observer reports, the place is the target, not the last document's heading.
+      if (result.status === "opened") activeHeadingIdRef.current = headingId;
       if (result.status === "opened" && headingId) {
         setPendingReaderTarget({
           kind: "heading",
@@ -2181,17 +2188,35 @@ function App() {
     scrollToHeading(headingId);
   }, [scrollToHeading]);
 
+  // Where the person is: a document position, or Home (an unsaved new
+  // document counts as Home). Until launch settles nothing has been shown.
+  const currentPlace = useCallback((): NavigationEntry | null => {
+    if (!launchSettled) return null;
+    const path = getPublishedDocument().filePath;
+    if (path) return { filePath: path, headingId: activeHeadingIdRef.current };
+    const row = document.activeElement?.closest?.<HTMLElement>(".empty-state [data-path]");
+    return { filePath: null, rowPath: row?.dataset.path ?? null };
+  }, [getPublishedDocument, launchSettled]);
+
+  // Every user-initiated move records the place it leaves, once the move has
+  // succeeded and really changed place. Launch restores never record.
+  const leaveCurrentPlace = useCallback(() => {
+    const left = currentPlace();
+    return () => {
+      if (left && !samePlace(left, currentPlace())) pushEntry(left);
+    };
+  }, [currentPlace, pushEntry]);
+
   const openAndRecordHistory = useCallback(async (
     path: string,
     anchor: string | null,
     retryAction: RetryablePendingAction,
   ) => {
-    const pos = currentPositionRef.current;
+    const recordLeft = leaveCurrentPlace();
     const result = await openPathAndScroll(path, anchor, retryAction);
-    if (result.status === "opened" && pos.filePath) {
-      pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
-    }
-  }, [openPathAndScroll, pushEntry]);
+    if (result.status === "opened") recordLeft();
+    return result;
+  }, [leaveCurrentPlace, openPathAndScroll]);
 
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(
@@ -2215,31 +2240,37 @@ function App() {
     [filePath, openAndRecordHistory, scrollToFragment, toast],
   );
 
-  const handleGoBack = useCallback(async (
-    retryAction: RetryablePendingAction = { kind: "go-back" },
+  // Back and Forward share one move, to Home or to a document at its heading.
+  // A document that is gone loses its entry, and the error's Retry opens that
+  // file rather than whichever entry comes next.
+  const moveThroughHistory = useCallback(async (
+    entry: NavigationEntry | null,
+    commit: (left: NavigationEntry | null) => void,
+    retryAction: RetryablePendingAction,
   ) => {
-    const entry = peekBack();
     if (!entry) return;
-    const pos = currentPositionRef.current;
-    if (!pos.filePath) return;
-    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
-    if (result.status === "opened") {
-      commitBack({ filePath: pos.filePath, headingId: pos.headingId });
+    const left = currentPlace();
+    if (entry.filePath === null) {
+      showHome();
+      requestFocus(false, { rowPath: entry.rowPath });
+      commit(left);
+      return;
     }
-  }, [peekBack, commitBack, openPathAndScroll]);
+    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
+    if (result.status === "opened") commit(left);
+    else if (result.status === "failed" && result.error.category === "not-found") {
+      commit(null);
+      reportMissingFile(entry.filePath, { kind: "navigate", path: entry.filePath, anchor: entry.headingId });
+    }
+  }, [currentPlace, openPathAndScroll, reportMissingFile, requestFocus, showHome]);
 
-  const handleGoForward = useCallback(async (
-    retryAction: RetryablePendingAction = { kind: "go-forward" },
-  ) => {
-    const entry = peekForward();
-    if (!entry) return;
-    const pos = currentPositionRef.current;
-    if (!pos.filePath) return;
-    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
-    if (result.status === "opened") {
-      commitForward({ filePath: pos.filePath, headingId: pos.headingId });
-    }
-  }, [peekForward, commitForward, openPathAndScroll]);
+  const handleGoBack = useCallback((retryAction: RetryablePendingAction = { kind: "go-back" }) => (
+    moveThroughHistory(peekBack(), commitBack, retryAction)
+  ), [commitBack, moveThroughHistory, peekBack]);
+
+  const handleGoForward = useCallback((retryAction: RetryablePendingAction = { kind: "go-forward" }) => (
+    moveThroughHistory(peekForward(), commitForward, retryAction)
+  ), [commitForward, moveThroughHistory, peekForward]);
 
   // Update window title with current filename
   useEffect(() => {
@@ -2498,13 +2529,17 @@ function App() {
         }
         return;
       }
-      case "new-file":
+      case "new-file": {
+        const recordLeft = leaveCurrentPlace();
         createNewDocument();
+        recordLeft();
         // Until it is saved, a new document counts as Home for the next launch.
         void rememberHome();
         return;
+      }
       case "copy-document": {
         if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        const recordLeft = leaveCurrentPlace();
         // Prepare Save As's buffer without mounting an editor or enabling autosave.
         // The admitted action owns the picker; cancellation leaves the reader intact.
         const sourcePath = filePath;
@@ -2521,6 +2556,7 @@ function App() {
             adoptSavedFile(result.file);
             workspaceIndex.updateSaved(result.file.canonicalPath, result.file.content, result.file.revision);
             beginEditSession(result.file.content, result.file.revision, result.file.canonicalPath);
+            recordLeft();
             toast(`Copy saved to ${result.file.canonicalPath}`, "success");
           } else if (result.status === "error") {
             toast(result.message ?? "Couldn't create the copy. Choose another name or folder.", "error");
@@ -2531,7 +2567,7 @@ function App() {
         return;
       }
       case "open-file-dialog":
-        await openFile();
+        await openFile((path, retryAction) => openAndRecordHistory(path, null, retryAction));
         return;
       case "try-sample": {
         // The admitted action owns the dialog, write and ordinary open together.
@@ -2560,7 +2596,7 @@ function App() {
           if (!path || !isCurrent()) return;
           await invoke("export_markdown_file", { path, content: welcomeContent });
           if (!isCurrent()) return;
-          const result = await openPathAndScroll(path, null, { kind: "open-file-path", path });
+          const result = await openAndRecordHistory(path, null, { kind: "open-file-path", path });
           if (result.status === "failed") {
             toast(`The example was saved to ${path}, but couldn't be opened. Open that file to try again.`, "error");
           } else if (result.status === "opened") {
@@ -2574,7 +2610,7 @@ function App() {
         return;
       }
       case "open-file-path":
-        await openFilePath(action.path, action);
+        await openAndRecordHistory(action.path, null, action);
         return;
       case "find-notes":
         flushSync(() => flushAnnotationNoteRef.current?.());
@@ -2592,7 +2628,11 @@ function App() {
         return;
       case "go-home":
         // Already Home: change nothing, but still land on its heading.
-        if (isDocumentOpen(getPublishedDocument().content) || getOpenOwnership().userOpenInFlight) showHome();
+        if (isDocumentOpen(getPublishedDocument().content) || getOpenOwnership().userOpenInFlight) {
+          const recordLeft = leaveCurrentPlace();
+          showHome();
+          recordLeft();
+        }
         requestFocus(false, { rowPath: null });
         return;
       case "navigate":
@@ -2607,7 +2647,8 @@ function App() {
         return;
       }
       case "restore-session":
-        await openPathAndScroll(action.path, action.headingId, action);
+        // A Retry from Home: unlike the launch restore itself, it records Home.
+        await openAndRecordHistory(action.path, action.headingId, action);
         return;
     }
   };

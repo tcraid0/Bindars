@@ -28,12 +28,14 @@ export function useNavigationHistory() {
     return stack.length > 0 ? stack[stack.length - 1] : null;
   }, []);
 
+  // Without a current place (a dropped entry, or nothing settled yet) the
+  // entry is only removed.
   const commitBack = useCallback(
-    (current: NavigationEntry) => {
+    (current: NavigationEntry | null) => {
       const stack = backStackRef.current;
       if (stack.length === 0) return;
       backStackRef.current = stack.slice(0, -1);
-      forwardStackRef.current = [...forwardStackRef.current, current].slice(-MAX_STACK);
+      if (current) forwardStackRef.current = [...forwardStackRef.current, current].slice(-MAX_STACK);
       syncState();
     },
     [syncState],
@@ -45,11 +47,11 @@ export function useNavigationHistory() {
   }, []);
 
   const commitForward = useCallback(
-    (current: NavigationEntry) => {
+    (current: NavigationEntry | null) => {
       const stack = forwardStackRef.current;
       if (stack.length === 0) return;
       forwardStackRef.current = stack.slice(0, -1);
-      backStackRef.current = [...backStackRef.current, current].slice(-MAX_STACK);
+      if (current) backStackRef.current = [...backStackRef.current, current].slice(-MAX_STACK);
       syncState();
     },
     [syncState],
