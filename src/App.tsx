@@ -104,12 +104,12 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
-import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isPrimaryModifier } from "./lib/shortcut-labels";
+import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isGoHomeShortcut, isPrimaryModifier } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
 import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
-type MenuAction = "new" | "open" | "search-documents" | "save" | "copy-document" | "print"
+type MenuAction = "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
   | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
@@ -196,6 +196,7 @@ function App() {
     openFilePathWithStatus,
     reportMissingFile,
     setVirtualContent,
+    closeDocument,
     adoptSavedFile,
     adoptReconciledDocument,
     refreshReconciledRevision,
@@ -307,6 +308,8 @@ function App() {
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  // Home reached inside the app, rather than the screen shown at launch.
+  const [homeEntered, setHomeEntered] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -385,12 +388,15 @@ function App() {
     toc: documentOpen && tocVisible && !focusMode && !editing && !presentationMode,
     notes: documentOpen && annotationsPanelVisible && !focusMode && !editing && !presentationMode,
   }, mainScrollRef);
-  const readerFocusRequestRef = useRef<{
+  // One focus request, completed once after the next commit: the reader, or
+  // Home's heading (or the recent row a Back or Forward entry left Home from).
+  const focusRequestRef = useRef<{
     documentKey: string | null;
     editorSessionKey: number;
     openGeneration: number;
     actionId: number;
     searchVisible: boolean;
+    home?: { rowPath: string | null };
   } | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
@@ -503,16 +509,20 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, [pendingSearchPassage, filePath, fileName, content, editing, search.openPassage, search.clear, workspaceIndex.reindex]);
 
-  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
+  const requestFocus = useCallback((retainedSearchVisible: boolean, home?: { rowPath: string | null }) => {
     const path = getPublishedDocument().filePath;
-    readerFocusRequestRef.current = {
+    focusRequestRef.current = {
       documentKey: path ? toPathIdentityKey(path) : null,
       editorSessionKey: editorSessionKeyRef.current,
       openGeneration: getOpenOwnership().generation,
       actionId: nextActionAdmissionIdRef.current,
       searchVisible: retainedSearchVisible,
+      home,
     };
   }, [getOpenOwnership, getPublishedDocument]);
+  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
+    requestFocus(retainedSearchVisible);
+  }, [requestFocus]);
 
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
@@ -1468,8 +1478,21 @@ function App() {
     beginEditSession("", null, null);
   }, [beginEditSession, setVirtualContent]);
 
+  // Home replaces the document; the guard has already settled its edits.
+  // Focus mode would hide the toolbar Home lives in.
+  const showHome = useCallback(() => {
+    closeDocument();
+    setFocusMode(false);
+    setHomeEntered(true);
+  }, [closeDocument]);
+
   const guardedNewFile = useCallback(() => {
     guardAction({ kind: "new-file" });
+  }, [guardAction]);
+
+  // The one Home action: toolbar, menu and shortcut.
+  const guardedGoHome = useCallback(() => {
+    guardAction({ kind: "go-home" });
   }, [guardAction]);
 
   const guardedOpenFile = useCallback(() => {
@@ -1900,9 +1923,11 @@ function App() {
   // Deliberate returns already cause a render. Complete once, after the layout
   // restoration and child dialog cleanup; a blocked request must never linger.
   useEffect(() => {
-    const request = readerFocusRequestRef.current;
-    if (!request) return;
-    readerFocusRequestRef.current = null;
+    const request = focusRequestRef.current;
+    // An action can render before it finishes (a click renders at once);
+    // finishing renders again, and a newer action replaces the request.
+    if (!request || actionAdmissionOwnerRef.current !== null) return;
+    focusRequestRef.current = null;
     const published = getPublishedDocument();
     const documentKey = published.filePath ? toPathIdentityKey(published.filePath) : null;
     const ownership = getOpenOwnership();
@@ -1911,12 +1936,18 @@ function App() {
       || request.editorSessionKey !== editorSessionKeyRef.current
       || request.openGeneration !== ownership.generation
       || request.actionId !== nextActionAdmissionIdRef.current
-      || ownership.userOpenInFlight || actionAdmissionOwnerRef.current !== null
-      || editingRef.current || searchVisible !== request.searchVisible || !readerDocumentReady
-      || presentationMode || printSessionRef.current
+      || ownership.userOpenInFlight
+      || editingRef.current || printSessionRef.current
       || showConfirmDialogRef.current || showConflictDialogRef.current
       || shortcutsVisible || commandPaletteVisible || readerControlsVisible
     ) return;
+    if (request.home) {
+      if (!isDocumentOpen(published.content)) {
+        mainScrollRef.current?.querySelector<HTMLElement>(".empty-state h1")?.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (searchVisible !== request.searchVisible || !readerDocumentReady || presentationMode) return;
     mainScrollRef.current?.focus({ preventScroll: true });
   });
 
@@ -2548,6 +2579,11 @@ function App() {
       case "go-forward":
         await handleGoForward(action);
         return;
+      case "go-home":
+        // Already Home: change nothing, but still land on its heading.
+        if (isDocumentOpen(getPublishedDocument().content) || getOpenOwnership().userOpenInFlight) showHome();
+        requestFocus(false, { rowPath: null });
+        return;
       case "navigate":
         await handleNavigateToFile(action.path, action.anchor, action);
         return;
@@ -2622,6 +2658,7 @@ function App() {
       case "new": guardedNewFile(); break;
       case "open": guardedOpenFile(); break;
       case "search-documents": openCommandPalette(); break;
+      case "home": guardedGoHome(); break;
       case "save": if (editing) handleSave(); break;
       case "copy-document": if (documentOpen) guardAction({ kind: "copy-document" }); break;
       case "print": if (documentOpen && !editing) handlePrint(); break;
@@ -2700,7 +2737,7 @@ function App() {
     // CodeMirror owns its search panel except for the global save contract.
     // Ctrl/Cmd+S must flush the editor even while the panel input has focus.
     if (inEditorPanel && !(ctrl && key === "s")) {
-      const appShortcutBeforeInput = ctrl && (
+      const appShortcutBeforeInput = isGoHomeShortcut(e) || ctrl && (
         key === "k"
         || key === "n"
         || key === "o"
@@ -2763,6 +2800,13 @@ function App() {
     if (ctrl && key === "o") {
       e.preventDefault();
       dispatchMenuAction("open");
+      return;
+    }
+
+    // Home (must run before the editor input bail-out)
+    if (isGoHomeShortcut(e)) {
+      e.preventDefault();
+      dispatchMenuAction("home");
       return;
     }
 
@@ -3033,6 +3077,8 @@ function App() {
           canGoForward={canGoForward}
           onGoBack={guardedGoBack}
           onGoForward={guardedGoForward}
+          onGoHome={guardedGoHome}
+          atHome={!documentOpen}
           isEditing={editing}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
@@ -3228,7 +3274,7 @@ function App() {
                   onTrySample={() => { guardAction({ kind: "try-sample" }); }}
                   onShowShortcuts={showShortcuts}
                   canTrySample={!actionAdmissionInFlight}
-                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight
+                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight && !homeEntered
                     && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}

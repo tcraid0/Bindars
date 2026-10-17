@@ -116,6 +116,8 @@ interface UseMarkdownFileReturn {
   ) => Promise<OpenFilePathResult>;
   reportMissingFile: (path: string, retryAction: RetryablePendingAction) => void;
   setVirtualContent: (text: string, name: string) => void;
+  /** Home: publishes no document, superseding any pending open. */
+  closeDocument: () => void;
   adoptSavedFile: (file: SavedFileSnapshot) => void;
   adoptReconciledDocument: (document: OpenFileResult) => void;
   refreshReconciledRevision: (revision: FileRevision) => void;
@@ -455,12 +457,14 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     }
   }, [openFilePath, reportOwnedError]);
 
-  const setVirtualContent = useCallback((text: string, name: string) => {
+  const setVirtualContent = useCallback((text: string | null, name: string | null) => {
     requestIdRef.current += 1;
     cancelActiveOperation("superseded");
     publishDocument({ content: text, filePath: null, fileName: name, fileRevision: null });
     resetOpenTracking();
   }, [cancelActiveOperation, publishDocument, resetOpenTracking]);
+
+  const closeDocument = useCallback(() => setVirtualContent(null, null), [setVirtualContent]);
 
   const adoptSavedFile = useCallback((file: SavedFileSnapshot) => {
     requestIdRef.current += 1;
@@ -532,6 +536,7 @@ export function useMarkdownFile(): UseMarkdownFileReturn {
     openFilePathWithStatus,
     reportMissingFile,
     setVirtualContent,
+    closeDocument,
     adoptSavedFile,
     adoptReconciledDocument,
     refreshReconciledRevision,

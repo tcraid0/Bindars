@@ -146,16 +146,23 @@ for (const { platform, label, failureMessage } of [
   }
 }
 
-test("brand: the toolbar shows the app symbol, named Bindars but never focusable", async () => {
-  const view = await setup();
+test("brand: the toolbar's app symbol is the Home button, named by its visible label", async () => {
+  let homes = 0;
+  const view = await setup({ onGoHome() { homes += 1; }, atHome: false });
   try {
     const art = [...view.host.querySelectorAll("header svg")].filter((svg) => svg.querySelector("use"));
     assert.deepEqual(art.map((svg) => svg.querySelector("use").getAttribute("href")), ["#bindars-symbol"]);
     assert.equal(art[0].getAttribute("aria-hidden"), "true");
-    const brand = art[0].parentElement;
-    assert.equal(brand.textContent, "Bindars", "screen readers still get the app's name");
-    const focusable = "button, a, [tabindex]";
-    assert.ok(!brand.matches(focusable) && !brand.querySelector(focusable), "the brand is never a focus stop");
+    const home = art[0].closest("button");
+    assert.equal(home.textContent, "Home", "the visible label is the accessible name");
+    assert.ok(!home.hasAttribute("aria-label"));
+    assert.equal(home.getAttribute("aria-current"), null);
+    assert.match(home.title, /^Home \(.+\)$/, "the tooltip carries the shortcut");
+    click(home);
+    assert.equal(homes, 1);
+    view.render({ atHome: true });
+    assert.equal(home.getAttribute("aria-current"), "page", "on Home it says where you are");
+    assert.equal(home.disabled, false, "and stays focusable rather than disabled");
     // src/main.tsx glides the startup mark to the first marked symbol, and the header comes
     // before the welcome screen, so the toolbar must not carry the welcome symbol's markers.
     assert.equal(view.host.querySelectorAll("header [data-startup-mark-target], header [data-startup-mark-passes]").length, 0);

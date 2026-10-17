@@ -825,6 +825,13 @@ button:active:not(:disabled),
   margin-bottom: auto;
 }
 
+/* Going Home focuses the page heading; show it like the toolbar's focus ring. */
+.empty-state h1:focus-visible {
+  outline: 2px solid var(--accent-indicator);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 /* The artist's symbol over the BINDARS wordmark, like an app icon over its name. */
 .empty-state-brand {
   display: flex;

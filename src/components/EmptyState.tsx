@@ -75,7 +75,7 @@ function EmptyStateComponent({
   return (
     <div className={["empty-state flex flex-col items-center text-center px-8 select-none",
       atLaunch ? "empty-state-at-launch" : "", recovery ? "empty-state-recovery" : ""].join(" ")}>
-      <h1 className="empty-state-brand empty-state-title">
+      <h1 tabIndex={-1} className="empty-state-brand empty-state-title">
         <svg className="empty-state-symbol" data-startup-mark-target aria-hidden="true"><use href="#bindars-symbol" /></svg>
         <svg className="empty-state-wordmark" data-startup-mark-passes aria-hidden="true"><use href="#bindars-wordmark" /></svg>
         <span className="sr-only">Bindars</span>

@@ -82,6 +82,14 @@ async function pauseDraftAutosave(rendered) {
 }
 
 async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, words) {
+  return requestDepartureAfterFailedBoundarySave(rendered, words, async () => {
+    rendered.setPendingNativeOpenPath(targetPath);
+    await emit("bindars://native-open-available");
+  });
+}
+
+// Edits the open document, then leaves it while the boundary autosave fails.
+async function requestDepartureAfterFailedBoundarySave(rendered, words, depart) {
   dispatchShortcut("e");
   await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
   updateEditor(rendered.host, words);
@@ -89,10 +97,7 @@ async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, wo
 
   const failedBoundarySave = deferred();
   rendered.deferNextWrite(failedBoundarySave);
-  rendered.setPendingNativeOpenPath(targetPath);
-  await act(async () => {
-    await emit("bindars://native-open-available");
-  });
+  await act(depart);
   await waitFor(() => assert.ok(failedBoundarySave.args));
   await act(async () => {
     failedBoundarySave.reject(new Error("Boundary save failed"));
@@ -1277,6 +1282,7 @@ test("non-save App shortcuts are suppressed while the CodeMirror search panel ow
       ["e", { ctrlKey: true }],
       ["m", { ctrlKey: true, altKey: true }],
       ["t", { ctrlKey: true, shiftKey: true }],
+      ["Home", { altKey: true }],
     ]) {
       const event = dispatchElementKey(searchField, key, options);
       assert.equal(event.defaultPrevented, true, `${key} should not reach App or the WebView`);
@@ -3636,6 +3642,36 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
 
         const retryPath = `/tmp/native-after-${choice.toLowerCase()}.md`;
         await requestNativeOpenAndDiscardIfPrompted(rendered, retryPath);
+      } finally {
+        await rendered.cleanup();
+      }
+    });
+  }
+});
+
+test("Home from the editor honors Save, Discard, and Cancel for dirty documents", async (context) => {
+  for (const choice of ["Save", "Discard", "Cancel"]) {
+    await context.test(choice, async () => {
+      const rendered = await renderContinuityApp();
+      const words = `${rendered.diskContent()}\n\nKeep ${choice} words.`;
+      const home = () => rendered.host.querySelector("header button[title^='Home']");
+      try {
+        // The shortcut arrives from CodeMirror's own content element.
+        const dialog = await requestDepartureAfterFailedBoundarySave(rendered, words,
+          async () => { dispatchEditorKey(rendered.host, "Home", { altKey: true }); });
+        if (choice === "Cancel") {
+          dispatchWindowKey("Escape");
+          await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+          assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+          assert.ok(!rendered.host.querySelector(".empty-state"));
+          assert.equal(home().getAttribute("aria-current"), null);
+        } else {
+          clickButton(rendered.host, choice, dialog);
+          await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state")));
+          assert.ok(!rendered.host.querySelector(".cm-editor"));
+          assert.equal(home().getAttribute("aria-current"), "page");
+          assert.equal(rendered.diskContent() === words, choice === "Save");
+        }
       } finally {
         await rendered.cleanup();
       }

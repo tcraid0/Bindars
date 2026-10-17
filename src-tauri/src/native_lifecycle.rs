@@ -505,6 +505,7 @@ pub(crate) fn default_menu_with_guarded_quit(
                     &action("new", "New File")?,
                     &action("open", "Open…")?,
                     &action("search-documents", "Search Documents…")?,
+                    &action("home", "Home")?,
                     &PredefinedMenuItem::separator(app)?,
                     &action("save", "Save")?,
                     &action("copy-document", "Make a Copy…")?,
@@ -598,8 +599,8 @@ pub(crate) fn default_menu_with_guarded_quit(
 #[cfg(any(target_os = "macos", test))]
 fn menu_action(id: &str) -> Option<&str> {
     match id {
-        "new" | "open" | "search-documents" | "save" | "copy-document" | "print" | "find"
-        | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" => Some(id),
+        "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
+        | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" => Some(id),
         _ => None,
     }
 }
@@ -658,6 +659,7 @@ mod tests {
             "new",
             "open",
             "search-documents",
+            "home",
             "save",
             "copy-document",
             "print",

@@ -29,6 +29,8 @@ interface HeaderProps {
   canGoForward: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
+  onGoHome: () => void;
+  atHome: boolean;
   isEditing: boolean;
   isDraft?: boolean;
   saveChoosesLocation?: boolean;
@@ -78,6 +80,8 @@ function HeaderComponent({
   canGoForward,
   onGoBack,
   onGoForward,
+  onGoHome,
+  atHome,
   isEditing,
   isDraft = false,
   saveChoosesLocation = isDraft,
@@ -146,7 +150,7 @@ function HeaderComponent({
       style={{ height: "var(--header-height, 52px)" }}
       data-tauri-drag-region
     >
-      {/* Left: sidebar toggle, back/forward, app symbol */}
+      {/* Left: sidebar toggle, back/forward, Home */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
@@ -186,12 +190,17 @@ function HeaderComponent({
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </button>
-        {/* The app's symbol: decorative, but still named for screen readers. The wider
-            margin keeps it from reading as another navigation button. */}
-        <span className="flex ml-3">
+        {/* Named by its visible label. On Home it stays focusable and says where you are. */}
+        <button
+          type="button"
+          onClick={onGoHome}
+          aria-current={atHome ? "page" : undefined}
+          className="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary aria-[current=page]:bg-bg-tertiary aria-[current=page]:text-text-primary transition-colors duration-120"
+          title={`Home (${formatShortcutLabel("goHome")})`}
+        >
           <svg className="size-5 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
-          <span className="sr-only">Bindars</span>
-        </span>
+          Home
+        </button>
       </div>
 
       {/* Keep document identity and mode controls anchored as secondary content changes. */}

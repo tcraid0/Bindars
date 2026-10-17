@@ -10,10 +10,15 @@ export interface ShortcutNavigator {
 
 type ShortcutModifier = "primary" | "alt" | "shift";
 
-interface ShortcutDefinition {
+interface ShortcutKeys {
   readonly modifiers: readonly ShortcutModifier[];
   readonly key: string;
+}
+
+interface ShortcutDefinition extends ShortcutKeys {
   readonly hideOnMac?: boolean;
+  /** Different keys where macOS has its own convention. */
+  readonly mac?: ShortcutKeys;
 }
 
 const SHORTCUT_DEFINITIONS = {
@@ -22,6 +27,7 @@ const SHORTCUT_DEFINITIONS = {
   workspaceSwitcher: { modifiers: ["primary"], key: "K" },
   goBack: { modifiers: ["alt"], key: "←" },
   goForward: { modifiers: ["alt"], key: "→" },
+  goHome: { modifiers: ["alt"], key: "Home", mac: { modifiers: ["primary", "shift"], key: "H" } },
   previousScene: { modifiers: ["alt"], key: "↑" },
   nextScene: { modifiers: ["alt"], key: "↓" },
   toggleSidebar: { modifiers: ["primary"], key: "B" },
@@ -68,6 +74,7 @@ export const SHORTCUT_SECTIONS = [
       { id: "workspaceSwitcher", label: "Search documents" },
       { id: "goBack", label: "Go back" },
       { id: "goForward", label: "Go forward" },
+      { id: "goHome", label: "Home" },
       { id: "previousScene", label: "Previous scene" },
       { id: "nextScene", label: "Next scene" },
     ],
@@ -170,11 +177,22 @@ function formatShortcut(
   platform: ShortcutPlatform,
 ): string {
   if (platform === "macos" && definition.hideOnMac) return "";
+  const keys = platform === "macos" && definition.mac ? definition.mac : definition;
   const separator = platform === "macos" ? "" : "+";
   const modifiers = MODIFIER_DISPLAY_ORDER[platform]
-    .filter((modifier) => definition.modifiers.includes(modifier))
+    .filter((modifier) => keys.modifiers.includes(modifier))
     .map((modifier) => MODIFIER_LABELS[platform][modifier]);
-  return [...modifiers, definition.key].join(separator);
+  return [...modifiers, keys.key].join(separator);
+}
+
+/** The goHome keys above: Shift+Cmd+H on macOS (as in Finder and Safari), Alt+Home elsewhere. */
+export function isGoHomeShortcut(
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): boolean {
+  return platform === "macos"
+    ? event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && event.key.toLowerCase() === "h"
+    : event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === "Home";
 }
 
 export function formatShortcutLabel(

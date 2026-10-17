@@ -98,6 +98,8 @@ function SidebarComponent(props: SidebarProps) {
             tabIndex={view === name ? 0 : -1}
             onClick={() => setView(name)}
             onKeyDown={(event) => {
+              // Modified keys belong to app shortcuts such as Alt+Home and Alt+←.
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
               const target =
                 event.key === "ArrowRight"
                   ? (index + 1) % 3
