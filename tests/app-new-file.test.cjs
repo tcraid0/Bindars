@@ -3795,34 +3795,45 @@ test("a later native open is consumed as busy while an admitted open is still ru
 });
 
 for (const [welcome, destination] of [[false, "toolbar"], [true, "toolbar"], [true, "welcome"]]) {
-  test(`Cancel preserves a surviving focus choice (${welcome ? "welcome" : "reader"}, ${destination})`, async () => {
-    const rendered = await renderContinuityApp(welcome
-      ? { initialNativePath: null, readySelector: ".empty-state" } : {});
-    const pending = deferred();
-    try {
-      rendered.deferNextOpen(pending);
-      rendered.setPendingNativeOpenPath("/tmp/cancelled-focus.md");
-      await act(async () => { await emit("bindars://native-open-available"); });
-      await waitFor(() => assert.equal(pending.args?.path, "/tmp/cancelled-focus.md"));
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
-      const cancel = [...rendered.host.querySelectorAll("button")]
-        .find(button => button.textContent.trim() === "Cancel");
-      assert.ok(cancel);
-      const chosen = destination === "toolbar"
-        ? rendered.host.querySelector('[aria-label="Toggle sidebar"]')
-        : [...rendered.host.querySelectorAll(".empty-state button")]
-          .find(button => button.textContent.trim() === "Open File…");
-      chosen.focus();
-      assert.ok(document.activeElement === chosen);
-      flushSync(() => cancel.click());
-      await waitFor(() => assert.doesNotMatch(rendered.host.textContent, /Still opening/));
-      assert.ok(document.activeElement === chosen, "Cancel preserves focus on a surviving control");
-      await act(async () => pending.resolve({ ...rendered.openResult("# Abandoned read"),
-        canonicalPath: "/tmp/cancelled-focus.md", name: "cancelled-focus.md" }));
-      assert.ok(document.activeElement === chosen, "the abandoned native completion cannot steal focus");
-      assert.doesNotMatch(rendered.host.textContent, /Abandoned read/);
-    } finally { pending.resolve(null); await rendered.cleanup(); }
-  });
+  for (const activation of ["programmatic", "pointer"]) {
+    test(`Cancel preserves a surviving focus choice (${welcome ? "welcome" : "reader"}, ${destination}, ${activation})`, async () => {
+      const rendered = await renderContinuityApp(welcome
+        ? { initialNativePath: null, readySelector: ".empty-state" } : {});
+      const pending = deferred();
+      try {
+        rendered.deferNextOpen(pending);
+        rendered.setPendingNativeOpenPath("/tmp/cancelled-focus.md");
+        await act(async () => { await emit("bindars://native-open-available"); });
+        await waitFor(() => assert.equal(pending.args?.path, "/tmp/cancelled-focus.md"));
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+        const cancel = [...rendered.host.querySelectorAll("button")]
+          .find(button => button.textContent.trim() === "Cancel");
+        assert.ok(cancel);
+        const chosen = destination === "toolbar"
+          ? rendered.host.querySelector('[aria-label="Toggle sidebar"]')
+          : [...rendered.host.querySelectorAll(".empty-state button")]
+            .find(button => button.textContent.trim() === "Open File…");
+        chosen.focus();
+        assert.ok(document.activeElement === chosen);
+        flushSync(() => {
+          if (activation === "pointer") {
+            const down = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+            cancel.dispatchEvent(down);
+            // happy-dom omits WebKit's default mousedown blur on a non-mouse-focusable button.
+            if (!down.defaultPrevented) chosen.blur();
+            cancel.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+          }
+          cancel.click();
+        });
+        await waitFor(() => assert.doesNotMatch(rendered.host.textContent, /Still opening/));
+        assert.ok(document.activeElement === chosen, "Cancel preserves focus on a surviving control");
+        await act(async () => pending.resolve({ ...rendered.openResult("# Abandoned read"),
+          canonicalPath: "/tmp/cancelled-focus.md", name: "cancelled-focus.md" }));
+        assert.ok(document.activeElement === chosen, "the abandoned native completion cannot steal focus");
+        assert.doesNotMatch(rendered.host.textContent, /Abandoned read/);
+      } finally { pending.resolve(null); await rendered.cleanup(); }
+    });
+  }
 }
 
 test("Cancel releases a slow admitted open while its native read remains abandoned", async () => {
