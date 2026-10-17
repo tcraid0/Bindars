@@ -5,7 +5,7 @@ import { buildWorkspaceDoc } from "./lib/workspace-index";
 import { textFingerprint } from "./lib/search-text";
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
 import { flushSync } from "react-dom";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -453,9 +453,13 @@ function App() {
     return () => { active = false; };
   }, [filePath]);
 
-  const handleCancelPendingOpen = useCallback(() => {
+  const handleCancelPendingOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const focused = document.activeElement;
     cancelPendingOpen();
-    mainScrollRef.current?.focus({ preventScroll: true });
+    if (!focused?.isConnected || focused === event.currentTarget
+      || focused === document.body || focused === document.documentElement) {
+      mainScrollRef.current?.focus({ preventScroll: true });
+    }
     toast("Opening canceled.", "info");
   }, [cancelPendingOpen, toast]);
 
