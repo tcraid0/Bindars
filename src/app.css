@@ -803,8 +803,9 @@ button:active:not(:disabled),
   }
 }
 
-/* At launch the startup screen reveals the empty state instead (src/main.tsx). */
-.empty-state-at-launch :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
+/* At launch the startup screen reveals the empty state instead (src/main.tsx),
+   and Home never animates: going Home inside the app should feel immediate. */
+:is(.empty-state-at-launch, .empty-state-home) :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
   animation: none;
 }
 

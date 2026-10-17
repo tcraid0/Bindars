@@ -2288,6 +2288,19 @@ function App() {
     }
   }, [filePath, fileName, recentFilesStatus, addRecent]);
 
+  // Files an open has just failed to find, until they open again. Dismissing
+  // the message must not make "Continue reading" offer one of them.
+  const [missingPaths, setMissingPaths] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const retry = documentError?.retryAction;
+    if (documentError?.error.category !== "not-found" || !retry || !("path" in retry)) return;
+    setMissingPaths(paths => paths.has(retry.path) ? paths : new Set(paths).add(retry.path));
+  }, [documentError]);
+  useEffect(() => {
+    if (!filePath) return;
+    setMissingPaths(paths => paths.has(filePath) ? new Set([...paths].filter(path => path !== filePath)) : paths);
+  }, [filePath]);
+
   const handleOpenRecent = useCallback(
     async (
       path: string,
@@ -3076,6 +3089,10 @@ function App() {
     ? { path: recoveryAction.path, error, retryDisabled }
     : null;
   const welcomeRecovery = !documentOpen ? recentRecovery : null;
+  // The newest saved entry, never one known to be unavailable.
+  const newestRecentPath = recentFiles[0]?.path ?? null;
+  const continuePath = newestRecentPath && newestRecentPath !== recentRecovery?.path
+    && !missingPaths.has(newestRecentPath) ? newestRecentPath : null;
   const dismissRecentRecovery = () => {
     if (!recentRecovery) return;
     dismissDocumentError();
@@ -3328,8 +3345,10 @@ function App() {
                   canTrySample={!actionAdmissionInFlight}
                   canFocus={sessionRestored && !loading && !actionAdmissionInFlight && !homeEntered
                     && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
+                  inApp={homeEntered}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                  continuePath={continuePath}
                   onOpenRecent={guardedOpenRecent}
                   onRemoveRecent={removeRecentFile}
                   openingPath={openingPath}

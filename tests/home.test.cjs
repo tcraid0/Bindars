@@ -306,9 +306,8 @@ const routes = {
     return "A copy.md";
   },
   async "Home"(app) { click(app.home()); return "Home"; },
+  // The example is on the first-run screen (no history yet).
   async "Try an Example…"(app) {
-    click(app.home());
-    await arriveAt(app, "Home");
     app.dialogs.save = "/fixture/Example.md";
     click([...app.host().querySelectorAll(".empty-state button")].find(button => button.textContent === "Try an Example…"));
     return "Example.md";
@@ -317,8 +316,9 @@ const routes = {
 
 for (const [route, go] of Object.entries(routes)) {
   test(`${route} records the place it leaves: Back returns there and Forward repeats the move`, async t => {
-    const app = await mount(t);
-    const from = route === "Try an Example…" ? "Home" : "A.md";
+    const firstRun = route === "Try an Example…";
+    const app = await mount(t, firstRun ? { initialPath: null } : {});
+    const from = firstRun ? "Home" : "A.md";
     const to = await go(app);
     await arriveAt(app, to);
     await press(app, "Go back");
@@ -407,4 +407,25 @@ test("an entry recorded straight after an open never carries the previous docume
   await press(app, "Go back");
   await arriveAt(app, "F.md");
   assert.ok(!app.scrolled.includes("second"), "F was left at its top, not at A's heading");
+});
+
+test("Continue reading marks the newest saved file, never one just found missing, even after Dismiss", async t => {
+  const recentFiles = [
+    { path: "/fixture/missing.md", name: "missing.md", openedAt: 3, lastHeadingId: null },
+    { path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null },
+  ];
+  const app = await mount(t, { initialPath: null, recentFiles, session: { filePath: "/fixture/missing.md", headingId: null, savedAt: 1 } });
+  const cue = () => [...app.host().querySelectorAll('.empty-state button[aria-label$=", Continue reading"]')].map(row => row.title);
+  const message = () => app.host().querySelector(".empty-state-recovery-message");
+  await until(() => assert.ok(message()));
+  assert.equal(app.host().querySelector(".empty-state h1").textContent, "Home");
+  assert.deepEqual(cue(), [], "the newest file just failed to open");
+  click([...message().querySelectorAll("button")].find(button => button.textContent === "Dismiss"));
+  await until(() => assert.equal(message(), null));
+  assert.deepEqual(cue(), [], "dismissing the message does not make the missing file the one to continue");
+  click(app.host().querySelector('.empty-state [aria-label^="Open B.md"]'));
+  await arriveAt(app, "B.md");
+  click(app.home());
+  await arriveAt(app, "Home");
+  assert.deepEqual(cue(), ["/fixture/B.md"]);
 });

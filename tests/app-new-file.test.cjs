@@ -7345,9 +7345,12 @@ for (const action of ["Open File…", "Try an Example…"]) {
     const path = "/tmp/missing.md";
     const dialog = deferred();
     const flow = sampleFixture({ dialog: () => dialog.promise });
-    const history = { version: 3, value: { version: 1, files: [
+    // Try an Example… is on the first-run screen, so that case has no history.
+    const history = { version: 3, value: { version: 1, files: action === "Try an Example…" ? [] : [
       { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
     ] }, writes: [] };
+    const retry = () => rendered.host.querySelector('[aria-label="Retry opening missing.md"]')
+      ?? [...rendered.host.querySelectorAll(".empty-state-recovery-message button")].find(button => button.textContent === "Retry");
     const rendered = await renderContinuityApp({
       initialNativePath: null,
       initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
@@ -7358,13 +7361,13 @@ for (const action of ["Open File…", "Try an Example…"]) {
       clickButton(rendered.host, action);
       await waitFor(() => assert.ok(action === "Open File…" ? dialog.args : flow.dialogs.length));
       assert.ok(rendered.host.querySelector(".empty-state-recovery"));
-      assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+      assert.equal(retry().disabled, true);
       await act(async () => dialog.resolve(null));
-      await waitFor(() => assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, false));
+      await waitFor(() => assert.equal(retry().disabled, false));
       assert.ok(!rendered.host.querySelector("article"));
       assert.deepEqual(rendered.openedPaths(), []);
       assert.match(rendered.host.textContent, /Couldn’t find missing.md/);
-      flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+      flushSync(() => retry().click());
       await waitFor(() => assert.ok(rendered.host.querySelector("article")));
       assert.deepEqual(rendered.openedPaths(), [path]);
       assert.ok(rendered.scrolledIds.includes("second"));
@@ -7455,7 +7458,7 @@ for (const control of ["Dismiss", "Remove"]) {
       button.focus();
       flushSync(() => button.click());
       assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
-      assert.match(rendered.host.textContent, /Read, highlight, and add your thoughts/);
+      assert.equal(rendered.host.querySelector(".empty-state h1").textContent, "Home");
       const entry = rendered.host.querySelector('[aria-label="Open missing.md, tmp"]');
       if (control === "Remove") {
         assert.equal(entry, null);
@@ -7734,7 +7737,8 @@ for (const [route, moveFocus] of [
     const history = { version: 3, value: { version: 1, files: [{
       path: "/tmp/welcome.md", name: "welcome.md", openedAt: 1, lastHeadingId: null,
     }] }, writes: [] };
-    if (route === "session Retry") history.value.files = [];
+    // The example and a recovery without a recent row are first-run screens.
+    if (route === "session Retry" || route === "example") history.value.files = [];
     const rendered = await renderContinuityApp({
       initialNativePath: null, recentStorage: history,
       readySelector: route === "session Retry" ? ".empty-state-recovery" : ".empty-state",

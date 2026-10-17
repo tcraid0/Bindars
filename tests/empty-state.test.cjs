@@ -60,23 +60,63 @@ test("a first visit leads with Open File and explains the example's Save step", 
   }
 });
 
-test("recent files show their folders below Open File without an unverified Resume", async () => {
+test("with history, launch shows the compact Home: Open File, recent folders, no example or tagline", async () => {
   await installDom();
-  let sampleCount = 0;
-  const view = renderEmptyState({ recentFiles, onTrySample() { sampleCount += 1; } });
+  const view = renderEmptyState({ recentFiles });
   try {
+    const heading = view.host.querySelector("h1");
+    assert.equal(heading.textContent, "Home");
+    assert.equal(heading.tabIndex, -1);
+    const art = heading.querySelector("svg");
+    assert.equal(art.getAttribute("aria-hidden"), "true");
+    assert.equal(art.querySelector("use").getAttribute("href"), "#bindars-symbol");
+    assert.equal(view.host.querySelectorAll("[data-startup-mark-target], [data-startup-mark-passes], .empty-state-wordmark").length, 0,
+      "no large branding, and the startup glide fades onto Home (D5)");
     assert.match(buttonWithText(view.host, "Open File…").className, /\bbg-accent-fill\b/);
-    const sample = buttonWithText(view.host, "Try an Example…");
-    assert.doesNotMatch(sample.className, /\bbg-accent-fill\b/);
-    assert.match(sample.className, /\bborder-border\b/);
     assert.match(view.host.textContent, /reader › Documents/);
     assert.match(view.host.textContent, /reader › Downloads/);
-    assert.doesNotMatch(view.host.textContent, /Resume:/);
-    click(sample);
-    assert.equal(sampleCount, 1);
+    assert.ok(buttonWithText(view.host, "Keyboard Shortcuts"));
+    assert.doesNotMatch(view.host.textContent, /Resume:|Try an Example|Read, highlight|drop a Markdown/);
+    assert.ok(view.host.querySelector(".empty-state").classList.contains("empty-state-home"), "Home never plays the welcome entrance");
   } finally {
     view.cleanup();
   }
+});
+
+test("Home shows five recent files and marks only the given one Continue reading, in its spoken name", async () => {
+  await installDom();
+  const many = ["a", "b", "c", "d", "e", "f"].map((name, index) => ({
+    path: `/Users/reader/Notes/${name}.md`, name: `${name}.md`, openedAt: 10 - index, lastHeadingId: null,
+  }));
+  const view = renderEmptyState({ recentFiles: many, continuePath: many[0].path });
+  try {
+    const rows = [...view.host.querySelectorAll('button[aria-label^="Open "]')];
+    assert.deepEqual(rows.map(row => row.getAttribute("aria-label")), [
+      "Open a.md, reader › Notes, Continue reading", "Open b.md, reader › Notes", "Open c.md, reader › Notes",
+      "Open d.md, reader › Notes", "Open e.md, reader › Notes",
+    ]);
+    assert.match(rows[0].textContent, /Continue reading/);
+    assert.equal(view.host.textContent.match(/Continue reading/g).length, 1);
+    view.render({ recovery: { path: many[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
+    assert.doesNotMatch(view.host.textContent, /Continue reading/, "never on an unavailable row");
+  } finally { view.cleanup(); }
+});
+
+test("inside the app Home is always the compact page, even without history, and keeps its page when rows go", async () => {
+  await installDom();
+  const empty = renderEmptyState({ inApp: true });
+  try {
+    assert.equal(empty.host.querySelector("h1").textContent, "Home");
+    assert.match(empty.host.textContent, /No recent files/);
+    assert.doesNotMatch(empty.host.textContent, /Try an Example/);
+  } finally { empty.cleanup(); }
+
+  const launch = renderEmptyState({ recentFiles: recentFiles.slice(0, 1) });
+  try {
+    launch.render({ recentFiles: [] });
+    assert.equal(launch.host.querySelector("h1").textContent, "Home", "removing the last row keeps Home");
+    assert.match(launch.host.textContent, /No recent files/);
+  } finally { launch.cleanup(); }
 });
 
 for (const [path, label] of [

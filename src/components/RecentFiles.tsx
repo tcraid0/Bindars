@@ -13,6 +13,8 @@ interface RecentFilesProps {
   onRemove: (path: string) => void;
   recovery?: WelcomeRecovery | null;
   onRetry?: () => void;
+  /** Home marks the file you were last reading. */
+  continuePath?: string | null;
   welcome?: boolean;
 }
 
@@ -37,6 +39,7 @@ export function RecentFiles({
   onRemove,
   recovery,
   onRetry,
+  continuePath = null,
   welcome = false,
 }: RecentFilesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +61,7 @@ export function RecentFiles({
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
         const isUnavailable = file.path === recovery?.path;
+        const isContinue = file.path === continuePath && !isUnavailable;
         const location = locationLabel(file.path);
         return (
           <div
@@ -71,7 +75,7 @@ export function RecentFiles({
                 type="button"
                 onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Open ${file.name}, ${location}`}
+                aria-label={`Open ${file.name}, ${location}${isContinue ? ", Continue reading" : ""}`}
                 title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
@@ -87,8 +91,9 @@ export function RecentFiles({
                 </div>
                 <div className="text-xs text-text-muted break-words mt-0.5">
                   {location}
-                  {(isOpening || isUnavailable || !welcome) && " · "}
-                  {isOpening ? "Opening…" : isUnavailable ? "Unavailable" : !welcome && timeAgo(file.openedAt)}
+                  {(isOpening || isUnavailable || isContinue || !welcome) && " · "}
+                  {isOpening ? "Opening…" : isUnavailable ? "Unavailable"
+                    : isContinue ? <span className="text-accent-text">Continue reading</span> : !welcome && timeAgo(file.openedAt)}
                 </div>
               </button>
             </div>
