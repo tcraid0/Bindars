@@ -37,7 +37,7 @@ and document-path limitations. You can also paste plain text into a new document
 Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
 or PDF documents.
 
-On the empty screen, choose **Try an Example…** and save a copy to try highlighting
+On the first launch, choose **Try an Example…** and save a copy to try highlighting
 and notes. Select a passage and choose **Note**, or choose **Add note** on an
 existing highlight. Reopen your saved copy from **Recent files**, **Open**, or
 your file manager. Choosing **Try an Example…** again asks where to save a fresh copy;
@@ -59,6 +59,17 @@ Substitutions choices can override those defaults. See the
 and remaining platform coverage.
 
 ### Finding documents
+
+**Home** is where you choose what to read: **Open File…**, your five most recent
+documents with **Continue reading** on the last one you read, and the keyboard
+shortcuts. Go there with the **Home** button after Back and Forward,
+Shift+Cmd+H on macOS or Alt+Home on Linux, or **File › Home** on macOS. Going
+Home from an edited document saves or asks first, as opening another file does.
+Bindars reopens where you left off: the document you were reading, at its
+section, or Home if you left from Home. A file you open from Finder, the command
+line or a drop always comes first, at the section Recent saved for it. **Back**
+and **Forward** include Home, and Back returns from every way of opening a
+document.
 
 Bindars opens documents where they already are. **Recent** holds the last 25
 opened documents from any location. Its rows keep their order while you use the

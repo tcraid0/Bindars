@@ -129,6 +129,12 @@ if you need to retain recent files and their saved sections. This history
 format change does not alter document contents, annotations, or session
 precedence.
 
+The `session` setting holds the last place Bindars reopens: a document and its
+section, or Home (`{ "kind": "home" }`), each with the time it was saved. A copy
+kept in the webview's local storage covers a failed settings write, and the newer
+of the two wins. Builds before 1.6.1 ignore a Home record and show their welcome
+screen.
+
 ## Document navigation and disposable search data
 
 Recent keeps up to 25 opened documents. Drafts lists the existing Bindars Drafts
