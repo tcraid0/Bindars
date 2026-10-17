@@ -429,3 +429,50 @@ test("Continue reading marks the newest saved file, never one just found missing
   await arriveAt(app, "Home");
   assert.deepEqual(cue(), ["/fixture/B.md"]);
 });
+
+test("Back to Home returns to the row Home was left from, or to the heading when that row is gone", async t => {
+  const recentFiles = ["B", "C"].map((name, index) => ({ path: `/fixture/${name}.md`, name: `${name}.md`, openedAt: 5 - index, lastHeadingId: null }));
+  const app = await mount(t, { recentFiles });
+  const row = name => app.host().querySelector(`.empty-state [aria-label^="Open ${name}.md"]`);
+  click(app.home());
+  await arriveAt(app, "Home");
+  row("C").focus();
+  click(row("C"));
+  await arriveAt(app, "C.md");
+  await press(app, "Go back");
+  await arriveAt(app, "Home");
+  await until(() => assert.ok(document.activeElement === row("C"), "focus returns to the row you left from"));
+
+  row("B").focus();
+  click(row("B"));
+  await arriveAt(app, "B.md");
+  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from recent files"]')));
+  click(app.host().querySelector('[aria-label="Remove B.md from recent files"]'));
+  await press(app, "Go back");
+  await arriveAt(app, "Home");
+  await until(() => assert.ok(document.activeElement === pageHeading(app), "without its row, focus lands on the heading"));
+});
+
+test("a cold launch onto Home focuses its heading", async t => {
+  const app = await mount(t, { initialPath: null, session: { kind: "home", savedAt: 1 },
+    recentFiles: [{ path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null }] });
+  await until(() => assert.ok(document.activeElement === pageHeading(app)));
+  assert.equal(pageHeading(app).textContent, "Home");
+});
+
+test("a launch restore focuses the reading surface, unless a control was chosen during the launch view", async t => {
+  const restored = await mount(t, { initialPath: null, session: { filePath: "/fixture/A.md", headingId: null, savedAt: 1 } });
+  await arriveAt(restored, "A.md");
+  await until(() => assert.ok(document.activeElement === restored.host().querySelector("main")));
+});
+
+test("a control chosen while the launch view reads keeps focus after the restore", async t => {
+  const app = await mount(t, { initialPath: null, holds: ["/fixture/A.md"], session: { filePath: "/fixture/A.md", headingId: null, savedAt: 1 } });
+  await until(() => assert.match(app.host().querySelector("main").textContent, /Opening A\.md…/));
+  const theme = app.host().querySelector('header button[aria-label^="Switch theme"]');
+  theme.focus();
+  await act(async () => app.launchHolds.get("/fixture/A.md").resolve(documentFor("/fixture/A.md")));
+  await arriveAt(app, "A.md");
+  assert.ok(document.activeElement === theme);
+});

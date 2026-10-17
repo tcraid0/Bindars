@@ -165,6 +165,14 @@ function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
 }
 
+// Whether the person has moved focus to a control that survives a change,
+// other than what `replaced` covers. The page itself is not a choice.
+function focusChosenElsewhere(replaced: (element: Element) => boolean): boolean {
+  const focused = document.activeElement;
+  return Boolean(focused?.isConnected && focused !== document.body
+    && focused !== document.documentElement && !replaced(focused));
+}
+
 function samePlace(left: NavigationEntry, right: NavigationEntry | null): boolean {
   if (!right) return false;
   if (left.filePath === null || right.filePath === null) return left.filePath === right.filePath;
@@ -465,12 +473,9 @@ function App() {
   }, [filePath]);
 
   const handleCancelPendingOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
-    const focused = document.activeElement;
+    const keepFocus = focusChosenElsewhere(element => element === event.currentTarget);
     cancelPendingOpen();
-    if (!focused?.isConnected || focused === event.currentTarget
-      || focused === document.body || focused === document.documentElement) {
-      mainScrollRef.current?.focus({ preventScroll: true });
-    }
+    if (!keepFocus) mainScrollRef.current?.focus({ preventScroll: true });
     toast("Opening canceled.", "info");
   }, [cancelPendingOpen, toast]);
 
@@ -1189,10 +1194,7 @@ function App() {
         await executePendingActionRef.current(admitted.action, getAnnotationMutationVersion());
         // Welcome disappears after any successful document entry. Preserve a
         // user's focus choice on a surviving control outside that surface.
-        const focused = document.activeElement;
-        const focusMovedOutsideWelcome = focused?.isConnected
-          && focused !== document.body && focused !== document.documentElement
-          && !focused.closest(".empty-state");
+        const focusMovedOutsideWelcome = focusChosenElsewhere(element => Boolean(element.closest(".empty-state")));
         if (openedFromWelcome && isDocumentOpen(getPublishedDocument().content)
           && actionAdmissionOwnerRef.current === admitted.admissionId && !focusMovedOutsideWelcome) {
           requestReaderFocus();
@@ -1832,11 +1834,15 @@ function App() {
         return;
       }
       const result = await openPathAndScroll(session.filePath, session.headingId, retryAction);
+      if (result.status === "opened"
+        && !focusChosenElsewhere(element => Boolean(mainScrollRef.current?.contains(element)))) {
+        requestReaderFocus();
+      }
       if (result.status === "failed" && result.error.category === "not-found") {
         return "not-found" as const;
       }
     },
-    [openPathAndScroll, reportMissingFile],
+    [openPathAndScroll, reportMissingFile, requestReaderFocus],
   );
 
   const {
@@ -1942,7 +1948,7 @@ function App() {
     const request = focusRequestRef.current;
     // An action can render before it finishes (a click renders at once);
     // finishing renders again, and a newer action replaces the request.
-    if (!request || actionAdmissionOwnerRef.current !== null) return;
+    if (!request || !appReady || actionAdmissionOwnerRef.current !== null) return;
     focusRequestRef.current = null;
     const published = getPublishedDocument();
     const documentKey = published.filePath ? toPathIdentityKey(published.filePath) : null;
@@ -1958,9 +1964,11 @@ function App() {
       || shortcutsVisible || commandPaletteVisible || readerControlsVisible
     ) return;
     if (request.home) {
-      if (!isDocumentOpen(published.content)) {
-        mainScrollRef.current?.querySelector<HTMLElement>(".empty-state h1")?.focus({ preventScroll: true });
-      }
+      if (isDocumentOpen(published.content)) return;
+      const page = mainScrollRef.current?.querySelector(".empty-state");
+      const row = [...(page?.querySelectorAll<HTMLElement>("[data-path]") ?? [])]
+        .find(item => item.dataset.path === request.home?.rowPath);
+      (row?.querySelector("button") ?? page?.querySelector<HTMLElement>("h1"))?.focus({ preventScroll: true });
       return;
     }
     if (searchVisible !== request.searchVisible || !readerDocumentReady || presentationMode) return;

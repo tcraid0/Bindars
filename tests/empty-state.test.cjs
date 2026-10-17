@@ -258,3 +258,29 @@ test("welcome focuses Open only after startup settles and never steals focus fro
     assert.ok(document.activeElement === opener);
   } finally { late.cleanup(); opener.remove(); }
 });
+
+test("a launch onto Home focuses its heading after the startup screen; a chosen control keeps focus", async () => {
+  await installDom();
+  const splash = document.createElement("div");
+  splash.id = "loading-screen";
+  document.body.append(splash);
+  const view = renderEmptyState({ recentFiles, canFocus: true });
+  try {
+    const heading = view.host.querySelector("h1");
+    assert.ok(document.activeElement !== heading, "nothing moves while the startup screen covers the page");
+    splash.remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(document.activeElement === heading);
+  } finally {
+    splash.remove();
+    view.cleanup();
+  }
+
+  const opener = document.createElement("button");
+  document.body.append(opener);
+  opener.focus();
+  const chosen = renderEmptyState({ recentFiles, canFocus: true });
+  try {
+    assert.ok(document.activeElement === opener);
+  } finally { chosen.cleanup(); opener.remove(); }
+});

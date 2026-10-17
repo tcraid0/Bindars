@@ -35,6 +35,7 @@ function EmptyStateComponent({
   const recentList = recentFiles.slice(0, 5);
   const message = recovery ? welcomeRecoveryMessage(recovery) : null;
   const openRef = useRef<HTMLButtonElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
   const focusSettledRef = useRef(false);
   // main.tsx supplies the entrance at launch by gliding the startup mark here.
   const [atLaunch] = useState(() => document.getElementById("loading-screen") !== null);
@@ -46,9 +47,10 @@ function EmptyStateComponent({
     if (!canFocus || focusSettledRef.current) return;
     const focusOpen = () => {
       focusSettledRef.current = true;
-      // A user who already chose a toolbar control keeps their focus.
+      // A user who already chose a toolbar control keeps their focus. First run
+      // starts at Open File…; a launch onto Home announces where you are.
       if (!document.activeElement || document.activeElement === document.body) {
-        openRef.current?.focus({ preventScroll: true });
+        (firstRun ? openRef : headingRef).current?.focus({ preventScroll: true });
       }
     };
     const loadingScreen = document.getElementById("loading-screen");
@@ -130,7 +132,7 @@ function EmptyStateComponent({
         recovery ? "empty-state-recovery" : ""].join(" ")}>
         <div className="empty-state-content w-full max-w-[440px]">
           <div className="flex flex-wrap items-center justify-between gap-3 px-3">
-            <h1 tabIndex={-1} className="flex items-center gap-2.5 text-2xl font-semibold text-text-primary">
+            <h1 ref={headingRef} tabIndex={-1} className="flex items-center gap-2.5 text-2xl font-semibold text-text-primary">
               <svg className="size-7 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
               Home
             </h1>
