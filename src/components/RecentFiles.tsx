@@ -1,4 +1,4 @@
-import { locationLabel } from "../lib/paths";
+import { locationLabel, toPathIdentityKey } from "../lib/paths";
 import type { RecentFile } from "../types";
 import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
@@ -60,7 +60,7 @@ export function RecentFiles({
       {files.map((file) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
-        const isUnavailable = file.path === recovery?.path;
+        const isUnavailable = recovery && toPathIdentityKey(file.path) === toPathIdentityKey(recovery.path);
         const isContinue = file.path === continuePath && !isUnavailable;
         const location = locationLabel(file.path);
         return (

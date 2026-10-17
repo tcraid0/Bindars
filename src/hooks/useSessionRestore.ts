@@ -65,6 +65,7 @@ export function useSessionRestore({
 }: UseSessionRestoreArgs) {
   const restoreGenerationRef = useRef(0);
   const [restored, setRestored] = useState(false);
+  const [restoredHome, setRestoredHome] = useState(false);
   // Home is the current place whenever no file is open, once it was chosen
   // (or restored); a launch still reading its document has no place yet.
   const homeRef = useRef(false);
@@ -157,6 +158,7 @@ export function useSessionRestore({
       lastSavedAtRef.current = Math.max(lastSavedAtRef.current, session.savedAt);
       if (!("filePath" in session)) {
         homeRef.current = true;
+        setRestoredHome(true);
         return;
       }
       const { filePath, headingId } = session;
@@ -194,5 +196,5 @@ export function useSessionRestore({
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, [readCurrentPlace, stamp]);
 
-  return { restored, rememberHome, notifyPositionChanged, flushCurrentSession };
+  return { restored, restoredHome, rememberHome, notifyPositionChanged, flushCurrentSession };
 }

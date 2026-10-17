@@ -96,12 +96,15 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
     window.localStorage.clear();
   });
   const home = () => view.host.querySelector("header button[title^='Home']");
+  async function requestOpen(path) {
+    native.setPendingPath(path);
+    await act(async () => emit("bindars://native-open-available"));
+  }
   return {
-    host: () => view.host, settings, writes, opened, home, launchHolds, dialogs, removed, scrolled,
+    host: () => view.host, settings, writes, opened, home, launchHolds, dialogs, removed, scrolled, requestOpen,
     hold(path) { const operation = deferred(); held.set(path, operation); return operation; },
     async open(path) {
-      native.setPendingPath(path);
-      await act(async () => emit("bindars://native-open-available"));
+      await requestOpen(path);
       await until(() => assert.match(view.host.querySelector(".document-header-filename")?.textContent ?? "", new RegExp(path.split("/").at(-1))));
       await until(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
     },
@@ -123,7 +126,8 @@ function pressOn(target, platform) {
   return event;
 }
 
-const atHome = app => Boolean(app.host().querySelector(".empty-state")) && !app.host().querySelector("article");
+const atHome = app => app.host().querySelector(".empty-state-home h1")?.textContent === "Home"
+  && !app.host().querySelector("article");
 const pageHeading = app => app.host().querySelector(".empty-state h1");
 
 for (const [platform, route] of [
@@ -183,15 +187,20 @@ test("Home leaves Focus mode, while presentation and an open dialog block it", a
   assert.ok(!atHome(app), "menu actions wait for the dialog");
 });
 
-test("Home at Home changes nothing but moves focus to the heading", async t => {
-  const app = await mount(t, { initialPath: null });
-  const theme = app.host().querySelector('header button[aria-label^="Switch theme"]');
-  theme.focus();
-  app.homeKey();
-  await until(() => assert.ok(document.activeElement === pageHeading(app)));
-  assert.ok(atHome(app));
-  assert.equal(app.writes.filter(write => write.key === "session").length, 0);
-});
+for (const session of [null, { kind: "home", savedAt: 1 }]) {
+  test(`Home on ${session ? "saved Home" : "the first-run welcome"} changes nothing but focuses the heading`, async t => {
+    const app = await mount(t, { initialPath: null, session });
+    const heading = session ? "Home" : "Bindars";
+    assert.equal(pageHeading(app).textContent, heading);
+    const theme = app.host().querySelector('header button[aria-label^="Switch theme"]');
+    theme.focus();
+    app.homeKey();
+    await until(() => assert.ok(document.activeElement === pageHeading(app)));
+    assert.equal(pageHeading(app).textContent, heading);
+    assert.equal(Boolean(app.host().querySelector(".empty-state-tagline")), !session);
+    assert.equal(app.writes.filter(write => write.key === "session").length, 0);
+  });
+}
 
 test("Alt+Home and Alt+arrows pass through a focused sidebar tab", async t => {
   const app = await mount(t);
@@ -454,12 +463,27 @@ test("Back to Home returns to the row Home was left from, or to the heading when
   await until(() => assert.ok(document.activeElement === pageHeading(app), "without its row, focus lands on the heading"));
 });
 
-test("a cold launch onto Home focuses its heading", async t => {
-  const app = await mount(t, { initialPath: null, session: { kind: "home", savedAt: 1 },
-    recentFiles: [{ path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null }] });
+test("removing the last recent file on Home keeps compact Home through Quit and relaunch", async t => {
+  const app = await mount(t);
+  click(app.home());
+  await arriveAt(app, "Home");
+  click(app.host().querySelector('.empty-state [aria-label="Remove A.md from recent files"]'));
+  await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
+  assert.ok(atHome(app), "removing the last row does not change the page");
+  await app.quit();
+  await app.relaunch();
+  assert.ok(atHome(app), "a saved Home is not a first run");
   await until(() => assert.ok(document.activeElement === pageHeading(app)));
-  assert.equal(pageHeading(app).textContent, "Home");
+  assert.deepEqual(app.opened, ["/fixture/A.md"]);
 });
+
+for (const recentFiles of [[], [{ path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null }]]) {
+  test(`a cold launch onto Home focuses its heading ${recentFiles.length ? "with" : "without"} recent files`, async t => {
+    const app = await mount(t, { initialPath: null, session: { kind: "home", savedAt: 1 }, recentFiles });
+    assert.ok(atHome(app));
+    await until(() => assert.ok(document.activeElement === pageHeading(app)));
+  });
+}
 
 test("a launch restore focuses the reading surface, unless a control was chosen during the launch view", async t => {
   const restored = await mount(t, { initialPath: null, session: { filePath: "/fixture/A.md", headingId: null, savedAt: 1 } });
@@ -477,12 +501,62 @@ test("a control chosen while the launch view reads keeps focus after the restore
   assert.ok(document.activeElement === theme);
 });
 
-test("a Finder or command-line open resumes at the section Recent saved", async t => {
-  const app = await mount(t, { recentFiles: [{ path: "/fixture/F.md", name: "F.md", openedAt: 2, lastHeadingId: "second" }] });
-  app.scrolled.length = 0;
-  await app.open("/fixture/F.md");
-  await until(() => assert.ok(app.scrolled.includes("second")));
-});
+for (const atLaunch of [true, false]) {
+  test(`an outside open starts at the top ${atLaunch ? "at launch" : "while running"}`, async t => {
+    const app = await mount(t, { initialPath: atLaunch ? "/fixture/F.md" : "/fixture/A.md",
+      recentFiles: [{ path: "/fixture/F.md", name: "F.md", openedAt: 2, lastHeadingId: "second" }],
+      session: { filePath: "/fixture/Other.md", headingId: "second", savedAt: 1 } });
+    if (!atLaunch) await app.open("/fixture/F.md");
+    await arriveAt(app, "F.md");
+    await until(() => assert.ok(app.host().querySelector("article #second")));
+    assert.ok(!app.scrolled.includes("second"));
+    assert.deepEqual(app.opened, atLaunch ? ["/fixture/F.md"] : ["/fixture/A.md", "/fixture/F.md"]);
+    assert.equal(toolbar(app, "Go back").disabled, atLaunch);
+  });
+}
+
+for (const category of ["notFound", "permissionDenied"]) {
+  test(`an outside-open path spelling shares the recent row's ${category} recovery`, async t => {
+    const path = "/fixture/Returned.md";
+    const alias = "/fixture/folder/../Returned.md";
+    const app = await mount(t, { initialPath: null, recentFiles: [
+      { path, name: "Returned.md", openedAt: 2, lastHeadingId: null },
+    ] });
+    const row = () => app.host().querySelector('.empty-state [aria-label^="Open Returned.md"]');
+    const message = () => app.host().querySelector(".empty-state-recovery-message");
+    assert.match(row().textContent, /Continue reading/);
+    const failed = app.hold(alias);
+    await app.requestOpen(alias);
+    await act(async () => failed.reject({ category, operation: "readDocument", message: "Unavailable", detail: "fixture" }));
+    await until(() => assert.ok(message()));
+    assert.doesNotMatch(row().textContent, /Continue reading/);
+    assert.equal(row().getAttribute("aria-disabled"), "true");
+    assert.ok(app.host().querySelector('[aria-label="Retry opening Returned.md"]'));
+    assert.ok(![...message().querySelectorAll("button")].some(button => button.textContent === "Retry"),
+      "the row owns Retry for either spelling");
+
+    click([...message().querySelectorAll("button")].find(button => button.textContent === "Dismiss"));
+    await until(() => assert.equal(message(), null));
+    assert.equal(row().textContent.includes("Continue reading"), category !== "notFound",
+      "only not-found suppresses the cue after Dismiss");
+    // A successful open through another spelling clears the remembered failure.
+    const recovered = app.hold("/fixture/./Returned.md");
+    await app.requestOpen("/fixture/./Returned.md");
+    await act(async () => recovered.resolve(documentFor(path)));
+    await arriveAt(app, "Returned.md");
+    click(app.home());
+    await arriveAt(app, "Home");
+    assert.match(row().textContent, /Continue reading/);
+
+    const failedAgain = app.hold(alias);
+    await app.requestOpen(alias);
+    await act(async () => failedAgain.reject({ category, operation: "readDocument", message: "Unavailable", detail: "fixture" }));
+    await until(() => assert.ok(message()));
+    click(app.host().querySelector('[aria-label="Remove Returned.md from recent files"]'));
+    await until(() => assert.equal(message(), null, "removing the equivalent row dismisses recovery"));
+    await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
+  });
+}
 
 test("a missing file named at launch is reported on Home instead of reopening the last place", async t => {
   const path = "/fixture/gone/notes.md";

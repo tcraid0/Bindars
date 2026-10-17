@@ -67,7 +67,7 @@ Shift+Cmd+H on macOS or Alt+Home on Linux, or **File › Home** on macOS. Going
 Home from an edited document saves or asks first, as opening another file does.
 Bindars reopens where you left off: the document you were reading, at its
 section, or Home if you left from Home. A file you open from Finder, the command
-line or a drop always comes first, at the section Recent saved for it. **Back**
+line or a drop always comes first. **Back**
 and **Forward** include Home, and Back returns from every way of opening a
 document.
 

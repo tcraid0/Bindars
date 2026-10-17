@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { RecentFile } from "../types";
 import { RecentFiles } from "./RecentFiles";
 import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-recovery";
+import { toPathIdentityKey } from "../lib/paths";
 
 const buttonBase = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg font-medium text-sm transition-colors duration-120";
 const primaryButton = buttonBase + " bg-accent-fill text-on-accent hover:bg-accent-fill-hover shadow-sm";
@@ -13,8 +14,8 @@ interface EmptyStateProps {
   onShowShortcuts: () => void;
   canTrySample?: boolean;
   canFocus?: boolean;
-  /** Reached inside the app (not the screen shown at launch): always Home. */
-  inApp?: boolean;
+  /** Home was chosen in the app or restored from the saved session. */
+  preferHome?: boolean;
   recentFiles: RecentFile[];
   recentHistoryUnavailable?: boolean;
   /** The recent file to mark "Continue reading", if any. */
@@ -28,7 +29,7 @@ interface EmptyStateProps {
 }
 
 function EmptyStateComponent({
-  onOpenFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, inApp = false,
+  onOpenFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
   recentFiles, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
   openingPath, recovery, onRetry, onDismiss,
 }: EmptyStateProps) {
@@ -41,7 +42,7 @@ function EmptyStateComponent({
   const [atLaunch] = useState(() => document.getElementById("loading-screen") !== null);
   // Only the launch screen of someone with no history is the first-run welcome.
   // Decided at mount, so removing the last recent file never swaps the page.
-  const [firstRun] = useState(() => !inApp && recentFiles.length === 0 && !recentHistoryUnavailable);
+  const [firstRun] = useState(() => !preferHome && recentFiles.length === 0 && !recentHistoryUnavailable);
 
   useEffect(() => {
     if (!canFocus || focusSettledRef.current) return;
@@ -94,7 +95,7 @@ function EmptyStateComponent({
       <p className="text-sm text-text-primary">{message.title}</p>
       <p className="text-xs text-text-muted mt-1">{message.detail}</p>
       <div className={`flex gap-4 mt-2 ${firstRun ? "justify-center" : ""}`}>
-        {!recentList.some(file => file.path === recovery?.path) && (
+        {!recentList.some(file => toPathIdentityKey(file.path) === toPathIdentityKey(recovery?.path ?? "")) && (
           <button type="button" onClick={onRetry} disabled={recovery?.retryDisabled}
             className="text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none">
             Retry

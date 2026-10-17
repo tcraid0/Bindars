@@ -102,9 +102,9 @@ test("Home shows five recent files and marks only the given one Continue reading
   } finally { view.cleanup(); }
 });
 
-test("inside the app Home is always the compact page, even without history, and keeps its page when rows go", async () => {
+test("chosen or restored Home is compact without history, and keeps its page when rows go", async () => {
   await installDom();
-  const empty = renderEmptyState({ inApp: true });
+  const empty = renderEmptyState({ preferHome: true });
   try {
     assert.equal(empty.host.querySelector("h1").textContent, "Home");
     assert.match(empty.host.textContent, /No recent files/);

@@ -3652,10 +3652,18 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
 test("Home from the editor honors Save, Discard, and Cancel for dirty documents", async (context) => {
   for (const choice of ["Save", "Discard", "Cancel"]) {
     await context.test(choice, async () => {
-      const rendered = await renderContinuityApp();
+      const restoreLocalStorage = bindAppLocalStorage();
+      const storage = { value: { version: 1, files: [] }, writes: [] };
+      const rendered = await renderContinuityApp({ recentStorage: storage });
       const words = `${rendered.diskContent()}\n\nKeep ${choice} words.`;
       const home = () => rendered.host.querySelector("header button[title^='Home']");
       try {
+        window.dispatchEvent(new Event("beforeunload"));
+        const savedPlace = JSON.parse(localStorage.getItem("bindars-session"));
+        const history = () => ["Go back", "Go forward"].map(label =>
+          rendered.host.querySelector(`header [aria-label="${label}"]`).disabled);
+        const beforeHistory = history();
+        const beforeWrites = storage.writes.length;
         // The shortcut arrives from CodeMirror's own content element.
         const dialog = await requestDepartureAfterFailedBoundarySave(rendered, words,
           async () => { dispatchEditorKey(rendered.host, "Home", { altKey: true }); });
@@ -3665,6 +3673,13 @@ test("Home from the editor honors Save, Discard, and Cancel for dirty documents"
           assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
           assert.ok(!rendered.host.querySelector(".empty-state"));
           assert.equal(home().getAttribute("aria-current"), null);
+          assert.deepEqual(history(), beforeHistory, "Cancel changes neither Back nor Forward");
+          const afterPlace = JSON.parse(localStorage.getItem("bindars-session"));
+          assert.equal(afterPlace.filePath, savedPlace.filePath, "Cancel keeps the saved document");
+          assert.equal(afterPlace.headingId, savedPlace.headingId, "Cancel keeps its saved section");
+          for (const write of storage.writes.slice(beforeWrites).filter(write => write.key === "session")) {
+            assert.equal(write.value.filePath, savedPlace.filePath, "Cancel never saves Home natively");
+          }
         } else {
           clickButton(rendered.host, choice, dialog);
           await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state")));
@@ -3674,6 +3689,7 @@ test("Home from the editor honors Save, Discard, and Cancel for dirty documents"
         }
       } finally {
         await rendered.cleanup();
+        restoreLocalStorage();
       }
     });
   }

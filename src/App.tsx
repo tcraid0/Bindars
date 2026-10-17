@@ -1847,6 +1847,7 @@ function App() {
 
   const {
     restored: sessionRestored,
+    restoredHome,
     rememberHome,
     notifyPositionChanged: notifySessionPositionChanged,
     flushCurrentSession,
@@ -2302,11 +2303,13 @@ function App() {
   useEffect(() => {
     const retry = documentError?.retryAction;
     if (documentError?.error.category !== "not-found" || !retry || !("path" in retry)) return;
-    setMissingPaths(paths => paths.has(retry.path) ? paths : new Set(paths).add(retry.path));
+    const key = toPathIdentityKey(retry.path);
+    setMissingPaths(paths => paths.has(key) ? paths : new Set(paths).add(key));
   }, [documentError]);
   useEffect(() => {
     if (!filePath) return;
-    setMissingPaths(paths => paths.has(filePath) ? new Set([...paths].filter(path => path !== filePath)) : paths);
+    const key = toPathIdentityKey(filePath);
+    setMissingPaths(paths => paths.has(key) ? new Set([...paths].filter(path => path !== key)) : paths);
   }, [filePath]);
 
   const handleOpenRecent = useCallback(
@@ -2631,8 +2634,7 @@ function App() {
         return;
       }
       case "open-file-path":
-        // Finder, the command line and drops resume where Recent last left the file.
-        await openAndRecordHistory(action.path, getScrollPosition(action.path), action);
+        await openAndRecordHistory(action.path, null, action);
         return;
       case "find-notes":
         flushSync(() => flushAnnotationNoteRef.current?.());
@@ -3098,10 +3100,11 @@ function App() {
     ? { path: recoveryAction.path, error, retryDisabled }
     : null;
   const welcomeRecovery = !documentOpen ? recentRecovery : null;
+  const recoveryPathKey = recentRecovery ? toPathIdentityKey(recentRecovery.path) : null;
   // The newest saved entry, never one known to be unavailable.
   const newestRecentPath = recentFiles[0]?.path ?? null;
-  const continuePath = newestRecentPath && newestRecentPath !== recentRecovery?.path
-    && !missingPaths.has(newestRecentPath) ? newestRecentPath : null;
+  const continuePath = newestRecentPath && toPathIdentityKey(newestRecentPath) !== recoveryPathKey
+    && !missingPaths.has(toPathIdentityKey(newestRecentPath)) ? newestRecentPath : null;
   const dismissRecentRecovery = () => {
     if (!recentRecovery) return;
     dismissDocumentError();
@@ -3110,7 +3113,7 @@ function App() {
   // Removing the unavailable entry also dismisses its recovery; Dismiss alone
   // keeps the entry in recent files.
   const removeRecentFile = (path: string) => {
-    if (path === recentRecovery?.path) dismissRecentRecovery();
+    if (toPathIdentityKey(path) === recoveryPathKey) dismissRecentRecovery();
     removeRecent(path);
   };
 
@@ -3354,7 +3357,7 @@ function App() {
                   canTrySample={!actionAdmissionInFlight}
                   canFocus={sessionRestored && !loading && !actionAdmissionInFlight && !homeEntered
                     && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
-                  inApp={homeEntered}
+                  preferHome={homeEntered || restoredHome}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
                   continuePath={continuePath}

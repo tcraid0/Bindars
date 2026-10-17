@@ -132,8 +132,9 @@ precedence.
 The `session` setting holds the last place Bindars reopens: a document and its
 section, or Home (`{ "kind": "home" }`), each with the time it was saved. A copy
 kept in the webview's local storage covers a failed settings write, and the newer
-of the two wins. Builds before 1.6.1 ignore a Home record and show their welcome
-screen.
+of the two wins. Builds before 1.6.1 ignore Home records. If an older document
+record remains in the other store after a failed write, those builds may restore
+that document instead of showing their welcome screen.
 
 ## Document navigation and disposable search data
 
@@ -146,10 +147,15 @@ or autosave destination. Existing `workspace:root` preferences and their legacy
 local-storage fallback continue to identify this one folder without conversion.
 
 On macOS, Drafts isn't listed until Bindars has saved a draft or **Show existing
-drafts** has found one, so launching doesn't ask for access to Documents. An
-empty `drafts-created` file in `~/Library/Application Support/io.github.tcraid0.bindars/`
+drafts** has found one. This prevents Drafts itself from requesting Documents
+access at launch. An empty `drafts-created` file in
+`~/Library/Application Support/io.github.tcraid0.bindars/`
 records this. It holds no document text or paths, and deleting it makes Drafts
 wait again. It is separate from the macOS permission to access Documents.
+
+At launch, the search index checks Recent and reads uncached or changed
+documents, including when Home is the saved destination. Those reads can still
+require access to the folders containing the documents.
 
 Derived search data is stored separately in `document-search-v1.json` in the
 per-user app-cache directory, bounded to 8 MiB on disk. It contains document
