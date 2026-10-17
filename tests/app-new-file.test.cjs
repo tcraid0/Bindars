@@ -6384,35 +6384,46 @@ test('sample saved but open failed reports the destination and ordinary Open doe
   } finally { await rendered.cleanup(); }
 });
 
-test('sample cancel supersedes an in-flight session restore without exporting', async () => {
+test('Home during the launch view supersedes the restore read, which then publishes nothing', async () => {
   const session = deferred();
-  const dialog = deferred();
-  const flow = sampleFixture({ dialog: () => dialog.promise });
-  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: '.empty-state-content', sampleFlow: flow });
+  const flow = sampleFixture();
+  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: 'main', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(session.args));
-    clickButton(rendered.host, 'Try an Example…');
-    await waitFor(() => assert.equal(flow.dialogs.length, 1));
-    await act(async () => dialog.resolve(null));
+    assert.ok(!rendered.host.querySelector('.empty-state'), 'the restore reads behind the launch view, not the welcome screen');
+    assert.match(rendered.host.querySelector('main').textContent, /Opening continuity\.md…/);
+    flushSync(() => rendered.host.querySelector("header button[title^='Home']").click());
+    await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
     await act(async () => session.resolve(rendered.openResult('# Late session')));
     await act(async () => new Promise(setImmediate));
     assert.deepEqual(rendered.openedPaths(), ['/tmp/continuity.md']);
+    assert.ok(!rendered.host.querySelector('article'), 'the late read never replaces Home');
     assert.deepEqual(flow.exports, []);
-    assert.ok(rendered.host.querySelector('.empty-state-content'));
   } finally { await rendered.cleanup(); }
 });
 
-test('sample cancels an already pending session open before showing its Save dialog', async () => {
+// The welcome screen shows during a restore read only when the settings read
+// outlasted the startup deadline, so the read starts after the screen appears.
+test('sample supersedes a session open that started after startup stopped waiting, cancelled or completed', async () => {
+  const sessionRead = deferred();
   const startup = deferred();
   const dialog = deferred();
-  const flow = sampleFixture({ dialog: () => dialog.promise });
-  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  let dialogs = 0;
+  const flow = sampleFixture({ dialog: () => (++dialogs === 1 ? null : dialog.promise) });
+  const rendered = await renderContinuityApp({ initialNativePath: null, initialSessionOperation: sessionRead, initialOpenOperation: startup, readySelector: null, sampleFlow: flow });
   try {
+    await act(async () => { await new Promise(resolve => realSetTimeout(resolve, 3_050)); });
+    await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
+    await act(async () => sessionRead.resolve({ filePath: '/tmp/continuity.md', headingId: 'second', savedAt: 1 }));
     await waitFor(() => assert.ok(startup.args));
     clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => startup.resolve(rendered.openResult('# Stale startup')));
-    assert.ok(!rendered.host.querySelector('article'));
+    await act(async () => new Promise(setImmediate));
+    assert.ok(!rendered.host.querySelector('article'), 'a cancelled example still superseded the restore');
+    assert.deepEqual(flow.exports, []);
+    clickButton(rendered.host, 'Try an Example…');
+    await waitFor(() => assert.equal(flow.dialogs.length, 2));
     await act(async () => dialog.resolve('/tmp/sample.md'));
     await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /Welcome fixture/));
     assert.doesNotMatch(rendered.host.textContent, /Stale startup/);
@@ -6434,8 +6445,13 @@ test('sample completion after unmount does not open or publish stale feedback', 
 test('sample keeps the existing native-open busy guard and accepts a later retry', async () => {
   const startup = deferred();
   const flow = sampleFixture();
-  const rendered = await renderContinuityApp({ initialNativePath: '/tmp/startup.md', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  // A launch-time native open reads behind the launch view, so deliver it
+  // while the welcome screen is showing.
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
+    rendered.deferNextOpen(startup);
+    rendered.setPendingNativeOpenPath('/tmp/startup.md');
+    await act(async () => emit('bindars://native-open-available'));
     await waitFor(() => assert.ok(startup.args));
     const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     assert.equal(sample.disabled, true);
@@ -7298,10 +7314,11 @@ for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) 
       { path, name: "continuity.md", openedAt: 100, lastHeadingId: "second" },
     ] }, writes: [] };
     const rendered = await renderContinuityApp({
-      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: ".empty-state", recentStorage: history,
+      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: "main", recentStorage: history,
     });
     try {
       await waitFor(() => assert.ok(failed.args));
+      assert.ok(!rendered.host.querySelector(".empty-state"), "the restore reads behind the launch view, not the welcome screen");
       await act(async () => failed.reject({
         category, operation: "readDocument", message: "The storage request is unavailable.", detail: "fixture",
       }));
@@ -7449,8 +7466,8 @@ for (const control of ["Dismiss", "Remove"]) {
         assert.ok(document.activeElement === [...rendered.host.querySelectorAll("button")]
           .find(candidate => candidate.textContent === "Open File…"));
       }
-      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
-        "the stored unavailable session is forgotten"));
+      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value?.kind === "home"),
+        "dismissing saves Home in place of the stored unavailable session"));
       assert.deepEqual(rendered.openedPaths(), []);
     } finally { await rendered.cleanup(); }
   });

@@ -26,7 +26,7 @@ const documentFor = path => ({
 });
 
 // A StrictMode App whose settings survive relaunch(), like the native store.
-async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.md", recentFiles = [], session = null } = {}) {
+async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.md", recentFiles = [], session = null, holds = [] } = {}) {
   window.localStorage.clear();
   const priorStorage = globalThis.localStorage;
   globalThis.localStorage = window.localStorage;
@@ -34,7 +34,9 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
   Object.defineProperty(navigator, "platform", { configurable: true, value: platform });
   const settings = { session, "recent-files": { version: 1, files: recentFiles } };
   const writes = [], opened = [], held = new Map();
-  let native, view;
+  const launchHolds = new Map(holds.map(path => [path, deferred()]));
+  for (const [path, operation] of launchHolds) held.set(path, operation);
+  let native, view, exits = 0;
   const ipc = (cmd, args = {}) => {
     if (cmd === "initialize_annotation_storage") return { settingsReady: true };
     if (cmd === "get_setting") {
@@ -51,6 +53,7 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
       return documentFor(args.path);
     }
     if (cmd === "plugin:dialog|open") return null;
+    if (cmd === "exit_after_guarded_quit") { exits += 1; return null; }
     if (cmd === "list_draft_documents") return { files: [], limitHit: false, skipped: true };
     if (cmd === "inspect_document_files") return [];
     if (cmd === "is_draft_document") return false;
@@ -66,9 +69,12 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
     native = createNativeOpenIpc(path);
     view = createAppView({ ipc: native.wrap(ipc), strictMode: true });
     view.render();
-    await until(() => assert.ok(view.host.querySelector("article, .empty-state")));
+    await until(() => assert.ok(view.host.querySelector("main")));
   }
   await launch(initialPath);
+  if (initialPath && !launchHolds.has(initialPath)) {
+    await until(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]')?.disabled, false));
+  }
   t.after(async () => {
     await view.cleanup(); clearMocks();
     globalThis.localStorage = priorStorage;
@@ -77,7 +83,7 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
   });
   const home = () => view.host.querySelector("header button[title^='Home']");
   return {
-    host: () => view.host, settings, writes, opened, home,
+    host: () => view.host, settings, writes, opened, home, launchHolds,
     hold(path) { const operation = deferred(); held.set(path, operation); return operation; },
     async open(path) {
       native.setPendingPath(path);
@@ -86,6 +92,12 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
       await until(() => assert.equal(view.host.querySelector('[aria-label="Edit mode"]').disabled, false));
     },
     async relaunch(path = null) { await view.cleanup(); await launch(path); },
+    // The guarded Quit: the session flush runs before the native exit.
+    async quit() {
+      const before = exits;
+      await act(async () => emit("bindars://quit-requested"));
+      await until(() => assert.equal(exits, before + 1));
+    },
     homeKey: (target = document.activeElement ?? document.body) => pressOn(target, platform),
   };
 }
@@ -186,4 +198,69 @@ test("Alt+Home and Alt+arrows pass through a focused sidebar tab", async t => {
   pressKey("Home");
   assert.equal(app.host().querySelector("#navigation-tab-Recent").getAttribute("aria-selected"), "true",
     "plain Home still moves to the first tab");
+});
+
+test("Home, an untouched New, and New then Home are each remembered when Bindars quits", async t => {
+  const app = await mount(t);
+  app.homeKey();
+  await until(() => assert.ok(atHome(app)));
+  await until(() => assert.equal(app.settings.session?.kind, "home", "Home is saved as soon as it commits"));
+  await app.quit();
+  await app.relaunch();
+  assert.ok(atHome(app));
+  assert.deepEqual(app.opened, ["/fixture/A.md"], "nothing was reopened");
+
+  await app.open("/fixture/B.md");
+  pressKey("n", { ctrlKey: true });
+  await until(() => assert.ok(app.host().querySelector(".cm-editor")));
+  await app.quit();
+  await app.relaunch();
+  assert.ok(atHome(app), "a new document that was never saved counts as Home");
+
+  await app.open("/fixture/C.md");
+  pressKey("n", { ctrlKey: true });
+  await until(() => assert.ok(app.host().querySelector(".cm-editor")));
+  app.homeKey(document.body);
+  await until(() => assert.ok(atHome(app)));
+  await app.quit();
+  await app.relaunch();
+  assert.ok(atHome(app));
+
+  await app.open("/fixture/D.md");
+  await app.quit();
+  await app.relaunch();
+  await until(() => assert.match(app.host().querySelector(".document-header-filename")?.textContent ?? "", /D\.md/));
+  assert.equal(app.opened.at(-1), "/fixture/D.md", "a document stays the place to reopen");
+});
+
+for (const launch of ["restore", "explicit"]) {
+  test(`${launch === "restore" ? "a restored" : "an explicit"} open at launch shows the file it is opening, never Home first`, async t => {
+    const path = launch === "restore" ? "/fixture/slow.md" : "/fixture/finder.md";
+    const app = await mount(t, {
+      initialPath: launch === "explicit" ? path : null, holds: [path],
+      session: launch === "restore" ? { filePath: path, headingId: "second", savedAt: 1 } : { kind: "home", savedAt: 1 },
+    });
+    await until(() => assert.match(app.host().querySelector("main").textContent, new RegExp(`Opening ${path.split("/").at(-1)}…`)));
+    assert.ok(!app.host().querySelector(".empty-state"), "no Home while the launch read is pending");
+    assert.equal(app.home().getAttribute("aria-current"), null);
+    await act(async () => app.launchHolds.get(path).resolve(documentFor(path)));
+    await until(() => assert.ok(app.host().querySelector("article")));
+    assert.ok(!app.host().querySelector(".empty-state"));
+  });
+}
+
+test("a missing document at launch shows Home with its message; Quit keeps it, Dismiss saves Home", async t => {
+  const app = await mount(t, { initialPath: null, session: { filePath: "/fixture/missing.md", headingId: null, savedAt: 1 } });
+  const message = () => app.host().querySelector(".empty-state-recovery-message");
+  await until(() => assert.match(message()?.textContent ?? "", /missing\.md/));
+  assert.equal(app.settings.session.restoreDisabled, true);
+  await app.quit();
+  assert.equal(app.settings.session.restoreDisabled, true, "quitting with the message showing keeps it");
+  await app.relaunch();
+  await until(() => assert.match(message()?.textContent ?? "", /missing\.md/));
+  click([...message().querySelectorAll("button")].find(button => button.textContent === "Dismiss"));
+  await until(() => assert.equal(app.settings.session.kind, "home"));
+  await app.relaunch();
+  assert.ok(atHome(app));
+  assert.equal(message(), null, "the dismissed file does not return at the next launch");
 });

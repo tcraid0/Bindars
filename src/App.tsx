@@ -1478,14 +1478,6 @@ function App() {
     beginEditSession("", null, null);
   }, [beginEditSession, setVirtualContent]);
 
-  // Home replaces the document; the guard has already settled its edits.
-  // Focus mode would hide the toolbar Home lives in.
-  const showHome = useCallback(() => {
-    closeDocument();
-    setFocusMode(false);
-    setHomeEntered(true);
-  }, [closeDocument]);
-
   const guardedNewFile = useCallback(() => {
     guardAction({ kind: "new-file" });
   }, [guardAction]);
@@ -1842,7 +1834,7 @@ function App() {
 
   const {
     restored: sessionRestored,
-    forgetUnavailableSession,
+    rememberHome,
     notifyPositionChanged: notifySessionPositionChanged,
     flushCurrentSession,
   } = useSessionRestore({
@@ -1855,6 +1847,23 @@ function App() {
   // The deadline permits interaction, not storage writes. History and preference
   // hooks keep their own authority/user-intent guards while reads are pending.
   const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
+
+  // At launch, the first open (a restore or an explicit file) reads behind a
+  // neutral view instead of Home, so Home never flashes before the document.
+  const [launchSettled, setLaunchSettled] = useState(false);
+  useEffect(() => {
+    if (appReady && !loading) setLaunchSettled(true);
+  }, [appReady, loading]);
+  const launchOpening = !launchSettled && loading;
+
+  // Home replaces the document; the guard has already settled its edits.
+  // Focus mode would hide the toolbar Home lives in.
+  const showHome = useCallback(() => {
+    closeDocument();
+    setFocusMode(false);
+    setHomeEntered(true);
+    void rememberHome();
+  }, [closeDocument, rememberHome]);
 
   // Preparation can finish while startup still hides the reader. Wait for
   // the same readiness gate as the JSX so this effect sees its committed DOM.
@@ -2491,6 +2500,8 @@ function App() {
       }
       case "new-file":
         createNewDocument();
+        // Until it is saved, a new document counts as Home for the next launch.
+        void rememberHome();
         return;
       case "copy-document": {
         if (editingRef.current || !filePath || content === null || !fileRevision) return;
@@ -3027,7 +3038,7 @@ function App() {
   const dismissRecentRecovery = () => {
     if (!recentRecovery) return;
     dismissDocumentError();
-    void forgetUnavailableSession(recentRecovery.path);
+    if (!documentOpen) void rememberHome();
   };
   // Removing the unavailable entry also dismisses its recovery; Dismiss alone
   // keeps the entry in recent files.
@@ -3078,7 +3089,7 @@ function App() {
           onGoBack={guardedGoBack}
           onGoForward={guardedGoForward}
           onGoHome={guardedGoHome}
-          atHome={!documentOpen}
+          atHome={!documentOpen && !launchOpening}
           isEditing={editing}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
@@ -3187,7 +3198,7 @@ function App() {
                   <span role="status" aria-live="polite" aria-atomic="true">
                     {openingSlow
                       ? "Still opening. Cloud and external files can take longer to become available."
-                      : "Opening file..."}
+                      : launchOpening && openingPath ? `Opening ${pathFileName(openingPath)}…` : "Opening file..."}
                   </span>
                   {openingSlow && (
                     <button
@@ -3268,7 +3279,7 @@ function App() {
                   onOpenFragment={openMarkdownFragment}
                   onNavigateToFile={guardedNavigateToFile}
                 />
-              ) : (
+              ) : launchOpening ? null : (
                 <EmptyState
                   onOpenFile={guardedOpenFile}
                   onTrySample={() => { guardAction({ kind: "try-sample" }); }}

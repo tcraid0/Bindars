@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { storeGet, storeSet } from "../lib/store";
-import { tryRemoveLocalStorage, trySetLocalStorage } from "../lib/safe-local-storage";
+import { trySetLocalStorage } from "../lib/safe-local-storage";
 import type { SessionData } from "../types";
 import type { InitialNativeOpenSelection } from "./useNativeOpen";
 
@@ -8,22 +8,29 @@ const STORE_KEY = "session";
 const LS_KEY = "bindars-session";
 const DEBOUNCE_MS = 2000;
 
-interface StoredSession extends SessionData {
+/** The last settled place: a document position, or Home. */
+const HOME = { kind: "home" } as const;
+type Place = SessionData | typeof HOME;
+
+type StoredSession = (SessionData & {
   savedAt: number;
   // Retain the path and position for recovery, without repeatedly opening a
   // known missing file. A successful open writes an ordinary session again.
   restoreDisabled?: true;
-}
+}) | (typeof HOME & { savedAt: number });
 
+// Records without a kind are documents, as every build before Home wrote them.
 function decodeSession(value: unknown): StoredSession | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
+  const savedAt = typeof record.savedAt === "number" && Number.isSafeInteger(record.savedAt) && record.savedAt > 0
+    ? record.savedAt : 0;
+  if (record.kind === HOME.kind) return { ...HOME, savedAt };
   if (typeof record.filePath !== "string" || !record.filePath.trim() || record.filePath.includes("\0")) return null;
   return {
     filePath: record.filePath,
     headingId: typeof record.headingId === "string" ? record.headingId : null,
-    savedAt: typeof record.savedAt === "number" && Number.isSafeInteger(record.savedAt) && record.savedAt > 0
-      ? record.savedAt : 0,
+    savedAt,
     ...(record.restoreDisabled === true ? { restoreDisabled: true as const } : {}),
   };
 }
@@ -41,9 +48,10 @@ interface UseSessionRestoreArgs {
   filePath: string | null;
   getActiveHeadingId: () => string | null;
   /**
-   * Reopens the saved session. With `knownMissing` the file was already
+   * Reopens the saved document. With `knownMissing` the file was already
    * confirmed missing on an earlier launch: report it for recovery without
    * reading it again. Return "not-found" when a read confirms a missing file.
+   * A saved Home has nothing to reopen and does not call this.
    */
   onRestore: (session: SessionData, knownMissing: boolean) => void | "not-found" | Promise<void | "not-found">;
   waitForInitialNativeOpen: () => Promise<InitialNativeOpenSelection>;
@@ -57,9 +65,9 @@ export function useSessionRestore({
 }: UseSessionRestoreArgs) {
   const restoreGenerationRef = useRef(0);
   const [restored, setRestored] = useState(false);
-  // The path of a stored `restoreDisabled` record, so forgetting it cannot
-  // clear a different document's session.
-  const unavailablePathRef = useRef<string | null>(null);
+  // Home is the current place whenever no file is open, once it was chosen
+  // (or restored); a launch still reading its document has no place yet.
+  const homeRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingWriteRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const lastSavedAtRef = useRef(0);
@@ -72,22 +80,26 @@ export function useSessionRestore({
   onRestoreRef.current = onRestore;
   waitForInitialNativeOpenRef.current = waitForInitialNativeOpen;
 
-  const readCurrentSession = useCallback((): SessionData | null => {
+  const readCurrentPlace = useCallback((): Place | null => {
     const currentFilePath = filePathRef.current;
-    if (!currentFilePath) return null;
-    return {
-      filePath: currentFilePath,
-      headingId: getActiveHeadingIdRef.current(),
-    };
+    if (currentFilePath) return { filePath: currentFilePath, headingId: getActiveHeadingIdRef.current() };
+    return homeRef.current ? HOME : null;
   }, []);
 
-  const captureStoredSession = useCallback((): StoredSession | null => {
-    const session = readCurrentSession();
-    if (!session) return null;
+  const stamp = useCallback((place: Place): StoredSession => {
     // Distinguish an unload fallback from a write captured in the same millisecond.
     lastSavedAtRef.current = Math.max(Date.now(), lastSavedAtRef.current + 1);
-    return { ...session, savedAt: lastSavedAtRef.current };
-  }, [readCurrentSession]);
+    return { ...place, savedAt: lastSavedAtRef.current };
+  }, []);
+
+  // Every write goes to the local fallback first, then natively after older
+  // writes drain, so a slow earlier write can never finish last.
+  const writeSession = useCallback((session: StoredSession) => {
+    trySetLocalStorage(LS_KEY, JSON.stringify(session));
+    const write = pendingWriteRef.current.then(() => storeSet(STORE_KEY, session));
+    pendingWriteRef.current = write;
+    return write;
+  }, []);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) clearTimeout(timerRef.current);
@@ -96,34 +108,22 @@ export function useSessionRestore({
 
   const flushCurrentSession = useCallback(async () => {
     clearTimer();
-    const session = captureStoredSession();
-    if (!session) {
+    const place = readCurrentPlace();
+    if (!place) {
       await pendingWriteRef.current;
       return;
     }
-    unavailablePathRef.current = null;
-    trySetLocalStorage(LS_KEY, JSON.stringify(session));
-    // Drain an older debounced write before the exit snapshot, so it cannot
-    // finish last and replace the position that quit just saved.
-    const write = pendingWriteRef.current.then(() => storeSet(STORE_KEY, session));
-    pendingWriteRef.current = write;
-    await write;
-  }, [captureStoredSession, clearTimer]);
+    await writeSession(stamp(place));
+  }, [clearTimer, readCurrentPlace, stamp, writeSession]);
 
-  // Dismissing or removing the missing file's recovery also stops it from
-  // returning at the next launch. The native record goes first; the local
-  // fallback is removed only once that succeeded, so a failed native write
-  // leaves both records intact and permits another deletion attempt.
-  const forgetUnavailableSession = useCallback(async (path: string) => {
-    if (unavailablePathRef.current !== path || filePathRef.current !== null) return;
-    const savedAt = lastSavedAtRef.current;
-    const write = pendingWriteRef.current.then(() => storeSet(STORE_KEY, null));
-    pendingWriteRef.current = write;
-    if (!await write) return;
-    if (unavailablePathRef.current === path) unavailablePathRef.current = null;
-    // A new document may have saved its exit fallback while deletion waited.
-    if (lastSavedAtRef.current === savedAt) tryRemoveLocalStorage(LS_KEY);
-  }, []);
+  // Written at once, not after the debounce, so a quit straight after keeps
+  // Home. Callers name Home explicitly: the closed document's path is still
+  // in filePathRef until the next render.
+  const rememberHome = useCallback(() => {
+    homeRef.current = true;
+    clearTimer();
+    return writeSession(stamp(HOME));
+  }, [clearTimer, stamp, writeSession]);
 
   const notifyPositionChanged = useCallback(() => {
     if (!filePathRef.current) return;
@@ -152,25 +152,19 @@ export function useSessionRestore({
       // Legacy records have no timestamp. Preserve native precedence for ties,
       // but prefer a newer unload fallback even when the native record is valid.
       if (local && (!session || local.savedAt > session.savedAt)) session = local;
+      if (!session) return;
 
-      if (session) {
-        lastSavedAtRef.current = Math.max(lastSavedAtRef.current, session.savedAt);
-        const { filePath, headingId } = session;
-        const knownMissing = session.restoreDisabled === true;
-        if (knownMissing) unavailablePathRef.current = filePath;
-        void Promise.resolve(onRestoreRef.current({ filePath, headingId }, knownMissing)).then(async (result) => {
-          if (result !== "not-found" || !isCurrent() || filePathRef.current !== null) return;
-          unavailablePathRef.current = filePath;
-          lastSavedAtRef.current = Math.max(Date.now(), lastSavedAtRef.current + 1);
-          const unavailable: StoredSession = {
-            filePath, headingId, savedAt: lastSavedAtRef.current, restoreDisabled: true,
-          };
-          trySetLocalStorage(LS_KEY, JSON.stringify(unavailable));
-          const write = pendingWriteRef.current.then(() => storeSet(STORE_KEY, unavailable));
-          pendingWriteRef.current = write;
-          await write;
-        }).catch(reportRestoreError);
+      lastSavedAtRef.current = Math.max(lastSavedAtRef.current, session.savedAt);
+      if (!("filePath" in session)) {
+        homeRef.current = true;
+        return;
       }
+      const { filePath, headingId } = session;
+      void Promise.resolve(onRestoreRef.current({ filePath, headingId }, session.restoreDisabled === true)).then(async (result) => {
+        // A document opened, or Home chosen, since then is the place now.
+        if (result !== "not-found" || !isCurrent() || filePathRef.current !== null || homeRef.current) return;
+        await writeSession({ ...stamp({ filePath, headingId }), restoreDisabled: true });
+      }).catch(reportRestoreError);
     })().catch(reportRestoreError).finally(() => {
       if (isCurrent()) setRestored(true);
     });
@@ -178,7 +172,7 @@ export function useSessionRestore({
     return () => {
       active = false;
     };
-  }, []);
+  }, [stamp, writeSession]);
 
   // File changes start a fresh debounced save. Heading changes call the
   // returned notifier so they do not need to flow through App state.
@@ -192,14 +186,13 @@ export function useSessionRestore({
   // Synchronous save on beforeunload
   useEffect(() => {
     const handleUnload = () => {
-      const session = captureStoredSession();
-      if (!session) return;
-      trySetLocalStorage(LS_KEY, JSON.stringify(session));
+      const place = readCurrentPlace();
+      if (place) trySetLocalStorage(LS_KEY, JSON.stringify(stamp(place)));
     };
 
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
-  }, [captureStoredSession]);
+  }, [readCurrentPlace, stamp]);
 
-  return { restored, forgetUnavailableSession, notifyPositionChanged, flushCurrentSession };
+  return { restored, rememberHome, notifyPositionChanged, flushCurrentSession };
 }
