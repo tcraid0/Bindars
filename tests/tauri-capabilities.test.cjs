@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
 const { emit, TauriEvent } = require("@tauri-apps/api/event");
@@ -16,19 +17,50 @@ const capabilities = JSON.parse(
   ),
 );
 
-test("external links grant only web and email URL scopes across all capabilities", () => {
-  // This checks native capability input, independently of frontend link handlers.
-  // An additional capability/default grant could otherwise restore tel: access.
-  const directory = path.join(projectRoot, "src-tauri/capabilities");
-  const grants = fs.readdirSync(directory).flatMap((file) => {
-    assert.ok(file.endsWith(".json"), `review capability format: ${file}`);
-    const capability = JSON.parse(fs.readFileSync(path.join(directory, file), "utf8"));
+function externalLinkGrants(directory) {
+  return fs.readdirSync(directory).flatMap((name) => {
+    const file = path.join(directory, name);
+    if (fs.statSync(file).isDirectory()) return externalLinkGrants(file);
+    const extension = path.extname(file);
+    // Match Tauri's recursive discovery and exclusion of generated schemas.
+    if (path.basename(directory) === "schemas"
+        || ![".json", ".toml", ".json5"].includes(extension)) return [];
+    // New capability formats need a parser here before the guard can audit them.
+    assert.equal(extension, ".json", `review capability format: ${file}`);
+    const capability = JSON.parse(fs.readFileSync(file, "utf8"));
     return capability.permissions.filter((permission) => {
       const identifier = typeof permission === "string" ? permission : permission.identifier;
       return identifier.startsWith("opener:") || identifier.startsWith("shell:");
     });
   });
-  assert.deepEqual(grants, [{
+}
+
+test("capability discovery ignores unrelated files and checks nested capabilities", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bindars-capabilities-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const nested = path.join(directory, "nested");
+  const schemas = path.join(directory, "schemas");
+  fs.mkdirSync(nested);
+  fs.mkdirSync(schemas);
+  for (const file of [".DS_Store", "README.md", "nested/ignored.JSON", "schemas/schema.json"]) {
+    fs.writeFileSync(path.join(directory, file), "not a capability");
+  }
+  fs.writeFileSync(path.join(nested, "extra.json"), JSON.stringify({
+    permissions: ["core:event:allow-listen", "opener:allow-default-urls", "shell:allow-open"],
+  }));
+  assert.deepEqual(externalLinkGrants(directory), ["opener:allow-default-urls", "shell:allow-open"]);
+  for (const extension of ["toml", "json5"]) {
+    const file = path.join(nested, `extra.${extension}`);
+    fs.writeFileSync(file, "must be reviewed");
+    assert.throws(() => externalLinkGrants(directory), /review capability format/);
+    fs.unlinkSync(file);
+  }
+});
+
+test("external links grant only web and email URL scopes across all capabilities", () => {
+  // This checks native capability input, independently of frontend link handlers.
+  // An additional capability/default grant could otherwise restore tel: access.
+  assert.deepEqual(externalLinkGrants(path.join(projectRoot, "src-tauri/capabilities")), [{
     identifier: "opener:allow-open-url",
     allow: [{ url: "http://*" }, { url: "https://*" }, { url: "mailto:*" }],
   }]);

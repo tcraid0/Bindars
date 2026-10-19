@@ -11,11 +11,14 @@ Open an issue on [GitHub Issues](../../issues) with steps to reproduce.
 ```bash
 npm install
 npx tsc --noEmit                           # TypeScript type check
-cd src-tauri && cargo test --lib           # Rust unit tests
+cd src-tauri && cargo test --locked        # Rust unit and integration tests
 cd .. && npm run test:workspace            # Workspace integration tests
 ```
 
 Node >= 20.19.0 and Rust >= 1.88 on the stable toolchain are required.
+
+Use the full `cargo test --locked` command: `--lib` skips the native opener
+permission guard in `src-tauri/tests/`.
 
 ## Release Verification
 
@@ -80,7 +83,7 @@ Before submitting a PR, these checks must pass:
 
 1. `npx tsc --noEmit`
 2. `npm run build`
-3. `cd src-tauri && cargo test --lib`
+3. `cd src-tauri && cargo test --locked`
 4. From the repository root, `npm run test:workspace`
 5. `npm run licenses:check` when a dependency, lockfile, license override, or
    release workflow changes

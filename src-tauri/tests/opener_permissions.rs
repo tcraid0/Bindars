@@ -1,20 +1,30 @@
 //! Exercise the installed opener's native IPC guard without opening any application.
 use serde_json::json;
+use std::path::{Path, PathBuf};
 
-#[test]
-fn unsupported_urls_are_rejected_by_the_native_opener_scope() {
-    // Fail before invoking anything if a regression could launch an external app.
-    let config: serde_json::Value =
-        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-    assert!(config["app"]["security"]["capabilities"].is_null());
-    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
-    let mut opener_grants = Vec::new();
+fn opener_grants(directory: &Path) -> Vec<serde_json::Value> {
+    let mut grants = Vec::new();
     for entry in std::fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
-        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("json"));
+        if path.is_dir() {
+            grants.extend(opener_grants(&path));
+            continue;
+        }
+        let extension = path.extension().and_then(|ext| ext.to_str());
+        // Match Tauri's recursive discovery and exclusion of generated schemas.
+        if directory.file_name().and_then(|name| name.to_str()) == Some("schemas")
+            || !matches!(extension, Some("json" | "toml" | "json5"))
+        {
+            continue;
+        }
+        assert_eq!(
+            extension,
+            Some("json"),
+            "review capability format: {path:?}"
+        );
         let capability: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        opener_grants.extend(
+        grants.extend(
             capability["permissions"]
                 .as_array()
                 .unwrap()
@@ -28,8 +38,67 @@ fn unsupported_urls_are_rejected_by_the_native_opener_scope() {
                 .cloned(),
         );
     }
+    grants
+}
+
+#[test]
+fn capability_discovery_ignores_unrelated_files_and_checks_nested_capabilities() {
+    struct Fixture(PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let directory = std::env::temp_dir().join(format!(
+        "bindars-capabilities-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let _fixture = Fixture(directory.clone());
+    std::fs::create_dir(directory.join("nested")).unwrap();
+    std::fs::create_dir(directory.join("schemas")).unwrap();
+    for file in [
+        ".DS_Store",
+        "README.md",
+        "nested/ignored.JSON",
+        "schemas/schema.json",
+    ] {
+        std::fs::write(directory.join(file), "not a capability").unwrap();
+    }
+    std::fs::write(
+        directory.join("nested/extra.json"),
+        json!({ "permissions": ["core:event:allow-listen", "opener:allow-default-urls"] })
+            .to_string(),
+    )
+    .unwrap();
     assert_eq!(
-        opener_grants,
+        opener_grants(&directory),
+        vec![json!("opener:allow-default-urls")]
+    );
+    for extension in ["toml", "json5"] {
+        let file = directory.join(format!("nested/extra.{extension}"));
+        std::fs::write(&file, "must be reviewed").unwrap();
+        let error = std::panic::catch_unwind(|| opener_grants(&directory))
+            .expect_err("new capability formats must require review");
+        let message = error.downcast_ref::<String>().unwrap();
+        assert!(message.contains("review capability format"), "{message}");
+        std::fs::remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn unsupported_urls_are_rejected_by_the_native_opener_scope() {
+    // Fail before invoking anything if a regression could launch an external app.
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    assert!(config["app"]["security"]["capabilities"].is_null());
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+    assert_eq!(
+        opener_grants(&directory),
         vec![json!({
             "identifier": "opener:allow-open-url",
             "allow": [{ "url": "http://*" }, { "url": "https://*" }, { "url": "mailto:*" }]
