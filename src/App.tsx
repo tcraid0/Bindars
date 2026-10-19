@@ -3264,6 +3264,7 @@ function App() {
               query={search.query}
               matchCount={search.matchCount}
               currentIndex={search.currentIndex}
+              limited={search.limited}
               onQueryChange={search.setQuery}
               onNext={search.next}
               onPrevious={search.previous}

@@ -8,6 +8,7 @@ interface SearchBarProps {
   query: string;
   matchCount: number;
   currentIndex: number;
+  limited: boolean;
   onQueryChange: (q: string) => void;
   onNext: () => void;
   onPrevious: () => void;
@@ -20,6 +21,7 @@ function SearchBarComponent({
   query,
   matchCount,
   currentIndex,
+  limited,
   onQueryChange,
   onNext,
   onPrevious,
@@ -71,7 +73,9 @@ function SearchBarComponent({
 
       {query.trim() && (
         <span className="text-xs font-mono text-text-muted whitespace-nowrap" aria-live="polite">
-          {matchCount > 0 ? `${currentIndex + 1} of ${matchCount}` : "No results"}
+          {limited
+            ? (matchCount > 0 ? `${currentIndex + 1} of ${matchCount} shown · Refine search` : "Results limited · Refine search")
+            : matchCount > 0 ? `${currentIndex + 1} of ${matchCount}` : "No results"}
         </span>
       )}
 

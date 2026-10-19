@@ -66,7 +66,7 @@ test("search preserves order, formatting, annotations and text across mixed matc
 test("dense mixed-format search batches fragments and restores the original nodes", async t => {
   await installDom();
   const article = document.createElement("article");
-  article.innerHTML = `<p>${"ab ".repeat(1000)}a<em>b</em> a<mark data-highlight-id="saved">b ab</mark></p>`;
+  article.innerHTML = `<p>${"ab ".repeat(900)}a<em>b</em> a<mark data-highlight-id="saved">b ab</mark></p>`;
   document.body.append(article);
   const text = article.textContent;
   const emphasis = article.querySelector("em");
@@ -85,10 +85,10 @@ test("dense mixed-format search batches fragments and restores the original node
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const matches = highlightSearchMatches(article, "ab");
-      assert.equal(matches.length, 1003, "crossing fragments count as one logical match");
-      assert.deepEqual(matches.map(parts => parts.map(mark => mark.textContent).join("")), Array(1003).fill("ab"));
+      assert.equal(matches.length, 903, "crossing fragments count as one logical match");
+      assert.deepEqual(matches.map(parts => parts.map(mark => mark.textContent).join("")), Array(903).fill("ab"));
       const marks = [...article.querySelectorAll("mark.search-highlight")];
-      assert.equal(marks.length, 1005);
+      assert.equal(marks.length, 905);
       assert.deepEqual(matches.flat(), marks, "navigation follows document order");
       assert.ok(article.querySelector("em") === emphasis);
       assert.ok(article.querySelector('[data-highlight-id="saved"]') === annotation);

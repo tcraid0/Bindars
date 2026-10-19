@@ -1,0 +1,5 @@
+{
+  "identifier": "review-alias",
+  "windows": ["main"],
+  "permissions": ["review-open-alias"]
+}
