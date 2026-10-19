@@ -3365,6 +3365,7 @@ function App() {
               ) : launchOpening ? null : (
                 <EmptyState
                   onOpenFile={guardedOpenFile}
+                  onNewFile={guardedNewFile}
                   onTrySample={() => { guardAction({ kind: "try-sample" }); }}
                   onShowShortcuts={showShortcuts}
                   canTrySample={!actionAdmissionInFlight}

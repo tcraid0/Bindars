@@ -14,6 +14,7 @@ const recentFiles = [
 function renderEmptyState(props = {}) {
   return renderComponent(EmptyState, {
     onOpenFile() {},
+    onNewFile() {},
     onTrySample() {},
     onShowShortcuts() {},
     recentFiles: [],
@@ -60,24 +61,36 @@ test("a first visit leads with Open File and explains the example's Save step", 
   }
 });
 
-test("with history, launch shows the compact Home: Open File, recent folders, no example or tagline", async () => {
+test("with history, launch shows Home: a small heading, quiet Open File and New, recent folders, the drop line", async () => {
   await installDom();
-  const view = renderEmptyState({ recentFiles });
+  let opened = 0, created = 0;
+  const three = [...recentFiles, { path: "/Users/reader/Notes/c.md", name: "c.md", openedAt: Date.now(), lastHeadingId: null }];
+  const view = renderEmptyState({ recentFiles: three, onOpenFile() { opened += 1; }, onNewFile() { created += 1; } });
   try {
     const heading = view.host.querySelector("h1");
     assert.equal(heading.textContent, "Home");
     assert.equal(heading.tabIndex, -1);
-    const art = heading.querySelector("svg");
-    assert.equal(art.getAttribute("aria-hidden"), "true");
-    assert.equal(art.querySelector("use").getAttribute("href"), "#bindars-symbol");
+    assert.equal(view.host.querySelectorAll("h1").length, 1);
+    assert.equal(heading.querySelectorAll("svg").length, 0, "the toolbar's Home button carries the symbol");
     assert.equal(view.host.querySelectorAll("[data-startup-mark-target], [data-startup-mark-passes], .empty-state-wordmark").length, 0,
       "no large branding, and the startup glide fades onto Home (D5)");
-    assert.match(buttonWithText(view.host, "Open File…").className, /\bbg-accent-fill\b/);
+    const open = buttonWithText(view.host, "Open File…");
+    const create = buttonWithText(view.host, "New");
+    for (const button of [open, create]) {
+      assert.doesNotMatch(button.className, /\bbg-accent-fill\b/, "no filled button on Home");
+      assert.match(button.className, /\bborder-border\b/);
+    }
+    click(open);
+    click(create);
+    assert.deepEqual([opened, created], [1, 1]);
     assert.match(view.host.textContent, /reader › Documents/);
     assert.match(view.host.textContent, /reader › Downloads/);
-    assert.ok(buttonWithText(view.host, "Keyboard Shortcuts"));
-    assert.doesNotMatch(view.host.textContent, /Resume:|Try an Example|Read, highlight|drop a Markdown/);
+    assert.match(view.host.textContent, /Drop a Markdown or Fountain file anywhere to open it\./);
+    assert.ok(![...view.host.querySelectorAll("button")].some(button => button.textContent === "Keyboard Shortcuts"),
+      "the toolbar's ? button lists shortcuts");
+    assert.doesNotMatch(view.host.textContent, /Recent files|Resume:|Try an Example|Read, highlight/);
     assert.ok(view.host.querySelector(".empty-state").classList.contains("empty-state-home"), "Home never plays the welcome entrance");
+    assert.ok(view.host.querySelector(".empty-state-content.home-column"), "the reading-width column");
   } finally {
     view.cleanup();
   }

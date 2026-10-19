@@ -5,11 +5,24 @@ import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-rec
 import { toPathIdentityKey } from "../lib/paths";
 
 const buttonBase = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg font-medium text-sm transition-colors duration-120";
+const outline = " border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary";
 const primaryButton = buttonBase + " bg-accent-fill text-on-accent hover:bg-accent-fill-hover shadow-sm";
-const secondaryButton = buttonBase + " border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary";
+const secondaryButton = buttonBase + outline;
+// Home's actions stay quiet: the documents are what you came for.
+const quietButton = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg font-medium text-[13px] transition-colors duration-120" + outline;
+
+const OPEN_ICON = "M3 9V5a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1M3 21h15l4-12H7L3 21Zm0 0L2 9h5";
+const EXAMPLE_ICON = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M8 13h8M8 17h6";
+const NEW_ICON = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M12 18v-6M9 15h6";
+const icon = (path: string) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={path} />
+  </svg>
+);
 
 interface EmptyStateProps {
   onOpenFile: () => void;
+  onNewFile: () => void;
   onTrySample: () => void;
   onShowShortcuts: () => void;
   canTrySample?: boolean;
@@ -30,7 +43,7 @@ interface EmptyStateProps {
 }
 
 function EmptyStateComponent({
-  onOpenFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
+  onOpenFile, onNewFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
   recentFiles, recentDetails, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
   openingPath, recovery, onRetry, onDismiss,
 }: EmptyStateProps) {
@@ -83,11 +96,9 @@ function EmptyStateComponent({
     return cleanup;
   }, [canFocus]);
 
-  const openFile = (
-    <button ref={openRef} type="button" onClick={onOpenFile} className={primaryButton}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 9V5a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1M3 21h15l4-12H7L3 21Zm0 0L2 9h5" />
-      </svg>
+  const openFile = (className: string) => (
+    <button ref={openRef} type="button" onClick={onOpenFile} className={className}>
+      {icon(OPEN_ICON)}
       Open File…
     </button>
   );
@@ -114,8 +125,8 @@ function EmptyStateComponent({
     </div>
   );
   const recents = (
-    <div className={`empty-state-recents ${firstRun ? "max-w-[440px] mx-auto mt-6" : "mt-5"} text-left`}>
-      <h2 className="text-xs font-medium text-text-muted mb-2 px-3">Recent files</h2>
+    <div className={`empty-state-recents ${firstRun ? "max-w-[440px] mx-auto mt-6" : ""} text-left`}>
+      {firstRun && <h2 className="text-xs font-medium text-text-muted mb-2 px-3">Recent files</h2>}
       <RecentFiles files={recentList} unavailable={recentHistoryUnavailable}
         currentFilePath={null} openingPath={openingPath} onOpen={onOpenRecent}
         onRemove={onRemoveRecent} recovery={recovery} onRetry={onRetry} continuePath={continuePath}
@@ -131,19 +142,19 @@ function EmptyStateComponent({
 
   if (!firstRun) {
     return (
-      <div className={["empty-state empty-state-home flex flex-col items-center px-8 select-none",
+      <div className={["empty-state empty-state-home px-8 select-none",
         recovery ? "empty-state-recovery" : ""].join(" ")}>
-        <div className="empty-state-content w-full max-w-[440px]">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-3">
-            <h1 ref={headingRef} tabIndex={-1} className="flex items-center gap-2.5 text-2xl font-semibold text-text-primary">
-              <svg className="size-7 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
-              Home
-            </h1>
-            {openFile}
+        <div className="empty-state-content home-column">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-3 mb-4">
+            <h1 ref={headingRef} tabIndex={-1} className="text-[15px] font-semibold text-text-primary">Home</h1>
+            <div className="flex gap-2">
+              {openFile(quietButton)}
+              <button type="button" onClick={onNewFile} className={quietButton}>{icon(NEW_ICON)}New</button>
+            </div>
           </div>
           {recoveryMessage}
           {recents}
-          {shortcuts}
+          <p className="text-xs text-text-muted mt-5 px-3">Drop a Markdown or Fountain file anywhere to open it.</p>
         </div>
       </div>
     );
@@ -164,13 +175,11 @@ function EmptyStateComponent({
       )}
       <div className="empty-state-content w-full">
         <div className="flex flex-wrap items-start justify-center gap-2.5">
-          {openFile}
+          {openFile(primaryButton)}
           <div className="flex flex-col items-center">
             <button type="button" onClick={onTrySample} disabled={!canTrySample}
               className={secondaryButton + " disabled:opacity-50 disabled:pointer-events-none"}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M8 13h8M8 17h6" />
-              </svg>
+              {icon(EXAMPLE_ICON)}
               Try an Example…
             </button>
             <p className="text-xs text-text-muted mt-2">Choose where to save it.</p>

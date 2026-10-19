@@ -833,6 +833,12 @@ button:active:not(:disabled),
   border-radius: 4px;
 }
 
+/* Home reads like a page: a reading-width column near the top, not centred. */
+.empty-state > .home-column {
+  max-width: 41rem;
+  margin: clamp(0px, 7vh, 4rem) auto 0;
+}
+
 /* Home's rows read like a contents page: roomier, with hairlines between. */
 .home-row {
   position: relative;
