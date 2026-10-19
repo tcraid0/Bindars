@@ -9238,7 +9238,7 @@ Project: vfile/vfile
 License-text: available
 License-document-ref: sha256:e453dafb35c9b3cb911a8d2f1a0b37526ee15d1bc21cfc689756bed25e9483b8
 
-Package-ID: npm:vite@7.3.6
+Package-ID: npm:vite@7.3.7
 License: MIT
 Distribution-class: build-output-contributor
 Disposition: packaged-license-document
@@ -26284,7 +26284,7 @@ License-Document-End: sha256:be90cb181079fa9b5ce49638ce85fe7150572e949f8007bfc88
 --------------------------------------------------------------------------------
 
 License-Document: sha256:bf03f6d922a1b67d124af2d9d3b316596a2b98e6c3c7450cee87526df66b1ec7
-Applies-to: npm:vite@7.3.6
+Applies-to: npm:vite@7.3.7
 Source-files: LICENSE.md
 
 # Vite core license
