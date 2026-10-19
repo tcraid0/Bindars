@@ -83,22 +83,62 @@ test("with history, launch shows the compact Home: Open File, recent folders, no
   }
 });
 
-test("Home shows five recent files and marks only the given one Continue reading, in its spoken name", async () => {
+test("Home shows five recent files and marks only the given one with a known section, in its spoken name", async () => {
   await installDom();
   const many = ["a", "b", "c", "d", "e", "f"].map((name, index) => ({
     path: `/Users/reader/Notes/${name}.md`, name: `${name}.md`, openedAt: 10 - index, lastHeadingId: null,
   }));
-  const view = renderEmptyState({ recentFiles: many, continuePath: many[0].path });
+  const sections = new Map(many.slice(0, 2).map((file, index) => [file.path, { title: null, section: ["Day three", "Key findings"][index] }]));
+  const view = renderEmptyState({ recentFiles: many, continuePath: many[0].path, recentDetails: sections });
   try {
     const rows = [...view.host.querySelectorAll('button[aria-label^="Open "]')];
     assert.deepEqual(rows.map(row => row.getAttribute("aria-label")), [
       "Open a.md, reader › Notes, Continue reading", "Open b.md, reader › Notes", "Open c.md, reader › Notes",
       "Open d.md, reader › Notes", "Open e.md, reader › Notes",
     ]);
-    assert.match(rows[0].textContent, /Continue reading/);
-    assert.equal(view.host.textContent.match(/Continue reading/g).length, 1);
-    view.render({ recovery: { path: many[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
-    assert.doesNotMatch(view.host.textContent, /Continue reading/, "never on an unavailable row");
+    assert.match(rows[0].textContent, /^a\.md.*Continue at Day three · reader › Notes$/);
+    assert.equal(rows[0].querySelector(".text-accent-text").textContent, "Continue at Day three");
+    assert.match(rows[1].textContent, /Key findings · reader › Notes$/, "other rows show their section quietly");
+    assert.equal(view.host.textContent.match(/Continue/g).length, 1);
+    view.render({ recentDetails: new Map() });
+    assert.doesNotMatch(view.host.textContent, /Continue/, "no cue without a known section");
+    assert.ok(!view.host.querySelector('[aria-label$="Continue reading"]'), "nor in its spoken name");
+    view.render({ recentDetails: sections, recovery: { path: many[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
+    assert.doesNotMatch(view.host.textContent, /Continue/, "never on an unavailable row");
+  } finally { view.cleanup(); }
+});
+
+test("Home names a document by its title, keeps the filename and folder, and reveals Remove on hover or focus", async () => {
+  await installDom();
+  const files = [
+    { path: "/Users/reader/Reading/Field notes.md", name: "Field notes.md", openedAt: Date.now() - 2 * 3600_000, lastHeadingId: "river" },
+    { path: "/Users/reader/Notes/plan.md", name: "plan.md", openedAt: Date.now(), lastHeadingId: null },
+  ];
+  const details = new Map([[files[0].path, { title: "Field Notes from the Delta", section: "Day three: the river" }]]);
+  const view = renderEmptyState({ recentFiles: files, continuePath: files[0].path, recentDetails: details });
+  try {
+    const [titled, plain] = view.host.querySelectorAll("[data-path]");
+    const open = titled.querySelector("button");
+    assert.equal(open.getAttribute("aria-label"),
+      "Open Field Notes from the Delta, Field notes.md, reader › Reading, Continue reading");
+    assert.equal(open.title, files[0].path);
+    assert.equal(open.querySelector(".font-reading").textContent, "Field Notes from the Delta");
+    assert.match(open.textContent, /2h ago/);
+    assert.match(open.textContent, /Continue at Day three: the river · Field notes\.md in reader › Reading$/);
+    assert.equal(plain.querySelector("button").getAttribute("aria-label"), "Open plan.md, reader › Notes");
+    assert.match(plain.textContent, /^plan\.mdjust nowreader › Notes$/, "an untitled row keeps today's name and location");
+    for (const row of [titled, plain]) {
+      const remove = row.querySelector('[aria-label$="from recent files"]');
+      assert.match(remove.className, /\bopacity-0\b/);
+      assert.match(remove.className, /\bgroup-hover:opacity-100\b/);
+      assert.match(remove.className, /\bgroup-focus-within:opacity-100\b/);
+      assert.match(remove.className, /\bfocus-visible:opacity-100\b/);
+    }
+    view.render({ recovery: { path: files[1].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
+    const unavailable = view.host.querySelector('[data-path="/Users/reader/Notes/plan.md"]');
+    assert.match(unavailable.textContent, /reader › Notes · Unavailable/);
+    assert.doesNotMatch(unavailable.querySelector('[aria-label$="from recent files"]').className, /opacity-0|absolute/,
+      "an unavailable row keeps Retry and Remove visible and inline");
   } finally { view.cleanup(); }
 });
 
@@ -136,7 +176,7 @@ for (const [path, label] of [
       assert.equal(row.getAttribute("aria-label"), `Open notes.md, ${label}`);
       assert.equal(row.title, path);
       assert.ok(row.textContent.includes(label), "location is available without hover");
-      assert.doesNotMatch(row.textContent, /ago|just now/, "welcome continues to hide timestamps");
+      assert.ok(row.textContent.includes(new Date(1).toLocaleDateString()), "Home shows when you last read it");
       assert.ok(!view.host.querySelector("details.document-location"));
     } finally { view.cleanup(); }
   });

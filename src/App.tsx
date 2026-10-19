@@ -52,7 +52,7 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
-import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
+import { OPENABLE_FILE_TYPES_DESCRIPTION, replaceOpenableDocumentExtension } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
@@ -232,6 +232,19 @@ function App() {
   const incompleteCount = useMemo(() => searchDocs.filter(doc => doc.coverage !== "ready").length, [searchDocs]);
   const workspaceSearch = useWorkspaceSearch({ docs: searchDocs, recentFiles });
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
+  // Home names each recent document by its indexed title and the section it
+  // was left at. The index's fallback title (the filename) is no title.
+  const recentDetails = useMemo(() => {
+    const docs = new Map(workspaceIndex.docs.map(doc => [toPathIdentityKey(doc.path), doc]));
+    return new Map(recentFiles.slice(0, 5).map(file => {
+      const key = toPathIdentityKey(file.path);
+      const doc = docs.get(key);
+      const title = doc?.title && doc.title !== file.name
+        && doc.title !== replaceOpenableDocumentExtension(file.name, "") ? doc.title : null;
+      const section = (file.lastHeadingId && doc?.headings.find(heading => heading.id === file.lastHeadingId)?.text) || null;
+      return [key, { title, section }];
+    }));
+  }, [workspaceIndex.docs, recentFiles]);
 
   const editorSurfaceRef = useRef<MarkdownEditorHandle | null>(null);
   const flushPendingBuffer = useCallback(() => {
@@ -3360,6 +3373,7 @@ function App() {
                   preferHome={homeEntered || restoredHome}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                  recentDetails={recentDetails}
                   continuePath={continuePath}
                   onOpenRecent={guardedOpenRecent}
                   onRemoveRecent={removeRecentFile}

@@ -7772,7 +7772,8 @@ for (const [route, moveFocus] of [
       const primary = [...rendered.host.querySelectorAll(".empty-state button")]
         .find(button => button.textContent.trim() === "Open File…");
       primary.focus();
-      const row = rendered.host.querySelector('.empty-state [aria-label^="Open welcome.md"]');
+      // By path, not name: the row's name changes when the index publishes the title.
+      const row = rendered.host.querySelector('.empty-state [data-path="/tmp/welcome.md"] button');
       if (route === "Recent") {
         await act(async () => { row.focus(); row.click(); });
       } else if (route === "palette") {

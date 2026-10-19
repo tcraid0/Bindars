@@ -26,7 +26,7 @@ const documentFor = path => ({
 });
 
 // A StrictMode App whose settings survive relaunch(), like the native store.
-async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.md", recentFiles = [], session = null, holds = [] } = {}) {
+async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.md", recentFiles = [], session = null, holds = [], texts = {} } = {}) {
   window.localStorage.clear();
   const priorStorage = globalThis.localStorage;
   globalThis.localStorage = window.localStorage;
@@ -54,6 +54,11 @@ async function mount(t, { platform = "Linux x86_64", initialPath = "/fixture/A.m
         throw { category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" };
       }
       return documentFor(args.path);
+    }
+    // The search index reads Recent; a "missing" file stands for one indexed before it went.
+    if (cmd === "read_markdown_file") {
+      if (removed.has(args.path)) throw { category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" };
+      return texts[args.path] ?? documentFor(args.path).content;
     }
     if (cmd === "plugin:dialog|open") return dialogs.open;
     if (cmd === "plugin:dialog|save") return dialogs.save;
@@ -420,14 +425,16 @@ test("an entry recorded straight after an open never carries the previous docume
 
 test("Continue reading marks the newest saved file, never one just found missing, even after Dismiss", async t => {
   const recentFiles = [
-    { path: "/fixture/missing.md", name: "missing.md", openedAt: 3, lastHeadingId: null },
-    { path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: null },
+    { path: "/fixture/missing.md", name: "missing.md", openedAt: 3, lastHeadingId: "second" },
+    { path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: "second" },
   ];
   const app = await mount(t, { initialPath: null, recentFiles, session: { filePath: "/fixture/missing.md", headingId: null, savedAt: 1 } });
   const cue = () => [...app.host().querySelectorAll('.empty-state button[aria-label$=", Continue reading"]')].map(row => row.title);
   const message = () => app.host().querySelector(".empty-state-recovery-message");
   await until(() => assert.ok(message()));
   assert.equal(app.host().querySelector(".empty-state h1").textContent, "Home");
+  // Sections are known once the index has read Recent.
+  await until(() => assert.match(app.host().querySelector('.empty-state [data-path="/fixture/B.md"]').textContent, /Second/));
   assert.deepEqual(cue(), [], "the newest file just failed to open");
   click([...message().querySelectorAll("button")].find(button => button.textContent === "Dismiss"));
   await until(() => assert.equal(message(), null));
@@ -436,7 +443,27 @@ test("Continue reading marks the newest saved file, never one just found missing
   await arriveAt(app, "B.md");
   click(app.home());
   await arriveAt(app, "Home");
-  assert.deepEqual(cue(), ["/fixture/B.md"]);
+  await until(() => assert.deepEqual(cue(), ["/fixture/B.md"]));
+});
+
+test("Home rows take each document's title and saved section from the index, else stay filename rows", async t => {
+  const recentFiles = [
+    { path: "/fixture/notes.md", name: "notes.md", openedAt: 3, lastHeadingId: "day-three" },
+    // Indexed first (sorted paths), so it is settled once the title above appears.
+    { path: "/fixture/a-plain.md", name: "a-plain.md", openedAt: 2, lastHeadingId: "nowhere" },
+  ];
+  const texts = {
+    "/fixture/notes.md": "---\ntitle: Field Notes\n---\n\n# Notes\n\n## Day three\n\nText.",
+    "/fixture/a-plain.md": "Words without a heading, so the index falls back to the filename.",
+  };
+  const app = await mount(t, { initialPath: null, session: { kind: "home", savedAt: 1 }, recentFiles, texts });
+  const row = path => app.host().querySelector(`.empty-state [data-path="${path}"] button`);
+  await until(() => assert.equal(row("/fixture/notes.md").getAttribute("aria-label"),
+    "Open Field Notes, notes.md, fixture, Continue reading"));
+  assert.match(row("/fixture/notes.md").textContent, /^Field Notes.*Continue at Day three · notes\.md in fixture$/);
+  assert.equal(row("/fixture/a-plain.md").getAttribute("aria-label"), "Open a-plain.md, fixture");
+  assert.match(row("/fixture/a-plain.md").textContent, /^a-plain\.md.*fixture$/, "no title, and no section the index lacks");
+  assert.doesNotMatch(row("/fixture/a-plain.md").textContent, / in fixture|·/);
 });
 
 test("Back to Home returns to the row Home was left from, or to the heading when that row is gone", async t => {
@@ -520,16 +547,16 @@ for (const category of ["notFound", "permissionDenied"]) {
     const path = "/fixture/Returned.md";
     const alias = "/fixture/folder/../Returned.md";
     const app = await mount(t, { initialPath: null, recentFiles: [
-      { path, name: "Returned.md", openedAt: 2, lastHeadingId: null },
+      { path, name: "Returned.md", openedAt: 2, lastHeadingId: "second" },
     ] });
     const row = () => app.host().querySelector('.empty-state [aria-label^="Open Returned.md"]');
     const message = () => app.host().querySelector(".empty-state-recovery-message");
-    assert.match(row().textContent, /Continue reading/);
+    await until(() => assert.match(row().textContent, /Continue at Second/));
     const failed = app.hold(alias);
     await app.requestOpen(alias);
     await act(async () => failed.reject({ category, operation: "readDocument", message: "Unavailable", detail: "fixture" }));
     await until(() => assert.ok(message()));
-    assert.doesNotMatch(row().textContent, /Continue reading/);
+    assert.doesNotMatch(row().textContent, /Continue at/);
     assert.equal(row().getAttribute("aria-disabled"), "true");
     assert.ok(app.host().querySelector('[aria-label="Retry opening Returned.md"]'));
     assert.ok(![...message().querySelectorAll("button")].some(button => button.textContent === "Retry"),
@@ -537,7 +564,7 @@ for (const category of ["notFound", "permissionDenied"]) {
 
     click([...message().querySelectorAll("button")].find(button => button.textContent === "Dismiss"));
     await until(() => assert.equal(message(), null));
-    assert.equal(row().textContent.includes("Continue reading"), category !== "notFound",
+    assert.equal(row().textContent.includes("Continue at"), category !== "notFound",
       "only not-found suppresses the cue after Dismiss");
     // A successful open through another spelling clears the remembered failure.
     const recovered = app.hold("/fixture/./Returned.md");
@@ -546,7 +573,7 @@ for (const category of ["notFound", "permissionDenied"]) {
     await arriveAt(app, "Returned.md");
     click(app.home());
     await arriveAt(app, "Home");
-    assert.match(row().textContent, /Continue reading/);
+    await until(() => assert.match(row().textContent, /Continue at/));
 
     const failedAgain = app.hold(alias);
     await app.requestOpen(alias);

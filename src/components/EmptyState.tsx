@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { RecentFile } from "../types";
-import { RecentFiles } from "./RecentFiles";
+import { RecentFiles, type RecentDetails } from "./RecentFiles";
 import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-recovery";
 import { toPathIdentityKey } from "../lib/paths";
 
@@ -17,6 +17,7 @@ interface EmptyStateProps {
   /** Home was chosen in the app or restored from the saved session. */
   preferHome?: boolean;
   recentFiles: RecentFile[];
+  recentDetails?: RecentDetails;
   recentHistoryUnavailable?: boolean;
   /** The recent file to mark "Continue reading", if any. */
   continuePath?: string | null;
@@ -30,7 +31,7 @@ interface EmptyStateProps {
 
 function EmptyStateComponent({
   onOpenFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
-  recentFiles, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
+  recentFiles, recentDetails, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
   openingPath, recovery, onRetry, onDismiss,
 }: EmptyStateProps) {
   const recentList = recentFiles.slice(0, 5);
@@ -117,7 +118,8 @@ function EmptyStateComponent({
       <h2 className="text-xs font-medium text-text-muted mb-2 px-3">Recent files</h2>
       <RecentFiles files={recentList} unavailable={recentHistoryUnavailable}
         currentFilePath={null} openingPath={openingPath} onOpen={onOpenRecent}
-        onRemove={onRemoveRecent} recovery={recovery} onRetry={onRetry} continuePath={continuePath} welcome />
+        onRemove={onRemoveRecent} recovery={recovery} onRetry={onRetry} continuePath={continuePath}
+        details={recentDetails} welcome />
     </div>
   );
   const shortcuts = (

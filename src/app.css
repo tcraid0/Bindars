@@ -833,6 +833,20 @@ button:active:not(:disabled),
   border-radius: 4px;
 }
 
+/* Home's rows read like a contents page: roomier, with hairlines between. */
+.home-row {
+  position: relative;
+  padding-block: 0.75rem;
+}
+
+.home-row + .home-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
 /* The artist's symbol over the BINDARS wordmark, like an app icon over its name. */
 .empty-state-brand {
   display: flex;

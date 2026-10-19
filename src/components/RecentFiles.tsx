@@ -4,6 +4,9 @@ import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 
+/** What the search index knows about a recent file, keyed by path identity. */
+export type RecentDetails = ReadonlyMap<string, { title: string | null; section: string | null }>;
+
 interface RecentFilesProps {
   files: RecentFile[];
   unavailable?: boolean;
@@ -16,6 +19,8 @@ interface RecentFilesProps {
   /** Home marks the file you were last reading. */
   continuePath?: string | null;
   welcome?: boolean;
+  /** Home names each document by its title and the section it was left at. */
+  details?: RecentDetails;
 }
 
 function timeAgo(timestamp: number): string {
@@ -41,6 +46,7 @@ export function RecentFiles({
   onRetry,
   continuePath = null,
   welcome = false,
+  details,
 }: RecentFilesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -60,22 +66,26 @@ export function RecentFiles({
       {files.map((file) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
-        const isUnavailable = recovery && toPathIdentityKey(file.path) === toPathIdentityKey(recovery.path);
-        const isContinue = file.path === continuePath && !isUnavailable;
+        const key = toPathIdentityKey(file.path);
+        const isUnavailable = recovery && key === toPathIdentityKey(recovery.path);
+        const { title = null, section = null } = details?.get(key) ?? {};
+        // Home's cue says where to continue, so it needs a known section.
+        const isContinue = file.path === continuePath && !isUnavailable && section !== null;
         const location = locationLabel(file.path);
+        const status = isOpening ? "Opening…" : isUnavailable ? "Unavailable" : null;
         return (
           <div
             key={file.path}
             data-path={file.path}
             data-current={isActive || undefined}
-            className={`document-row flex items-center gap-2 group ${welcome ? "border-t border-border" : ""}`}
+            className={`document-row flex items-center gap-2 group ${welcome ? "home-row" : ""}`}
           >
             <div className="flex-1 min-w-0">
               <button
                 type="button"
                 onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Open ${file.name}, ${location}${isContinue ? ", Continue reading" : ""}`}
+                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${isContinue ? ", Continue reading" : ""}`}
                 title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
@@ -83,18 +93,41 @@ export function RecentFiles({
                 // Keep focus on failure; Tab advances to the explicit Retry action.
                 tabIndex={isUnavailable ? -1 : undefined}
               >
-                <div
-                  className="text-sm font-medium text-text-primary break-words"
-                  title={file.name}
-                >
-                  {file.name}
-                </div>
-                <div className="text-xs text-text-muted break-words mt-0.5">
-                  {location}
-                  {(isOpening || isUnavailable || isContinue || !welcome) && " · "}
-                  {isOpening ? "Opening…" : isUnavailable ? "Unavailable"
-                    : isContinue ? <span className="text-accent-text">Continue reading</span> : !welcome && timeAgo(file.openedAt)}
-                </div>
+                {welcome ? (
+                  <>
+                    <span className="flex items-baseline justify-between gap-4">
+                      <span className="font-reading text-[1.3rem] leading-[1.3] font-medium text-text-primary break-words min-w-0">
+                        {title ?? file.name}
+                      </span>
+                      {/* Remove takes the time's place on an available row. */}
+                      <span className={`shrink-0 text-xs text-text-muted tabular-nums ${isUnavailable ? "" : "group-hover:invisible group-focus-within:invisible"}`}>
+                        {timeAgo(file.openedAt)}
+                      </span>
+                    </span>
+                    <span className="block text-[0.8125rem] text-text-muted break-words mt-1">
+                      {section && (
+                        <span className={isContinue ? "text-accent-text" : "text-text-secondary"}>
+                          {isContinue ? `Continue at ${section}` : section}
+                        </span>
+                      )}
+                      {section && " · "}
+                      {title ? `${file.name} in ${location}` : location}
+                      {status && ` · ${status}`}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      className="text-sm font-medium text-text-primary break-words"
+                      title={file.name}
+                    >
+                      {file.name}
+                    </div>
+                    <div className="text-xs text-text-muted break-words mt-0.5">
+                      {location} · {status ?? timeAgo(file.openedAt)}
+                    </div>
+                  </>
+                )}
               </button>
             </div>
             {isUnavailable && onRetry && (
@@ -123,7 +156,8 @@ export function RecentFiles({
               }}
               aria-label={`Remove ${file.name} from recent files`}
               disabled={isOpening}
-              className={`shrink-0 p-1.5 rounded ${welcome || isUnavailable ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
+              className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
+                welcome ? "absolute top-3 right-1.5 group-focus-within:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
               title="Remove from recent"
             >
               <svg
