@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::document_io::{canonicalize_directory_path, is_markdown_path};
@@ -10,6 +10,35 @@ use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperat
 const DEFAULT_WORKSPACE_MAX_FILES: usize = 5_000;
 const ABSOLUTE_WORKSPACE_MAX_FILES: usize = 20_000;
 const MAX_WORKSPACE_DEPTH: usize = 32;
+const MAX_WORKSPACE_ISSUES: usize = 100;
+
+/// Notes a place the listing couldn't open, named inside the folder with a plain
+/// reason: never an operating-system message or a full path.
+fn note_issue(issues: &mut Vec<String>, root: &Path, path: &Path, reason: &str) {
+    if issues.len() >= MAX_WORKSPACE_ISSUES {
+        return;
+    }
+    let place = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" › ");
+    let place = if place.is_empty() {
+        "This folder"
+    } else {
+        &place
+    };
+    issues.push(format!("{place} — {reason}"));
+}
+
+fn io_reason(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied => "not allowed",
+        _ => "couldn't be read",
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,9 +165,12 @@ pub(crate) fn list_workspace_markdown_files_impl(
             Ok(entry) => entry,
             Err(error) => {
                 skipped_count += 1;
-                if issues.len() < 100 {
-                    issues.push(error.to_string());
-                }
+                note_issue(
+                    &mut issues,
+                    &canonical_root,
+                    error.path().unwrap_or(&canonical_root),
+                    error.io_error().map_or("couldn't be read", io_reason),
+                );
                 continue;
             }
         };
@@ -173,17 +205,18 @@ pub(crate) fn list_workspace_markdown_files_impl(
             Ok(p) => p,
             Err(error) => {
                 skipped_count += 1;
-                if issues.len() < 100 {
-                    issues.push(format!("{}: {}", path.display(), error));
-                }
+                note_issue(&mut issues, &canonical_root, path, io_reason(&error));
                 continue;
             }
         };
         if !canonical_file.starts_with(&canonical_root) {
             skipped_count += 1;
-            if issues.len() < 100 {
-                issues.push(format!("{}: resolved outside this folder", path.display()));
-            }
+            note_issue(
+                &mut issues,
+                &canonical_root,
+                path,
+                "points outside this folder",
+            );
             continue;
         }
 
@@ -191,16 +224,12 @@ pub(crate) fn list_workspace_markdown_files_impl(
             Ok(m) if m.is_file() => m,
             result => {
                 skipped_count += 1;
-                if issues.len() < 100 {
-                    issues.push(format!(
-                        "{}: {}",
-                        canonical_file.display(),
-                        result
-                            .err()
-                            .map(|e| e.to_string())
-                            .unwrap_or_else(|| "no longer a regular file".into())
-                    ));
-                }
+                note_issue(
+                    &mut issues,
+                    &canonical_root,
+                    &canonical_file,
+                    result.err().as_ref().map_or("couldn't be read", io_reason),
+                );
                 continue;
             }
         };
@@ -221,12 +250,12 @@ pub(crate) fn list_workspace_markdown_files_impl(
             .to_string();
         if name.is_empty() {
             skipped_count += 1;
-            if issues.len() < 100 {
-                issues.push(format!(
-                    "{}: filename cannot be represented as text",
-                    canonical_file.display()
-                ));
-            }
+            note_issue(
+                &mut issues,
+                &canonical_root,
+                &canonical_file,
+                "its name uses characters Bindars can't show",
+            );
             continue;
         }
 
@@ -268,7 +297,7 @@ pub(crate) fn list_workspace_markdown_files_impl(
 
 #[cfg(test)]
 mod tests {
-    use super::list_workspace_markdown_files_impl;
+    use super::{io_reason, list_workspace_markdown_files_impl, note_issue, MAX_WORKSPACE_ISSUES};
     use crate::test_support::{cleanup_temp_path, unique_temp_dir, unique_temp_path};
     use std::fs;
     #[cfg(unix)]
@@ -291,6 +320,54 @@ mod tests {
         assert_eq!(result.files[0].size, 2);
         assert!(result.files[0].mtime_ms > 0);
         assert_eq!(result.directories, vec!["empty"]);
+        cleanup_dir(&root);
+    }
+
+    #[test]
+    fn issue_notes_name_places_inside_the_folder_with_plain_reasons_and_stop_at_the_cap() {
+        let root = Path::new("/library");
+        let mut issues = Vec::new();
+        note_issue(&mut issues, root, root, "couldn't be read");
+        note_issue(
+            &mut issues,
+            root,
+            &root.join("Private").join("Inner"),
+            io_reason(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+        );
+        note_issue(
+            &mut issues,
+            root,
+            &root.join("notes.md"),
+            io_reason(&std::io::Error::from(std::io::ErrorKind::NotFound)),
+        );
+        assert_eq!(
+            issues,
+            [
+                "This folder — couldn't be read",
+                "Private › Inner — not allowed",
+                "notes.md — couldn't be read",
+            ]
+        );
+        for _ in 0..200 {
+            note_issue(&mut issues, root, root, "couldn't be read");
+        }
+        assert_eq!(issues.len(), MAX_WORKSPACE_ISSUES);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn places_that_cannot_be_opened_are_named_inside_the_folder_with_a_plain_reason() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_dir("issues");
+        let locked = root.join("Private").join("Inner");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("hidden.md"), "# Hidden").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let result = list_workspace_markdown_files_impl(root.to_string_lossy().into_owned(), None);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let result = result.unwrap();
+        assert_eq!(result.issues, vec!["Private › Inner — not allowed"]);
+        assert!(result.files.is_empty());
         cleanup_dir(&root);
     }
 
