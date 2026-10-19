@@ -36,6 +36,11 @@ while saving the open file, or a conflict with changes made outside Bindars,
 also pauses autosave and shows a warning. Resolve the warning or save
 elsewhere to protect further edits.
 
+On macOS, quitting from the Dock uses the same save decisions as **Quit Bindars**.
+Logging out or shutting down first cancels the system request while Bindars
+finishes its save decisions. After Bindars quits, you may need to request logout
+or shutdown again. Force Quit cannot wait for unsaved work.
+
 Changes since the last successful save can be lost after an unexpected
 shutdown. Discarding changes or reloading from disk also loses the unsaved text;
 there is no recovery copy of it. Autosave does not replace backups or a version
@@ -76,6 +81,13 @@ renames it to `Bindars recovered …` with the document's extension, visible
 beside the document. The warning in the editor names the file. If that rename
 fails, the version stays under its hidden `.bindars-save-` name, and the
 warning names that file instead.
+
+On filesystems without a working file-swap operation, including exFAT and
+FAT32 and potentially network shares, Bindars replaces the file without retaining
+the displaced version. If another program changes the file after Bindars checks
+it but before the replacement, that change can be overwritten without a recovery
+copy. Changes already present when Bindars checks still trigger the conflict
+decision. Avoid editing the same file in two programs at once on these volumes.
 
 Bindars never deletes these leftovers on its own: a leftover can hold the only
 remaining copy of some text. Review them and delete the ones you no longer

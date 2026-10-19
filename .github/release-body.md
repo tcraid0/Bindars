@@ -118,6 +118,11 @@ for storage locations and details.
 - Real exFAT and FAT32 drives and network shares have had limited testing and
   need native validation for this release. Folder-change checks depend on filesystem identity
   and cannot reliably detect every replacement on some network shares.
+- On filesystems without a working file-swap operation, including exFAT and
+  FAT32 and potentially network shares, a save can replace changes another
+  program makes after Bindars checks the file but before the save finishes,
+  without keeping a recovery copy. Avoid editing the same file in two programs
+  at once on these volumes.
 - Reading position restores a section rather than an exact pixel offset. Very
   last-moment scrolling or preference changes may not be recorded before quitting.
 - Some printed headings can be separated from their following content, and table

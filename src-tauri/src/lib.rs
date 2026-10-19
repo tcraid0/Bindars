@@ -14,6 +14,8 @@ mod exports;
 mod file_errors;
 mod file_watcher;
 mod images;
+#[cfg(target_os = "macos")]
+mod macos_termination;
 mod native_lifecycle;
 mod navigation;
 mod printing;
@@ -157,6 +159,13 @@ pub fn run() {
             search_cache::save_search_cache
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let handle = app.handle().clone();
+                macos_termination::install(move || {
+                    native_lifecycle::request_macos_quit(&handle);
+                })?;
+            }
             #[cfg(desktop)]
             app.handle().plugin(
                 tauri_plugin_window_state::Builder::default()
