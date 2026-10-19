@@ -33,6 +33,12 @@ export default defineConfig(async () => ({
     __BINDARS_DOCUMENT_PERFORMANCE_PROBE__: JSON.stringify(documentPerformanceProbe),
   },
   clearScreen: false,
+  build: {
+    assetsInlineLimit(file) {
+      // CSP permits local fonts, not data URLs. Other assets keep Vite's default.
+      if (/\.(?:woff2?|ttf|otf)$/i.test(file)) return false;
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
