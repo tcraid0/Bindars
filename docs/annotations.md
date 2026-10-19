@@ -58,9 +58,10 @@ Diagrams reapply saved highlights after their asynchronous rendering finishes.
 
 ## Reconnecting notes after a rename or move
 
-Choose **Find Notes…** in Highlights & notes or document navigation. A missing
-Recent document also offers **Locate / reconnect notes…**. Select the original
-document; its full path and counts distinguish collections with the same name.
+Choose **Find Notes…** in Highlights & notes. A missing document in Recent also
+offers **Locate File…**. Select the original document; its
+location and counts distinguish collections with the same name. A missing
+document without saved notes says so, and choosing where it is now opens it.
 Choose the destination file to preview how many highlighted passages are located,
 uncertain, or missing using the existing conservative annotation rules. The
 preview also counts matching bookmark headings. Images and diagram content that

@@ -687,7 +687,7 @@ test("a disconnected configured folder retains last-known names with specific fa
     1,
   );
 });
-test("a skipped drafts listing offers Show existing drafts, which lists with force", async (t) => {
+test("a skipped drafts listing offers Show earlier drafts, which lists with force", async (t) => {
   const forces = [];
   ipc({
     list_draft_documents: ({ force }) => {
@@ -708,7 +708,7 @@ test("a skipped drafts listing offers Show existing drafts, which lists with for
   assert.equal((view.host.textContent.match(/New documents are saved here until you save them somewhere else\./g) || []).length, 1);
   assert.doesNotMatch(view.host.textContent, /No drafts yet|Looking for drafts/);
   const button = [...view.host.querySelectorAll("button")].find(
-    (node) => node.textContent === "Show existing drafts",
+    (node) => node.textContent === "Show earlier drafts",
   );
   assert.ok(button);
   await act(async () => button.click());
@@ -720,13 +720,47 @@ test("a skipped drafts listing offers Show existing drafts, which lists with for
   );
   assert.deepEqual(forces, [false, true]);
   assert.equal(view.get().state.draftsSkipped, false);
-  assert.doesNotMatch(view.host.textContent, /Show existing drafts/);
+  assert.doesNotMatch(view.host.textContent, /Show earlier drafts/);
   assert.match(view.host.textContent, /An old draft/);
   // The focus recheck after the system prompt must not undo the answer.
   const checkedAt = view.get().state.indexedAt;
   await act(async () => view.get().reconcile());
   await until(() => assert.ok(view.get().state.indexedAt > checkedAt));
   assert.deepEqual(forces, [false, true, true]);
+});
+test("a recheck that rereads a changed file keeps the last listing time, so it never looks like a first load", async (t) => {
+  let mtime = 1;
+  let gate = null;
+  ipc({
+    list_workspace_markdown_files: () => listing([meta("/folder/a.md", mtime)]),
+    read_markdown_file: () => (gate ? gate.promise : "# A\n\nOriginal passage"),
+  });
+  const view = await mount(t, "/folder", [], true);
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  const checkedAt = view.get().state.indexedAt;
+  assert.ok(checkedAt);
+  mtime = 2;
+  gate = deferred();
+  await act(async () => view.get().reindex());
+  await until(() => assert.equal(view.get().docs[0]?.coverage, "pending"));
+  assert.equal(view.get().state.status, "indexing");
+  assert.equal(view.get().state.indexedAt, checkedAt);
+  assert.doesNotMatch(view.host.textContent, /Checking documents/);
+  await act(async () => gate.resolve("# A\n\nChanged passage"));
+  await until(() => assert.ok(view.get().state.indexedAt > checkedAt));
+});
+test("a Drafts listing that stops early is reported in Drafts, never blamed on the added folder", async (t) => {
+  ipc({
+    list_draft_documents: () => ({ ...listing([meta("/draft/a.md")]), limitHit: true }),
+  });
+  const view = await mount(t, "/folder", [], true);
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  assert.equal(view.get().state.limitHit, false);
+  assert.equal(view.get().state.draftsLimitHit, true);
+  await act(async () => view.host.querySelector("#navigation-tab-Folders").click());
+  assert.doesNotMatch(view.host.textContent, /Only part of this folder/);
+  await act(async () => view.host.querySelector("#navigation-tab-Drafts").click());
+  assert.match(view.host.textContent, /Only some drafts are listed/);
 });
 test("newly saved drafts are immediately discoverable without another folder scan", async (t) => {
   let scans = 0;

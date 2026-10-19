@@ -168,9 +168,9 @@ export interface WorkspaceState {
   status: WorkspaceStatus;
   indexedAt: number | null;
   error: string | null;
-  readFailedCount: number;
-  complexitySkippedCount: number;
+  /** The added folder's listing stopped at a discovery limit. */
   limitHit: boolean;
+  draftsLimitHit?: boolean;
   directories?: string[];
   issues?: string[];
   draftsError?: string | null;

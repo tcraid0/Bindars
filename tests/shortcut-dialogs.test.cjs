@@ -315,7 +315,7 @@ test("Search documents: contains focus with no results and after results change"
   try {
     view.open();
     const input = view.host.querySelector("input");
-    assert.match(view.host.textContent, /Open a document, create a draft/);
+    assert.match(view.host.textContent, /Nothing to search yet\. Open a document or choose a folder first\./);
     assert.equal(
       pressKey("Tab").defaultPrevented,
       false,
@@ -609,18 +609,49 @@ test("Search explains the selected scope and exposes the selected document full 
     view.open();
     const scope = () =>
       view.host.querySelector("#document-search-scope").textContent;
-    assert.match(scope(), /recent documents, drafts and Project notes/);
+    assert.equal(scope(), "Searching Recent, Drafts and Project notes.");
+    // The menu shows the scope; the sentence stays as the field's description.
+    assert.ok(view.host.querySelector("#document-search-scope").classList.contains("sr-only"));
+    assert.deepEqual(
+      [...view.host.querySelectorAll("label select option")].map((option) => option.textContent),
+      ["Recent, Drafts and Project notes", "Project notes only"],
+    );
     view.render({ folderOnly: true });
-    assert.match(scope(), /Searching only Project notes/);
-    assert.doesNotMatch(scope(), /recent documents|drafts/);
+    assert.equal(scope(), "Searching only Project notes.");
     const details = view.host.querySelector("details.document-location");
     assert.ok(details);
     assert.equal(details.open, false);
     assert.equal(details.querySelector("p").textContent, "/workspace/first.md");
     assert.ok(!details.closest('[role="option"]'));
     view.render({ folderOnly: false, folderName: undefined });
-    assert.match(scope(), /Searching recent documents, drafts\./);
-    assert.doesNotMatch(scope(), /Project notes/);
+    assert.equal(scope(), "Searching Recent and Drafts.");
+    assert.ok(!view.host.querySelector("#document-search-scope").classList.contains("sr-only"));
+    assert.ok(!view.host.querySelector("label select"));
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("Search names each result like Home: a real title first, then the file and its place, never the same name twice", async () => {
+  await installDom();
+  const view = renderDialog(dialogs[1], {
+    query: "river",
+    results: [
+      { path: "/work/Notes/field.md", relPath: "Notes/field.md", name: "field.md", title: "Field notes", kind: "content", snippet: "Down by the river", score: 1, headingId: null },
+      { path: "/work/plan.md", relPath: "plan.md", name: "plan.md", title: "plan", kind: "title", snippet: "plan", score: 1, headingId: null },
+      { path: "/work/chapter.md", relPath: "chapter.md", title: "Chapter one", kind: "title", snippet: "Chapter one", score: 1, headingId: null },
+    ],
+  });
+  try {
+    view.open();
+    const rows = [...view.host.querySelectorAll('[role="option"]')].map((row) =>
+      [...row.children].map((part) => part.textContent),
+    );
+    assert.deepEqual(rows, [
+      ["Field notes", "field.md in work › Notes", "Down by the river"],
+      ["plan.md", "work"],
+      ["Chapter one", "chapter.md in work"],
+    ]);
   } finally {
     view.cleanup();
   }

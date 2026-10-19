@@ -32,8 +32,6 @@ const EMPTY: WorkspaceState = {
   status: "idle",
   indexedAt: null,
   error: null,
-  readFailedCount: 0,
-  complexitySkippedCount: 0,
   limitHit: false,
 };
 interface Listing {
@@ -364,7 +362,8 @@ export function useWorkspaceIndex(
         status: "indexing",
         directories: folder.directories ?? [],
         issues: folder.issues ?? [],
-        limitHit: folder.limitHit || drafts.limitHit,
+        limitHit: folder.limitHit,
+        draftsLimitHit: drafts.limitHit,
         draftsSkipped: drafts.skipped ?? false,
         error:
           folderResult.status === "rejected"
@@ -382,7 +381,11 @@ export function useWorkspaceIndex(
             : null,
       };
       setDocs([...next.values()]);
-      setState(base);
+      // A recheck of the same folder keeps its last listing time while it reads.
+      setState((prev) => ({
+        ...base,
+        indexedAt: sameRoot ? prev.indexedAt : null,
+      }));
       // One parse per turn bounds UI stalls. Every publication re-renders each
       // consumer, so publish on a time budget rather than per document.
       let publishedAt = Date.now();
@@ -418,12 +421,6 @@ export function useWorkspaceIndex(
         ...base,
         status: base.error ? "error" : "ready",
         indexedAt: Date.now(),
-        readFailedCount: published.filter(
-          (d) => d.problem && d.coverage !== "complexity",
-        ).length,
-        complexitySkippedCount: published.filter(
-          (d) => d.coverage === "complexity",
-        ).length,
       });
       // Bounded subset is fine: it is only a parse optimization, never the catalog.
       void invoke("save_search_cache", {

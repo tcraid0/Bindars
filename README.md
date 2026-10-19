@@ -80,7 +80,8 @@ opened documents from any location. Its rows keep their order while you use the
 sidebar, returning to most-recent-first when you hide and show it or relaunch.
 Resizing the window does not reshuffle it.
 New documents enter at the top, and each row shows its location and last-opened
-time on one quiet line. **Back** returns to documents opened from Recent.
+time on one quiet line. Locations leave out your own home folder, so a file in
+Downloads reads "Downloads" and one directly in it reads "Home folder". **Back** returns to documents opened from Recent.
 
 The sidebar starts hidden and remembers your choice. A one-time note offers
 **Show Sidebar** when you open a second distinct document; if the reading hint
@@ -94,20 +95,22 @@ New documents are saved here until you save them somewhere else. The header
 and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
-to your Documents folder. Choose **Show existing drafts** to list it; once
-Bindars has saved a draft or found existing ones, later launches list Drafts
-automatically.
+to your Documents folder. Choose **Show earlier drafts** to list it; the Drafts
+tab notes that macOS may ask first. Once Bindars has saved a draft or found
+existing ones, later launches list Drafts automatically.
 
-In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Nothing is moved or copied. The picker starts in the folder of the
-document you are reading. Opening another file does not add or scan its parent
+In **Folders**, choose **Choose Folder…** to browse one folder's supported files
+and the subfolders that contain them. Your files stay where they are. The picker
+starts in the folder of the document you are reading. **Change Folder…** replaces
+the folder; inside a subfolder, the button above its name goes back to the folder
+that contains it. Opening another file does not add or scan its parent
 folder, and saving a document keeps its place in the folder list. Browsing does
 not change where new documents autosave. **Remove from Sidebar** removes only
 this folder reference; the inline **Add Back** action restores it. Neither action
 moves or deletes documents or notes.
 
 **Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
-Its Scope menu can narrow results to that folder. Unquoted words may occur in
+Its **Search in** menu can narrow results to that folder. Unquoted words may occur in
 any order; double quotes request a phrase within a text block. Results group by
 document, with separate passage counts. Filename/title matches rank first, then
 exact phrases, nearby terms, and scattered terms. Up to 50 documents and five
@@ -135,9 +138,12 @@ Files appear before text preparation finishes and remain findable by filename
 when reading or parsing fails. Status and recovery actions distinguish missing,
 unreadable, invalid-encoding, oversized and overly complex documents. There is
 no promise that every discovered file can be displayed. The folder browser skips
-hidden folders, `node_modules`, `target`, `vendor`, and symbolic links. Discovery
-is bounded to 5,000 documents per folder/Drafts source, 100,000 visited entries,
-20,000 subfolders and 32 levels; a partial-list notice identifies these limits.
+hidden folders, `node_modules`, `target`, `vendor`, and symbolic links, and lists
+only subfolders that contain supported documents. Discovery is bounded to 5,000
+documents per folder/Drafts source, 100,000 visited entries, 20,000 subfolders
+and 32 levels; when a listing stops early, Folders says only part of the folder
+is listed and Drafts says only some drafts are listed. Places the folder browser can't open are named inside the folder with a
+plain reason, such as "not allowed".
 Lists initially render 100 entries and provide buttons for more.
 
 Successful saves update Search immediately. Returning to the app reconciles

@@ -33,3 +33,8 @@ export function documentFileType(path: string): "markdown" | "fountain" {
 export function replaceOpenableDocumentExtension(path: string, replacement: string): string {
   return path.replace(OPENABLE_FILE_EXTENSION_PATTERN, replacement);
 }
+
+/** A title worth showing: the index falls back to the filename, which is no title. */
+export function distinctTitle(title: string | null | undefined, name: string): string | null {
+  return title && title !== name && title !== replaceOpenableDocumentExtension(name, "") ? title : null;
+}

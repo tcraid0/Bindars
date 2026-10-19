@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type {
   RecentFile,
   WorkspaceDocIndex,
@@ -6,8 +6,7 @@ import type {
 } from "../types";
 import { RecentFiles } from "./RecentFiles";
 import { DocumentList } from "./DocumentList";
-import { PathDetails } from "./PathDetails";
-import { fileName, parentPath } from "../lib/paths";
+import { fileName, locationLabel, parentPath, toPosixPath } from "../lib/paths";
 import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
@@ -57,21 +56,35 @@ function SidebarComponent(props: SidebarProps) {
   useEffect(() => {
     setFolderLimit(100);
   }, [directory]);
+  // Folders with a document at any depth; the rest would be dead ends.
+  const occupied = useMemo(() => {
+    const found = new Set<string>();
+    for (const doc of docs) {
+      if (!doc.sources?.includes("folder")) continue;
+      let folder = "";
+      for (const part of toPosixPath(doc.relPath).split("/").slice(0, -1)) {
+        folder = folder ? `${folder}/${part}` : part;
+        found.add(folder);
+      }
+    }
+    return found;
+  }, [docs]);
   if (!visible) return null;
   const folderDocs = docs.filter((doc) => doc.sources?.includes("folder"));
   const drafts = docs.filter((doc) => doc.sources?.includes("draft"));
-  const normalizedDir = directory.replace(/\\/g, "/");
+  // Rechecks keep indexedAt, so only a first listing reads as "looking".
+  const firstListing = state.status === "indexing" && !state.indexedAt;
+  const normalizedDir = toPosixPath(directory);
+  const parentDirectory = normalizedDir.includes("/")
+    ? parentPath(normalizedDir)
+    : "";
   const prefix = normalizedDir ? `${normalizedDir}/` : "";
+  const inPrefix = (path: string) =>
+    path.startsWith(prefix) && !path.slice(prefix.length).includes("/");
   const subfolders = (state.directories ?? [])
-    .map((path) => path.replace(/\\/g, "/"))
-    .filter(
-      (path) =>
-        path.startsWith(prefix) && !path.slice(prefix.length).includes("/"),
-    );
-  const files = folderDocs.filter((doc) => {
-    const rel = doc.relPath.replace(/\\/g, "/");
-    return rel.startsWith(prefix) && !rel.slice(prefix.length).includes("/");
-  });
+    .map(toPosixPath)
+    .filter((path) => inPrefix(path) && occupied.has(path));
+  const files = folderDocs.filter((doc) => inPrefix(toPosixPath(doc.relPath)));
   const moveDirectory = (path: string) => {
     setDirectory(path);
     panelRef.current?.focus();
@@ -159,9 +172,9 @@ function SidebarComponent(props: SidebarProps) {
               )
               .map((doc) => (
                 <div className="navigation-help" key={doc.path}>
-                  <p>Can't find {doc.name}.</p>
+                  <p>Can't find {doc.name}. It may have been moved or deleted.</p>
                   <button onClick={() => props.onFindNotes?.(doc.path)}>
-                    Locate / reconnect notes…
+                    Locate File…
                   </button>
                 </div>
               ))}
@@ -176,20 +189,26 @@ function SidebarComponent(props: SidebarProps) {
               <p role="status" className="navigation-help">
                 {state.draftsError}{" "}
                 {isMac &&
-                  "Allow access in System Settings › Privacy & Security › Files and Folders. "}
+                  "If your Mac blocked access, allow it in System Settings › Privacy & Security › Files & Folders. "}
                 <button onClick={props.onReindexWorkspace}>Retry</button>
+              </p>
+            )}
+            {state.draftsLimitHit && (
+              <p role="status" className="navigation-help">
+                Only some drafts are listed. Use Open to open one that isn't
+                shown.
               </p>
             )}
             {!drafts.length && !state.draftsError && state.draftsSkipped && (
               <div className="navigation-help">
-                <button onClick={props.onShowDrafts}>Show existing drafts</button>
+                <button onClick={props.onShowDrafts}>Show earlier drafts</button>
+                {/* Only macOS skips the listing, and listing Documents can raise its prompt. */}
+                {isMac && <p>Your Mac may ask to let Bindars open Documents.</p>}
               </div>
             )}
             {!drafts.length && !state.draftsError && !state.draftsSkipped && (
               <p className="navigation-help">
-                {state.status === "indexing"
-                  ? "Looking for drafts…"
-                  : "No drafts yet."}
+                {firstListing ? "Looking for drafts…" : "No drafts yet."}
               </p>
             )}
             <DocumentList
@@ -206,20 +225,58 @@ function SidebarComponent(props: SidebarProps) {
           <>
             {!root && (
               <p className="navigation-help">
-                Add a folder to browse the documents in it. Nothing is moved or copied.
+                Choose a folder to see its documents here. Your files stay where
+                they are.
               </p>
             )}
-            <button
-              ref={addRef}
-              className="navigation-action"
-              onClick={props.onChooseWorkspaceRoot}
-            >
-              {root ? "Choose another folder…" : "Add Folder…"}
-            </button>
+            {root && directory && (
+              <button
+                className="navigation-action"
+                onClick={() => moveDirectory(parentDirectory)}
+              >
+                ‹ {fileName(parentDirectory || root)}
+              </button>
+            )}
+            {root && (
+              <h2
+                className="navigation-folder-name"
+                title={directory ? undefined : root}
+              >
+                {fileName(directory || root)}
+              </h2>
+            )}
+            {/* Where the folder is, in words; the heading's title has the full path. */}
+            {root && !directory && (
+              <p className="navigation-help">In {locationLabel(root)}</p>
+            )}
+            {/* One element for Choose and Change, so focus survives Remove and Add Back. */}
+            {(!root || !directory) && (
+              <div className="flex flex-wrap">
+                <button
+                  ref={addRef}
+                  className="navigation-action"
+                  onClick={props.onChooseWorkspaceRoot}
+                >
+                  {root ? "Change Folder…" : "Choose Folder…"}
+                </button>
+                {root && (
+                  <button
+                    className="navigation-action"
+                    onClick={() => {
+                      setRemoved(root);
+                      props.onClearWorkspaceRoot();
+                      addRef.current?.focus();
+                    }}
+                  >
+                    Remove from Sidebar
+                  </button>
+                )}
+              </div>
+            )}
             {removed && (
               <div role="status" className="navigation-help">
-                Removed ‘{fileName(removed)}’ from the sidebar. Its files and
-                your notes are unchanged.{" "}
+                Removed ‘{fileName(removed)}’ from the sidebar. Nothing was
+                deleted.{" "}
                 <button
                   onClick={() => {
                     props.onRestoreFolder?.(removed);
@@ -233,39 +290,16 @@ function SidebarComponent(props: SidebarProps) {
             )}
             {root && (
               <>
-                <h2 className="navigation-folder-name">{fileName(root)}</h2>
-                <div className="navigation-help">
-                  <PathDetails path={root} label="Folder location" />
-                </div>
-                <button
-                  className="navigation-action"
-                  onClick={() => {
-                    setRemoved(root);
-                    props.onClearWorkspaceRoot();
-                    addRef.current?.focus();
-                  }}
-                >
-                  Remove from Sidebar
-                </button>
-                <p className="navigation-help">{directory || "Top folder"}</p>
-                {directory && (
-                  <button
-                    className="navigation-action"
-                    onClick={() =>
-                      moveDirectory(
-                        normalizedDir.includes("/")
-                          ? parentPath(normalizedDir)
-                          : "",
-                      )
-                    }
-                  >
-                    ‹ Back
-                  </button>
-                )}
                 {state.error && (
                   <p role="status" className="navigation-help">
                     {state.error}{" "}
                     <button onClick={props.onReindexWorkspace}>Retry</button>
+                  </p>
+                )}
+                {state.limitHit && (
+                  <p role="status" className="navigation-help">
+                    Only part of this folder is listed. Use Change Folder… to
+                    choose a folder inside it.
                   </p>
                 )}
                 <ul className="document-list">
@@ -273,9 +307,10 @@ function SidebarComponent(props: SidebarProps) {
                     <li key={path}>
                       <button
                         className="document-open document-row"
+                        aria-label={`${fileName(path)}, folder`}
                         onClick={() => moveDirectory(path)}
                       >
-                        ▸ {fileName(path)}
+                        {fileName(path)} ›
                       </button>
                     </li>
                   ))}
@@ -285,7 +320,7 @@ function SidebarComponent(props: SidebarProps) {
                     className="navigation-action"
                     onClick={() => setFolderLimit((n) => n + 100)}
                   >
-                    More folders
+                    Show more folders
                   </button>
                 )}
                 <DocumentList
@@ -298,46 +333,30 @@ function SidebarComponent(props: SidebarProps) {
                 />
                 {!files.length && !subfolders.length && !state.error && (
                   <p className="navigation-help">
-                    {state.status === "indexing"
+                    {firstListing
                       ? "Looking for documents…"
-                      : "No supported documents in this folder."}
+                      : state.limitHit || state.issues?.length
+                        ? "No documents could be listed here."
+                        : "No Markdown or Fountain documents in this folder."}
                   </p>
+                )}
+                {!!state.issues?.length && (
+                  <details className="navigation-help">
+                    <summary>Some places in this folder couldn't be opened</summary>
+                    {state.issues.map((issue) => (
+                      <p key={issue}>{issue}</p>
+                    ))}
+                  </details>
                 )}
               </>
             )}
-            <details className="navigation-help">
-              <summary>What appears here</summary>
-              <p>
-                Markdown (.md, .markdown) and Fountain files. Hidden folders,
-                node_modules, target, vendor, and symbolic links are skipped.
-                Discovery stops at 5,000 documents, 100,000 entries or 32
-                levels.
-              </p>
-            </details>
           </>
         )}
       </div>
-      {state.limitHit && (
-        <p role="status" className="navigation-help">
-          Only part of this folder is listed. Choose a smaller folder to reach
-          documents beyond the discovery limits.
-        </p>
-      )}
-      {!!state.issues?.length && (
-        <details className="navigation-help">
-          <summary>Some locations could not be checked</summary>
-          {state.issues.map((issue) => (
-            <p key={issue}>{issue}</p>
-          ))}
-        </details>
-      )}
-      {/* Background rechecks run on every window focus; keep them out of live regions. */}
+      {/* Only a first listing shows. Rechecks run on every window focus and stay
+          quiet; none of this belongs in a live region. */}
       <p className="navigation-help">
-        {state.status === "indexing"
-          ? "Checking documents…"
-          : state.readFailedCount + state.complexitySkippedCount > 0
-            ? "Some documents have limited search coverage. Their names remain searchable."
-            : ""}
+        {firstListing ? "Checking documents…" : ""}
       </p>
     </aside>
   );

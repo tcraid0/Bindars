@@ -4,6 +4,7 @@ const { installDom } = require("./_helpers/dom.cjs");
 const { renderComponent, buttonWithText, click } = require("./_helpers/component-view.cjs");
 
 const { EmptyState } = require("../.tmp/workspace-tests/src/components/EmptyState.js");
+const { setHomeDirectory } = require("../.tmp/workspace-tests/src/lib/paths.js");
 
 const SAVE_HINT = /Choose where to save it/;
 const recentFiles = [
@@ -278,6 +279,28 @@ for (const [path, label] of [
       assert.ok(row.textContent.includes(new Date(1).toLocaleDateString()), "Home shows when you last read it");
       assert.ok(!view.host.querySelector("details.document-location"));
     } finally { view.cleanup(); }
+  });
+}
+
+for (const [home, path, label] of [
+  ["/Users/reader", "/Users/reader/Downloads/notes.md", "Downloads"],
+  ["/Users/reader/", "/Users/reader/Documents/Garden/notes.md", "Documents › Garden"],
+  ["/home/reader", "/home/reader/notes/notes.md", "notes"],
+  ["C:\\Users\\reader", "C:\\Users\\reader\\Downloads\\notes.md", "Downloads"],
+  ["/Users/reader", "/Users/reader/notes.md", "Home folder"],
+  ["/Users/reader", "/Users/readers/Notes/notes.md", "readers › Notes"],
+  ["/Users/reader", "/Users/another/Notes/notes.md", "another › Notes"],
+  ["/Users/reader", "/Users/Shared/Notes/notes.md", "Shared › Notes"],
+]) {
+  test(`locations leave out only your own home folder (${home}): ${path}`, async () => {
+    await installDom();
+    setHomeDirectory(home);
+    const view = renderEmptyState({ recentFiles: [{ path, name: "notes.md", openedAt: 1, lastHeadingId: null }] });
+    try {
+      const row = view.host.querySelector('button[aria-label^="Open notes.md"]');
+      assert.equal(row.getAttribute("aria-label"), `Open notes.md, ${label}`);
+      assert.equal(row.title, path, "the full path stays available");
+    } finally { view.cleanup(); setHomeDirectory(null); }
   });
 }
 

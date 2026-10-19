@@ -1,7 +1,5 @@
 import { useState } from "react";
 import type { WorkspaceDocIndex } from "../types";
-import { MAX_WORKSPACE_BODY_CHARS } from "../lib/workspace-limits";
-import { PathDetails } from "./PathDetails";
 import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { useToast } from "./ToastProvider";
 
@@ -37,18 +35,7 @@ export function DocumentList({
               {drafts && doc.draftLabel && doc.draftLabel !== doc.name && (
                 <span>{doc.name}</span>
               )}
-              {doc.coverage === "pending" && (
-                <span>Preparing text search…</span>
-              )}
-              {doc.coverage === "partial" && (
-                <span>
-                  First {MAX_WORKSPACE_BODY_CHARS.toLocaleString()} characters
-                  searchable
-                </span>
-              )}
             </button>
-            {/* Folder rows sit under the folder's own location. */}
-            {drafts && <PathDetails path={doc.path} label="Bindars Drafts" />}
             {doc.problem && (
               <div className="document-problem">
                 <p>{doc.problem}</p>
@@ -57,7 +44,7 @@ export function DocumentList({
                 </button>{" "}
                 {doc.coverage === "missing" && onFindNotes ? (
                   <button type="button" onClick={() => onFindNotes(doc.path)}>
-                    Locate / reconnect notes…
+                    Locate File…
                   </button>
                 ) : (
                   <button
@@ -65,7 +52,7 @@ export function DocumentList({
                     onClick={() =>
                       void revealDocument(
                         doc.path,
-                        "Couldn't show this file. Check its location and permissions.",
+                        "Couldn't show this file. It may have been moved or deleted.",
                       ).catch((error: Error) => toast(error.message, "error"))
                     }
                   >

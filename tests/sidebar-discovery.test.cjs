@@ -182,19 +182,29 @@ test("menu sidebar actions sync intent, respect dialogs, and hide a fit-hidden s
 });
 
 for (const initialPath of [null, "/fixture/Project/A.md"]) {
-  test(`Add Folder starts in the current document folder: ${initialPath ?? "welcome"}`, async t => {
+  test(`Choose Folder starts in the current document folder: ${initialPath ?? "welcome"}`, async t => {
     const view = await mount(t, { initialPath });
     assert.ok(!hint(view));
     await menu("toggle-sidebar");
     click(view.host.querySelector('#navigation-tab-Drafts'));
     assert.match(view.host.textContent, /New documents are saved here until you save them somewhere else\./);
-    assert.ok(buttonWithText(view.host, "Show existing drafts"));
+    assert.ok(buttonWithText(view.host, "Show earlier drafts"));
+    assert.doesNotMatch(view.host.textContent, /Your Mac may ask/, "only macOS can raise the Documents prompt");
     assert.ok(view.listings.every(args => args.force === false), "the Drafts privacy gate is never forced by discovery");
     click(view.host.querySelector('#navigation-tab-Folders'));
-    assert.match(view.host.textContent, /Add a folder to browse the documents in it\. Nothing is moved or copied\./);
-    click(buttonWithText(view.host, "Add Folder…"));
+    assert.match(view.host.textContent, /Choose a folder to see its documents here\. Your files stay where they are\./);
+    assert.doesNotMatch(view.host.textContent, /node_modules|What appears here/);
+    click(buttonWithText(view.host, "Choose Folder…"));
     await until(() => assert.equal(view.dialogs.length, 1));
     assert.equal(view.dialogs[0].directory, true);
     assert.equal(view.dialogs[0].defaultPath, initialPath ? "/fixture/Project" : undefined);
   });
 }
+
+test("on macOS, Show earlier drafts says the Mac may ask first", async t => {
+  const view = await mount(t, { platform: "MacIntel" });
+  await menu("toggle-sidebar");
+  click(view.host.querySelector('#navigation-tab-Drafts'));
+  assert.ok(buttonWithText(view.host, "Show earlier drafts"));
+  assert.match(view.host.textContent, /Your Mac may ask to let Bindars open Documents\./);
+});

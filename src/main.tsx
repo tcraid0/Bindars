@@ -6,6 +6,8 @@ import { ToastProvider } from "./components/ToastProvider";
 import { getActiveDialog } from "./components/DialogFrame";
 import { appReadyPromise, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import { installContextMenuPolicy } from "./lib/context-menu";
+import { setHomeDirectory } from "./lib/paths";
+import { homeDir } from "@tauri-apps/api/path";
 import "./app.css";
 
 installContextMenuPolicy();
@@ -110,6 +112,12 @@ function dismissLoadingScreen(): void {
 }
 
 async function bootstrap() {
+  // Locations leave out the person's own home folder, so learn it before the
+  // first list renders. Without it, labels keep the account name.
+  await Promise.race([
+    homeDir().then(setHomeDirectory, () => {}),
+    new Promise<void>((r) => setTimeout(r, 250)),
+  ]);
   renderApp();
 
   // Wait for fonts + app state, with a safety timeout

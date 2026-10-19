@@ -10,10 +10,20 @@ export function parentPath(path: string): string {
   return /^[A-Za-z]:$/.test(parent) ? `${parent}/` : parent;
 }
 
+let homeDirectory: string | null = null;
+
+/** The person's own home folder, which locations leave out: ~/Downloads reads "Downloads". */
+export function setHomeDirectory(path: string | null): void {
+  homeDirectory = path ? toPosixPath(path).replace(/\/+$/, "") : null;
+}
+
 /** Compact context for document lists; disclosures expose the complete path. */
 export function locationLabel(path: string): string {
   const parent = parentPath(path);
-  return parent.split("/").filter(Boolean).slice(-2).join(" › ") || parent;
+  const home = homeDirectory;
+  if (home && parent === home) return "Home folder";
+  const place = home && parent.startsWith(`${home}/`) ? parent.slice(home.length) : parent;
+  return place.split("/").filter(Boolean).slice(-2).join(" › ") || parent;
 }
 
 export function isRelativeDocumentPath(path: string): boolean {

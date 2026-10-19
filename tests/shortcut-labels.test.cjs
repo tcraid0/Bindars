@@ -26,8 +26,6 @@ const workspaceState = {
   status: "ready",
   indexedAt: 1,
   error: null,
-  readFailedCount: 0,
-  complexitySkippedCount: 0,
   limitHit: false,
 };
 
@@ -212,7 +210,7 @@ test("visible shortcut components render macOS labels consistently", () => {
   assert.match(markup, /⌥←/);
   assert.match(markup, /title="Home \(⇧⌘H\)"/);
   assert.match(markup, /Search documents \(⌘K\)/);
-  assert.match(markup, /Enter opens it/);
+  assert.match(markup, /around an exact phrase/);
   assert.doesNotMatch(markup, /Ctrl\+|Alt\+/);
 });
 

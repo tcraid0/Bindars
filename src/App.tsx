@@ -52,7 +52,7 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
-import { OPENABLE_FILE_TYPES_DESCRIPTION, replaceOpenableDocumentExtension } from "./lib/openable-files";
+import { distinctTitle, OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
@@ -240,8 +240,7 @@ function App() {
     return new Map(recentFiles.map(file => {
       const key = toPathIdentityKey(file.path);
       const doc = docs.get(key);
-      const title = doc?.title && doc.title !== file.name
-        && doc.title !== replaceOpenableDocumentExtension(file.name, "") ? doc.title : null;
+      const title = distinctTitle(doc?.title, file.name);
       const section = doc?.headings.find((heading, index) => index > 0 && heading.id === file.lastHeadingId)?.text || null;
       return [key, { title, section }];
     }));

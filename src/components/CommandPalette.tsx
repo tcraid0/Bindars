@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef } from "react";
 import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
-import { locationLabel } from "../lib/paths";
+import { fileName, locationLabel } from "../lib/paths";
+import { distinctTitle } from "../lib/openable-files";
 import { MAX_WORKSPACE_BODY_CHARS } from "../lib/workspace-limits";
 import { PathDetails } from "./PathDetails";
 interface CommandPaletteProps {
@@ -60,29 +61,33 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
           <button className="navigation-action float-right" onClick={onClose}>
             Close Search
           </button>
-          <p
-            id="document-search-scope"
-            className="text-xs text-text-secondary my-2"
-          >
-            {props.folderOnly && props.folderName
-              ? `Searching only ${props.folderName}.`
-              : `Searching recent documents, drafts${props.folderName ? ` and ${props.folderName}` : ""}.`}{" "}
-            Other locations on your computer are not searched.
-          </p>
           {props.folderName && (
-            <label className="text-sm block my-2">
-              Scope{" "}
+            <label className="text-xs text-text-secondary block my-2">
+              Search in{" "}
+              {/* A long folder name must not push the menu past the dialog. */}
               <select
+                className="max-w-full"
                 value={props.folderOnly ? "folder" : "all"}
                 onChange={(event) =>
                   props.onFolderOnly?.(event.target.value === "folder")
                 }
               >
-                <option value="all">All places</option>
-                <option value="folder">{props.folderName}</option>
+                <option value="all">Recent, Drafts and {props.folderName}</option>
+                <option value="folder">{props.folderName} only</option>
               </select>
             </label>
           )}
+          {/* With a folder, the menu shows the scope; the field still describes it. */}
+          <p
+            id="document-search-scope"
+            className={props.folderName ? "sr-only" : "text-xs text-text-secondary my-2"}
+          >
+            {props.folderOnly && props.folderName
+              ? `Searching only ${props.folderName}.`
+              : props.folderName
+                ? `Searching Recent, Drafts and ${props.folderName}.`
+                : "Searching Recent and Drafts."}
+          </p>
           <input
             ref={inputRef}
             type="text"
@@ -106,8 +111,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
             id="document-search-help"
             className="text-xs text-text-secondary mt-2"
           >
-            Words match in any order. Use "double quotes" around a phrase. Arrow
-            keys select a document; Enter opens it.
+            Tip: put "quotes" around an exact phrase.
           </p>
           <p
             role="status"
@@ -128,37 +132,41 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
         aria-label="Matching documents"
         className="max-h-[40vh] overflow-y-auto"
       >
-        {results.map((hit, index) => (
-          <li
-            key={hit.path}
-            id={`document-result-${index}`}
-            role="option"
-            aria-selected={index === selectedIndex}
-            onMouseEnter={() => onHoverIndex(index)}
-            onClick={() => onOpenHit(hit)}
-            className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
-          >
-            <strong className="break-words">
-              {hit.kind === "title" && hit.title && hit.snippet === hit.title
-                ? hit.title
-                : hit.name || hit.relPath}
-            </strong>
-            <p className="text-xs text-text-secondary break-all">
-              {hit.name} · {locationLabel(hit.path)}
-            </p>
-            {hit.snippet && <p className="my-1 break-words">{hit.snippet}</p>}
-            {!hit.snippet && hit.title && (
-              <p className="my-1 break-words">{hit.title}</p>
-            )}
-            {!!hit.passageCount && (
-              <p className="text-xs text-text-secondary">
-                {hit.passageCount} matching passage
-                {hit.passageCount === 1 ? "" : "s"}
+        {results.map((hit, index) => {
+          // Named like Home's rows: the title first, then the file and its place.
+          const name = hit.name || fileName(hit.path);
+          const title = distinctTitle(hit.title, name);
+          return (
+            <li
+              key={hit.path}
+              id={`document-result-${index}`}
+              role="option"
+              aria-selected={index === selectedIndex}
+              onMouseEnter={() => onHoverIndex(index)}
+              onClick={() => onOpenHit(hit)}
+              className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
+            >
+              <strong className="break-words">
+                {title ?? name}
+              </strong>
+              <p className="text-xs text-text-secondary break-words">
+                {title
+                  ? `${name} in ${locationLabel(hit.path)}`
+                  : locationLabel(hit.path)}
               </p>
-            )}
-            {hit.problem && <p className="text-xs">{hit.problem}</p>}
-          </li>
-        ))}
+              {hit.snippet && hit.snippet !== hit.title && (
+                <p className="my-1 break-words">{hit.snippet}</p>
+              )}
+              {!!hit.passageCount && (
+                <p className="text-xs text-text-secondary">
+                  {hit.passageCount} matching passage
+                  {hit.passageCount === 1 ? "" : "s"}
+                </p>
+              )}
+              {hit.problem && <p className="text-xs">{hit.problem}</p>}
+            </li>
+          );
+        })}
       </ul>
       {!results.length && (
         <p className="p-4 text-sm">
@@ -166,7 +174,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
             ? "Updating results…"
             : query
               ? "No matching documents."
-              : "Open a document, create a draft, or add a folder to start."}
+              : "Nothing to search yet. Open a document or choose a folder first."}
         </p>
       )}
       {selected && (
@@ -202,21 +210,16 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
       )}
       <details className="p-3 text-xs text-text-secondary">
         <summary tabIndex={0}>
-          Search coverage
+          What Search looks at
           {props.incompleteCount
-            ? ` · ${props.incompleteCount} documents have incomplete content`
+            ? ` · ${props.incompleteCount} ${props.incompleteCount === 1 ? "document is" : "documents are"} only partly searchable`
             : ""}
         </summary>
         <p>
-          Search reads the first {MAX_WORKSPACE_BODY_CHARS.toLocaleString()}{" "}
-          characters of prose per document. Code, math, diagrams and images are
-          excluded. Find in Document searches the displayed document, including
-          code and rendered math. Files that cannot be read remain searchable by filename.
-        </p>
-        <p>
-          Both searches ignore case and ordinary prose whitespace. Straight and
-          curly quotes, --/–, ---/— and .../… are equivalent in prose. Code
-          keeps literal punctuation and whitespace.
+          The first {MAX_WORKSPACE_BODY_CHARS.toLocaleString()} characters of
+          each document's text. Code, math and diagrams are left out; Find in
+          Document searches those in the open document. Documents Bindars can't
+          read are found by name only.
         </p>
       </details>
     </DialogFrame>
