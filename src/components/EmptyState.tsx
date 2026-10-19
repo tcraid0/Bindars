@@ -162,7 +162,7 @@ function EmptyStateComponent({
       ].map(row => (
         <button key={row.title} ref={row.primary ? openRef : undefined} type="button" onClick={row.onClick} disabled={row.disabled}
           aria-label={`${row.title}, ${row.detail}`}
-          className="home-row flex items-center gap-3.5 w-full px-3 text-left rounded-[10px] hover:bg-bg-tertiary disabled:opacity-50 disabled:pointer-events-none transition-colors duration-120">
+          className="home-row flex items-center gap-3.5 w-full px-3 text-left hover:bg-bg-tertiary disabled:opacity-50 disabled:pointer-events-none transition-colors duration-120">
           <span className={`grid place-items-center size-9 shrink-0 rounded-[9px] ${row.primary ? "bg-accent/15 text-accent-text" : "bg-bg-tertiary text-text-secondary"}`}>
             {icon(row.path)}
           </span>

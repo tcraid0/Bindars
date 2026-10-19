@@ -76,7 +76,7 @@ export function RecentFiles({
             key={file.path}
             data-path={file.path}
             data-current={isActive || undefined}
-            className={`document-row flex items-center gap-2 group ${welcome ? "home-row" : ""}`}
+            className={`document-row flex gap-2 group ${welcome ? "home-row items-baseline" : "items-center"}`}
           >
             <div className="flex-1 min-w-0">
               <button

@@ -839,10 +839,14 @@ button:active:not(:disabled),
   margin: clamp(0px, 7vh, 4rem) auto 0;
 }
 
-/* Home's rows read like a contents page: roomier, with hairlines between. */
-.home-row {
+/* Home's rows read like a contents page: roomier, with hairlines between,
+   aligned with the heading. Scoped so it outranks the shared .document-row;
+   Home never marks a current row. */
+.empty-state .home-row {
   position: relative;
   padding-block: 0.75rem;
+  border-left: 0;
+  border-radius: 0.625rem;
 }
 
 .home-row + .home-row::before {
