@@ -1,3 +1,48 @@
+## Changes in 1.6.1
+
+This update adds **Home**, a place to choose what to read next, reopens where
+you left off, and keeps the sidebar's Recent list steady while you use it.
+Version 1.6.0 was not published on its own; its changes are listed below and
+are part of this release. It introduces no new document or annotation format.
+
+### Home and where you left off
+
+- The Bindars symbol in the toolbar is now a **Home** button, after Back and
+  Forward. Go there with the button, **Shift+Cmd+H** on macOS or **Alt+Home** on
+  Linux, or **File › Home** on macOS. An edited document is saved or you are
+  asked first, as when opening another file.
+- Home lists your five most recent documents by their own titles, with the
+  section you were in and when you last opened each; **Continue at** and a
+  section mark the one you were reading. **Open File…** and **New** sit beside
+  the heading, and **Remove** appears when you point at or focus a row.
+- When Home has nothing to list, it offers ways to start: open a file, try the
+  example, or start a new document. With one or two documents, Open and New
+  stay below the list until there are three.
+- Bindars reopens the document you were reading, at its section, or Home if you
+  left from Home. A new document you never saved counts as Home. A file you
+  open from Finder, the command line or a drop always comes first and opens at
+  the top. While a document reopens you see "Opening ‹name›…" instead of the
+  welcome screen.
+- On Linux, a missing file named on the command line is reported instead of
+  being replaced by the last document.
+- **Back** and **Forward** include Home and every way of changing document:
+  Recent, links, Search, Open File, drops, Finder, New, Try an Example and Make
+  a Copy. Back to a file that is gone shows the message once and skips it
+  afterwards.
+- The first launch keeps its welcome screen and startup animation; going Home
+  inside the app never animates.
+
+### Sidebar
+
+- **Recent** keeps its order while you use it, and **Back** returns to
+  documents opened from Recent.
+- A saved document keeps its place in **Folders**.
+- Rows show where a document lives on one line.
+- A one-time note points new users to the sidebar, and **View › Show Sidebar**
+  opens it on macOS.
+- **Add Folder** starts in the current document's folder.
+- An empty Recent list says "Documents you open will appear here."
+
 ## Changes in 1.6.0
 
 This update adds new ways to find and move between documents, zooms the whole
@@ -58,7 +103,8 @@ document, settings, or annotation format.
 
 People already using 1.5.x can update without a new format migration. Search
 data moves out of the settings file into a separate cache that Bindars rebuilds
-when needed.
+when needed. Bindars can now remember Home as the last place; builds before
+1.6.1 ignore that record.
 
 Since 1.5.0, Bindars has used ordinary Drafts files instead of hidden recovery
 snapshots. Older snapshots are neither read nor deleted by current builds.
