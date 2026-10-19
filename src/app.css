@@ -1353,6 +1353,12 @@ mark.search-highlight mark {
   font-size: 1.1em;
 }
 
+/* WebKit mispaints positioned MathML labels inside SVG foreignObject.
+   Forced legacy HTML still has affected positioned spans inside .katex. */
+.mermaid-diagram .katex {
+  position: static;
+}
+
 /* ── Fountain screenplay styles ── */
 
 .fountain-body {
