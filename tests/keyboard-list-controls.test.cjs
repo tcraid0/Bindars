@@ -59,7 +59,7 @@ test("recent removals reveal on focus, skip disabled rows, and preserve focus th
     click(remove("second"));
     assert.equal(document.activeElement.getAttribute("aria-label"), "Recent files");
     assert.equal(view.host.querySelectorAll("button").length, 0);
-    assert.match(document.activeElement.textContent, /No recent files/);
+    assert.match(document.activeElement.textContent, /Documents you open will appear here\./);
   } finally { view.cleanup(); }
 });
 

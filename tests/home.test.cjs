@@ -497,9 +497,12 @@ test("removing the last recent file on Home keeps compact Home through Quit and 
   click(app.host().querySelector('.empty-state [aria-label="Remove A.md from recent files"]'));
   await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   assert.ok(atHome(app), "removing the last row does not change the page");
+  const startsHome = () => assert.match(app.host().querySelector(".empty-state").textContent, /^HomeStart with a document/);
+  startsHome();
   await app.quit();
   await app.relaunch();
   assert.ok(atHome(app), "a saved Home is not a first run");
+  startsHome();
   await until(() => assert.ok(document.activeElement === pageHeading(app)));
   assert.deepEqual(app.opened, ["/fixture/A.md"]);
 });

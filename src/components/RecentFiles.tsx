@@ -58,11 +58,9 @@ export function RecentFiles({
       aria-label="Recent files"
       className="flex-1 focus-visible:outline-2 focus-visible:outline-accent-indicator focus-visible:-outline-offset-2"
     >
-      {files.length === 0 && (
-        <div className="px-4 py-8 text-center text-text-muted text-sm">
-          {unavailable ? "Recent history is unavailable." : "No recent files"}
-        </div>
-      )}
+      {files.length === 0 && (unavailable ? (
+        <div className="px-4 py-8 text-center text-text-muted text-sm">Recent history is unavailable.</div>
+      ) : <p className="navigation-help">Documents you open will appear here.</p>)}
       {files.map((file) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;

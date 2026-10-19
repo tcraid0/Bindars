@@ -155,21 +155,105 @@ test("Home names a document by its title, keeps the filename and folder, and rev
   } finally { view.cleanup(); }
 });
 
-test("chosen or restored Home is compact without history, and keeps its page when rows go", async () => {
-  await installDom();
-  const empty = renderEmptyState({ preferHome: true });
-  try {
-    assert.equal(empty.host.querySelector("h1").textContent, "Home");
-    assert.match(empty.host.textContent, /No recent files/);
-    assert.doesNotMatch(empty.host.textContent, /Try an Example/);
-  } finally { empty.cleanup(); }
+const startRows = host => [...host.querySelectorAll("button.home-row")];
 
-  const launch = renderEmptyState({ recentFiles: recentFiles.slice(0, 1) });
+for (const platform of ["Linux x86_64", "MacIntel"]) {
+  test(`a chosen or restored blank Home offers ways to start in its own layout (${platform})`, async () => {
+    await installDom();
+    const priorPlatform = Object.getOwnPropertyDescriptor(navigator, "platform");
+    Object.defineProperty(navigator, "platform", { configurable: true, value: platform });
+    const calls = [];
+    const empty = renderEmptyState({ preferHome: true, onOpenFile() { calls.push("open"); },
+      onTrySample() { calls.push("example"); }, onNewFile() { calls.push("new"); } });
+    try {
+      const mac = platform === "MacIntel";
+      assert.equal(empty.host.querySelector("h1").textContent, "Home");
+      assert.equal(empty.host.querySelectorAll("h1").length, 1);
+      assert.equal(empty.host.querySelector("h2").textContent, "Start with a document");
+      assert.match(empty.host.textContent, /Documents you open will be listed here, with where you left off in each\./);
+      assert.deepEqual(startRows(empty.host).map(row => row.getAttribute("aria-label")), [
+        `Open a file…, Markdown or Fountain, from anywhere on your ${mac ? "Mac" : "computer"}`,
+        "Try an example…, Save a short guide to reading, highlights and notes",
+        "New document, Kept in Bindars Drafts until you save it somewhere",
+      ]);
+      assert.deepEqual(startRows(empty.host).map(row => row.querySelector("kbd")?.textContent ?? null),
+        mac ? ["⌘O", null, "⌘N"] : ["Ctrl+O", null, "Ctrl+N"]);
+      assert.ok([...empty.host.querySelectorAll("kbd")].every(hint => hint.getAttribute("aria-hidden") === "true"));
+      startRows(empty.host).forEach(click);
+      assert.deepEqual(calls, ["open", "example", "new"]);
+      assert.match(empty.host.textContent, /You can also drop a Markdown or Fountain file anywhere in this window\./);
+      assert.doesNotMatch(empty.host.textContent, /No recent files|Open File…|Keyboard Shortcuts|Read, highlight/,
+        "no header buttons, no dead end, and not the first-run welcome");
+      empty.render({ canTrySample: false });
+      assert.equal(startRows(empty.host)[1].disabled, true, "the example waits while another action runs");
+    } finally {
+      empty.cleanup();
+      if (priorPlatform) Object.defineProperty(navigator, "platform", priorPlatform); else delete navigator.platform;
+    }
+  });
+}
+
+test("one or two documents keep Open and New below the list; three bring the quiet header buttons", async () => {
+  await installDom();
+  const files = ["a", "b", "c"].map((name, index) => ({
+    path: `/Users/reader/Notes/${name}.md`, name: `${name}.md`, openedAt: 10 - index, lastHeadingId: null,
+  }));
+  const view = renderEmptyState({ recentFiles: files.slice(0, 1) });
   try {
-    launch.render({ recentFiles: [] });
-    assert.equal(launch.host.querySelector("h1").textContent, "Home", "removing the last row keeps Home");
-    assert.match(launch.host.textContent, /No recent files/);
-  } finally { launch.cleanup(); }
+    const open = buttonWithText(view.host, "Open a file…");
+    for (const count of [1, 2]) {
+      view.render({ recentFiles: files.slice(0, count) });
+      assert.equal(view.host.querySelectorAll("[data-path]").length, count);
+      assert.match(view.host.textContent, /More ways to start/);
+      assert.deepEqual(startRows(view.host).map(row => row.getAttribute("aria-label").split(",")[0]),
+        ["Open a file…", "New document"], "no example once there are documents");
+      assert.ok(buttonWithText(view.host, "Open a file…") === open, "the ways to start stay in place as documents arrive");
+      assert.ok(![...view.host.querySelectorAll("button")].some(button => button.textContent.startsWith("Open File…")));
+      assert.match(view.host.textContent, /Drop a Markdown or Fountain file anywhere to open it\./);
+    }
+    view.render({ recentFiles: files });
+    assert.equal(startRows(view.host).length, 0);
+    assert.doesNotMatch(view.host.textContent, /More ways to start/);
+    assert.ok(buttonWithText(view.host, "Open File…"));
+    assert.ok(buttonWithText(view.host, "New"));
+  } finally { view.cleanup(); }
+});
+
+test("removing the last row keeps Home: the ways to start replace the list and keep focus", async () => {
+  await installDom();
+  const view = renderEmptyState({ recentFiles: recentFiles.slice(0, 1),
+    onRemoveRecent() { view.render({ recentFiles: [] }); } });
+  try {
+    const remove = view.host.querySelector('[aria-label="Remove draft.md from recent files"]');
+    remove.focus();
+    click(remove);
+    assert.equal(view.host.querySelector("h1").textContent, "Home", "removing the last row keeps Home");
+    assert.match(view.host.textContent, /Start with a document/);
+    assert.equal(startRows(view.host).length, 3);
+    assert.ok(document.activeElement === buttonWithText(view.host, "Open a file…"));
+  } finally { view.cleanup(); }
+
+  const pointer = renderEmptyState({ recentFiles: recentFiles.slice(0, 1),
+    onRemoveRecent() { pointer.render({ recentFiles: [] }); } });
+  const elsewhere = document.createElement("button");
+  document.body.append(elsewhere);
+  try {
+    elsewhere.focus();
+    click(pointer.host.querySelector('[aria-label="Remove draft.md from recent files"]'));
+    assert.ok(document.activeElement === elsewhere, "a pointer removal leaves focus where it was");
+  } finally { pointer.cleanup(); elsewhere.remove(); }
+});
+
+test("with Recent unavailable, Home keeps its message and the quiet header buttons", async () => {
+  await installDom();
+  const view = renderEmptyState({ recentHistoryUnavailable: true });
+  try {
+    assert.equal(view.host.querySelector("h1").textContent, "Home");
+    assert.match(view.host.textContent, /Recent history is unavailable\./);
+    assert.ok(buttonWithText(view.host, "Open File…"));
+    assert.ok(buttonWithText(view.host, "New"));
+    assert.equal(startRows(view.host).length, 0);
+  } finally { view.cleanup(); }
 });
 
 for (const [path, label] of [
@@ -279,7 +363,8 @@ test("recovery Retry, Dismiss and removal are explicit, and the next recent file
     dismiss.focus();
     click(dismiss);
     assert.equal(dismissals, 1);
-    assert.ok(document.activeElement === buttonWithText(view.host, "Open File…"), "Dismiss hands focus to the primary action");
+    assert.ok(document.activeElement === buttonWithText(view.host, "Open a file…"),
+      "Dismiss hands focus to the primary action, Home's Open row below two documents");
     const remove = view.host.querySelector('[aria-label="Remove draft.md from recent files"]');
     remove.focus();
     click(remove);

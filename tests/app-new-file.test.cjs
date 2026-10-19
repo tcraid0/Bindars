@@ -7356,7 +7356,8 @@ for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) 
   });
 }
 
-for (const action of ["Open File…", "Try an Example…"]) {
+// Below one document, Home's Open is the "Open a file…" row.
+for (const action of ["Open a file…", "Try an Example…"]) {
   test("persisted missing-file recovery survives a cancelled " + action, async () => {
     const path = "/tmp/missing.md";
     const dialog = deferred();
@@ -7373,9 +7374,11 @@ for (const action of ["Open File…", "Try an Example…"]) {
       readySelector: ".empty-state-recovery", recentStorage: history, sampleFlow: flow,
     });
     try {
-      if (action === "Open File…") rendered.deferNextOpenDialog(dialog);
-      clickButton(rendered.host, action);
-      await waitFor(() => assert.ok(action === "Open File…" ? dialog.args : flow.dialogs.length));
+      if (action === "Open a file…") rendered.deferNextOpenDialog(dialog);
+      // Home's row also shows its description and key hint after the title.
+      flushSync(() => [...rendered.host.querySelectorAll(".empty-state button")]
+        .find(button => button.textContent.startsWith(action)).click());
+      await waitFor(() => assert.ok(action === "Open a file…" ? dialog.args : flow.dialogs.length));
       assert.ok(rendered.host.querySelector(".empty-state-recovery"));
       assert.equal(retry().disabled, true);
       await act(async () => dialog.resolve(null));
@@ -7482,8 +7485,9 @@ for (const control of ["Dismiss", "Remove"]) {
       } else {
         assert.equal(entry.disabled, false, "Dismiss keeps the entry in recent files");
         assert.equal(fixture.recentStorage.value.files.length, 1);
+        // Home's Open below one document is the "Open a file…" row.
         assert.ok(document.activeElement === [...rendered.host.querySelectorAll("button")]
-          .find(candidate => candidate.textContent === "Open File…"));
+          .find(candidate => candidate.textContent.startsWith("Open a file…")));
       }
       await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value?.kind === "home"),
         "dismissing saves Home in place of the stored unavailable session"));
@@ -7769,8 +7773,9 @@ for (const [route, moveFocus] of [
       revision: { mtimeMs: 2, size: content.length, contentHash: "welcome" } };
     try {
       rendered.deferNextOpen(pending);
+      // The page's Open: the welcome's Open File…, or Home's "Open a file…" row below one document.
       const primary = [...rendered.host.querySelectorAll(".empty-state button")]
-        .find(button => button.textContent.trim() === "Open File…");
+        .find(button => /^Open (File…|a file…)/.test(button.textContent.trim()));
       primary.focus();
       // By path, not name: the row's name changes when the index publishes the title.
       const row = rendered.host.querySelector('.empty-state [data-path="/tmp/welcome.md"] button');
@@ -7791,8 +7796,9 @@ for (const [route, moveFocus] of [
       }
       await waitFor(() => assert.equal(pending.args?.path, opened.canonicalPath));
       if (route === "Recent") assert.ok(document.activeElement === row, "the opening row retains focus while reading");
+      // Another Home control than the row: the last way to start.
       const other = moveFocus === "welcome"
-        ? rendered.host.querySelector(".empty-state-content button")
+        ? [...rendered.host.querySelectorAll(".empty-state-content button")].at(-1)
         : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
       if (moveFocus === "welcome" || moveFocus === "toolbar") {
         other.focus();
