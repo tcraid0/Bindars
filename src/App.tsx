@@ -233,15 +233,16 @@ function App() {
   const workspaceSearch = useWorkspaceSearch({ docs: searchDocs, recentFiles });
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
   // Home names each recent document by its indexed title and the section it
-  // was left at. The index's fallback title (the filename) is no title.
+  // was left at. The index's fallback title (the filename) is no title, and the
+  // first heading is no section: the reader marks it as soon as a document opens.
   const recentDetails = useMemo(() => {
     const docs = new Map(workspaceIndex.docs.map(doc => [toPathIdentityKey(doc.path), doc]));
-    return new Map(recentFiles.slice(0, 5).map(file => {
+    return new Map(recentFiles.map(file => {
       const key = toPathIdentityKey(file.path);
       const doc = docs.get(key);
       const title = doc?.title && doc.title !== file.name
         && doc.title !== replaceOpenableDocumentExtension(file.name, "") ? doc.title : null;
-      const section = (file.lastHeadingId && doc?.headings.find(heading => heading.id === file.lastHeadingId)?.text) || null;
+      const section = doc?.headings.find((heading, index) => index > 0 && heading.id === file.lastHeadingId)?.text || null;
       return [key, { title, section }];
     }));
   }, [workspaceIndex.docs, recentFiles]);
@@ -2311,7 +2312,7 @@ function App() {
   }, [filePath, fileName, recentFilesStatus, addRecent]);
 
   // Files an open has just failed to find, until they open again. Dismissing
-  // the message must not make "Continue reading" offer one of them.
+  // the message must not make "Continue at" offer one of them.
   const [missingPaths, setMissingPaths] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
     const retry = documentError?.retryAction;

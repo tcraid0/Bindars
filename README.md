@@ -37,9 +37,9 @@ and document-path limitations. You can also paste plain text into a new document
 Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
 or PDF documents.
 
-On the first launch, or on Home while it lists no documents, choose
-**Try an Example…** and save a copy to try highlighting and notes. Select a
-passage and choose **Note**, or choose **Add note** on an existing highlight.
+On the first launch, choose **Try an Example…** and save a copy to try
+highlighting and notes; an empty Home offers it too. Select a passage and
+choose **Note**, or choose **Add note** on an existing highlight.
 Reopen your saved copy from Home, **Recent**, **Open**, or your file manager.
 Choosing **Try an Example…** again asks where to save a fresh copy;
 confirming replacement writes the example text over the file you choose.

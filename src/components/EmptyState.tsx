@@ -34,7 +34,7 @@ interface EmptyStateProps {
   recentFiles: RecentFile[];
   recentDetails?: RecentDetails;
   recentHistoryUnavailable?: boolean;
-  /** The recent file to mark "Continue reading", if any. */
+  /** The recent file to mark "Continue at", if its section is known. */
   continuePath?: string | null;
   onOpenRecent: (path: string) => void;
   onRemoveRecent: (path: string) => void;

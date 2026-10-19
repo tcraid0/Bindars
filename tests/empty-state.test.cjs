@@ -106,7 +106,7 @@ test("Home shows five recent files and marks only the given one with a known sec
   try {
     const rows = [...view.host.querySelectorAll('button[aria-label^="Open "]')];
     assert.deepEqual(rows.map(row => row.getAttribute("aria-label")), [
-      "Open a.md, reader › Notes, Continue reading", "Open b.md, reader › Notes", "Open c.md, reader › Notes",
+      "Open a.md, reader › Notes, Continue at Day three", "Open b.md, reader › Notes", "Open c.md, reader › Notes",
       "Open d.md, reader › Notes", "Open e.md, reader › Notes",
     ]);
     assert.match(rows[0].textContent, /^a\.md.*Continue at Day three · reader › Notes$/);
@@ -115,13 +115,13 @@ test("Home shows five recent files and marks only the given one with a known sec
     assert.equal(view.host.textContent.match(/Continue/g).length, 1);
     view.render({ recentDetails: new Map() });
     assert.doesNotMatch(view.host.textContent, /Continue/, "no cue without a known section");
-    assert.ok(!view.host.querySelector('[aria-label$="Continue reading"]'), "nor in its spoken name");
+    assert.ok(!view.host.querySelector('[aria-label*="Continue"]'), "nor in its spoken name");
     view.render({ recentDetails: sections, recovery: { path: many[0].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
     assert.doesNotMatch(view.host.textContent, /Continue/, "never on an unavailable row");
   } finally { view.cleanup(); }
 });
 
-test("Home names a document by its title, keeps the filename and folder, and reveals Remove on hover or focus", async () => {
+test("Home names a document by its title, keeps the filename and folder, and reveals Remove on hover or keyboard focus", async () => {
   await installDom();
   const files = [
     { path: "/Users/reader/Reading/Field notes.md", name: "Field notes.md", openedAt: Date.now() - 2 * 3600_000, lastHeadingId: "river" },
@@ -133,7 +133,7 @@ test("Home names a document by its title, keeps the filename and folder, and rev
     const [titled, plain] = view.host.querySelectorAll("[data-path]");
     const open = titled.querySelector("button");
     assert.equal(open.getAttribute("aria-label"),
-      "Open Field Notes from the Delta, Field notes.md, reader › Reading, Continue reading");
+      "Open Field Notes from the Delta, Field notes.md, reader › Reading, Continue at Day three: the river");
     assert.equal(open.title, files[0].path);
     assert.equal(open.querySelector(".font-reading").textContent, "Field Notes from the Delta");
     assert.match(open.textContent, /2h ago/);
@@ -144,8 +144,10 @@ test("Home names a document by its title, keeps the filename and folder, and rev
       const remove = row.querySelector('[aria-label$="from recent files"]');
       assert.match(remove.className, /\bopacity-0\b/);
       assert.match(remove.className, /\bgroup-hover:opacity-100\b/);
-      assert.match(remove.className, /\bgroup-focus-within:opacity-100\b/);
+      assert.match(remove.className, /\bgroup-has-focus-visible:opacity-100\b/, "keyboard focus, not a click's focus");
       assert.match(remove.className, /\bfocus-visible:opacity-100\b/);
+      assert.match(row.querySelector(".tabular-nums").className, /\bgroup-has-focus-visible:invisible\b/,
+        "the time gives way to Remove on the same cue");
     }
     view.render({ recovery: { path: files[1].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
     const unavailable = view.host.querySelector('[data-path="/Users/reader/Notes/plan.md"]');

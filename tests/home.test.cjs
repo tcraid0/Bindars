@@ -423,13 +423,13 @@ test("an entry recorded straight after an open never carries the previous docume
   assert.ok(!app.scrolled.includes("second"), "F was left at its top, not at A's heading");
 });
 
-test("Continue reading marks the newest saved file, never one just found missing, even after Dismiss", async t => {
+test("Continue at marks the newest saved file, never one just found missing, even after Dismiss", async t => {
   const recentFiles = [
     { path: "/fixture/missing.md", name: "missing.md", openedAt: 3, lastHeadingId: "second" },
     { path: "/fixture/B.md", name: "B.md", openedAt: 2, lastHeadingId: "second" },
   ];
   const app = await mount(t, { initialPath: null, recentFiles, session: { filePath: "/fixture/missing.md", headingId: null, savedAt: 1 } });
-  const cue = () => [...app.host().querySelectorAll('.empty-state button[aria-label$=", Continue reading"]')].map(row => row.title);
+  const cue = () => [...app.host().querySelectorAll('.empty-state button[aria-label$=", Continue at Second"]')].map(row => row.title);
   const message = () => app.host().querySelector(".empty-state-recovery-message");
   await until(() => assert.ok(message()));
   assert.equal(app.host().querySelector(".empty-state h1").textContent, "Home");
@@ -449,18 +449,23 @@ test("Continue reading marks the newest saved file, never one just found missing
 test("Home rows take each document's title and saved section from the index, else stay filename rows", async t => {
   const recentFiles = [
     { path: "/fixture/notes.md", name: "notes.md", openedAt: 3, lastHeadingId: "day-three" },
-    // Indexed first (sorted paths), so it is settled once the title above appears.
-    { path: "/fixture/a-plain.md", name: "a-plain.md", openedAt: 2, lastHeadingId: "nowhere" },
+    // Left at the top: the reader marks the first heading as soon as a document opens.
+    { path: "/fixture/b-top.md", name: "b-top.md", openedAt: 2, lastHeadingId: "opening" },
+    // Indexed first (sorted paths), so it is settled once the titles above appear.
+    { path: "/fixture/a-plain.md", name: "a-plain.md", openedAt: 1, lastHeadingId: "nowhere" },
   ];
   const texts = {
     "/fixture/notes.md": "---\ntitle: Field Notes\n---\n\n# Notes\n\n## Day three\n\nText.",
+    "/fixture/b-top.md": "# Opening\n\n## Later\n\nText.",
     "/fixture/a-plain.md": "Words without a heading, so the index falls back to the filename.",
   };
   const app = await mount(t, { initialPath: null, session: { kind: "home", savedAt: 1 }, recentFiles, texts });
   const row = path => app.host().querySelector(`.empty-state [data-path="${path}"] button`);
   await until(() => assert.equal(row("/fixture/notes.md").getAttribute("aria-label"),
-    "Open Field Notes, notes.md, fixture, Continue reading"));
+    "Open Field Notes, notes.md, fixture, Continue at Day three"));
   assert.match(row("/fixture/notes.md").textContent, /^Field Notes.*Continue at Day three · notes\.md in fixture$/);
+  await until(() => assert.equal(row("/fixture/b-top.md").getAttribute("aria-label"), "Open Opening, b-top.md, fixture"));
+  assert.doesNotMatch(row("/fixture/b-top.md").textContent, /·/, "the first heading is not yet a place to continue from");
   assert.equal(row("/fixture/a-plain.md").getAttribute("aria-label"), "Open a-plain.md, fixture");
   assert.match(row("/fixture/a-plain.md").textContent, /^a-plain\.md.*fixture$/, "no title, and no section the index lacks");
   assert.doesNotMatch(row("/fixture/a-plain.md").textContent, / in fixture|·/);

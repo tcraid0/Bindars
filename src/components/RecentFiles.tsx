@@ -83,7 +83,7 @@ export function RecentFiles({
                 type="button"
                 onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${isContinue ? ", Continue reading" : ""}`}
+                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${isContinue ? `, Continue at ${section}` : ""}`}
                 title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
@@ -98,7 +98,7 @@ export function RecentFiles({
                         {title ?? file.name}
                       </span>
                       {/* Remove takes the time's place on an available row. */}
-                      <span className={`shrink-0 text-xs text-text-muted tabular-nums ${isUnavailable ? "" : "group-hover:invisible group-focus-within:invisible"}`}>
+                      <span className={`shrink-0 text-xs text-text-muted tabular-nums ${isUnavailable ? "" : "group-hover:invisible group-has-focus-visible:invisible"}`}>
                         {timeAgo(file.openedAt)}
                       </span>
                     </span>
@@ -155,7 +155,7 @@ export function RecentFiles({
               aria-label={`Remove ${file.name} from recent files`}
               disabled={isOpening}
               className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
-                welcome ? "absolute top-3 right-1.5 group-focus-within:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
+                welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
               title="Remove from recent"
             >
               <svg
