@@ -68,8 +68,8 @@ impl NativeFileOperation {
             Self::SyncTemporaryFile => "sync the temporary file",
             Self::ReplaceFile => "replace the destination file",
             Self::ExportFile => "export the file",
-            Self::ResolveWorkspace => "locate the workspace",
-            Self::InspectWorkspace => "inspect the workspace",
+            Self::ResolveWorkspace => "find this folder",
+            Self::InspectWorkspace => "open this folder",
             Self::WatchDocument => "watch the document",
             Self::RevealInFolder => "show the document in its folder",
             Self::SaveRecoveryData => "save recovery data",
@@ -184,7 +184,8 @@ impl NativeFileError {
                 "This file is no longer available.".to_string()
             }
             (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveWorkspace) => {
-                "The workspace folder is no longer available.".to_string()
+                "Can't find this folder. If it's on an external drive, connect it and try again."
+                    .to_string()
             }
             (NativeFileErrorCategory::PermissionDenied, _) => {
                 format!(
@@ -313,7 +314,7 @@ mod tests {
 
         assert_eq!(
             error.message,
-            "The workspace folder is no longer available."
+            "Can't find this folder. If it's on an external drive, connect it and try again."
         );
         assert!(!error.message.contains("/private/workspaces"));
         assert!(error.detail.contains("/private/workspaces/missing"));
