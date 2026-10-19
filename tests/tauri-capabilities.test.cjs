@@ -16,6 +16,26 @@ const capabilities = JSON.parse(
   ),
 );
 
+test("external links grant only web and email URL scopes across all capabilities", () => {
+  // This checks native capability input, independently of frontend link handlers.
+  // An additional capability/default grant could otherwise restore tel: access.
+  const directory = path.join(projectRoot, "src-tauri/capabilities");
+  const grants = fs.readdirSync(directory).flatMap((file) => {
+    assert.ok(file.endsWith(".json"), `review capability format: ${file}`);
+    const capability = JSON.parse(fs.readFileSync(path.join(directory, file), "utf8"));
+    return capability.permissions.filter((permission) => {
+      const identifier = typeof permission === "string" ? permission : permission.identifier;
+      return identifier.startsWith("opener:") || identifier.startsWith("shell:");
+    });
+  });
+  assert.deepEqual(grants, [{
+    identifier: "opener:allow-open-url",
+    allow: [{ url: "http://*" }, { url: "https://*" }, { url: "mailto:*" }],
+  }]);
+  const config = JSON.parse(fs.readFileSync(path.join(projectRoot, "src-tauri/tauri.conf.json"), "utf8"));
+  assert.equal(config.app.security.capabilities, undefined, "use only the audited capability files");
+});
+
 test("the zero-margin macOS window.print bridge is not permitted", () => {
   // macOS printing goes through print_current_webview. Without this grant a
   // misdetected platform fails loudly instead of silently printing without margins.
