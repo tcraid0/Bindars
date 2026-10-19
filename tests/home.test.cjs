@@ -495,6 +495,37 @@ test("Back to Home returns to the row Home was left from, or to the heading when
   await until(() => assert.ok(document.activeElement === pageHeading(app), "without its row, focus lands on the heading"));
 });
 
+for (const focusedControl of ["Open File…", "New", "sidebar"]) {
+  test(`sidebar removal from three to two recents preserves focus from ${focusedControl}`, async t => {
+    const recentFiles = ["A", "B", "C"].map((name, index) => ({
+      path: `/fixture/${name}.md`, name: `${name}.md`, openedAt: 3 - index, lastHeadingId: null,
+    }));
+    const app = await mount(t, { platform: "MacIntel", initialPath: null,
+      session: { kind: "home", savedAt: 1 }, recentFiles });
+    await arriveAt(app, "Home");
+    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    const remove = app.host().querySelector('aside [aria-label="Remove C.md from recent files"]');
+    assert.ok(remove);
+    const control = focusedControl === "sidebar" ? remove
+      : [...app.host().querySelectorAll(".empty-state button")].find(button => button.textContent.trim() === focusedControl);
+    assert.ok(control);
+    control.focus();
+    assert.ok(document.activeElement === control);
+
+    // A click that leaves DOM focus in place reproduces the macOS pointer path.
+    click(remove);
+    await until(() => assert.equal(app.settings["recent-files"].files.length, 2));
+    assert.equal(app.host().querySelectorAll(".empty-state [data-path]").length, 2);
+    assert.equal(control.isConnected, false, "the focused control was removed");
+    const expectedFocus = focusedControl === "sidebar"
+      ? app.host().querySelector('aside [data-path="/fixture/B.md"] button')
+      : pageHeading(app);
+    assert.ok(expectedFocus);
+    assert.ok(document.activeElement === expectedFocus,
+      "Home recovers its header focus without taking focus from the sidebar");
+  });
+}
+
 test("removing the last recent file on Home keeps compact Home through Quit and relaunch", async t => {
   const app = await mount(t);
   click(app.home());

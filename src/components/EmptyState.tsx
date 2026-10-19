@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { RecentFile } from "../types";
 import { RecentFiles, type RecentDetails } from "./RecentFiles";
 import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-recovery";
@@ -56,6 +56,14 @@ function EmptyStateComponent({
   const message = recovery ? welcomeRecoveryMessage(recovery) : null;
   const openRef = useRef<HTMLButtonElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const preserveHeaderFocus = useCallback((actions: HTMLDivElement | null) => {
+    // Three to two recents removes these actions; hand off their focus first.
+    return () => {
+      if (actions?.contains(document.activeElement)) {
+        headingRef.current?.focus({ preventScroll: true });
+      }
+    };
+  }, []);
   const focusSettledRef = useRef(false);
   // main.tsx supplies the entrance at launch by gliding the startup mark here.
   const [atLaunch] = useState(() => document.getElementById("loading-screen") !== null);
@@ -153,12 +161,33 @@ function EmptyStateComponent({
         </>
       ) : <h2 className={listLabel}>More ways to start</h2>}
       {[
-        { title: "Open a file…", primary: true, path: OPEN_ICON, onClick: onOpenFile, disabled: false, hint: formatShortcutLabel("openFile"),
-          detail: `Markdown or Fountain, from anywhere on your ${detectShortcutPlatform() === "macos" ? "Mac" : "computer"}` },
-        ...blank ? [{ title: "Try an example…", primary: false, path: EXAMPLE_ICON, onClick: onTrySample, disabled: !canTrySample, hint: null,
-          detail: "Save a short guide to reading, highlights and notes" }] : [],
-        { title: "New document", primary: false, path: NEW_ICON, onClick: onNewFile, disabled: false, hint: formatShortcutLabel("newFile"),
-          detail: "Kept in Bindars Drafts until you save it somewhere" },
+        {
+          title: "Open a file…",
+          primary: true,
+          path: OPEN_ICON,
+          onClick: onOpenFile,
+          disabled: false,
+          hint: formatShortcutLabel("openFile"),
+          detail: `Markdown or Fountain, from anywhere on your ${detectShortcutPlatform() === "macos" ? "Mac" : "computer"}`,
+        },
+        ...(blank ? [{
+          title: "Try an example…",
+          primary: false,
+          path: EXAMPLE_ICON,
+          onClick: onTrySample,
+          disabled: !canTrySample,
+          hint: null,
+          detail: "Save a short guide to reading, highlights and notes",
+        }] : []),
+        {
+          title: "New document",
+          primary: false,
+          path: NEW_ICON,
+          onClick: onNewFile,
+          disabled: false,
+          hint: formatShortcutLabel("newFile"),
+          detail: "Kept in Bindars Drafts until you save it somewhere",
+        },
       ].map(row => (
         <button key={row.title} ref={row.primary ? openRef : undefined} type="button" onClick={row.onClick} disabled={row.disabled}
           aria-label={`${row.title}, ${row.detail}`}
@@ -194,7 +223,7 @@ function EmptyStateComponent({
           <div className="flex flex-wrap items-center justify-between gap-3 px-3 mb-4">
             <h1 ref={headingRef} tabIndex={-1} className="text-[15px] font-semibold text-text-primary">Home</h1>
             {!few && (
-              <div className="flex gap-2">
+              <div ref={preserveHeaderFocus} className="flex gap-2">
                 {openFile(quietButton)}
                 <button type="button" onClick={onNewFile} className={quietButton}>{icon(NEW_ICON)}New</button>
               </div>

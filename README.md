@@ -63,7 +63,7 @@ and remaining platform coverage.
 
 **Home** is where you choose what to read next. It lists your five most recent
 documents by their own titles, with the section you were in and when you last
-read each; **Continue at** and its section mark the one you were reading.
+opened each; **Continue at** and its section mark the one you were reading.
 **Open File…** and **New** sit beside the heading; until Home lists three
 documents, ways to start sit below the list instead. Go there with the **Home**
 button after Back and Forward,

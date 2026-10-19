@@ -69,6 +69,7 @@ export function RecentFiles({
         const { title = null, section = null } = details?.get(key) ?? {};
         // Home's cue says where to continue, so it needs a known section.
         const isContinue = file.path === continuePath && !isUnavailable && section !== null;
+        const continueLabel = isContinue ? `Continue at ${section}` : null;
         const location = locationLabel(file.path);
         const status = isOpening ? "Opening…" : isUnavailable ? "Unavailable" : null;
         return (
@@ -83,7 +84,7 @@ export function RecentFiles({
                 type="button"
                 onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${isContinue ? `, Continue at ${section}` : ""}`}
+                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${continueLabel ? `, ${continueLabel}` : ""}`}
                 title={file.path}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
@@ -105,7 +106,7 @@ export function RecentFiles({
                     <span className="block text-[0.8125rem] text-text-muted break-words mt-1">
                       {section && (
                         <span className={isContinue ? "text-accent-text" : "text-text-secondary"}>
-                          {isContinue ? `Continue at ${section}` : section}
+                          {continueLabel ?? section}
                         </span>
                       )}
                       {section && " · "}
