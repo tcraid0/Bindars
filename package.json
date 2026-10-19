@@ -60,6 +60,9 @@
     "unist-util-visit": "^5.1.0",
     "yaml": "^2.9.0"
   },
+  "overrides": {
+    "katex": "0.18.4"
+  },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.11.4",

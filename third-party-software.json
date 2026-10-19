@@ -19628,10 +19628,10 @@
       ]
     },
     {
-      "id": "npm:katex@0.16.47",
+      "id": "npm:katex@0.18.4",
       "kind": "npm",
       "name": "katex",
-      "version": "0.16.47",
+      "version": "0.18.4",
       "lockPath": "node_modules/katex",
       "distributionClass": "runtime-dependency",
       "declaredLicense": "MIT",
@@ -26349,7 +26349,7 @@
     {
       "id": "sha256:d3c8c167dfa0a8a7f2ace9fc23ddfb89e609adc13b113e958bede249592b852d",
       "packages": [
-        "npm:katex@0.16.47"
+        "npm:katex@0.18.4"
       ],
       "sources": [
         "LICENSE"

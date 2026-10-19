@@ -8165,7 +8165,7 @@ Project: sindresorhus/is-plain-obj
 License-text: available
 License-document-ref: sha256:1529f88b3675095087120854c6fa2cc1113ab2da2f88c4f6aa4ffe52e98ef81b
 
-Package-ID: npm:katex@0.16.47
+Package-ID: npm:katex@0.18.4
 License: MIT
 Distribution-class: runtime-dependency
 Disposition: packaged-license-document
@@ -30295,7 +30295,7 @@ License-Document-End: sha256:d2c4a2667e88ca68ced937efa2768130e147896bcf8d9bcaaa7
 --------------------------------------------------------------------------------
 
 License-Document: sha256:d3c8c167dfa0a8a7f2ace9fc23ddfb89e609adc13b113e958bede249592b852d
-Applies-to: npm:katex@0.16.47
+Applies-to: npm:katex@0.18.4
 Source-files: LICENSE
 
 The MIT License (MIT)
