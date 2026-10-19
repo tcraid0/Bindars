@@ -7,7 +7,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(target_os = "macos")]
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 
 use crate::document_io::is_markdown_path;
 
@@ -314,11 +314,15 @@ pub(crate) fn cli_open_path_from_args(
     args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Option<PathBuf> {
     let path = args.into_iter().nth(1).map(PathBuf::from)?;
-    if !path.exists() || !is_markdown_path(&path) {
+    if !is_markdown_path(&path) {
         return None;
     }
 
-    let canonical_path = dunce::canonicalize(&path).ok()?;
+    // A file that cannot be resolved (missing, or behind a folder it cannot
+    // read) still wins over session restore, so the app can report it.
+    let Ok(canonical_path) = dunce::canonicalize(&path) else {
+        return std::path::absolute(&path).ok();
+    };
     if is_markdown_path(&canonical_path) {
         return Some(canonical_path);
     }
@@ -493,7 +497,7 @@ pub(crate) fn default_menu_with_guarded_quit(
 
     menu.remove(&app_submenu)?;
     let action = |id, text| MenuItem::with_id(app, id, text, true, None::<&str>);
-    Menu::with_items(
+    let menu = Menu::with_items(
         app,
         &[
             &app_submenu,
@@ -505,6 +509,7 @@ pub(crate) fn default_menu_with_guarded_quit(
                     &action("new", "New File")?,
                     &action("open", "Open…")?,
                     &action("search-documents", "Search Documents…")?,
+                    &action("home", "Home")?,
                     &PredefinedMenuItem::separator(app)?,
                     &action("save", "Save")?,
                     &action("copy-document", "Make a Copy…")?,
@@ -538,14 +543,17 @@ pub(crate) fn default_menu_with_guarded_quit(
                     )?,
                 ],
             )?,
-            &Submenu::with_items(
+            &Submenu::with_id_and_items(
                 app,
+                "view",
                 "View",
                 true,
                 &[
                     &action("interface-zoom-in", "Zoom In")?,
                     &action("interface-zoom-out", "Zoom Out")?,
                     &action("interface-zoom-reset", "Actual Size")?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &action("toggle-sidebar", "Show Sidebar")?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::fullscreen(app, None)?,
                 ],
@@ -568,14 +576,35 @@ pub(crate) fn default_menu_with_guarded_quit(
                 &[&action("show-shortcuts", "Keyboard Shortcuts")?],
             )?,
         ],
-    )
+    )?;
+    let handle = app.clone();
+    app.listen("bindars://sidebar-visible", move |event| {
+        let Ok(visible) = serde_json::from_str::<bool>(event.payload()) else {
+            return;
+        };
+        let Some(MenuItemKind::Submenu(view)) = handle.menu().and_then(|menu| menu.get("view"))
+        else {
+            return;
+        };
+        let Some(MenuItemKind::MenuItem(item)) = view.get("toggle-sidebar") else {
+            return;
+        };
+        if let Err(error) = item.set_text(if visible {
+            "Hide Sidebar"
+        } else {
+            "Show Sidebar"
+        }) {
+            log::warn!("Failed to update the sidebar menu title: {error}");
+        }
+    });
+    Ok(menu)
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn menu_action(id: &str) -> Option<&str> {
     match id {
-        "new" | "open" | "search-documents" | "save" | "copy-document" | "print" | "find"
-        | "find-next" | "find-previous" | "show-shortcuts" => Some(id),
+        "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
+        | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" => Some(id),
         _ => None,
     }
 }
@@ -634,6 +663,7 @@ mod tests {
             "new",
             "open",
             "search-documents",
+            "home",
             "save",
             "copy-document",
             "print",
@@ -641,6 +671,7 @@ mod tests {
             "find-next",
             "find-previous",
             "show-shortcuts",
+            "toggle-sidebar",
         ] {
             assert_eq!(super::menu_action(action), Some(action));
         }
@@ -776,20 +807,34 @@ mod tests {
     }
 
     #[test]
-    fn cli_open_ignores_missing_and_unsupported_first_arguments() {
+    fn cli_open_ignores_unsupported_but_passes_a_missing_supported_file_on() {
         let unsupported = temp_path("txt");
         fs::write(&unsupported, "not supported").expect("write unsupported CLI fixture");
         let unsupported_args = [
             std::ffi::OsString::from("bindars"),
             unsupported.clone().into_os_string(),
         ];
+        let missing = temp_path("md");
         let missing_args = [
             std::ffi::OsString::from("bindars"),
-            temp_path("md").into_os_string(),
+            missing.clone().into_os_string(),
+        ];
+        let relative_args = [
+            std::ffi::OsString::from("bindars"),
+            std::ffi::OsString::from("missing-notes.md"),
         ];
 
         assert_eq!(cli_open_path_from_args(unsupported_args), None);
-        assert_eq!(cli_open_path_from_args(missing_args), None);
+        // Reported by the normal open instead of being replaced by restoration.
+        assert_eq!(cli_open_path_from_args(missing_args), Some(missing));
+        assert_eq!(
+            cli_open_path_from_args(relative_args),
+            Some(
+                std::env::current_dir()
+                    .expect("current directory")
+                    .join("missing-notes.md")
+            )
+        );
         cleanup(&unsupported);
     }
 

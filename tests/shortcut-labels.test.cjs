@@ -17,6 +17,7 @@ const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js")
 const {
   detectShortcutPlatform,
   formatShortcutLabel,
+  isGoHomeShortcut,
   renderShortcutTemplate,
 } = require("../.tmp/workspace-tests/src/lib/shortcut-labels.js");
 
@@ -172,6 +173,23 @@ test("shortcut formatting covers modifiers, arrows, symbols, and modifier-free k
   assert.equal(formatShortcutLabel("decreaseFontSize", "windows-linux"), "Ctrl+−");
   assert.equal(formatShortcutLabel("toggleBothPanels", "windows-linux"), "Ctrl+\\");
   assert.equal(formatShortcutLabel("showShortcuts", "windows-linux"), "Ctrl+?");
+  assert.equal(formatShortcutLabel("goHome", "macos"), "⇧⌘H");
+  assert.equal(formatShortcutLabel("goHome", "windows-linux"), "Alt+Home");
+});
+
+test("each platform's Home keys match only on that platform", () => {
+  const key = (keyName, modifiers = {}) => ({
+    key: keyName, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...modifiers,
+  });
+  assert.equal(isGoHomeShortcut(key("H", { metaKey: true, shiftKey: true }), "macos"), true);
+  assert.equal(isGoHomeShortcut(key("h", { metaKey: true, shiftKey: true }), "macos"), true);
+  assert.equal(isGoHomeShortcut(key("h", { metaKey: true }), "macos"), false, "Cmd+H stays Hide");
+  assert.equal(isGoHomeShortcut(key("Home", { altKey: true }), "macos"), false);
+  assert.equal(isGoHomeShortcut(key("Home", { altKey: true }), "windows-linux"), true);
+  assert.equal(isGoHomeShortcut(key("Home"), "windows-linux"), false, "plain Home still moves the cursor");
+  assert.equal(isGoHomeShortcut(key("Home", { altKey: true, ctrlKey: true }), "windows-linux"), false);
+  assert.equal(isGoHomeShortcut(key("Home", { altKey: true, shiftKey: true }), "windows-linux"), false);
+  assert.equal(isGoHomeShortcut(key("H", { ctrlKey: true, shiftKey: true }), "windows-linux"), false);
 });
 
 test("default formatting reads the navigator at call time instead of import time", () => {
@@ -192,6 +210,7 @@ test("visible shortcut components render macOS labels consistently", () => {
   assert.match(markup, /⌥⌘M/);
   assert.match(markup, /⇧⌘T/);
   assert.match(markup, /⌥←/);
+  assert.match(markup, /title="Home \(⇧⌘H\)"/);
   assert.match(markup, /Search documents \(⌘K\)/);
   assert.match(markup, /Enter opens it/);
   assert.doesNotMatch(markup, /Ctrl\+|Alt\+/);
@@ -205,6 +224,7 @@ test("visible shortcut components preserve Windows and Linux labels", () => {
   assert.match(markup, /Ctrl\+Alt\+M/);
   assert.match(markup, /Ctrl\+Shift\+T/);
   assert.match(markup, /Alt\+←/);
+  assert.match(markup, /title="Home \(Alt\+Home\)"/);
   assert.match(markup, /Search documents \(Ctrl\+K\)/);
   assert.doesNotMatch(markup, /⌘|⌥|⇧/);
 });

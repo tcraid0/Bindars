@@ -98,6 +98,8 @@ function SidebarComponent(props: SidebarProps) {
             tabIndex={view === name ? 0 : -1}
             onClick={() => setView(name)}
             onKeyDown={(event) => {
+              // Modified keys belong to app shortcuts such as Alt+Home and Alt+←.
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
               const target =
                 event.key === "ArrowRight"
                   ? (index + 1) % 3
@@ -135,9 +137,6 @@ function SidebarComponent(props: SidebarProps) {
       >
         {view === "Recent" && (
           <>
-            <p className="navigation-help">
-              Documents opened from any location.
-            </p>
             <RecentFiles
               files={props.recentFiles.map((file) => {
                 const draft = drafts.find((doc) => doc.path === file.path);
@@ -171,8 +170,7 @@ function SidebarComponent(props: SidebarProps) {
         {view === "Drafts" && (
           <>
             <p className="navigation-help">
-              New documents autosave in Documents › Bindars Drafts until you
-              save them elsewhere. Drafts with notes may be kept.
+              New documents are saved here until you save them somewhere else.
             </p>
             {state.draftsError && (
               <p role="status" className="navigation-help">
@@ -208,8 +206,7 @@ function SidebarComponent(props: SidebarProps) {
           <>
             {!root && (
               <p className="navigation-help">
-                Add a folder to browse its documents. Your files stay where they
-                are.
+                Add a folder to browse the documents in it. Nothing is moved or copied.
               </p>
             )}
             <button
@@ -275,7 +272,7 @@ function SidebarComponent(props: SidebarProps) {
                   {subfolders.slice(0, folderLimit).map((path) => (
                     <li key={path}>
                       <button
-                        className="document-open"
+                        className="document-open document-row"
                         onClick={() => moveDirectory(path)}
                       >
                         ▸ {fileName(path)}

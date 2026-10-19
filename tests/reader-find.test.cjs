@@ -128,13 +128,13 @@ function select(node) {
 
 test("Find hides the reading hint in place without dismissing it", async t => {
   const view = await reader(t);
-  const hint = view.host.querySelector(".reading-hint");
+  const hint = view.host.querySelector(".hint-bar");
   assert.ok(hint); assert.equal(hint.classList.contains("invisible"), false);
   pressKey("f", { ctrlKey: true });
-  assert.ok(view.host.querySelector(".reading-hint") === hint);
+  assert.ok(view.host.querySelector(".hint-bar") === hint);
   assert.ok(hint.classList.contains("invisible"));
   pressKey("Escape");
-  assert.ok(view.host.querySelector(".reading-hint") === hint);
+  assert.ok(view.host.querySelector(".hint-bar") === hint);
   assert.equal(hint.classList.contains("invisible"), false);
   assert.notEqual(window.localStorage.getItem("bindars-reading-hint-dismissed"), "true");
 });

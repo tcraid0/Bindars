@@ -37,10 +37,11 @@ and document-path limitations. You can also paste plain text into a new document
 Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
 or PDF documents.
 
-On the empty screen, choose **Try an Example…** and save a copy to try highlighting
-and notes. Select a passage and choose **Note**, or choose **Add note** on an
-existing highlight. Reopen your saved copy from **Recent files**, **Open**, or
-your file manager. Choosing **Try an Example…** again asks where to save a fresh copy;
+On the first launch, choose **Try an Example…** and save a copy to try
+highlighting and notes; an empty Home offers it too. Select a passage and
+choose **Note**, or choose **Add note** on an existing highlight.
+Reopen your saved copy from Home, **Recent**, **Open**, or your file manager.
+Choosing **Try an Example…** again asks where to save a fresh copy;
 confirming replacement writes the example text over the file you choose.
 
 ### Spelling on macOS
@@ -60,10 +61,37 @@ and remaining platform coverage.
 
 ### Finding documents
 
+**Home** is where you choose what to read next. It lists your five most recent
+documents by their own titles, with the section you were in and when you last
+opened each; **Continue at** and its section mark the one you were reading.
+**Open File…** and **New** sit beside the heading; until Home lists three
+documents, ways to start sit below the list instead. Go there with the **Home**
+button after Back and Forward,
+Shift+Cmd+H on macOS or Alt+Home on Linux, or **File › Home** on macOS. Going
+Home from an edited document saves or asks first, as opening another file does.
+Bindars reopens where you left off: the document you were reading, at its
+section, or Home if you left from Home. A file you open from Finder, the command
+line or a drop always comes first. **Back**
+and **Forward** include Home, and Back returns from every way of opening a
+document.
+
 Bindars opens documents where they already are. **Recent** holds the last 25
-opened documents from any location. **Drafts** lists existing files in Documents
-› Bindars Drafts, including drafts no longer in Recent, using a heading or opening
-text alongside the filename. The header and folder browser keep filenames.
+opened documents from any location. Its rows keep their order while you use the
+sidebar, returning to most-recent-first when you hide and show it or relaunch.
+Resizing the window does not reshuffle it.
+New documents enter at the top, and each row shows its location and last-opened
+time on one quiet line. **Back** returns to documents opened from Recent.
+
+The sidebar starts hidden and remembers your choice. A one-time note offers
+**Show Sidebar** when you open a second distinct document; if the reading hint
+is showing, it waits for a later document open. Use the toolbar button or
+Cmd+B / Ctrl+B to toggle it;
+on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
+
+**Drafts** lists existing files in Documents › Bindars Drafts, including drafts
+no longer in Recent, using a heading or opening text alongside the filename.
+New documents are saved here until you save them somewhere else. The header
+and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
 to your Documents folder. Choose **Show existing drafts** to list it; once
@@ -71,10 +99,12 @@ Bindars has saved a draft or found existing ones, later launches list Drafts
 automatically.
 
 In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Opening another file does not add or scan its parent folder. Browsing
-does not change where new documents autosave. **Remove from Sidebar** removes
-only this folder reference; the inline **Add Back** action restores it. Neither
-action moves or deletes documents or notes.
+subfolders. Nothing is moved or copied. The picker starts in the folder of the
+document you are reading. Opening another file does not add or scan its parent
+folder, and saving a document keeps its place in the folder list. Browsing does
+not change where new documents autosave. **Remove from Sidebar** removes only
+this folder reference; the inline **Add Back** action restores it. Neither action
+moves or deletes documents or notes.
 
 **Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
 Its Scope menu can narrow results to that folder. Unquoted words may occur in

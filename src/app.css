@@ -15,8 +15,7 @@
 /* KaTeX math rendering */
 @import "katex/dist/katex.min.css";
 
-/* Keep document actions and save feedback readable in compact native windows.
-   ReaderControls shares this height for its viewport-relative position. */
+/* Keep document actions and save feedback readable in compact native windows. */
 .app-shell {
   --header-height: var(--header-row-height, 52px);
 }
@@ -237,8 +236,7 @@ select,
 .command-palette-shell,
 .command-palette-input-wrap,
 .drop-zone-overlay,
-.toc-active-item,
-.sidebar-active-item {
+.toc-active-item {
   transition: background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
 }
 
@@ -805,8 +803,9 @@ button:active:not(:disabled),
   }
 }
 
-/* At launch the startup screen reveals the empty state instead (src/main.tsx). */
-.empty-state-at-launch :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
+/* At launch the startup screen reveals the empty state instead (src/main.tsx),
+   and Home never animates: going Home inside the app should feel immediate. */
+:is(.empty-state-at-launch, .empty-state-home) :is(.empty-state-title, .empty-state-subtitle, .empty-state-content) {
   animation: none;
 }
 
@@ -825,6 +824,37 @@ button:active:not(:disabled),
 
 .empty-state > :last-child {
   margin-bottom: auto;
+}
+
+/* Going Home focuses the page heading; show it like the toolbar's focus ring. */
+.empty-state h1:focus-visible {
+  outline: 2px solid var(--accent-indicator);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* Home reads like a page: a reading-width column near the top, not centred. */
+.empty-state > .home-column {
+  max-width: 41rem;
+  margin: clamp(0px, 7vh, 4rem) auto 0;
+}
+
+/* Home's rows read like a contents page: roomier, with hairlines between,
+   aligned with the heading. Scoped so it outranks the shared .document-row;
+   Home never marks a current row. */
+.empty-state .home-row {
+  position: relative;
+  padding-block: 0.75rem;
+  border-left: 0;
+  border-radius: 0.625rem;
+}
+
+.home-row + .home-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 0.75rem;
+  border-top: 1px solid var(--border);
 }
 
 /* The artist's symbol over the BINDARS wordmark, like an app icon over its name. */
@@ -869,7 +899,7 @@ button:active:not(:disabled),
   overflow-wrap: anywhere;
 }
 
-.reading-hint {
+.hint-bar {
   margin: 1.5rem auto 0;
   padding: 0 1.5rem 0.75rem;
 }
@@ -895,8 +925,7 @@ button:active:not(:disabled),
 
 /* ── Active navigation item background ── */
 
-.toc-active-item,
-.sidebar-active-item {
+.toc-active-item {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
@@ -2188,7 +2217,6 @@ body[data-printing] .print-hide {
 .document-open {
   display: block;
   width: 100%;
-  padding: 0.7rem 0.9rem;
   text-align: left;
   overflow-wrap: anywhere;
   font-size: 0.875rem;
@@ -2199,12 +2227,18 @@ body[data-printing] .print-hide {
   font-size: 0.75rem;
   margin-top: 0.25rem;
 }
-.document-open:hover,
-.document-open[aria-current] {
+.document-row {
+  padding: 0.5625rem 0.75rem;
+  border-left: 3px solid transparent;
+  transition: background-color 120ms;
+}
+.document-row:hover {
   background: var(--bg-tertiary);
 }
-.document-open[aria-current] {
-  border-left: 3px solid var(--accent-indicator);
+.document-row[aria-current],
+.document-row[data-current] {
+  border-left-color: var(--accent-indicator);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .document-problem {
   padding: 0 0.9rem 0.75rem;
@@ -2262,5 +2296,35 @@ body[data-printing] .print-hide {
   .document-header-filename {
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+}
+
+/* At high interface zoom a minimum-size window is only 300 × 184 CSS px.
+   Keep room for the document and lists; pointer scrolling and keyboard focus
+   can bring every header control into view without shrinking its text. */
+@media (max-width: 1050px) and (max-height: 480px) {
+  .document-header,
+  .has-document .document-header {
+    max-height: 40dvh;
+    overflow-y: auto;
+    align-items: flex-start;
+  }
+
+  .document-header-actions,
+  .has-document .document-header-actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Escape the scrolling header and bound the existing disclosures to the
+     viewport. Their existing Tab/Escape/focus-return behavior is unchanged. */
+  .document-header-popover {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    margin-top: 0;
+    overflow-y: auto;
   }
 }

@@ -1,14 +1,14 @@
 import { ReconnectNotesDialog } from "./components/ReconnectNotesDialog";
 import { useInterfaceZoom } from "./hooks/useInterfaceZoom";
-import { fileName as pathFileName } from "./lib/paths";
+import { fileName as pathFileName, parentPath } from "./lib/paths";
 import { buildWorkspaceDoc } from "./lib/workspace-index";
 import { textFingerprint } from "./lib/search-text";
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, useId } from "react";
 import { flushSync } from "react-dom";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { documentDir, homeDir } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getActiveDialog } from "./components/DialogFrame";
@@ -17,7 +17,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ReaderNavigation } from "./components/ReaderNavigation";
 import type { ReaderNavigationHandle } from "./components/ReaderNavigation";
 import { EmptyState } from "./components/EmptyState";
-import { ReadingHint } from "./components/ReadingHint";
+import { HintBar } from "./components/HintBar";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { DocumentNotice } from "./components/DocumentNotice";
 import { DOCUMENT_COMPLEXITY_REASON } from "./lib/document-complexity";
@@ -52,10 +52,11 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
-import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
+import { OPENABLE_FILE_TYPES_DESCRIPTION, replaceOpenableDocumentExtension } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
+import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
-import { useReadingHint } from "./hooks/useReadingHint";
+import { useOneTimeHint } from "./hooks/useOneTimeHint";
 import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
@@ -103,13 +104,13 @@ import {
 } from "./lib/editor-position";
 import type { ReaderAnchor, SourcePoint } from "./lib/editor-position";
 import { isImeCompositionKey } from "./lib/keyboard";
-import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isPrimaryModifier } from "./lib/shortcut-labels";
+import { formatShortcutLabel, renderShortcutTemplate, detectShortcutPlatform, isGoHomeShortcut, isPrimaryModifier } from "./lib/shortcut-labels";
 import type { TextAnchor } from "./lib/text-anchoring";
-import type { DraftRetirement, FileRevision, HighlightColor, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
+import type { DraftRetirement, FileRevision, HighlightColor, NavigationEntry, SceneItem, ScriptSceneStats, WorkspaceSearchHit } from "./types";
 import welcomeTemplate from "./assets/welcome.md?raw";
 
-type MenuAction = "new" | "open" | "search-documents" | "save" | "copy-document" | "print"
-  | "find" | "find-next" | "find-previous" | "show-shortcuts";
+type MenuAction = "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
+  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -164,6 +165,20 @@ function sameSourcePoint(left: SourcePoint, right: SourcePoint): boolean {
   return left.line === right.line && left.column === right.column;
 }
 
+// Whether the person has moved focus to a control that survives a change,
+// other than what `replaced` covers. The page itself is not a choice.
+function focusChosenElsewhere(replaced: (element: Element) => boolean): boolean {
+  const focused = document.activeElement;
+  return Boolean(focused?.isConnected && focused !== document.body
+    && focused !== document.documentElement && !replaced(focused));
+}
+
+function samePlace(left: NavigationEntry, right: NavigationEntry | null): boolean {
+  if (!right) return false;
+  if (left.filePath === null || right.filePath === null) return left.filePath === right.filePath;
+  return toPathIdentityKey(left.filePath) === toPathIdentityKey(right.filePath);
+}
+
 function App() {
   const [printPhase, setPrintPhase] = useState<"preparing" | "printing" | null>(null);
   const printSessionRef = useRef<{ invoked: boolean; nativePending: boolean } | null>(null);
@@ -191,10 +206,10 @@ function App() {
     getPublishedDocument,
     getOpenOwnership,
     openFile,
-    openFilePath,
     openFilePathWithStatus,
     reportMissingFile,
     setVirtualContent,
+    closeDocument,
     adoptSavedFile,
     adoptReconciledDocument,
     refreshReconciledRevision,
@@ -217,6 +232,20 @@ function App() {
   const incompleteCount = useMemo(() => searchDocs.filter(doc => doc.coverage !== "ready").length, [searchDocs]);
   const workspaceSearch = useWorkspaceSearch({ docs: searchDocs, recentFiles });
   const workspaceInsights = useWorkspaceInsights(workspaceIndex.docs, filePath);
+  // Home names each recent document by its indexed title and the section it
+  // was left at. The index's fallback title (the filename) is no title, and the
+  // first heading is no section: the reader marks it as soon as a document opens.
+  const recentDetails = useMemo(() => {
+    const docs = new Map(workspaceIndex.docs.map(doc => [toPathIdentityKey(doc.path), doc]));
+    return new Map(recentFiles.map(file => {
+      const key = toPathIdentityKey(file.path);
+      const doc = docs.get(key);
+      const title = doc?.title && doc.title !== file.name
+        && doc.title !== replaceOpenableDocumentExtension(file.name, "") ? doc.title : null;
+      const section = doc?.headings.find((heading, index) => index > 0 && heading.id === file.lastHeadingId)?.text || null;
+      return [key, { title, section }];
+    }));
+  }, [workspaceIndex.docs, recentFiles]);
 
   const editorSurfaceRef = useRef<MarkdownEditorHandle | null>(null);
   const flushPendingBuffer = useCallback(() => {
@@ -266,7 +295,11 @@ function App() {
   } = useAnnotations(filePath);
 
   const annotationExit = useAnnotationExit(pendingAnnotationRecords, waitForAnnotationSaves, retryAnnotationSave);
-  const { visible: readingHintVisible, dismiss: dismissReadingHint } = useReadingHint();
+  const { visible: readingHintVisible, loaded: readingHintLoaded, dismiss: dismissReadingHint } = useOneTimeHint("reading-hint-dismissed", "bindars-reading-hint-dismissed");
+  const { visible: sidebarHintAvailable, loaded: sidebarHintLoaded, dismiss: dismissSidebarHint } = useOneTimeHint("sidebar-hint-dismissed", "bindars-sidebar-hint-dismissed");
+  const openedDocumentsRef = useRef(new Set<string>());
+  const consideredHintPathRef = useRef<string | null>(null);
+  const [sidebarHintRequested, setSidebarHintRequested] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -286,6 +319,7 @@ function App() {
     }
   });
   const sidebarUpdatedRef = useRef(false);
+  const sidebarRecentFiles = useSteadyRecentOrder(recentFiles, sidebarVisible);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [reconnectSource, setReconnectSource] = useState<string | null | undefined>(undefined);
   const [annotationsPanelVisible, setAnnotationsPanelVisible] = useState(false);
@@ -301,6 +335,8 @@ function App() {
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  // Home reached inside the app, rather than the screen shown at launch.
+  const [homeEntered, setHomeEntered] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -379,12 +415,15 @@ function App() {
     toc: documentOpen && tocVisible && !focusMode && !editing && !presentationMode,
     notes: documentOpen && annotationsPanelVisible && !focusMode && !editing && !presentationMode,
   }, mainScrollRef);
-  const readerFocusRequestRef = useRef<{
+  // One focus request, completed once after the next commit: the reader, or
+  // Home's heading (or the recent row a Back or Forward entry left Home from).
+  const focusRequestRef = useRef<{
     documentKey: string | null;
     editorSessionKey: number;
     openGeneration: number;
     actionId: number;
     searchVisible: boolean;
+    home?: { rowPath: string | null };
   } | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const readerNavigationRef = useRef<ReaderNavigationHandle | null>(null);
@@ -447,9 +486,10 @@ function App() {
     return () => { active = false; };
   }, [filePath]);
 
-  const handleCancelPendingOpen = useCallback(() => {
+  const handleCancelPendingOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const keepFocus = focusChosenElsewhere(element => element === event.currentTarget);
     cancelPendingOpen();
-    mainScrollRef.current?.focus({ preventScroll: true });
+    if (!keepFocus) mainScrollRef.current?.focus({ preventScroll: true });
     toast("Opening canceled.", "info");
   }, [cancelPendingOpen, toast]);
 
@@ -493,16 +533,20 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, [pendingSearchPassage, filePath, fileName, content, editing, search.openPassage, search.clear, workspaceIndex.reindex]);
 
-  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
+  const requestFocus = useCallback((retainedSearchVisible: boolean, home?: { rowPath: string | null }) => {
     const path = getPublishedDocument().filePath;
-    readerFocusRequestRef.current = {
+    focusRequestRef.current = {
       documentKey: path ? toPathIdentityKey(path) : null,
       editorSessionKey: editorSessionKeyRef.current,
       openGeneration: getOpenOwnership().generation,
       actionId: nextActionAdmissionIdRef.current,
       searchVisible: retainedSearchVisible,
+      home,
     };
   }, [getOpenOwnership, getPublishedDocument]);
+  const requestReaderFocus = useCallback((retainedSearchVisible = false) => {
+    requestFocus(retainedSearchVisible);
+  }, [requestFocus]);
 
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
@@ -1152,6 +1196,7 @@ function App() {
 
   const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
     void (async () => {
+      const openedFromWelcome = Boolean(document.querySelector(".empty-state"));
       try {
         const terminating = admitted.action.kind === "quit-app" || (admitted.action.kind === "close-window" && closePolicy !== "hide");
         // Commit the note buffer while its originating document can still mutate.
@@ -1161,6 +1206,13 @@ function App() {
           if (!await annotationExit.requestExit()) return;
         }
         await executePendingActionRef.current(admitted.action, getAnnotationMutationVersion());
+        // Welcome disappears after any successful document entry. Preserve a
+        // user's focus choice on a surviving control outside that surface.
+        const focusMovedOutsideWelcome = focusChosenElsewhere(element => Boolean(element.closest(".empty-state")));
+        if (openedFromWelcome && isDocumentOpen(getPublishedDocument().content)
+          && actionAdmissionOwnerRef.current === admitted.admissionId && !focusMovedOutsideWelcome) {
+          requestReaderFocus();
+        }
       } catch (error) {
         console.error("[action-guard] Admitted action failed:", error);
       } finally {
@@ -1168,7 +1220,7 @@ function App() {
         finishActionAdmission(admitted.admissionId);
       }
     })();
-  }, [finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion]);
+  }, [finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion, getPublishedDocument, requestReaderFocus]);
 
   const resolvePendingAction = useCallback(() => {
     const admitted = pendingActionRef.current;
@@ -1449,6 +1501,11 @@ function App() {
 
   const guardedNewFile = useCallback(() => {
     guardAction({ kind: "new-file" });
+  }, [guardAction]);
+
+  // The one Home action: toolbar, menu and shortcut.
+  const guardedGoHome = useCallback(() => {
+    guardAction({ kind: "go-home" });
   }, [guardAction]);
 
   const guardedOpenFile = useCallback(() => {
@@ -1764,6 +1821,8 @@ function App() {
       const result = await openFilePathWithStatus(path, retryAction);
       if (openAttemptIdRef.current !== openAttemptId) return { status: "superseded" };
 
+      // Until the observer reports, the place is the target, not the last document's heading.
+      if (result.status === "opened") activeHeadingIdRef.current = headingId;
       if (result.status === "opened" && headingId) {
         setPendingReaderTarget({
           kind: "heading",
@@ -1789,16 +1848,21 @@ function App() {
         return;
       }
       const result = await openPathAndScroll(session.filePath, session.headingId, retryAction);
+      if (result.status === "opened"
+        && !focusChosenElsewhere(element => Boolean(mainScrollRef.current?.contains(element)))) {
+        requestReaderFocus();
+      }
       if (result.status === "failed" && result.error.category === "not-found") {
         return "not-found" as const;
       }
     },
-    [openPathAndScroll, reportMissingFile],
+    [openPathAndScroll, reportMissingFile, requestReaderFocus],
   );
 
   const {
     restored: sessionRestored,
-    forgetUnavailableSession,
+    restoredHome,
+    rememberHome,
     notifyPositionChanged: notifySessionPositionChanged,
     flushCurrentSession,
   } = useSessionRestore({
@@ -1811,6 +1875,23 @@ function App() {
   // The deadline permits interaction, not storage writes. History and preference
   // hooks keep their own authority/user-intent guards while reads are pending.
   const appReady = startupTimedOut || (sessionRestored && recentFilesStatus !== "loading");
+
+  // At launch, the first open (a restore or an explicit file) reads behind a
+  // neutral view instead of Home, so Home never flashes before the document.
+  const [launchSettled, setLaunchSettled] = useState(false);
+  useEffect(() => {
+    if (appReady && !loading) setLaunchSettled(true);
+  }, [appReady, loading]);
+  const launchOpening = !launchSettled && loading;
+
+  // Home replaces the document; the guard has already settled its edits.
+  // Focus mode would hide the toolbar Home lives in.
+  const showHome = useCallback(() => {
+    closeDocument();
+    setFocusMode(false);
+    setHomeEntered(true);
+    void rememberHome();
+  }, [closeDocument, rememberHome]);
 
   // Preparation can finish while startup still hides the reader. Wait for
   // the same readiness gate as the JSX so this effect sees its committed DOM.
@@ -1879,9 +1960,11 @@ function App() {
   // Deliberate returns already cause a render. Complete once, after the layout
   // restoration and child dialog cleanup; a blocked request must never linger.
   useEffect(() => {
-    const request = readerFocusRequestRef.current;
-    if (!request) return;
-    readerFocusRequestRef.current = null;
+    const request = focusRequestRef.current;
+    // An action can render before it finishes (a click renders at once);
+    // finishing renders again, and a newer action replaces the request.
+    if (!request || !appReady || actionAdmissionOwnerRef.current !== null) return;
+    focusRequestRef.current = null;
     const published = getPublishedDocument();
     const documentKey = published.filePath ? toPathIdentityKey(published.filePath) : null;
     const ownership = getOpenOwnership();
@@ -1890,12 +1973,20 @@ function App() {
       || request.editorSessionKey !== editorSessionKeyRef.current
       || request.openGeneration !== ownership.generation
       || request.actionId !== nextActionAdmissionIdRef.current
-      || ownership.userOpenInFlight || actionAdmissionOwnerRef.current !== null
-      || editingRef.current || searchVisible !== request.searchVisible || !readerDocumentReady
-      || presentationMode || printSessionRef.current
+      || ownership.userOpenInFlight
+      || editingRef.current || printSessionRef.current
       || showConfirmDialogRef.current || showConflictDialogRef.current
       || shortcutsVisible || commandPaletteVisible || readerControlsVisible
     ) return;
+    if (request.home) {
+      if (isDocumentOpen(published.content)) return;
+      const page = mainScrollRef.current?.querySelector(".empty-state");
+      const row = [...(page?.querySelectorAll<HTMLElement>("[data-path]") ?? [])]
+        .find(item => item.dataset.path === request.home?.rowPath);
+      (row?.querySelector("button") ?? page?.querySelector<HTMLElement>("h1"))?.focus({ preventScroll: true });
+      return;
+    }
+    if (searchVisible !== request.searchVisible || !readerDocumentReady || presentationMode) return;
     mainScrollRef.current?.focus({ preventScroll: true });
   });
 
@@ -2006,6 +2097,24 @@ function App() {
     },
   });
 
+  const canShowDocumentHint = readerDocumentReady && !editing && !!filePath
+    && annotationsReady && !printing && !presentationMode && !focusMode;
+  const showReadingHint = readingHintVisible && canShowDocumentHint && highlights.length === 0;
+  useEffect(() => {
+    if (filePath) openedDocumentsRef.current.add(toPathIdentityKey(filePath));
+  }, [filePath]);
+  useEffect(() => {
+    // Wait for both preferences and this document's annotations; a late read
+    // must neither lose an earlier open nor show two hints for the same open.
+    if (!filePath || !canShowDocumentHint || !readingHintLoaded || !sidebarHintLoaded
+      || consideredHintPathRef.current === filePath) return;
+    consideredHintPathRef.current = filePath;
+    setSidebarHintRequested(openedDocumentsRef.current.size >= 2 && !sidebarVisible && !showReadingHint);
+  }, [filePath, canShowDocumentHint, readingHintLoaded, sidebarHintLoaded, sidebarVisible, showReadingHint]);
+  useEffect(() => {
+    if (sidebarVisible && sidebarHintRequested && sidebarHintAvailable) dismissSidebarHint();
+  }, [sidebarVisible, sidebarHintRequested, sidebarHintAvailable, dismissSidebarHint]);
+
   // Annotations: highlight handler
   const handleHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, headingId: string | null) => {
     if (addHighlight(anchor, color, headingId)) dismissReadingHint();
@@ -2102,6 +2211,36 @@ function App() {
     scrollToHeading(headingId);
   }, [scrollToHeading]);
 
+  // Where the person is: a document position, or Home (an unsaved new
+  // document counts as Home). Until launch settles nothing has been shown.
+  const currentPlace = useCallback((): NavigationEntry | null => {
+    if (!launchSettled) return null;
+    const path = getPublishedDocument().filePath;
+    if (path) return { filePath: path, headingId: activeHeadingIdRef.current };
+    const row = document.activeElement?.closest?.<HTMLElement>(".empty-state [data-path]");
+    return { filePath: null, rowPath: row?.dataset.path ?? null };
+  }, [getPublishedDocument, launchSettled]);
+
+  // Every user-initiated move records the place it leaves, once the move has
+  // succeeded and really changed place. Launch restores never record.
+  const leaveCurrentPlace = useCallback(() => {
+    const left = currentPlace();
+    return () => {
+      if (left && !samePlace(left, currentPlace())) pushEntry(left);
+    };
+  }, [currentPlace, pushEntry]);
+
+  const openAndRecordHistory = useCallback(async (
+    path: string,
+    anchor: string | null,
+    retryAction: RetryablePendingAction,
+  ) => {
+    const recordLeft = leaveCurrentPlace();
+    const result = await openPathAndScroll(path, anchor, retryAction);
+    if (result.status === "opened") recordLeft();
+    return result;
+  }, [leaveCurrentPlace, openPathAndScroll]);
+
   // Navigate to a relative .md link
   const handleNavigateToFile = useCallback(
     async (
@@ -2119,42 +2258,42 @@ function App() {
         return;
       }
 
-      const pos = currentPositionRef.current;
-      const result = await openPathAndScroll(path, anchor, retryAction);
-      if (result.status === "opened") {
-        if (pos.filePath) {
-          pushEntry({ filePath: pos.filePath, headingId: pos.headingId });
-        }
-      }
+      await openAndRecordHistory(path, anchor, retryAction);
     },
-    [filePath, pushEntry, openPathAndScroll, scrollToFragment, toast],
+    [filePath, openAndRecordHistory, scrollToFragment, toast],
   );
 
-  const handleGoBack = useCallback(async (
-    retryAction: RetryablePendingAction = { kind: "go-back" },
+  // Back and Forward share one move, to Home or to a document at its heading.
+  // A document that is gone loses its entry, and the error's Retry opens that
+  // file rather than whichever entry comes next.
+  const moveThroughHistory = useCallback(async (
+    entry: NavigationEntry | null,
+    commit: (left: NavigationEntry | null) => void,
+    retryAction: RetryablePendingAction,
   ) => {
-    const entry = peekBack();
     if (!entry) return;
-    const pos = currentPositionRef.current;
-    if (!pos.filePath) return;
-    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
-    if (result.status === "opened") {
-      commitBack({ filePath: pos.filePath, headingId: pos.headingId });
+    const left = currentPlace();
+    if (entry.filePath === null) {
+      showHome();
+      requestFocus(false, { rowPath: entry.rowPath });
+      commit(left);
+      return;
     }
-  }, [peekBack, commitBack, openPathAndScroll]);
+    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
+    if (result.status === "opened") commit(left);
+    else if (result.status === "failed" && result.error.category === "not-found") {
+      commit(null);
+      reportMissingFile(entry.filePath, { kind: "navigate", path: entry.filePath, anchor: entry.headingId });
+    }
+  }, [currentPlace, openPathAndScroll, reportMissingFile, requestFocus, showHome]);
 
-  const handleGoForward = useCallback(async (
-    retryAction: RetryablePendingAction = { kind: "go-forward" },
-  ) => {
-    const entry = peekForward();
-    if (!entry) return;
-    const pos = currentPositionRef.current;
-    if (!pos.filePath) return;
-    const result = await openPathAndScroll(entry.filePath, entry.headingId, retryAction);
-    if (result.status === "opened") {
-      commitForward({ filePath: pos.filePath, headingId: pos.headingId });
-    }
-  }, [peekForward, commitForward, openPathAndScroll]);
+  const handleGoBack = useCallback((retryAction: RetryablePendingAction = { kind: "go-back" }) => (
+    moveThroughHistory(peekBack(), commitBack, retryAction)
+  ), [commitBack, moveThroughHistory, peekBack]);
+
+  const handleGoForward = useCallback((retryAction: RetryablePendingAction = { kind: "go-forward" }) => (
+    moveThroughHistory(peekForward(), commitForward, retryAction)
+  ), [commitForward, moveThroughHistory, peekForward]);
 
   // Update window title with current filename
   useEffect(() => {
@@ -2172,6 +2311,21 @@ function App() {
     }
   }, [filePath, fileName, recentFilesStatus, addRecent]);
 
+  // Files an open has just failed to find, until they open again. Dismissing
+  // the message must not make "Continue at" offer one of them.
+  const [missingPaths, setMissingPaths] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const retry = documentError?.retryAction;
+    if (documentError?.error.category !== "not-found" || !retry || !("path" in retry)) return;
+    const key = toPathIdentityKey(retry.path);
+    setMissingPaths(paths => paths.has(key) ? paths : new Set(paths).add(key));
+  }, [documentError]);
+  useEffect(() => {
+    if (!filePath) return;
+    const key = toPathIdentityKey(filePath);
+    setMissingPaths(paths => paths.has(key) ? new Set([...paths].filter(path => path !== key)) : paths);
+  }, [filePath]);
+
   const handleOpenRecent = useCallback(
     async (
       path: string,
@@ -2187,9 +2341,9 @@ function App() {
         return;
       }
 
-      await openPathAndScroll(path, savedHeading, retryAction);
+      await openAndRecordHistory(path, savedHeading, retryAction);
     },
-    [filePath, getActiveHeadingId, getScrollPosition, openPathAndScroll, scrollToHeading],
+    [filePath, getActiveHeadingId, getScrollPosition, openAndRecordHistory, scrollToHeading],
   );
 
   // Guarded versions that depend on navigation/file handlers
@@ -2216,14 +2370,21 @@ function App() {
     [],
   );
 
-  const toggleSidebar = useCallback(() => {
+  const changeSidebarVisibility = useCallback((next: boolean) => {
     sidebarUpdatedRef.current = true;
-    const next = !visiblePanels.sidebar;
     preparePanelChange("sidebar", next);
     setSidebarVisible(next);
     try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
     void storeSet("sidebar-visible", next);
-  }, [visiblePanels.sidebar, preparePanelChange]);
+  }, [preparePanelChange]);
+  const toggleSidebar = useCallback(() => {
+    changeSidebarVisibility(!visiblePanels.sidebar);
+  }, [visiblePanels.sidebar, changeSidebarVisibility]);
+  useEffect(() => {
+    void emit("bindars://sidebar-visible", sidebarVisible).catch(error => {
+      console.warn("[sidebar] Failed to update the menu title:", error);
+    });
+  }, [sidebarVisible]);
 
   const toggleToc = useCallback(() => {
     if (!documentOpen) return;
@@ -2406,11 +2567,17 @@ function App() {
         }
         return;
       }
-      case "new-file":
+      case "new-file": {
+        const recordLeft = leaveCurrentPlace();
         createNewDocument();
+        recordLeft();
+        // Until it is saved, a new document counts as Home for the next launch.
+        void rememberHome();
         return;
+      }
       case "copy-document": {
         if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        const recordLeft = leaveCurrentPlace();
         // Prepare Save As's buffer without mounting an editor or enabling autosave.
         // The admitted action owns the picker; cancellation leaves the reader intact.
         const sourcePath = filePath;
@@ -2427,6 +2594,7 @@ function App() {
             adoptSavedFile(result.file);
             workspaceIndex.updateSaved(result.file.canonicalPath, result.file.content, result.file.revision);
             beginEditSession(result.file.content, result.file.revision, result.file.canonicalPath);
+            recordLeft();
             toast(`Copy saved to ${result.file.canonicalPath}`, "success");
           } else if (result.status === "error") {
             toast(result.message ?? "Couldn't create the copy. Choose another name or folder.", "error");
@@ -2437,7 +2605,7 @@ function App() {
         return;
       }
       case "open-file-dialog":
-        await openFile();
+        await openFile((path, retryAction) => openAndRecordHistory(path, null, retryAction));
         return;
       case "try-sample": {
         // The admitted action owns the dialog, write and ordinary open together.
@@ -2466,7 +2634,7 @@ function App() {
           if (!path || !isCurrent()) return;
           await invoke("export_markdown_file", { path, content: welcomeContent });
           if (!isCurrent()) return;
-          const result = await openPathAndScroll(path, null, { kind: "open-file-path", path });
+          const result = await openAndRecordHistory(path, null, { kind: "open-file-path", path });
           if (result.status === "failed") {
             toast(`The example was saved to ${path}, but couldn't be opened. Open that file to try again.`, "error");
           } else if (result.status === "opened") {
@@ -2480,7 +2648,7 @@ function App() {
         return;
       }
       case "open-file-path":
-        await openFilePath(action.path, action);
+        await openAndRecordHistory(action.path, null, action);
         return;
       case "find-notes":
         flushSync(() => flushAnnotationNoteRef.current?.());
@@ -2496,6 +2664,15 @@ function App() {
       case "go-forward":
         await handleGoForward(action);
         return;
+      case "go-home":
+        // Already Home: change nothing, but still land on its heading.
+        if (isDocumentOpen(getPublishedDocument().content) || getOpenOwnership().userOpenInFlight) {
+          const recordLeft = leaveCurrentPlace();
+          showHome();
+          recordLeft();
+        }
+        requestFocus(false, { rowPath: null });
+        return;
       case "navigate":
         await handleNavigateToFile(action.path, action.anchor, action);
         return;
@@ -2508,7 +2685,8 @@ function App() {
         return;
       }
       case "restore-session":
-        await openPathAndScroll(action.path, action.headingId, action);
+        // A Retry from Home: unlike the launch restore itself, it records Home.
+        await openAndRecordHistory(action.path, action.headingId, action);
         return;
     }
   };
@@ -2570,6 +2748,7 @@ function App() {
       case "new": guardedNewFile(); break;
       case "open": guardedOpenFile(); break;
       case "search-documents": openCommandPalette(); break;
+      case "home": guardedGoHome(); break;
       case "save": if (editing) handleSave(); break;
       case "copy-document": if (documentOpen) guardAction({ kind: "copy-document" }); break;
       case "print": if (documentOpen && !editing) handlePrint(); break;
@@ -2587,6 +2766,7 @@ function App() {
         else search.previous();
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
+      case "toggle-sidebar": changeSidebarVisibility(!sidebarVisible); break;
     }
   };
   const menuActionRef = useRef(dispatchMenuAction);
@@ -2647,7 +2827,7 @@ function App() {
     // CodeMirror owns its search panel except for the global save contract.
     // Ctrl/Cmd+S must flush the editor even while the panel input has focus.
     if (inEditorPanel && !(ctrl && key === "s")) {
-      const appShortcutBeforeInput = ctrl && (
+      const appShortcutBeforeInput = isGoHomeShortcut(e) || ctrl && (
         key === "k"
         || key === "n"
         || key === "o"
@@ -2710,6 +2890,13 @@ function App() {
     if (ctrl && key === "o") {
       e.preventDefault();
       dispatchMenuAction("open");
+      return;
+    }
+
+    // Home (must run before the editor input bail-out)
+    if (isGoHomeShortcut(e)) {
+      e.preventDefault();
+      dispatchMenuAction("home");
       return;
     }
 
@@ -2927,15 +3114,20 @@ function App() {
     ? { path: recoveryAction.path, error, retryDisabled }
     : null;
   const welcomeRecovery = !documentOpen ? recentRecovery : null;
+  const recoveryPathKey = recentRecovery ? toPathIdentityKey(recentRecovery.path) : null;
+  // The newest saved entry, never one known to be unavailable.
+  const newestRecentPath = recentFiles[0]?.path ?? null;
+  const continuePath = newestRecentPath && toPathIdentityKey(newestRecentPath) !== recoveryPathKey
+    && !missingPaths.has(toPathIdentityKey(newestRecentPath)) ? newestRecentPath : null;
   const dismissRecentRecovery = () => {
     if (!recentRecovery) return;
     dismissDocumentError();
-    void forgetUnavailableSession(recentRecovery.path);
+    if (!documentOpen) void rememberHome();
   };
   // Removing the unavailable entry also dismisses its recovery; Dismiss alone
   // keeps the entry in recent files.
   const removeRecentFile = (path: string) => {
-    if (path === recentRecovery?.path) dismissRecentRecovery();
+    if (toPathIdentityKey(path) === recoveryPathKey) dismissRecentRecovery();
     removeRecent(path);
   };
 
@@ -2980,6 +3172,8 @@ function App() {
           canGoForward={canGoForward}
           onGoBack={guardedGoBack}
           onGoForward={guardedGoForward}
+          onGoHome={guardedGoHome}
+          atHome={!documentOpen && !launchOpening}
           isEditing={editing}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
@@ -3024,7 +3218,7 @@ function App() {
       <div className="flex flex-1 min-h-0 relative">
         <Sidebar
           visible={visiblePanels.sidebar}
-          recentFiles={recentFiles}
+          recentFiles={sidebarRecentFiles}
           recentHistoryUnavailable={recentFilesStatus !== "ready"}
           currentFilePath={filePath}
           openingPath={openingPath}
@@ -3036,7 +3230,7 @@ function App() {
           onRemoveRecent={removeRecentFile}
           recovery={recentRecovery}
           onRetry={retryDocumentOpen}
-          onChooseWorkspaceRoot={workspaceRoot.chooseRoot}
+          onChooseWorkspaceRoot={() => workspaceRoot.chooseRoot(filePath ? parentPath(filePath) : undefined)}
           onClearWorkspaceRoot={workspaceRoot.clearRoot}
           onReindexWorkspace={workspaceIndex.reindex}
           onShowDrafts={workspaceIndex.showDrafts}
@@ -3064,9 +3258,16 @@ function App() {
           )}
 
           <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
-            {readingHintVisible && readerDocumentReady && !editing && filePath
-              && annotationsReady && highlights.length === 0 && !printing && !presentationMode && !focusMode && (
-              <ReadingHint onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+            {showReadingHint && (
+              <HintBar text="Select text to highlight it or add a note." dismissLabel="Dismiss reading hint"
+                icon={<><path d="m9 11 8-8 4 4-8 8-4-4Z" /><path d="m9 11-4 4 4 4 4-4M5 19l-2 2h6" /></>}
+                onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+            )}
+            {sidebarHintRequested && sidebarHintAvailable && !sidebarVisible && !showReadingHint && canShowDocumentHint && (
+              <HintBar text="Your recent documents are in the sidebar." dismissLabel="Dismiss sidebar hint"
+                icon={<><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>}
+                action={{ label: "Show Sidebar", onClick: () => { dismissSidebarHint(); toggleSidebar(); } }}
+                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}
@@ -3081,11 +3282,12 @@ function App() {
                   <span role="status" aria-live="polite" aria-atomic="true">
                     {openingSlow
                       ? "Still opening. Cloud and external files can take longer to become available."
-                      : "Opening file..."}
+                      : launchOpening && openingPath ? `Opening ${pathFileName(openingPath)}…` : "Opening file..."}
                   </span>
                   {openingSlow && (
                     <button
                       type="button"
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={handleCancelPendingOpen}
                       className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
                     >
@@ -3161,16 +3363,20 @@ function App() {
                   onOpenFragment={openMarkdownFragment}
                   onNavigateToFile={guardedNavigateToFile}
                 />
-              ) : (
+              ) : launchOpening ? null : (
                 <EmptyState
                   onOpenFile={guardedOpenFile}
+                  onNewFile={guardedNewFile}
                   onTrySample={() => { guardAction({ kind: "try-sample" }); }}
                   onShowShortcuts={showShortcuts}
                   canTrySample={!actionAdmissionInFlight}
-                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight
+                  canFocus={sessionRestored && !loading && !actionAdmissionInFlight && !homeEntered
                     && !readerControlsVisible && !shortcutsVisible && !commandPaletteVisible}
+                  preferHome={homeEntered || restoredHome}
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
+                  recentDetails={recentDetails}
+                  continuePath={continuePath}
                   onOpenRecent={guardedOpenRecent}
                   onRemoveRecent={removeRecentFile}
                   openingPath={openingPath}

@@ -50,16 +50,16 @@ test("recent removals reveal on focus, skip disabled rows, and preserve focus th
     assert.ok(remove("second"));
     assertFocusReveal(remove("first"));
     click(remove("first"));
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Open third");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Open third, /");
     view.render({ openingPath: null });
     assertFocusReveal(remove("third"));
     click(remove("third"));
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Open second");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Open second, /");
     assertFocusReveal(remove("second"));
     click(remove("second"));
     assert.equal(document.activeElement.getAttribute("aria-label"), "Recent files");
     assert.equal(view.host.querySelectorAll("button").length, 0);
-    assert.match(document.activeElement.textContent, /No recent files/);
+    assert.match(document.activeElement.textContent, /Documents you open will appear here\./);
   } finally { view.cleanup(); }
 });
 
@@ -211,3 +211,64 @@ test("an unfinished note commits to its originating document when the panel is r
     assert.ok(!view.host.querySelector("textarea"));
   } finally { view.cleanup(); }
 });
+
+for (const welcome of [false, true]) {
+  test(`unavailable Recent preserves focus and Retry returns it to the row (welcome=${welcome})`, async () => {
+    await installDom();
+    const opened = [];
+    let retries = 0;
+    const view = renderComponent(Recents, { welcome, onOpen: path => opened.push(path), onRetry() {
+      retries += 1;
+      assert.ok(document.activeElement === row, "handoff precedes disabling or removing Retry");
+      view.render({ openingPath: "/first.md" });
+    } });
+    const row = view.host.querySelector('[aria-label^="Open first"]');
+    try {
+      focus(row);
+      click(row);
+      view.render({ recovery: { path: "/first.md", error: { category: "not-found" }, retryDisabled: false } });
+      assert.equal(row.disabled, false, "native disabled loses focus in WebKit");
+      assert.equal(row.getAttribute("aria-disabled"), "true");
+      assert.equal(row.tabIndex, -1);
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"], "the unavailable row cannot bypass Retry");
+      const retry = view.host.querySelector('[aria-label="Retry opening first"]');
+      focus(retry);
+      click(retry);
+      assert.equal(retries, 1);
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"]);
+      view.render({ recovery: null, openingPath: null, currentFilePath: "/first.md" });
+      assert.ok(document.activeElement === row);
+      assert.equal(row.tabIndex, 0);
+      assert.equal(row.hasAttribute("aria-disabled"), false);
+      assert.ok(view.host.querySelector('[aria-label="Retry opening first"]') === null);
+    } finally { view.cleanup(); }
+  });
+
+  test(`opening a Recent row stays focusable and ignores repeated activation (welcome=${welcome})`, async () => {
+    await installDom();
+    const opened = [];
+    const view = renderComponent(Recents, { welcome, onOpen: path => opened.push(path) });
+    const row = view.host.querySelector('[aria-label^="Open first"]');
+    try {
+      focus(row);
+      click(row);
+      view.render({ openingPath: "/first.md" });
+      assert.equal(row.disabled, false, "native disabled makes WebKit drop focus");
+      assert.equal(row.getAttribute("aria-disabled"), "true");
+      assert.equal(row.getAttribute("aria-busy"), "true");
+      assert.match(row.textContent, /Opening…/);
+      click(row);
+      assert.deepEqual(opened, ["/first.md"]);
+      view.render({ openingPath: null, currentFilePath: "/first.md" });
+      assert.equal(row.hasAttribute("aria-disabled"), false);
+      assert.equal(row.getAttribute("aria-current"), "page");
+      assert.ok(document.activeElement === row);
+      click(row);
+      assert.deepEqual(opened, ["/first.md", "/first.md"]);
+    } finally { view.cleanup(); }
+  });
+}

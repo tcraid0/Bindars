@@ -82,6 +82,14 @@ async function pauseDraftAutosave(rendered) {
 }
 
 async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, words) {
+  return requestDepartureAfterFailedBoundarySave(rendered, words, async () => {
+    rendered.setPendingNativeOpenPath(targetPath);
+    await emit("bindars://native-open-available");
+  });
+}
+
+// Edits the open document, then leaves it while the boundary autosave fails.
+async function requestDepartureAfterFailedBoundarySave(rendered, words, depart) {
   dispatchShortcut("e");
   await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
   updateEditor(rendered.host, words);
@@ -89,10 +97,7 @@ async function requestNativeOpenAfterFailedBoundarySave(rendered, targetPath, wo
 
   const failedBoundarySave = deferred();
   rendered.deferNextWrite(failedBoundarySave);
-  rendered.setPendingNativeOpenPath(targetPath);
-  await act(async () => {
-    await emit("bindars://native-open-available");
-  });
+  await act(depart);
   await waitFor(() => assert.ok(failedBoundarySave.args));
   await act(async () => {
     failedBoundarySave.reject(new Error("Boundary save failed"));
@@ -1277,6 +1282,7 @@ test("non-save App shortcuts are suppressed while the CodeMirror search panel ow
       ["e", { ctrlKey: true }],
       ["m", { ctrlKey: true, altKey: true }],
       ["t", { ctrlKey: true, shiftKey: true }],
+      ["Home", { altKey: true }],
     ]) {
       const event = dispatchElementKey(searchField, key, options);
       assert.equal(event.defaultPrevented, true, `${key} should not reach App or the WebView`);
@@ -3643,6 +3649,52 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
   }
 });
 
+test("Home from the editor honors Save, Discard, and Cancel for dirty documents", async (context) => {
+  for (const choice of ["Save", "Discard", "Cancel"]) {
+    await context.test(choice, async () => {
+      const restoreLocalStorage = bindAppLocalStorage();
+      const storage = { value: { version: 1, files: [] }, writes: [] };
+      const rendered = await renderContinuityApp({ recentStorage: storage });
+      const words = `${rendered.diskContent()}\n\nKeep ${choice} words.`;
+      const home = () => rendered.host.querySelector("header button[title^='Home']");
+      try {
+        window.dispatchEvent(new Event("beforeunload"));
+        const savedPlace = JSON.parse(localStorage.getItem("bindars-session"));
+        const history = () => ["Go back", "Go forward"].map(label =>
+          rendered.host.querySelector(`header [aria-label="${label}"]`).disabled);
+        const beforeHistory = history();
+        const beforeWrites = storage.writes.length;
+        // The shortcut arrives from CodeMirror's own content element.
+        const dialog = await requestDepartureAfterFailedBoundarySave(rendered, words,
+          async () => { dispatchEditorKey(rendered.host, "Home", { altKey: true }); });
+        if (choice === "Cancel") {
+          dispatchWindowKey("Escape");
+          await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
+          assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+          assert.ok(!rendered.host.querySelector(".empty-state"));
+          assert.equal(home().getAttribute("aria-current"), null);
+          assert.deepEqual(history(), beforeHistory, "Cancel changes neither Back nor Forward");
+          const afterPlace = JSON.parse(localStorage.getItem("bindars-session"));
+          assert.equal(afterPlace.filePath, savedPlace.filePath, "Cancel keeps the saved document");
+          assert.equal(afterPlace.headingId, savedPlace.headingId, "Cancel keeps its saved section");
+          for (const write of storage.writes.slice(beforeWrites).filter(write => write.key === "session")) {
+            assert.equal(write.value.filePath, savedPlace.filePath, "Cancel never saves Home natively");
+          }
+        } else {
+          clickButton(rendered.host, choice, dialog);
+          await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state")));
+          assert.ok(!rendered.host.querySelector(".cm-editor"));
+          assert.equal(home().getAttribute("aria-current"), "page");
+          assert.equal(rendered.diskContent() === words, choice === "Save");
+        }
+      } finally {
+        await rendered.cleanup();
+        restoreLocalStorage();
+      }
+    });
+  }
+});
+
 test("a failed open after Discard keeps disk content without restoring discarded edits", async () => {
   const rendered = await renderContinuityApp();
   const discardedWords = `${rendered.diskContent()}\n\nThese words must stay discarded.`;
@@ -3793,6 +3845,48 @@ test("a later native open is consumed as busy while an admitted open is still ru
     await rendered.cleanup();
   }
 });
+
+for (const [welcome, destination] of [[false, "toolbar"], [true, "toolbar"], [true, "welcome"]]) {
+  for (const activation of ["programmatic", "pointer"]) {
+    test(`Cancel preserves a surviving focus choice (${welcome ? "welcome" : "reader"}, ${destination}, ${activation})`, async () => {
+      const rendered = await renderContinuityApp(welcome
+        ? { initialNativePath: null, readySelector: ".empty-state" } : {});
+      const pending = deferred();
+      try {
+        rendered.deferNextOpen(pending);
+        rendered.setPendingNativeOpenPath("/tmp/cancelled-focus.md");
+        await act(async () => { await emit("bindars://native-open-available"); });
+        await waitFor(() => assert.equal(pending.args?.path, "/tmp/cancelled-focus.md"));
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+        const cancel = [...rendered.host.querySelectorAll("button")]
+          .find(button => button.textContent.trim() === "Cancel");
+        assert.ok(cancel);
+        const chosen = destination === "toolbar"
+          ? rendered.host.querySelector('[aria-label="Toggle sidebar"]')
+          : [...rendered.host.querySelectorAll(".empty-state button")]
+            .find(button => button.textContent.trim() === "Open File…");
+        chosen.focus();
+        assert.ok(document.activeElement === chosen);
+        flushSync(() => {
+          if (activation === "pointer") {
+            const down = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+            cancel.dispatchEvent(down);
+            // happy-dom omits WebKit's default mousedown blur on a non-mouse-focusable button.
+            if (!down.defaultPrevented) chosen.blur();
+            cancel.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+          }
+          cancel.click();
+        });
+        await waitFor(() => assert.doesNotMatch(rendered.host.textContent, /Still opening/));
+        assert.ok(document.activeElement === chosen, "Cancel preserves focus on a surviving control");
+        await act(async () => pending.resolve({ ...rendered.openResult("# Abandoned read"),
+          canonicalPath: "/tmp/cancelled-focus.md", name: "cancelled-focus.md" }));
+        assert.ok(document.activeElement === chosen, "the abandoned native completion cannot steal focus");
+        assert.doesNotMatch(rendered.host.textContent, /Abandoned read/);
+      } finally { pending.resolve(null); await rendered.cleanup(); }
+    });
+  }
+}
 
 test("Cancel releases a slow admitted open while its native read remains abandoned", async () => {
   const rendered = await renderContinuityApp();
@@ -6306,35 +6400,46 @@ test('sample saved but open failed reports the destination and ordinary Open doe
   } finally { await rendered.cleanup(); }
 });
 
-test('sample cancel supersedes an in-flight session restore without exporting', async () => {
+test('Home during the launch view supersedes the restore read, which then publishes nothing', async () => {
   const session = deferred();
-  const dialog = deferred();
-  const flow = sampleFixture({ dialog: () => dialog.promise });
-  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: '.empty-state-content', sampleFlow: flow });
+  const flow = sampleFixture();
+  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: session, readySelector: 'main', sampleFlow: flow });
   try {
     await waitFor(() => assert.ok(session.args));
-    clickButton(rendered.host, 'Try an Example…');
-    await waitFor(() => assert.equal(flow.dialogs.length, 1));
-    await act(async () => dialog.resolve(null));
+    assert.ok(!rendered.host.querySelector('.empty-state'), 'the restore reads behind the launch view, not the welcome screen');
+    assert.match(rendered.host.querySelector('main').textContent, /Opening continuity\.md…/);
+    flushSync(() => rendered.host.querySelector("header button[title^='Home']").click());
+    await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
     await act(async () => session.resolve(rendered.openResult('# Late session')));
     await act(async () => new Promise(setImmediate));
     assert.deepEqual(rendered.openedPaths(), ['/tmp/continuity.md']);
+    assert.ok(!rendered.host.querySelector('article'), 'the late read never replaces Home');
     assert.deepEqual(flow.exports, []);
-    assert.ok(rendered.host.querySelector('.empty-state-content'));
   } finally { await rendered.cleanup(); }
 });
 
-test('sample cancels an already pending session open before showing its Save dialog', async () => {
+// The welcome screen shows during a restore read only when the settings read
+// outlasted the startup deadline, so the read starts after the screen appears.
+test('sample supersedes a session open that started after startup stopped waiting, cancelled or completed', async () => {
+  const sessionRead = deferred();
   const startup = deferred();
   const dialog = deferred();
-  const flow = sampleFixture({ dialog: () => dialog.promise });
-  const rendered = await renderContinuityApp({ initialNativePath: null, restoreHeadingId: 'second', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  let dialogs = 0;
+  const flow = sampleFixture({ dialog: () => (++dialogs === 1 ? null : dialog.promise) });
+  const rendered = await renderContinuityApp({ initialNativePath: null, initialSessionOperation: sessionRead, initialOpenOperation: startup, readySelector: null, sampleFlow: flow });
   try {
+    await act(async () => { await new Promise(resolve => realSetTimeout(resolve, 3_050)); });
+    await waitFor(() => assert.ok(rendered.host.querySelector('.empty-state-content')));
+    await act(async () => sessionRead.resolve({ filePath: '/tmp/continuity.md', headingId: 'second', savedAt: 1 }));
     await waitFor(() => assert.ok(startup.args));
     clickButton(rendered.host, 'Try an Example…');
     await waitFor(() => assert.equal(flow.dialogs.length, 1));
     await act(async () => startup.resolve(rendered.openResult('# Stale startup')));
-    assert.ok(!rendered.host.querySelector('article'));
+    await act(async () => new Promise(setImmediate));
+    assert.ok(!rendered.host.querySelector('article'), 'a cancelled example still superseded the restore');
+    assert.deepEqual(flow.exports, []);
+    clickButton(rendered.host, 'Try an Example…');
+    await waitFor(() => assert.equal(flow.dialogs.length, 2));
     await act(async () => dialog.resolve('/tmp/sample.md'));
     await waitFor(() => assert.match(rendered.host.querySelector('article').textContent, /Welcome fixture/));
     assert.doesNotMatch(rendered.host.textContent, /Stale startup/);
@@ -6356,8 +6461,13 @@ test('sample completion after unmount does not open or publish stale feedback', 
 test('sample keeps the existing native-open busy guard and accepts a later retry', async () => {
   const startup = deferred();
   const flow = sampleFixture();
-  const rendered = await renderContinuityApp({ initialNativePath: '/tmp/startup.md', initialOpenOperation: startup, readySelector: '.empty-state-content', sampleFlow: flow });
+  // A launch-time native open reads behind the launch view, so deliver it
+  // while the welcome screen is showing.
+  const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: '.empty-state-content', sampleFlow: flow });
   try {
+    rendered.deferNextOpen(startup);
+    rendered.setPendingNativeOpenPath('/tmp/startup.md');
+    await act(async () => emit('bindars://native-open-available'));
     await waitFor(() => assert.ok(startup.args));
     const sample = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Try an Example…');
     assert.equal(sample.disabled, true);
@@ -7220,10 +7330,11 @@ for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) 
       { path, name: "continuity.md", openedAt: 100, lastHeadingId: "second" },
     ] }, writes: [] };
     const rendered = await renderContinuityApp({
-      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: ".empty-state", recentStorage: history,
+      restoreHeadingId: "second", initialOpenOperation: failed, readySelector: "main", recentStorage: history,
     });
     try {
       await waitFor(() => assert.ok(failed.args));
+      assert.ok(!rendered.host.querySelector(".empty-state"), "the restore reads behind the launch view, not the welcome screen");
       await act(async () => failed.reject({
         category, operation: "readDocument", message: "The storage request is unavailable.", detail: "fixture",
       }));
@@ -7245,31 +7356,37 @@ for (const category of ["notFound", "permissionDenied", "resourceUnavailable"]) 
   });
 }
 
-for (const action of ["Open File…", "Try an Example…"]) {
+// Below one document, Home's Open is the "Open a file…" row.
+for (const action of ["Open a file…", "Try an Example…"]) {
   test("persisted missing-file recovery survives a cancelled " + action, async () => {
     const path = "/tmp/missing.md";
     const dialog = deferred();
     const flow = sampleFixture({ dialog: () => dialog.promise });
-    const history = { version: 3, value: { version: 1, files: [
+    // Try an Example… is on the first-run screen, so that case has no history.
+    const history = { version: 3, value: { version: 1, files: action === "Try an Example…" ? [] : [
       { path, name: "missing.md", openedAt: 1, lastHeadingId: "second" },
     ] }, writes: [] };
+    const retry = () => rendered.host.querySelector('[aria-label="Retry opening missing.md"]')
+      ?? [...rendered.host.querySelectorAll(".empty-state-recovery-message button")].find(button => button.textContent === "Retry");
     const rendered = await renderContinuityApp({
       initialNativePath: null,
       initialSessionOperation: { promise: Promise.resolve({ filePath: path, headingId: "second", savedAt: 1, restoreDisabled: true }) },
       readySelector: ".empty-state-recovery", recentStorage: history, sampleFlow: flow,
     });
     try {
-      if (action === "Open File…") rendered.deferNextOpenDialog(dialog);
-      clickButton(rendered.host, action);
-      await waitFor(() => assert.ok(action === "Open File…" ? dialog.args : flow.dialogs.length));
+      if (action === "Open a file…") rendered.deferNextOpenDialog(dialog);
+      // Home's row also shows its description and key hint after the title.
+      flushSync(() => [...rendered.host.querySelectorAll(".empty-state button")]
+        .find(button => button.textContent.startsWith(action)).click());
+      await waitFor(() => assert.ok(action === "Open a file…" ? dialog.args : flow.dialogs.length));
       assert.ok(rendered.host.querySelector(".empty-state-recovery"));
-      assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, true);
+      assert.equal(retry().disabled, true);
       await act(async () => dialog.resolve(null));
-      await waitFor(() => assert.equal(rendered.host.querySelector('[aria-label="Retry opening missing.md"]').disabled, false));
+      await waitFor(() => assert.equal(retry().disabled, false));
       assert.ok(!rendered.host.querySelector("article"));
       assert.deepEqual(rendered.openedPaths(), []);
       assert.match(rendered.host.textContent, /Couldn’t find missing.md/);
-      flushSync(() => rendered.host.querySelector('[aria-label="Retry opening missing.md"]').click());
+      flushSync(() => retry().click());
       await waitFor(() => assert.ok(rendered.host.querySelector("article")));
       assert.deepEqual(rendered.openedPaths(), [path]);
       assert.ok(rendered.scrolledIds.includes("second"));
@@ -7360,19 +7477,20 @@ for (const control of ["Dismiss", "Remove"]) {
       button.focus();
       flushSync(() => button.click());
       assert.ok(!rendered.host.querySelector(".empty-state-recovery"));
-      assert.match(rendered.host.textContent, /Read, highlight, and add your thoughts/);
-      const entry = rendered.host.querySelector('[aria-label="Open missing.md"]');
+      assert.equal(rendered.host.querySelector(".empty-state h1").textContent, "Home");
+      const entry = rendered.host.querySelector('[aria-label="Open missing.md, tmp"]');
       if (control === "Remove") {
         assert.equal(entry, null);
         await waitFor(() => assert.deepEqual(fixture.recentStorage.value.files, []));
       } else {
         assert.equal(entry.disabled, false, "Dismiss keeps the entry in recent files");
         assert.equal(fixture.recentStorage.value.files.length, 1);
+        // Home's Open below one document is the "Open a file…" row.
         assert.ok(document.activeElement === [...rendered.host.querySelectorAll("button")]
-          .find(candidate => candidate.textContent === "Open File…"));
+          .find(candidate => candidate.textContent.startsWith("Open a file…")));
       }
-      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value === null),
-        "the stored unavailable session is forgotten"));
+      await waitFor(() => assert.ok(fixture.recentStorage.writes.some(write => write.key === "session" && write.value?.kind === "home"),
+        "dismissing saves Home in place of the stored unavailable session"));
       assert.deepEqual(rendered.openedPaths(), []);
     } finally { await rendered.cleanup(); }
   });
@@ -7398,7 +7516,7 @@ test("reader selection boundary contains the document but excludes panels, hints
     dispatchShortcut("f");
     for (const selector of [
       '[data-reader-panel="sidebar"]', '[data-reader-panel="toc"]',
-      '[data-reader-panel="notes"]', '.reading-hint', '.search-bar',
+      '[data-reader-panel="notes"]', '.hint-bar', '.search-bar',
     ]) {
       const element = await waitFor(() => rendered.host.querySelector(selector) || assert.fail(`missing ${selector}`));
       assert.ok(element.closest("#root") === rendered.host, selector);
@@ -7428,16 +7546,16 @@ test("a late reading hint stays outside the restored document's scroller", async
   const rendered = await renderContinuityApp({ restoreHeadingId: "second", readingHintRead: hint.promise });
   try {
     assert.ok(rendered.scrolledIds.includes("second"));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     await act(async () => hint.resolve(null));
-    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".hint-bar")));
     const main = rendered.host.querySelector("main");
-    assert.equal(main.contains(rendered.host.querySelector(".reading-hint")), false);
+    assert.equal(main.contains(rendered.host.querySelector(".hint-bar")), false);
     const dismiss = rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
     dismiss.focus();
     flushSync(() => dismiss.click());
     assert.ok(document.activeElement === main);
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     assert.ok(main.querySelector("#second"));
   } finally { await rendered.cleanup(); }
 });
@@ -7450,13 +7568,13 @@ test("welcome hint dismisses once without reopening when another document is rea
     const main = rendered.host.querySelector("main");
     dismiss.focus();
     flushSync(() => dismiss.click());
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector('[aria-label="Dismiss reading hint"]'));
     assert.ok(document.activeElement === main);
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value === true)));
     rendered.setOpenDialogPath("/tmp/another.md");
     clickButton(rendered.host, "Open");
     await waitFor(() => assert.equal(rendered.openedPaths().at(-1), "/tmp/another.md"));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector('[aria-label="Dismiss reading hint"]'));
   } finally { await rendered.cleanup(); }
 });
 
@@ -7464,11 +7582,11 @@ test("the first accepted highlight retires the reading hint", async () => {
   const history = { value: { version: 1, files: [] }, writes: [] };
   const rendered = await renderContinuityApp({ recentStorage: history });
   try {
-    await waitFor(() => assert.ok(rendered.host.querySelector(".reading-hint")));
+    await waitFor(() => assert.ok(rendered.host.querySelector(".hint-bar")));
     await selectReaderParagraph(rendered);
     flushSync(() => rendered.host.querySelector('[aria-label="Highlight Yellow"]').click());
     await waitFor(() => assert.ok(rendered.annotationWrites.length));
-    assert.ok(!rendered.host.querySelector(".reading-hint"));
+    assert.ok(!rendered.host.querySelector(".hint-bar"));
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });
@@ -7593,4 +7711,181 @@ test("menu Open waits for a held save and preserves a failed save when cancelled
     assert.equal(findEditorView(view.host).state.doc.toString(), "# Menu unsaved");
     assert.deepEqual(view.openedPaths(), before);
   } finally { await view.cleanup(); }
+});
+
+test("sidebar keeps display order through opens and fitting while welcome and storage stay newest-first", async () => {
+  const files = ["A", "B", "C", "D", "E", "F"].map((name, i) => ({
+    path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 10 - i, lastHeadingId: null,
+  }));
+  const history = { version: 3, value: { version: 1, files }, writes: [] };
+  const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
+  const names = scope => [...scope.querySelectorAll('button[aria-label^="Open "]')]
+    .map(button => button.getAttribute("aria-label").slice(5).split(",")[0]);
+  const sidebar = () => rendered.host.querySelector('[aria-label="Document navigation"]');
+  const oldWidth = window.innerWidth;
+  try {
+    assert.deepEqual(names(rendered.host.querySelector(".empty-state-recents")), ["A.md", "B.md", "C.md", "D.md", "E.md"]);
+    dispatchShortcut("b");
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    flushSync(() => sidebar().querySelector('[aria-label^="Open C.md"]').click());
+    await waitFor(() => assert.equal(history.value.files[0].name, "C.md"));
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    assert.equal(sidebar().querySelector('[aria-current="page"]').getAttribute("aria-label").startsWith("Open C.md"), true);
+    // Prefer Notes, then let the fit hide/re-show the sidebar without changing intent.
+    dispatchShortcut("m", { shiftKey: true });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    assert.equal(sidebar(), null);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
+    flushSync(() => window.dispatchEvent(new Event("resize")));
+    assert.deepEqual(names(sidebar()), files.map(file => file.name));
+    dispatchShortcut("b");
+    flushSync(() => rendered.host.querySelector('[aria-label="Toggle sidebar"]').click());
+    assert.deepEqual(names(sidebar()), ["C.md", "A.md", "B.md", "D.md", "E.md", "F.md"]);
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth });
+    await rendered.cleanup();
+  }
+});
+
+for (const [route, moveFocus] of [
+  ...["row", "welcome", "toolbar"].map(move => ["Recent", move]),
+  ...["Open File", "palette", "example", "session Retry"].flatMap(route =>
+    ["unchanged", "toolbar"].map(move => [route, move])),
+]) {
+  test(`welcome ${route} hands focus to the reader unless focus moved outside welcome (${moveFocus})`, async () => {
+    const history = { version: 3, value: { version: 1, files: [{
+      path: "/tmp/welcome.md", name: "welcome.md", openedAt: 1, lastHeadingId: null,
+    }] }, writes: [] };
+    // The example and a recovery without a recent row are first-run screens.
+    if (route === "session Retry" || route === "example") history.value.files = [];
+    const rendered = await renderContinuityApp({
+      initialNativePath: null, recentStorage: history,
+      readySelector: route === "session Retry" ? ".empty-state-recovery" : ".empty-state",
+      initialSessionOperation: route === "session Retry" ? { promise: Promise.resolve({
+        filePath: "/tmp/welcome.md", headingId: null, savedAt: 1, restoreDisabled: true,
+      }) } : null,
+      sampleFlow: sampleFixture(), workspaceContent: "# Welcome\n",
+    });
+    const pending = deferred();
+    const content = "# Opened from welcome\n";
+    const opened = { canonicalPath: "/tmp/welcome.md", name: "welcome.md", content,
+      revision: { mtimeMs: 2, size: content.length, contentHash: "welcome" } };
+    try {
+      rendered.deferNextOpen(pending);
+      // The page's Open: the welcome's Open File…, or Home's "Open a file…" row below one document.
+      const primary = [...rendered.host.querySelectorAll(".empty-state button")]
+        .find(button => /^Open (File…|a file…)/.test(button.textContent.trim()));
+      primary.focus();
+      // By path, not name: the row's name changes when the index publishes the title.
+      const row = rendered.host.querySelector('.empty-state [data-path="/tmp/welcome.md"] button');
+      if (route === "Recent") {
+        await act(async () => { row.focus(); row.click(); });
+      } else if (route === "palette") {
+        dispatchShortcut("k");
+        await waitFor(() => assert.ok(document.querySelector('[role="option"]')));
+        dispatchElementKey(document.activeElement, "Enter");
+      } else if (route === "Open File") {
+        rendered.setOpenDialogPath(opened.canonicalPath);
+        await act(async () => primary.click());
+      } else {
+        rendered.setSaveDialogPath(opened.canonicalPath);
+        const trigger = [...rendered.host.querySelectorAll(".empty-state button")]
+          .find(button => button.textContent.trim() === (route === "example" ? "Try an Example…" : "Retry"));
+        await act(async () => { trigger.focus(); trigger.click(); });
+      }
+      await waitFor(() => assert.equal(pending.args?.path, opened.canonicalPath));
+      if (route === "Recent") assert.ok(document.activeElement === row, "the opening row retains focus while reading");
+      // Another Home control than the row: the last way to start.
+      const other = moveFocus === "welcome"
+        ? [...rendered.host.querySelectorAll(".empty-state-content button")].at(-1)
+        : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      if (moveFocus === "welcome" || moveFocus === "toolbar") {
+        other.focus();
+        assert.ok(document.activeElement === other);
+      }
+      await act(async () => { pending.resolve(opened); await pending.promise; });
+      await waitFor(() => assert.ok(!rendered.host.querySelector(".empty-state")));
+      await waitFor(() => assert.ok(document.activeElement === (moveFocus === "toolbar" ? other : rendered.host.querySelector('main[aria-label="Document"]'))));
+    } finally {
+      pending.resolve(opened);
+      await rendered.cleanup();
+    }
+  });
+}
+
+for (const outcome of ["cancel", "failure"]) {
+  test(`welcome Open File ${outcome} keeps the surviving focus choice`, async () => {
+    const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state" });
+    const pending = deferred();
+    try {
+      const toolbar = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      if (outcome === "cancel") rendered.deferNextOpenDialog(pending);
+      else {
+        rendered.setOpenDialogPath("/tmp/failed-welcome.md");
+        rendered.deferNextOpen(pending);
+      }
+      clickButton(rendered.host, "Open File…");
+      await waitFor(() => assert.ok(pending.args));
+      toolbar.focus();
+      assert.ok(document.activeElement === toolbar);
+      await act(async () => {
+        if (outcome === "cancel") pending.resolve(null);
+        else pending.reject({ category: "notFound", message: "Missing file" });
+      });
+      await waitFor(() => assert.equal([...rendered.host.querySelectorAll("button")]
+        .find(button => button.textContent.trim() === "Try an Example…").disabled, false));
+      assert.ok(rendered.host.querySelector(".empty-state"));
+      assert.ok(document.activeElement === toolbar);
+      assert.ok(!rendered.host.querySelector("article"));
+    } finally { pending.resolve(null); await rendered.cleanup(); }
+  });
+}
+
+test("Recent records Back at the prior heading, clears Forward, and ignores same-file and failed opens", async () => {
+  const history = { version: 3, value: { version: 1, files: ["A", "B", "C"].map(name => ({
+    path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 1, lastHeadingId: "second",
+  })) }, writes: [] };
+  const rendered = await renderContinuityApp({ requestedPath: "/tmp/A.md", restoreHeadingId: "second", recentStorage: history, sidebarRead: Promise.resolve(true) });
+  const back = () => rendered.host.querySelector('[aria-label="Go back"]');
+  const forward = () => rendered.host.querySelector('[aria-label="Go forward"]');
+  const open = name => act(async () => rendered.host.querySelector(`[aria-label^="Open ${name}.md"]`).click());
+  const current = name => assert.ok(rendered.host.querySelector(`[aria-label^="Open ${name}.md"][aria-current="page"]`));
+  try {
+    await waitFor(() => assert.ok(rendered.scrolledIds.includes("second")));
+    await open("A");
+    assert.equal(back().disabled, true, "same-file scrolling is not a new history entry");
+    const failed = deferred();
+    rendered.deferNextOpen(failed);
+    const row = rendered.host.querySelector('[aria-label^="Open B.md"]');
+    row.focus();
+    await open("B");
+    await waitFor(() => assert.equal(failed.args?.path, "/tmp/B.md"));
+    await act(async () => failed.reject({ category: "notFound", message: "Missing file" }));
+    current("A");
+    assert.equal(row.disabled, false);
+    assert.ok(document.activeElement === row, "a failed open retains row focus");
+    assert.equal(back().disabled, true, "failed reads do not create history entries");
+    const retryRead = deferred();
+    rendered.deferNextOpen(retryRead);
+    const retry = rendered.host.querySelector('[aria-label="Retry opening B.md"]');
+    await act(async () => { retry.focus(); retry.click(); });
+    await waitFor(() => assert.equal(retryRead.args?.path, "/tmp/B.md"));
+    assert.ok(document.activeElement === row, "Retry hands focus back before its held read");
+    await act(async () => row.click());
+    assert.equal(rendered.openedPaths().filter(path => path === "/tmp/B.md").length, 2);
+    await act(async () => retryRead.resolve({ ...rendered.openResult(), canonicalPath: "/tmp/B.md", name: "B.md" }));
+    await waitFor(() => { current("B"); assert.equal(back().disabled, false); });
+    assert.ok(document.activeElement === row, "removing Retry on success retains row focus");
+    rendered.scrolledIds.length = 0;
+    flushSync(() => back().click());
+    await waitFor(() => { current("A"); assert.ok(rendered.scrolledIds.includes("second")); });
+    assert.equal(forward().disabled, false);
+    await open("C");
+    await waitFor(() => current("C"));
+    assert.equal(forward().disabled, true, "a new Recent navigation clears Forward");
+    flushSync(() => back().click());
+    await waitFor(() => current("A"));
+    assert.equal(back().disabled, true, "only successful document changes were recorded");
+  } finally { await rendered.cleanup(); }
 });

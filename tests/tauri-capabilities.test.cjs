@@ -22,6 +22,29 @@ test("the zero-margin macOS window.print bridge is not permitted", () => {
   assert.equal(capabilities.permissions.includes("core:webview:allow-print"), false);
 });
 
+test("sidebar title updates have permission to emit their native event", async () => {
+  await installDom();
+  const payloads = [];
+  mockIPC((command, args) => {
+    assert.equal(command, "plugin:event|emit");
+    assert.ok(
+      capabilities.permissions.includes("core:event:allow-emit"),
+      "the packaged webview must be allowed to send sidebar intent to the native menu",
+    );
+    payloads.push(args);
+  });
+  try {
+    await emit("bindars://sidebar-visible", true);
+    await emit("bindars://sidebar-visible", false);
+    assert.deepEqual(payloads, [
+      { event: "bindars://sidebar-visible", payload: true },
+      { event: "bindars://sidebar-visible", payload: false },
+    ]);
+  } finally {
+    clearMocks();
+  }
+});
+
 test("the close-request handler can complete both close steps", () => {
   assert.match(appSource, /\.onCloseRequested\(/);
   assert.ok(

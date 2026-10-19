@@ -7,6 +7,7 @@
     "core:path:allow-resolve-directory",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:event:allow-emit",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-hide",

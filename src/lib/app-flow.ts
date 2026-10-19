@@ -13,6 +13,7 @@ export type PendingAction =
   | { kind: "open-recent"; path: string }
   | { kind: "go-back" }
   | { kind: "go-forward" }
+  | { kind: "go-home" }
   | { kind: "navigate"; path: string; anchor: string | null }
   | { kind: "open-workspace-hit"; path: string; headingId: string | null; passage?: import("../types").SearchPassage }
   | { kind: "restore-session"; path: string; headingId: string | null };

@@ -31,7 +31,7 @@ export function DocumentList({
               type="button"
               aria-current={doc.path === currentPath ? "page" : undefined}
               onClick={() => onOpen(doc.path)}
-              className="document-open"
+              className="document-open document-row"
             >
               <strong>{drafts ? doc.draftLabel || doc.name : doc.name}</strong>
               {drafts && doc.draftLabel && doc.draftLabel !== doc.name && (

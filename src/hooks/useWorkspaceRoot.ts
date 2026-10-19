@@ -65,10 +65,10 @@ export function useWorkspaceRoot() {
     [persist],
   );
 
-  const chooseRoot = useCallback(async () => {
+  const chooseRoot = useCallback(async (defaultPath?: string) => {
     const sequence = ++pickerSequenceRef.current;
     try {
-      const selected = await open({ directory: true, multiple: false });
+      const selected = await open({ directory: true, multiple: false, defaultPath });
       if (
         sequence !== pickerSequenceRef.current ||
         !selected ||

@@ -33,10 +33,10 @@ export interface RecentFile {
   lastHeadingId?: string | null;
 }
 
-export interface NavigationEntry {
-  filePath: string;
-  headingId: string | null;
-}
+/** A place Back and Forward return to: a document position, or Home with the recent row it was left from. */
+export type NavigationEntry =
+  | { filePath: string; headingId: string | null }
+  | { filePath: null; rowPath: string | null };
 
 export interface SessionData {
   filePath: string;
