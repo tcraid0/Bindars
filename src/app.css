@@ -240,6 +240,15 @@ select,
   transition: background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
 }
 
+/* WebKitGTK paints a light dropdown fill unless the control's color scheme is
+   dark, which hid the inherited light text in dark themes. Kept off the page
+   root: a dark page-wide scheme makes disabled task-list checkboxes too faint
+   in WKWebView on macOS. */
+[data-theme="dark"] select,
+[data-theme="deep-dark"] select {
+  color-scheme: dark;
+}
+
 code, pre, pre * {
   transition: none !important;
 }
