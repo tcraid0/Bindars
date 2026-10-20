@@ -310,7 +310,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
       {annotationsReady && !hasContent && (
         <p className="px-4 text-sm text-text-muted">
-          No highlights or notes yet. Select text and choose a color or Note. You can also bookmark a heading in the table of contents.
+          No highlights or notes yet. Select text and choose a color or Note. You can also bookmark a heading in Contents.
         </p>
       )}
 

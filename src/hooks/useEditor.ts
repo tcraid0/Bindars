@@ -305,7 +305,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         dirty: true,
         saveError: quiet
           ? null
-          : "This file changed outside Bindars. Choose Use other version or Keep my changes to continue.",
+          : "This file changed outside Bindars. Save to choose which version to keep.",
         saveErrorRecovery: null,
       }));
       return "conflict";

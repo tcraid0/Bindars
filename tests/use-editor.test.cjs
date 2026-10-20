@@ -359,7 +359,7 @@ test("useEditor preserves newer typing when a save conflicts", async () => {
     assert.equal(rendered.api().saving, false);
     assert.equal(rendered.api().buffer, "Snapshot with newer words");
     assert.equal(rendered.api().dirty, true);
-    assert.equal(rendered.api().saveError, "This file changed outside Bindars. Choose Use other version or Keep my changes to continue.");
+    assert.equal(rendered.api().saveError, "This file changed outside Bindars. Save to choose which version to keep.");
   } finally {
     rendered.cleanup();
   }

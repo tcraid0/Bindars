@@ -215,6 +215,7 @@ test("Folders hides folders with no documents, puts content before notes, and na
   assert.deepEqual(folders(), ["Part 1 ›"]);
   assert.ok(view.button("‹ project"));
   assert.ok(!view.button("Change Folder…"), "folder actions stay at the folder's top");
+  assert.doesNotMatch(view.host.textContent, /couldn't be opened|Only part of this folder/, "folder-wide notes stay at the folder's top");
   await view.click(view.host.querySelector('button[aria-label="Part 1, folder"]'));
   assert.equal(heading(), "Part 1");
   assert.match(view.host.textContent, /one\.md/);

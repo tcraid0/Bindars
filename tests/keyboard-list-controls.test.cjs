@@ -44,7 +44,7 @@ test("recent removals reveal on focus, skip disabled rows, and preserve focus th
   await installDom();
   const view = renderComponent(Recents, { openingPath: "/second.md" });
   try {
-    const remove = (name) => view.host.querySelector(`[aria-label="Remove ${name} from recent files"]`);
+    const remove = (name) => view.host.querySelector(`[aria-label="Remove ${name} from Recent"]`);
     assert.equal(remove("second").disabled, true);
     click(remove("second"));
     assert.ok(remove("second"));
@@ -57,7 +57,7 @@ test("recent removals reveal on focus, skip disabled rows, and preserve focus th
     assert.equal(document.activeElement.getAttribute("aria-label"), "Open second, /");
     assertFocusReveal(remove("second"));
     click(remove("second"));
-    assert.equal(document.activeElement.getAttribute("aria-label"), "Recent files");
+    assert.equal(document.activeElement.getAttribute("aria-label"), "Recent");
     assert.equal(view.host.querySelectorAll("button").length, 0);
     assert.match(document.activeElement.textContent, /Documents you open will appear here\./);
   } finally { view.cleanup(); }
@@ -70,7 +70,7 @@ test("pointer removals do not steal focus from another control", async () => {
   document.body.append(outside);
   try {
     focus(outside);
-    click(view.host.querySelector('[aria-label="Remove first from recent files"]'));
+    click(view.host.querySelector('[aria-label="Remove first from Recent"]'));
     assert.ok(document.activeElement === outside);
   } finally { outside.remove(); view.cleanup(); }
 });

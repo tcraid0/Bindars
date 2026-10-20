@@ -139,7 +139,7 @@ function EmptyStateComponent({
   );
   const recents = (
     <div className={`empty-state-recents ${firstRun ? "max-w-[440px] mx-auto mt-6" : ""} text-left`}>
-      {firstRun && <h2 className={listLabel}>Recent files</h2>}
+      {firstRun && <h2 className={listLabel}>Recent</h2>}
       <RecentFiles files={recentList} unavailable={recentHistoryUnavailable}
         currentFilePath={null} openingPath={openingPath} onOpen={onOpenRecent}
         onRemove={path => {

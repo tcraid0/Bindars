@@ -7200,7 +7200,7 @@ for (const format of ["markdown", "fountain"]) {
           else context.mock.timers.tick(3000);
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("article h1[id], article h2[id], article h3[id]")));
-        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Table of contents"] button'))
+        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Contents"] button'))
           .some(button => button.textContent.trim() === heading), "Contents must include the rendered heading"));
         assert.doesNotMatch(rendered.host.textContent, /No headings/);
       } finally {
@@ -7300,7 +7300,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
   try {
     assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
     assert.ok(!rendered.host.querySelector('[data-reader-panel="notes"]'));
-    assert.ok(!rendered.host.querySelector('button[aria-label="Table of contents"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Contents"]'));
     assert.ok(!rendered.host.querySelector('button[aria-label="Highlights & notes"]'));
     assert.equal(dispatchWindowKey("?").defaultPrevented, false);
     assert.ok(!document.querySelector('[role="dialog"]'));
@@ -7323,7 +7323,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
     rendered.setOpenDialogPath("/tmp/ready.md");
     clickButton(rendered.host, "Open File…");
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
-    assert.ok(rendered.host.querySelector('nav[aria-label="Table of contents"]'),
+    assert.ok(rendered.host.querySelector('nav[aria-label="Contents"]'),
       "hidden panel shortcuts must not change the preference");
     assert.ok(!rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
   } finally { await rendered.cleanup(); }
@@ -7478,7 +7478,7 @@ for (const control of ["Dismiss", "Remove"]) {
     const rendered = await renderContinuityApp(fixture);
     try {
       const button = control === "Remove"
-        ? rendered.host.querySelector('[aria-label="Remove missing.md from recent files"]')
+        ? rendered.host.querySelector('[aria-label="Remove missing.md from Recent"]')
         : [...rendered.host.querySelector(".empty-state-recovery-message").querySelectorAll("button")]
           .find(candidate => candidate.textContent === "Dismiss");
       button.focus();

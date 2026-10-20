@@ -41,7 +41,7 @@ marked passages. Choose **Add note** on an existing highlight to add a thought.
 
 ## Come back or share
 
-This is your saved copy. Reopen it from **Recent files**, **Open**, or your file manager.
+This is your saved copy. Reopen it from **Recent**, **Open**, or your file manager.
 **Try an Example…** makes another copy; confirming Replace regenerates the
 example text in the file you choose.
 

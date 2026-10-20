@@ -83,7 +83,7 @@ export const SHORTCUT_SECTIONS = [
     title: "View",
     shortcuts: [
       { id: "toggleSidebar", label: "Show or hide sidebar" },
-      { id: "toggleTableOfContents", label: "Show or hide table of contents" },
+      { id: "toggleTableOfContents", label: "Show or hide contents" },
       { id: "toggleBothPanels", label: "Show or hide sidebar and contents" },
       { id: "focusMode", label: "Focus mode" },
       { id: "cycleTheme", label: "Next theme" },

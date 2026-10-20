@@ -414,10 +414,10 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onToggleToc}
-                aria-label="Table of contents"
+                aria-label="Contents"
                 aria-expanded={tocVisible}
                 className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-                title={`${tocVisible ? "Hide" : "Show"} table of contents (${formatShortcutLabel("toggleTableOfContents")})`}
+                title={`${tocVisible ? "Hide" : "Show"} Contents (${formatShortcutLabel("toggleTableOfContents")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />

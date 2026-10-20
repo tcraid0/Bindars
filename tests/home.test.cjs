@@ -488,8 +488,8 @@ test("Back to Home returns to the row Home was left from, or to the heading when
   click(row("B"));
   await arriveAt(app, "B.md");
   click(app.host().querySelector('button[aria-label="Sidebar"]'));
-  await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from recent files"]')));
-  click(app.host().querySelector('[aria-label="Remove B.md from recent files"]'));
+  await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from Recent"]')));
+  click(app.host().querySelector('[aria-label="Remove B.md from Recent"]'));
   await press(app, "Go back");
   await arriveAt(app, "Home");
   await until(() => assert.ok(document.activeElement === pageHeading(app), "without its row, focus lands on the heading"));
@@ -504,7 +504,7 @@ for (const focusedControl of ["Open File…", "New", "sidebar"]) {
       session: { kind: "home", savedAt: 1 }, recentFiles });
     await arriveAt(app, "Home");
     click(app.host().querySelector('button[aria-label="Sidebar"]'));
-    const remove = app.host().querySelector('aside [aria-label="Remove C.md from recent files"]');
+    const remove = app.host().querySelector('aside [aria-label="Remove C.md from Recent"]');
     assert.ok(remove);
     const control = focusedControl === "sidebar" ? remove
       : [...app.host().querySelectorAll(".empty-state button")].find(button => button.textContent.trim() === focusedControl);
@@ -530,7 +530,7 @@ test("removing the last recent file on Home keeps compact Home through Quit and 
   const app = await mount(t);
   click(app.home());
   await arriveAt(app, "Home");
-  click(app.host().querySelector('.empty-state [aria-label="Remove A.md from recent files"]'));
+  click(app.host().querySelector('.empty-state [aria-label="Remove A.md from Recent"]'));
   await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   assert.ok(atHome(app), "removing the last row does not change the page");
   const startsHome = () => assert.match(app.host().querySelector(".empty-state").textContent, /^HomeStart with a document/);
@@ -618,7 +618,7 @@ for (const category of ["notFound", "permissionDenied"]) {
     await app.requestOpen(alias);
     await act(async () => failedAgain.reject({ category, operation: "readDocument", message: "Unavailable", detail: "fixture" }));
     await until(() => assert.ok(message()));
-    click(app.host().querySelector('[aria-label="Remove Returned.md from recent files"]'));
+    click(app.host().querySelector('[aria-label="Remove Returned.md from Recent"]'));
     await until(() => assert.equal(message(), null, "removing the equivalent row dismisses recovery"));
     await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   });

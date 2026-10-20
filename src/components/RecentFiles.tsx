@@ -55,7 +55,7 @@ export function RecentFiles({
       ref={containerRef}
       tabIndex={-1}
       role="group"
-      aria-label="Recent files"
+      aria-label="Recent"
       className="flex-1 focus-visible:outline-2 focus-visible:outline-accent-indicator focus-visible:-outline-offset-2"
     >
       {files.length === 0 && (unavailable ? (
@@ -153,7 +153,7 @@ export function RecentFiles({
                 );
                 onRemove(file.path);
               }}
-              aria-label={`Remove ${file.name} from recent files`}
+              aria-label={`Remove ${file.name} from Recent`}
               disabled={isOpening}
               className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                 welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}

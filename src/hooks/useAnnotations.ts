@@ -2,6 +2,7 @@ import { fileName } from "../lib/paths";
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { loadAnnotations, saveAnnotations } from "../lib/annotation-storage";
+import { normalizeFileError } from "../lib/native-file-error";
 import { readAnnotationRecord, storedAnnotationRecord, type AnnotationRecord } from "../lib/annotation-record";
 import { EMPTY_ANNOTATIONS, type AnnotationLoadStatus } from "../lib/annotation-state";
 import type { FileAnnotations, Highlight, HighlightColor } from "../types";
@@ -78,7 +79,7 @@ export function useAnnotations(filePath: string | null) {
     }).catch((error) => {
       if (cancelled) return;
       entry.status = "error";
-      entry.loadError = error instanceof Error ? error.message : "Couldn't load highlights and notes. Your existing highlights, notes, and bookmarks were kept.";
+      entry.loadError = normalizeFileError(error, "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.").message;
       notify();
     });
     return () => { cancelled = true; };

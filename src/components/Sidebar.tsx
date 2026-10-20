@@ -296,7 +296,7 @@ function SidebarComponent(props: SidebarProps) {
                     <button onClick={props.onReindexWorkspace}>Retry</button>
                   </p>
                 )}
-                {state.limitHit && (
+                {!directory && state.limitHit && (
                   <p role="status" className="navigation-help">
                     Only part of this folder is listed. Use Change Folder… to
                     choose a folder inside it.
@@ -340,7 +340,7 @@ function SidebarComponent(props: SidebarProps) {
                         : "No Markdown or Fountain documents in this folder."}
                   </p>
                 )}
-                {!!state.issues?.length && (
+                {!directory && !!state.issues?.length && (
                   <details className="navigation-help">
                     <summary>Some places in this folder couldn't be opened</summary>
                     {state.issues.map((issue) => (

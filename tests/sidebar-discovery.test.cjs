@@ -121,7 +121,7 @@ test("panel buttons name their panel and say whether it is shown", async t => {
   });
   const panels = [
     ["Sidebar", '[data-reader-panel="sidebar"]', "Sidebar"],
-    ["Table of contents", 'nav[aria-label="Table of contents"]', "table of contents"],
+    ["Contents", 'nav[aria-label="Contents"]', "Contents"],
     ["Highlights & notes", '[data-reader-panel="notes"]', "Highlights & notes"],
   ];
   const button = name => view.host.querySelector(`header button[aria-label="${name}"]`);

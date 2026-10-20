@@ -1744,7 +1744,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
         flushSync(() => r.host.querySelector('[aria-label="Reader settings"]').click());
       }
       const target = {
-        "toc-button": () => r.host.querySelector('nav[aria-label="Table of contents"] button'),
+        "toc-button": () => r.host.querySelector('nav[aria-label="Contents"] button'),
         "header-button": () => r.host.querySelector('header button[aria-label="Sidebar"]'),
         "notes-button": () => r.host.querySelector('[data-reader-panel="notes"] button:not([disabled])'),
         "settings-button": () => r.host.querySelector('[aria-label="Close reader settings"]'),
@@ -1786,7 +1786,7 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
   try {
     await r.requestNativeOpen("/tmp/focus.fountain");
     await waitFor(() => assert.ok(r.host.querySelector(".fountain-body")));
-    const character = await waitFor(() => [...r.host.querySelectorAll('nav[aria-label="Table of contents"] button[aria-pressed]')]
+    const character = await waitFor(() => [...r.host.querySelectorAll('nav[aria-label="Contents"] button[aria-pressed]')]
       .find(button => button.textContent.includes("NORA")) || assert.fail("character control missing"));
     flushSync(() => character.click());
     const exit = await waitFor(() => r.host.querySelector('[aria-label="Exit character focus"]') || assert.fail("character chip missing"));

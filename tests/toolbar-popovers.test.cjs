@@ -229,7 +229,7 @@ for (const kind of ["reader", "export"]) {
         assert.equal(view.trigger(kind).getAttribute("aria-expanded"), "true");
         assert.equal(view.trigger(kind).getAttribute("aria-controls"), panel.id);
         if (kind === "reader") {
-          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader Settings");
+          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader settings");
           assert.equal(document.activeElement.getAttribute("aria-label"), "Close reader settings");
         } else {
           assert.ok(document.activeElement === view.trigger(kind));
