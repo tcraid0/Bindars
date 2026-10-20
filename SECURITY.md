@@ -38,16 +38,19 @@ Please include:
 
 ### In scope
 
+- Vulnerabilities triggered by opening or rendering a malicious document, including when an attacker persuades the user to open it
 - Code execution via crafted markdown content
 - File system access outside the opened file's directory
 - Application crashes or freezes from crafted input (DoS)
 - Bypass of the sanitize schema (XSS via markdown rendering)
 - Path traversal in image loading or file operations
 
+Apple notarization and OS protections do not replace Bindars' responsibility to handle untrusted documents safely.
+
 ### Out of scope
 
 - Attacks requiring physical access to the machine
-- Social engineering the user into opening a malicious file (that's the OS's job)
+- Pure social engineering without a technical vulnerability in Bindars
 - Vulnerabilities in upstream dependencies with no reachable code path in Bindars
 - Visual rendering bugs or UI glitches
 - Issues that require the user to modify application source code

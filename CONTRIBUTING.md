@@ -22,6 +22,11 @@ permission guard in `src-tauri/tests/`.
 
 ## Release Verification
 
+For a Developer ID Mac candidate, follow
+[macOS release verification](docs/macos-release-verification.md). It separates
+unsigned CI validation from signed-app checks and records the native and
+downloaded-artifact checks required before publication.
+
 Normal development does not exercise Tauri's packaged-asset CSP
 transformation (nonce injection into the bundled HTML), so production-only
 nonce interactions are invisible until an app is packaged. Before a release,
