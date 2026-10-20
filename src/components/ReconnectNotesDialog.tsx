@@ -168,7 +168,7 @@ export function ReconnectNotesDialog({
           parsed.retainedBookmarks.length
         )
           throw new Error(
-            "The destination already has annotations. Choose another document; merging is not supported.",
+            "That document already has its own highlights, notes, bookmarks, or other saved data. Choose another document.",
           );
       }
       setExpected(record);
@@ -220,7 +220,7 @@ export function ReconnectNotesDialog({
       {!sourceHasNoNotes && (
         <p className="text-sm my-3">
           Choose the old document and its new location. Reconnecting moves its
-          saved highlights, notes and bookmarks; it never changes either
+          saved highlights, notes, and bookmarks; it never changes either
           document.
         </p>
       )}

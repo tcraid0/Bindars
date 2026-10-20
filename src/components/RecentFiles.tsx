@@ -157,7 +157,7 @@ export function RecentFiles({
               disabled={isOpening}
               className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                 welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
-              title="Remove from recent"
+              title="Remove from Recent"
             >
               <svg
                 width="14"

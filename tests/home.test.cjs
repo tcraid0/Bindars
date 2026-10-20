@@ -209,7 +209,7 @@ for (const session of [null, { kind: "home", savedAt: 1 }]) {
 
 test("Alt+Home and Alt+arrows pass through a focused sidebar tab", async t => {
   const app = await mount(t);
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  click(app.host().querySelector('button[aria-label="Sidebar"]'));
   const drafts = await until(() => {
     const tab = app.host().querySelector("#navigation-tab-Drafts");
     assert.ok(tab);
@@ -487,7 +487,7 @@ test("Back to Home returns to the row Home was left from, or to the heading when
   row("B").focus();
   click(row("B"));
   await arriveAt(app, "B.md");
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  click(app.host().querySelector('button[aria-label="Sidebar"]'));
   await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from recent files"]')));
   click(app.host().querySelector('[aria-label="Remove B.md from recent files"]'));
   await press(app, "Go back");
@@ -503,7 +503,7 @@ for (const focusedControl of ["Open File…", "New", "sidebar"]) {
     const app = await mount(t, { platform: "MacIntel", initialPath: null,
       session: { kind: "home", savedAt: 1 }, recentFiles });
     await arriveAt(app, "Home");
-    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    click(app.host().querySelector('button[aria-label="Sidebar"]'));
     const remove = app.host().querySelector('aside [aria-label="Remove C.md from recent files"]');
     assert.ok(remove);
     const control = focusedControl === "sidebar" ? remove

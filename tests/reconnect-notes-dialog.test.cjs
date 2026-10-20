@@ -38,12 +38,12 @@ const original = {
   ],
   extra: { preserved: true },
 };
-async function mount(t, { occupied = false, fail = false, sourcePath = "/old.md", records = "ok" } = {}) {
+async function mount(t, { occupied = false, destinationRecord = occupied ? original : null, fail = false, sourcePath = "/old.md", records = "ok" } = {}) {
   const calls = [];
   let closed = 0,
     opened = null;
   t.mock.method(storage, "loadAnnotations", async (path) =>
-    structuredClone(path === "/old.md" ? original : occupied ? original : null),
+    structuredClone(path === "/old.md" ? original : destinationRecord),
   );
   mockIPC((command) => {
     if (command === "list_annotation_documents") {
@@ -136,12 +136,22 @@ test("reconnection refuses an occupied destination before showing a commit actio
   await until(() =>
     assert.match(
       view.dialog().textContent,
-      /destination already has annotations/,
+      /already has its own highlights, notes, bookmarks, or other saved data/,
     ),
   );
   assert.equal(view.button("Reconnect these notes"), undefined);
   assert.equal(view.calls.length, 0);
 });
+for (const [kind, bookmarks] of [["bookmarks only", original.bookmarks], ["an unreadable bookmark", [{ future: true }]]]) {
+  test(`reconnection explains a destination containing ${kind}`, async t => {
+    const view = await mount(t, { destinationRecord: { version: 3, highlights: [], bookmarks } });
+    await act(async () => view.button("Choose destination document…").click());
+    await until(() => assert.equal(view.dialog().querySelector('[role="alert"]').textContent,
+      "That document already has its own highlights, notes, bookmarks, or other saved data. Choose another document."));
+    assert.equal(view.button("Reconnect these notes"), undefined);
+    assert.equal(view.calls.length, 0);
+  });
+}
 test("a rejected reconnection stays open and offers another preview without claiming success", async (t) => {
   const view = await mount(t, { fail: true });
   await act(async () => view.button("Choose destination document…").click());

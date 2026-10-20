@@ -572,7 +572,7 @@ for (const outcome of ['picker cancellation', 'picker failure', 'read failure', 
     assert.equal(disk.get('/a.md').highlights[0].note, 'original');
     if (outcome.startsWith('picker')) assert.equal(reads, 0);
     if (outcome === 'picker cancellation') assert.doesNotMatch(view.host.textContent, /Couldn't read/);
-    else assert.match(view.host.textContent, /Couldn't read|no annotations for this document/);
+    else assert.match(view.host.textContent, /Couldn't read|no highlights or notes for this document/);
     retry = true;
     await view.click('Restore recovery copy');
     await chooseRecoveryAction('Restore highlights & notes');
@@ -657,7 +657,7 @@ for (const fail of [false, true]) {
     assert.equal(recoveryDialog(), null);
     assert.equal(writes.length, 0);
     assert.equal(disk.get('/a.md').highlights[0].note, 'original');
-    assert.doesNotMatch(document.body.textContent, /Couldn't read annotation recovery/);
+    assert.doesNotMatch(document.body.textContent, /Couldn't read the recovery copy/);
   });
 }
 
@@ -699,6 +699,19 @@ test('reconnection refuses pending failed writes and preserves session records o
  const view=await mount(t);await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}));
  assert.equal(view.api().highlights[0].note,'original');assert.equal(disk.has('/b.md'),false);
  t.mock.method(storage,'saveAnnotations',async()=>{throw Error('disk full');});await view.change(api=>api.updateHighlight('h',{note:'unsaved'}));
- await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}),/pending/);
+ assert.equal(view.api().saving, false);
+ assert.equal(view.api().canRetrySave, true);
+ await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}), {
+   message: "Some changes haven't been saved. Close this dialog and choose Retry in Highlights & notes, then preview again.",
+ });
  assert.equal(invoked,1);assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note,'unsaved');
+});
+
+test('an unreadable bookmark is described accurately and retained during another edit', async t => {
+  const retained = { future: true };
+  const { disk } = backingStore(t, new Map([['/a.md', { highlights: [], bookmarks: [retained] }]]));
+  const view = await mount(t);
+  assert.equal(view.api().dataWarning, "Some highlights, notes, or bookmarks couldn't be shown. Their original data has been kept.");
+  await view.change(api => api.toggleBookmark('intro', 'Intro'));
+  assert.ok(disk.get('/a.md').bookmarks.some(bookmark => bookmark.future === true));
 });

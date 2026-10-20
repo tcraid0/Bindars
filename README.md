@@ -18,7 +18,7 @@ native testing and code signing.
 - Four themes: light, sepia, dark, midnight
 - Table of contents with scroll tracking
 - Highlights & notes, plus bookmarks for returning to headings
-  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
+  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux shows or hides them)
 - Recent, Drafts, and an optional folder browser, with Search documents and passage navigation
 - Persistent whole-interface zoom, separate from reading typography
 - Fountain screenplay rendering with character focus and scene navigation
@@ -48,7 +48,7 @@ confirming replacement writes the example text over the file you choose.
 
 In Edit mode, macOS can underline misspelled words and offer corrections when
 you right-click them. Notes also retain native spelling assistance. Automatic
-spelling correction is off in both fields; document search, the quick switcher,
+spelling correction is off in both fields; Find in Document, Search documents,
 and Edit-mode Find/Replace disable autocorrection and spelling underlines to keep
 search and replacement text literal.
 Checking follows native timing, so existing text may not be marked until you
@@ -86,7 +86,7 @@ Downloads reads "Downloads" and one directly in it reads "Home folder". **Back**
 The sidebar starts hidden and remembers your choice. A one-time note offers
 **Show Sidebar** when you open a second distinct document; if the reading hint
 is showing, it waits for a later document open. Use the toolbar button or
-Cmd+B / Ctrl+B to toggle it;
+Cmd+B / Ctrl+B to show or hide it;
 on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
 
 **Drafts** lists existing files in Documents › Bindars Drafts, including drafts
@@ -131,8 +131,8 @@ They equate straight/curly quotes, `--`/en dash, `---`/em dash, and `...`/ellips
 Other punctuation stays literal. Find includes displayed code and rendered
 math, retaining their literal punctuation and whitespace. Document Search excludes code, math,
 diagrams and images, and covers the first 30,000 extracted body characters plus
-headings and names. These forgiving search rules do not change annotation
-identity or location rules.
+headings and names. These forgiving search rules do not change how highlights
+and notes find their place.
 
 Files appear before text preparation finishes and remain findable by filename
 when reading or parsing fails. Status and recovery actions distinguish missing,

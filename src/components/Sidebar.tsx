@@ -93,7 +93,7 @@ function SidebarComponent(props: SidebarProps) {
     <aside
       className="document-sidebar print-hide"
       data-reader-panel="sidebar"
-      aria-label="Document navigation"
+      aria-label="Sidebar"
       style={{ width: READER_PANEL_WIDTHS.sidebar }}
     >
       <div

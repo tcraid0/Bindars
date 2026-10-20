@@ -20,6 +20,26 @@ Node >= 20.19.0 and Rust >= 1.88 on the stable toolchain are required.
 Use the full `cargo test --locked` command: `--lib` skips the native opener
 permission guard in `src-tauri/tests/`.
 
+## Words in the Interface
+
+Use everyday words, and one name for each thing. Code can keep its internal
+names (`useWorkspaceIndex`, `annotations.json`, the `workspace:root` setting);
+text people see follows this list.
+
+| Say | Not |
+|---|---|
+| sidebar (with Recent, Drafts, Folders) | workspace |
+| Search documents | quick switcher, index |
+| folder | root, workspace folder |
+| Highlights & notes (the panel); highlights and notes (in a sentence) | annotations |
+| Show / Hide | Toggle |
+| changed outside Bindars | changed on disk, modified |
+| Don't save | Discard |
+| Use other version / Keep my changes (document conflict choices) | Reload / Overwrite |
+
+Dialog titles ask the question or say what happened ("Save changes to
+“Notes.md”?"). Buttons say what will happen ("Keep my changes", not "OK").
+
 ## Release Verification
 
 Normal development does not exercise Tauri's packaged-asset CSP

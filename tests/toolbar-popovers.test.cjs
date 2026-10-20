@@ -60,7 +60,7 @@ async function setup(props = {}) {
   return {
     ...view,
     cleanup() { view.cleanup(); globalThis.localStorage = previousLocalStorage; },
-    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Toggle reader settings" : "Export options"}"]`); },
+    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Reader settings" : "Export options"}"]`); },
     panel(kind) { return view.host.querySelector(kind === "reader" ? '[role="dialog"]:not([aria-modal])' : '[role="group"][aria-label="Export options"]'); },
     open(kind) { const trigger = this.trigger(kind); focus(trigger); click(trigger); return this.panel(kind); },
   };

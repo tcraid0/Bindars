@@ -104,10 +104,10 @@ export function DialogFrame({
   appShortcuts = false,
   children,
   maxWidthClassName = "max-w-[360px]",
-  className = `w-full ${maxWidthClassName} mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6`,
+  className = `w-full min-w-0 ${maxWidthClassName} max-h-[calc(100dvh-2rem)] overflow-y-auto mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6`,
   backdropClassName = "print-hide fixed inset-0 z-[60] flex items-center justify-center",
   backdropStyle,
-  titleClassName = "font-reading italic text-lg text-text-primary mb-2",
+  titleClassName = "font-reading italic text-lg text-text-primary mb-2 [overflow-wrap:anywhere]",
   renderHeader,
 }: DialogFrameProps) {
   const backdropRef = useRef<HTMLDivElement | null>(null);

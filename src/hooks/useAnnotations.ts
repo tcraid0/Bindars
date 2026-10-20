@@ -47,7 +47,7 @@ export function useAnnotations(filePath: string | null) {
           entry.saveError = null;
         } catch {
           errorVersion.current++;
-          entry.saveError = `Couldn't save annotations for ${fileName(path)}. Your changes are still available in this session.`;
+          entry.saveError = `Couldn't save highlights and notes for ${fileName(path)}. Your changes are still available in this session.`;
           if (entry.revision === revision) break;
         }
       }
@@ -78,7 +78,7 @@ export function useAnnotations(filePath: string | null) {
     }).catch((error) => {
       if (cancelled) return;
       entry.status = "error";
-      entry.loadError = error instanceof Error ? error.message : "Couldn't load annotations. Existing data was preserved.";
+      entry.loadError = error instanceof Error ? error.message : "Couldn't load highlights and notes. Your existing highlights, notes, and bookmarks were kept.";
       notify();
     });
     return () => { cancelled = true; };
@@ -157,11 +157,11 @@ export function useAnnotations(filePath: string | null) {
   const getMutationVersion = useCallback(() => mutationVersion.current, []);
   const retryLoad = useCallback(() => setLoadRetryNonce((v) => v + 1), []);
   const reconnect = useCallback(async (source: string, destination: string, expected: unknown, revision: import("../types").FileRevision) => {
-    if (locked.current || reconnecting.current) throw new Error("Another annotation operation is in progress.");
+    if (locked.current || reconnecting.current) throw new Error("Bindars is still working on highlights and notes. Try again in a moment.");
     reconnecting.current = true;
     const operation = queue.current.then(async () => {
       if ([...entries.current.values()].some(entry => entry.revision !== entry.savedRevision)) {
-        throw new Error("Save pending annotation changes, then preview again.");
+        throw new Error("Some changes haven't been saved. Close this dialog and choose Retry in Highlights & notes, then preview again.");
       }
       await invoke("reconnect_annotations", { source, destination, expected, revision });
       // Invalidate both cached identities before unlocking mutations.
@@ -183,7 +183,7 @@ export function useAnnotations(filePath: string | null) {
     saving: allEntries.some((entry) => entry.writing),
     canRetrySave: allEntries.some((entry) => entry.revision !== entry.savedRevision && !entry.writing),
     dataWarning: current && (current.retainedHighlights.length || current.retainedBookmarks.length)
-      ? "Some annotation records could not be displayed. Their original data has been preserved." : null,
+      ? "Some highlights, notes, or bookmarks couldn't be shown. Their original data has been kept." : null,
     highlights: annotations.highlights, bookmarks: annotations.bookmarks,
     addHighlight, removeHighlight, updateHighlight, toggleBookmark, removeBookmark, isBookmarked,
     reconnect, restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
