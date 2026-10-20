@@ -157,8 +157,8 @@ Actual incoming links live in the collapsed **Linked from** section in Contents;
 
 Use **View** or Cmd+plus/minus (Ctrl equivalents on Linux) to zoom the entire
 interface from 75% to 300%. Cmd+0 / Ctrl+0 chooses **Actual Size** and changes only
-interface zoom. Zoom is saved between launches. Reader Settings still provides
-independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
+interface zoom. Zoom is saved between launches. Reader settings still provides
+independent text size, fonts, spacing, Reduced effects, and its explicit Reset.
 
 ### Rendering rules
 

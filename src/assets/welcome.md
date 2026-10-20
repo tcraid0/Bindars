@@ -30,7 +30,7 @@ three. Before heading home, write down one place you would like to return to.
 
 ## Make this plan yours
 
-Open **Reader Settings** (the **T** button) to adjust the text size or theme.
+Open **Reader settings** (the **T** button) to adjust the text size or theme.
 
 Select a sentence above and choose a color to highlight it. To attach a thought,
 select a passage and choose **Note**. Try “Which bookshop should we visit?”
