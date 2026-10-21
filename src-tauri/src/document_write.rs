@@ -932,7 +932,9 @@ mod tests {
                 write_document_with(&path, "local", Some(&revision), force, |_| {}).unwrap_err();
             assert_eq!(error.detail, "unsafe-replacement");
             assert_eq!(fs::read_to_string(&path).unwrap(), "original");
-            assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+            // macOS can create ._ AppleDouble metadata on exFAT. Only our
+            // staged-save files would indicate an incomplete refusal cleanup.
+            assert!(temp_leftovers(&root).is_empty());
         }
         let copy = root.join("new-copy.md");
         write_document_using(&copy, "local", WriteMode::CreateNew, |_| {}, rename_at).unwrap();
