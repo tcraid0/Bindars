@@ -155,7 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           bindars_volume_root="$(mktemp -d "$RUNNER_TEMP/bindars-exfat.XXXXXX")"
-          hdiutil create -size 64m -fs ExFAT -volname BindarsSaveTest -type SPARSE "$bindars_volume_root/volume"
+          hdiutil create -size 256m -layout MBRSPUD -fs ExFAT -volname BindarsTest -type SPARSE "$bindars_volume_root/volume"
           mkdir "$bindars_volume_root/mount"
           hdiutil attach -nobrowse -mountpoint "$bindars_volume_root/mount" "$bindars_volume_root/volume.sparseimage"
           trap 'hdiutil detach "$bindars_volume_root/mount"' EXIT
