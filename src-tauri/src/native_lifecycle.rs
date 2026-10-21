@@ -638,6 +638,12 @@ pub(crate) fn handle_macos_menu_event(app: &tauri::AppHandle, event: tauri::menu
     if event.id() != QUIT_MENU_ITEM_ID {
         return;
     }
+    request_macos_quit(app);
+}
+
+/// Shared by the Quit menu and AppKit's cooperative termination callback.
+#[cfg(target_os = "macos")]
+pub(crate) fn request_macos_quit(app: &tauri::AppHandle) {
     reveal_main_window(app);
     if let Err(error) = app.emit_to("main", NATIVE_QUIT_REQUESTED_EVENT, ()) {
         log::warn!(

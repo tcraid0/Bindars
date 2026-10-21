@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { clearMocks, mockIPC, mockWindows } = require("@tauri-apps/api/mocks");
 const { emit, TauriEvent } = require("@tauri-apps/api/event");
@@ -15,6 +16,103 @@ const capabilities = JSON.parse(
     "utf8",
   ),
 );
+
+function permissionInputFiles(directory) {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory).flatMap((name) => {
+    const file = path.join(directory, name);
+    if (fs.statSync(file).isDirectory()) return permissionInputFiles(file);
+    const extension = path.extname(file);
+    // Match Tauri's recursive discovery and exclusion of generated schemas.
+    if (path.basename(directory) === "schemas"
+        || ![".json", ".toml", ".json5"].includes(extension)) return [];
+    return [file];
+  });
+}
+
+function assertNoCustomPermissions(directory) {
+  assert.deepEqual(permissionInputFiles(directory), [], "review custom permission definitions before granting them");
+}
+
+function externalLinkGrants(directory) {
+  return permissionInputFiles(directory).flatMap((file) => {
+    const extension = path.extname(file);
+    // New capability formats need a parser here before the guard can audit them.
+    assert.equal(extension, ".json", `review capability format: ${file}`);
+    const capability = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.ok(capability && !Array.isArray(capability) && Array.isArray(capability.permissions),
+      `review capability shape: ${file}`);
+    return capability.permissions.filter((permission) => {
+      const identifier = typeof permission === "string" ? permission : permission?.identifier;
+      assert.equal(typeof identifier, "string", `review permission shape: ${file}`);
+      // App permissions (including sets/defaults) can alias plugin commands.
+      // Only these installed plugin namespaces are understood by this guard.
+      assert.match(identifier, /^(core:|dialog:|opener:|shell:)/, `review custom permission grant: ${identifier}`);
+      return identifier.startsWith("opener:") || identifier.startsWith("shell:");
+    });
+  });
+}
+
+test("capability discovery ignores unrelated files and checks nested capabilities", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bindars-capabilities-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const nested = path.join(directory, "nested");
+  const schemas = path.join(directory, "schemas");
+  fs.mkdirSync(nested);
+  fs.mkdirSync(schemas);
+  for (const file of [".DS_Store", "README.md", "nested/ignored.JSON", "schemas/schema.json"]) {
+    fs.writeFileSync(path.join(directory, file), "not a capability");
+  }
+  fs.writeFileSync(path.join(nested, "extra.json"), JSON.stringify({
+    permissions: ["core:event:allow-listen", "opener:allow-default-urls", "shell:allow-open"],
+  }));
+  assert.deepEqual(externalLinkGrants(directory), ["opener:allow-default-urls", "shell:allow-open"]);
+  for (const extension of ["toml", "json5"]) {
+    const file = path.join(nested, `extra.${extension}`);
+    fs.writeFileSync(file, "must be reviewed");
+    assert.throws(() => externalLinkGrants(directory), /review capability format/);
+    fs.unlinkSync(file);
+  }
+});
+
+test("external links grant only web and email URL scopes across all capabilities", () => {
+  assertNoCustomPermissions(path.join(projectRoot, "src-tauri/permissions"));
+  // This checks native capability input, independently of frontend link handlers.
+  // An additional capability/default grant could otherwise restore tel: access.
+  assert.deepEqual(externalLinkGrants(path.join(projectRoot, "src-tauri/capabilities")), [{
+    identifier: "opener:allow-open-url",
+    allow: [{ url: "http://*" }, { url: "https://*" }, { url: "mailto:*" }],
+  }]);
+  const config = JSON.parse(fs.readFileSync(path.join(projectRoot, "src-tauri/tauri.conf.json"), "utf8"));
+  assert.equal(config.app.security.capabilities, undefined, "use only the audited capability files");
+});
+
+test("an unrelated application alias cannot evade the external-opening guard", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bindars-alias-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.cpSync(path.join(__dirname, "fixtures/opener-alias"), directory, { recursive: true });
+  const alias = JSON.parse(fs.readFileSync(path.join(directory, "capabilities/nested/alias.json"), "utf8"));
+  assert.deepEqual(alias.permissions.filter(p => p.startsWith("opener:") || p.startsWith("shell:")), [],
+    "the former prefix-only guard missed this grant");
+  assert.throws(() => externalLinkGrants(path.join(directory, "capabilities")), /review custom permission grant/);
+  assert.throws(() => assertNoCustomPermissions(path.join(directory, "permissions")), /review custom permission definitions/);
+  // Definitions fail closed even when no alias is granted, in every accepted format.
+  for (const extension of ["toml", "json5"]) {
+    const file = path.join(directory, `permissions/nested/alias.${extension}`);
+    fs.writeFileSync(file, "must be reviewed");
+    assert.throws(() => assertNoCustomPermissions(path.join(directory, "permissions")), /review custom permission definitions/);
+  }
+});
+
+test("capability discovery rejects unhandled shapes and non-plugin grants", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bindars-capability-shapes-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const value of [[], { capabilities: [] }, { permissions: [null] }, { permissions: [{}] },
+    { permissions: ["default"] }, { permissions: [{ identifier: "review-open-alias" }] }]) {
+    fs.writeFileSync(path.join(directory, "test.json"), JSON.stringify(value));
+    assert.throws(() => externalLinkGrants(directory), /review .* (shape|grant)/);
+  }
+});
 
 test("the zero-margin macOS window.print bridge is not permitted", () => {
   // macOS printing goes through print_current_webview. Without this grant a

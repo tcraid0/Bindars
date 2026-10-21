@@ -1,6 +1,6 @@
 {
   "name": "bindars",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -60,6 +60,9 @@
     "unist-util-visit": "^5.1.0",
     "yaml": "^2.9.0"
   },
+  "overrides": {
+    "katex": "0.18.4"
+  },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.11.4",
@@ -70,7 +73,7 @@
     "patch-package": "^8.0.1",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1",
+    "vite": "~7.3.7",
     "ws": "^8.21.1"
   }
 }

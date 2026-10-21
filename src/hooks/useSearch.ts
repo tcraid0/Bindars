@@ -14,12 +14,14 @@ interface SearchState {
   query: string;
   matchCount: number;
   currentIndex: number;
+  limited: boolean;
 }
 
 interface UseSearchResult {
   query: string;
   matchCount: number;
   currentIndex: number;
+  limited: boolean;
   setQuery: (q: string) => void;
   next: () => void;
   previous: () => void;
@@ -28,6 +30,9 @@ interface UseSearchResult {
 }
 
 const DEBOUNCE_MS = 150;
+// Bound live DOM work on both paint and clear, including multi-node matches.
+export const MAX_SEARCH_MATCHES = 1000;
+export const MAX_SEARCH_FRAGMENTS = 2000;
 
 export function clearSearchHighlights(container: HTMLElement) {
   clearMarks(container, isSearchMark);
@@ -36,26 +41,38 @@ export function clearSearchHighlights(container: HTMLElement) {
 export function highlightSearchMatches(container: HTMLElement, query: string): HTMLElement[][] {
   return paintSearchRuns(collectSearchRuns(container), query).matches;
 }
-function paintSearchRuns(runs: SearchRun[], query: string) {
+function paintSearchRuns(runs: SearchRun[], query: string, skipFirstMatches = 0) {
   const matches: HTMLElement[][] = [];
   const byRun = new Map<SearchRun, HTMLElement[][]>();
-  if (!query.trim()) return { matches, byRun };
+  let fragmentCount = 0;
+  let limited = false;
+  if (!query.trim()) return { matches, byRun, limited };
 
   // Original offsets remain UTF-16 DOM offsets when case folding expands text.
   for (const run of runs) {
     const runMatches: HTMLElement[][] = [];
     byRun.set(run, runMatches);
-    const found = phraseMatches(run.text, query, !run.code);
+    // One extra result distinguishes an exact count from a truncated prefix.
+    const skip = run === runs[0] ? skipFirstMatches : 0;
+    const found = phraseMatches(run.text, query, !run.code, skip + MAX_SEARCH_MATCHES - matches.length + 1).slice(skip);
     const byNode = new Map<TextSpan, { start: number; end: number; fragments: HTMLElement[] }[]>();
     let spanIndex = 0;
     for (const match of found) {
       const { start, end } = match;
       while (run.spans[spanIndex].end <= start) spanIndex++;
+      let spanEnd = spanIndex;
+      while (spanEnd < run.spans.length && run.spans[spanEnd].start < end
+        && fragmentCount + spanEnd - spanIndex <= MAX_SEARCH_FRAGMENTS) spanEnd++;
+      if (matches.length === MAX_SEARCH_MATCHES || fragmentCount + spanEnd - spanIndex > MAX_SEARCH_FRAGMENTS) {
+        limited = true;
+        break; // Never paint or count a partial logical match.
+      }
+      fragmentCount += spanEnd - spanIndex;
       // One logical match can span several formatting or annotation nodes.
       const fragments: HTMLElement[] = [];
       matches.push(fragments);
       runMatches.push(fragments);
-      for (let i = spanIndex; i < run.spans.length && run.spans[i].start < end; i++) {
+      for (let i = spanIndex; i < spanEnd; i++) {
         const span = run.spans[i];
         const ranges = byNode.get(span) ?? [];
         ranges.push({
@@ -92,8 +109,14 @@ function paintSearchRuns(runs: SearchRun[], query: string) {
       if (first.nodeType === Node.TEXT_NODE) first.remove();
       else (first as Element).replaceChildren(node);
     }
+    if (limited) break;
   }
-  return { matches, byRun };
+  return { matches, byRun, limited };
+}
+
+function findPassageRun(runs: SearchRun[], passage: SearchPassage) {
+  return runs.filter(run => run.passageEligible
+    && (passage.blockPrefix ? searchText(run.text).startsWith(passage.block) : searchText(run.text) === passage.block))[passage.blockOccurrence];
 }
 
 function setActiveMatch(matches: HTMLElement[][], index: number, prevIndex: number, reducedMotion: boolean, scroll = true) {
@@ -117,9 +140,11 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
     query: "",
     matchCount: 0,
     currentIndex: -1,
+    limited: false,
   });
 
   const matchesRef = useRef<HTMLElement[][]>([]);
+  const passageWindowRef = useRef<SearchPassage | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshFrameRef = useRef<number | null>(null);
   const reducedMotionRef = useRef(reducedMotion);
@@ -134,10 +159,11 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
 
   const performSearch = useCallback(
     (query: string, refresh = false) => {
+      if (!refresh) passageWindowRef.current = null;
       const container = contentRef.current;
       if (!container) {
         matchesRef.current = [];
-        setState({ query, matchCount: 0, currentIndex: -1 });
+        setState({ query, matchCount: 0, currentIndex: -1, limited: false });
         return;
       }
 
@@ -150,7 +176,12 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
       const localIndex = parent ? oldMatches.filter(([first]) => parent.contains(first)).indexOf(oldActive) : -1;
 
       clearSearchHighlights(container);
-      const matches = highlightSearchMatches(container, query);
+      const runs = query.trim() ? collectSearchRuns(container) : [];
+      const passageWindow = passageWindowRef.current;
+      const start = passageWindow && findPassageRun(runs, passageWindow);
+      const result = paintSearchRuns(start ? runs.slice(runs.indexOf(start)) : runs, query, start ? passageWindow.matchOccurrence : 0);
+      const { matches } = result;
+      const limited = result.limited || !!start;
       matchesRef.current = matches;
       const surviving = parent ? matches.filter(([first]) => parent.contains(first))[localIndex] : undefined;
       const currentIndex = surviving ? matches.indexOf(surviving)
@@ -158,7 +189,7 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
       if (currentIndex >= 0) {
         setActiveMatch(matches, currentIndex, -1, reducedMotionRef.current, !refresh);
       }
-      setState({ query, matchCount: matches.length, currentIndex });
+      setState({ query, matchCount: matches.length, currentIndex, limited });
     },
     [contentRef],
   );
@@ -179,23 +210,39 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
 
   const openPassage = useCallback((passage: SearchPassage): boolean => {
     cancelPendingWork();
+    passageWindowRef.current = null;
     const container = contentRef.current;
     if (!container) return false;
     clearSearchHighlights(container);
     // Resolve the whole normalized block and its ordinal before painting any
     // match. Identical passages are distinct; an unresolved target paints none.
     const runs = collectSearchRuns(container);
-    const blocks = runs.filter(run => run.passageEligible
-      && (passage.blockPrefix ? searchText(run.text).startsWith(passage.block) : searchText(run.text) === passage.block));
-    const block = blocks[passage.blockOccurrence];
-    if (!block) { matchesRef.current = []; setState({ query: "", matchCount: 0, currentIndex: -1 }); return false; }
-    const { matches, byRun } = paintSearchRuns(runs, passage.phrase);
-    const target = byRun.get(block)?.[passage.matchOccurrence];
-    if (!target) { clearSearchHighlights(container); return false; }
+    const block = findPassageRun(runs, passage);
+    if (!block) { matchesRef.current = []; setState({ query: "", matchCount: 0, currentIndex: -1, limited: false }); return false; }
+    let result = paintSearchRuns(runs, passage.phrase);
+    let target = result.byRun.get(block)?.[passage.matchOccurrence];
+    if (!target && result.limited) {
+      // A workspace passage can lie beyond the painted prefix. Start a bounded
+      // window there so the cap does not make a valid passage unnavigable.
+      clearSearchHighlights(container);
+      const targetRuns = collectSearchRuns(container).slice(runs.indexOf(block));
+      result = paintSearchRuns(targetRuns, passage.phrase, passage.matchOccurrence);
+      target = result.byRun.get(targetRuns[0])?.[0];
+      result.limited = true;
+      if (target) passageWindowRef.current = passage;
+    }
+    const { matches, limited } = result;
+    if (!target) {
+      clearSearchHighlights(container);
+      matchesRef.current = [];
+      passageWindowRef.current = null;
+      setState({ query: "", matchCount: 0, currentIndex: -1, limited: false });
+      return false;
+    }
     const index = matches.indexOf(target);
     matchesRef.current = matches;
     setActiveMatch(matches, index, -1, reducedMotionRef.current);
-    setState({ query: passage.phrase, matchCount: matches.length, currentIndex: index });
+    setState({ query: passage.phrase, matchCount: matches.length, currentIndex: index, limited });
     return true;
   }, [cancelPendingWork, contentRef]);
 
@@ -262,6 +309,7 @@ export function useSearch(contentRef: React.RefObject<HTMLElement | null>, reduc
     query: state.query,
     matchCount: state.matchCount,
     currentIndex: state.currentIndex,
+    limited: state.limited,
     setQuery,
     next,
     previous,

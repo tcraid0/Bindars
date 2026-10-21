@@ -54,3 +54,13 @@ test("the Debian package verifier is executable Bash", () => {
   assert.notEqual(fs.statSync(packageVerifierPath).mode & 0o111, 0);
   execFileSync("bash", ["-n", packageVerifierPath]);
 });
+
+test("CI and release verification run Rust integration tests as well as library tests", () => {
+  const ci = parse(fs.readFileSync(path.join(projectRoot, ".github/workflows/ci.yml"), "utf8"));
+  const release = parse(fs.readFileSync(workflowPath, "utf8"));
+  for (const job of [ci.jobs["rust-tests"], ci.jobs.macos, release.jobs.verify]) {
+    const step = namedStep(job, "Run Rust tests");
+    assert.equal(step["working-directory"], "src-tauri");
+    assert.equal(step.run, "cargo test --locked", "include src-tauri/tests in verification");
+  }
+});

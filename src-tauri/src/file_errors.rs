@@ -132,6 +132,15 @@ impl NativeFileError {
         }
     }
 
+    pub(crate) fn unsafe_replacement() -> Self {
+        Self {
+            category: NativeFileErrorCategory::InvalidInput,
+            operation: NativeFileOperation::InspectWriteTarget,
+            message: "Bindars cannot safely replace this file on this drive. The existing file was not changed. Use Save As with a new name or a different drive to keep your edits.".to_string(),
+            detail: "unsafe-replacement".to_string(),
+        }
+    }
+
     pub(crate) fn unknown(
         operation: NativeFileOperation,
         message: impl Into<String>,

@@ -189,3 +189,13 @@ test("invalid write targets offer another Save As attempt", () => {
     recovery: "save-as",
   });
 });
+
+test("unsafe replacement offers Save As and blocks repeated writes", () => {
+  const message = "The existing file was not changed. Use Save As with a new name.";
+  const error = {
+    category: "invalidInput", operation: "inspectWriteTarget",
+    message, detail: "unsafe-replacement",
+  };
+  assert.equal(saveErrorBlocksCurrentPath(error), true);
+  assert.deepEqual(actionableSaveError(error), { message, recovery: "save-as" });
+});

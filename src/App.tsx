@@ -346,6 +346,8 @@ function App() {
   const [pendingReaderTarget, setPendingReaderTarget] = useState<PendingReaderTarget | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [conflictOverwritePending, setConflictOverwritePending] = useState(false);
+  const conflictOverwritePendingRef = useRef(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const printing = printPhase !== null;
   const [presentationMode, setPresentationMode] = useState(false);
@@ -1438,27 +1440,38 @@ function App() {
 
   const handleConflictOverwrite = useCallback(() => {
     const continuation = saveContinuationRef.current;
-    if (!continuation) return;
+    if (!continuation || conflictOverwritePendingRef.current) return;
+    // A native write cannot be cancelled. Keep its decision and continuation
+    // alive until its outcome (including recovery or failure) is recorded.
+    // The ref also covers clicks before React renders the disabled buttons.
+    conflictOverwritePendingRef.current = true;
+    setConflictOverwritePending(true);
     return runManualSave(async () => {
-      clearAutosaveIssue();
-      const { status } = await saveCurrentEditsForSession({ forceOverwrite: true });
-      if (status === "stale" || saveContinuationRef.current !== continuation) return;
-      recordSaveResult(status);
-      const continuationDecision = decideSaveContinuation(status);
-      if (continuationDecision === "stop") return;
+      try {
+        clearAutosaveIssue();
+        const { status } = await saveCurrentEditsForSession({ forceOverwrite: true });
+        if (status === "stale" || saveContinuationRef.current !== continuation) return;
+        recordSaveResult(status);
+        const continuationDecision = decideSaveContinuation(status);
+        if (continuationDecision === "stop") return;
 
-      setShowConflictDialog(false);
-      showConflictDialogRef.current = false;
-      flashSaved();
-      if (continuationDecision === "reconfirm") {
-        openSaveConfirmation(continuation.intent);
-        return;
+        setShowConflictDialog(false);
+        showConflictDialogRef.current = false;
+        flashSaved();
+        if (continuationDecision === "reconfirm") {
+          openSaveConfirmation(continuation.intent);
+          return;
+        }
+        continueAfterSuccessfulSave(continuation.intent);
+      } finally {
+        conflictOverwritePendingRef.current = false;
+        setConflictOverwritePending(false);
       }
-      continueAfterSuccessfulSave(continuation.intent);
     });
   }, [clearAutosaveIssue, recordSaveResult, runManualSave, saveCurrentEditsForSession, flashSaved, continueAfterSuccessfulSave, openSaveConfirmation]);
 
   const handleConflictReload = useCallback(async () => {
+    if (conflictOverwritePendingRef.current) return;
     // "Reload" resolves conflict by discarding local edits and reading file content from disk.
     setShowConflictDialog(false);
     showConflictDialogRef.current = false;
@@ -1475,6 +1488,7 @@ function App() {
   }, [clearAutosaveIssue, discardEditsAndContinue, exitEditMode]);
 
   const handleConflictCancel = useCallback(() => {
+    if (conflictOverwritePendingRef.current) return;
     setShowConflictDialog(false);
     showConflictDialogRef.current = false;
     saveContinuationRef.current = null;
@@ -3250,6 +3264,7 @@ function App() {
               query={search.query}
               matchCount={search.matchCount}
               currentIndex={search.currentIndex}
+              limited={search.limited}
               onQueryChange={search.setQuery}
               onNext={search.next}
               onPrevious={search.previous}
@@ -3551,6 +3566,7 @@ function App() {
       />
       <ConfirmDialog
         visible={showConflictDialog}
+        busy={conflictOverwritePending}
         title="File changed on disk"
         message={`"${fileName || "This file"}" was modified outside Bindars while you were editing. Reload replaces your changes here with the version on disk; they can't be recovered. Overwrite keeps your changes and replaces the file on disk.`}
         confirmLabel="Reload"

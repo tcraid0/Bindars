@@ -19628,10 +19628,10 @@
       ]
     },
     {
-      "id": "npm:katex@0.16.47",
+      "id": "npm:katex@0.18.4",
       "kind": "npm",
       "name": "katex",
-      "version": "0.16.47",
+      "version": "0.18.4",
       "lockPath": "node_modules/katex",
       "distributionClass": "runtime-dependency",
       "declaredLicense": "MIT",
@@ -22458,10 +22458,10 @@
       ]
     },
     {
-      "id": "npm:vite@7.3.6",
+      "id": "npm:vite@7.3.7",
       "kind": "npm",
       "name": "vite",
-      "version": "7.3.6",
+      "version": "7.3.7",
       "lockPath": "node_modules/vite",
       "distributionClass": "build-output-contributor",
       "declaredLicense": "MIT",
@@ -25990,7 +25990,7 @@
     {
       "id": "sha256:bf03f6d922a1b67d124af2d9d3b316596a2b98e6c3c7450cee87526df66b1ec7",
       "packages": [
-        "npm:vite@7.3.6"
+        "npm:vite@7.3.7"
       ],
       "sources": [
         "LICENSE.md"
@@ -26349,7 +26349,7 @@
     {
       "id": "sha256:d3c8c167dfa0a8a7f2ace9fc23ddfb89e609adc13b113e958bede249592b852d",
       "packages": [
-        "npm:katex@0.16.47"
+        "npm:katex@0.18.4"
       ],
       "sources": [
         "LICENSE"

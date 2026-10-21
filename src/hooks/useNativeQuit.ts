@@ -8,7 +8,8 @@ interface UseNativeQuitArgs {
 }
 
 /**
- * Listens for the custom macOS Quit menu item. The native side never exits on
+ * Listens for the macOS Quit menu and AppKit termination requests (including
+ * Dock Quit and logout). The native side never exits on
  * its own; it only announces the request, and the frontend guard decides when
  * quitting is safe.
  */

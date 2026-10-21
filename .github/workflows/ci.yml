@@ -95,7 +95,7 @@ jobs:
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --lib --locked
+        run: cargo test --locked
 
       - name: Run Rust lints
         working-directory: src-tauri
@@ -149,6 +149,17 @@ jobs:
       - name: Run Rust tests
         working-directory: src-tauri
         run: cargo test --locked
+
+      - name: Verify refused overwrites on exFAT
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          bindars_volume_root="$(mktemp -d "$RUNNER_TEMP/bindars-exfat.XXXXXX")"
+          hdiutil create -size 256m -layout MBRSPUD -fs ExFAT -volname BindarsTest -type SPARSE "$bindars_volume_root/volume"
+          hdiutil attach -nobrowse -plist "$bindars_volume_root/volume.sparseimage" > "$bindars_volume_root/attach.plist"
+          bindars_mount="$(python3 -c 'import plistlib,sys; data=plistlib.load(open(sys.argv[1],"rb")); mounts=[e["mount-point"] for e in data["system-entities"] if "mount-point" in e]; assert len(mounts)==1; print(mounts[0])' "$bindars_volume_root/attach.plist")"
+          trap 'hdiutil detach "$bindars_mount"' EXIT
+          TMPDIR="$bindars_mount" cargo test --locked --lib document_write::tests::macos_volume_without_swap_refuses_replacement -- --ignored --exact
 
       - name: Typecheck, build, and bundle unsigned app
         run: npx tauri build --bundles app --no-sign --ci

@@ -1,49 +1,59 @@
-# Reviewed allowlist for cargo-audit.
-# Most entries are legacy transitive dependencies from Tauri's Linux
-# WebKit/GTK stack or its build-time HTML tooling. Bindars does not use the
-# affected APIs directly. Each exception is documented beside its entry, and
-# the entries should disappear as upstream dependency trees modernize.
+# Reviewed exceptions for the locked Tauri 2.11.6 / tauri-utils 2.9.3 graph.
+# Last reviewed: 2026-10-19 (RustSec database 999ec89d5d3f10f20be14750ec8c2d8b44e0ac9b).
+# Checked aarch64-apple-darwin, x86_64-unknown-linux-gnu,
+# x86_64-pc-windows-msvc and --target all with current enabled features.
+# Runtime classification excludes build dependencies AND proc-macro paths.
+# Reassess on dependency, feature, target or logging changes; Mac target
+# absence does not establish safety for Linux or Windows.
 #
-# RUSTSEC-2026-0097 (rand 0.7.3) remains visible as an audit warning rather
-# than being hidden here. It is build-only through phf_generator/selectors and
-# Bindars does not install the custom logger required to trigger the advisory.
+# Visible, unresolved warnings (deliberately NOT ignored):
+# - RUSTSEC-2024-0429: glib 0.18.5 VariantStrIter unsoundness. Absent on
+#   Mac/Windows, but in the Linux GTK runtime graph. Removed the old exception:
+#   no direct Bindars call is not proof that transitive Linux use is safe.
+# - RUSTSEC-2026-0097: rand 0.7.3 is build-only on all three targets via
+#   phf_generator -> phf_codegen -> selectors. phf_generator uses seeded
+#   SmallRng, not ThreadRng; rand's optional log feature is not enabled.
+#   The advisory requires reentrant ThreadRng use from a custom logger.
+#   No patched 0.7 release; removal needs an upstream tooling update.
+# - RUSTSEC-2026-0370, -0371, -0372: zvariant 5.9.2, zbus_names 4.3.1,
+#   zvariant_derive 5.9.2 maintenance notices. Absent on Mac/Windows; Linux
+#   uses zvariant/zbus_names via zbus and zvariant_derive as a proc macro.
 #
-# Tauri 2.11.6 / tauri-utils 2.9.3 still carry the documented rand and glib
-# paths below. Neither can be removed with a compatible direct override.
-#
-# Last reviewed: 2026-09-30
+# Removed RUSTSEC-2024-0411 through -0420: all ten GTK3/ATK/GDK notices
+# were withdrawn on 2026-08-14 after upstream development resumed. These
+# crates remain relevant to Linux; withdrawal, not Mac absence, justifies
+# removing the shared exceptions.
 
 [advisories]
 ignore = [
-    # GTK3 bindings — unmaintained
-    "RUSTSEC-2024-0413", # atk
-    "RUSTSEC-2024-0416", # atk-sys
-    "RUSTSEC-2024-0412", # gdk
-    "RUSTSEC-2024-0418", # gdk-sys
-    "RUSTSEC-2024-0411", # gdkwayland-sys
-    "RUSTSEC-2024-0417", # gdkx11
-    "RUSTSEC-2024-0414", # gdkx11-sys
-    "RUSTSEC-2024-0415", # gtk
-    "RUSTSEC-2024-0420", # gtk-sys
-    "RUSTSEC-2024-0419", # gtk3-macros
+    # Maintenance notices, with no specific vulnerability asserted. Retain
+    # bounded exceptions for upstream Tauri/notify dependencies; replace when
+    # compatible upstream versions remove them, not with direct major overrides.
 
-    # glib unsoundness (VariantStrIter) — Bindars does not use this API
-    "RUSTSEC-2024-0429", # glib
+    # Linux-only compile-time dependency via glib-macros/gtk3-macros.
+    # Absent from Mac and Windows builds; not Linux runtime code.
+    "RUSTSEC-2024-0370", # proc-macro-error 1.0.4
 
-    # Legacy build-time/parser dependencies
-    "RUSTSEC-2024-0370", # proc-macro-error (unmaintained, build dep only)
-    "RUSTSEC-2024-0384", # instant (unmaintained, notify -> notify-types -> instant)
-    "RUSTSEC-2025-0057", # fxhash (unmaintained, wry/selectors transitive)
-    "RUSTSEC-2025-0075", # unic-char-range
-    "RUSTSEC-2025-0080", # unic-common
-    "RUSTSEC-2025-0081", # unic-char-property
-    "RUSTSEC-2025-0098", # unic-ucd-version
-    "RUSTSEC-2025-0100", # unic-ucd-ident
+    # Runtime on all three targets: notify -> notify-types -> instant.
+    "RUSTSEC-2024-0384", # instant 0.1.13
 
-    # Inactive optional dependency declared by rust_decimal. Bindars reaches
-    # rust_decimal through tauri-plugin-log -> byte-unit, but does not enable
-    # rust_decimal's rkyv feature; cargo tree --target all -i rkyv@0.7.46
-    # confirms there is no compiled dependency path. cargo-audit scans every
-    # Cargo.lock entry without resolving enabled features.
+    # Build/proc-macro only on all three targets via selectors -> kuchikiki
+    # -> tauri-utils HTML code generation; absent from the runtime-only tree.
+    "RUSTSEC-2025-0057", # fxhash 0.2.1
+
+    # Runtime AND build paths on all three targets through
+    # urlpattern -> tauri-utils. These must not be classified as build-only.
+    "RUSTSEC-2025-0075", # unic-char-range 0.9.0
+    "RUSTSEC-2025-0080", # unic-common 0.9.0
+    "RUSTSEC-2025-0081", # unic-char-property 0.9.0
+    "RUSTSEC-2025-0098", # unic-ucd-version 0.9.0
+    "RUSTSEC-2025-0100", # unic-ucd-ident 0.9.0
+
+    # Inactive optional rust_decimal dependency, not compiled on any target:
+    # cargo tree --locked --target all -i rkyv@0.7.46 prints no path.
+    # tauri-plugin-log -> byte-unit enables only rust_decimal's std feature,
+    # not rkyv. cargo-audit still scans this Cargo.lock entry. If enabled,
+    # remove this exception and resolve the archive-validation vulnerability;
+    # the patch starts at 0.8.17, outside the unsupported 0.7 series.
     "RUSTSEC-2026-0235", # rkyv 0.7.46
 ]

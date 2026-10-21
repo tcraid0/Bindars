@@ -1519,6 +1519,45 @@ test("a retained competing version stays visible through newer typing and pauses
   } finally { rendered.cleanup(); }
 });
 
+for (const quiet of [false, true]) {
+  test(`unsafe replacement preserves edits, blocks retries, and recovers through Save As (quiet=${quiet})`, async () => {
+    await installDom();
+    const { dialogs, writes } = mockPendingSaveAsTransactions();
+    const rendered = renderUseEditor();
+    try {
+      enterEditMode(rendered, "Draft");
+      updateBuffer(rendered, "Local words");
+      const save = startSave(rendered, "/tmp/draft.md", { quiet });
+      await rejectSave(writes[0], save, {
+        category: "invalidInput", operation: "inspectWriteTarget",
+        message: "The existing file was not changed. Use Save As with a new name.",
+        detail: "unsafe-replacement",
+      });
+      assert.equal(rendered.api().buffer, "Local words");
+      assert.equal(rendered.api().dirty, true);
+      assert.equal(rendered.api().savePathBlocked, true);
+      assert.equal(rendered.api().saveErrorRecovery, "save-as");
+      assert.match(rendered.api().saveError, /Save As/);
+      updateBuffer(rendered, "Local words plus more");
+      flushSync(() => rendered.api().dismissSaveError());
+      const retry = startSave(rendered, "/tmp/draft.md", { force: true });
+      assert.equal((await retry).status, "error");
+      assert.equal(writes.length, 1, "forced retries must not reach the native writer");
+      assert.equal(rendered.api().dirty, true);
+      const saveAs = startSaveAs(rendered);
+      await resolveDialog(dialogs[0], "/tmp/new-copy.md");
+      assert.equal(writes[1].args.content, "Local words plus more");
+      const result = await settleSave(writes[1], saveAs, successfulWrite(
+        { mtimeMs: 3, size: 21, contentHash: "new-copy" }, "/tmp/new-copy.md",
+      ));
+      assert.equal(result.status, "saved");
+      assert.equal(result.file.canonicalPath, "/tmp/new-copy.md");
+      assert.equal(rendered.api().savePathBlocked, false);
+      assert.equal(rendered.api().dirty, false);
+    } finally { rendered.cleanup(); }
+  });
+}
+
 test("a moved folder cannot be saved again at the same pathname", async () => {
   await installDom();
   const writes = mockPendingWrites();

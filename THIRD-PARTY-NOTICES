@@ -8165,7 +8165,7 @@ Project: sindresorhus/is-plain-obj
 License-text: available
 License-document-ref: sha256:1529f88b3675095087120854c6fa2cc1113ab2da2f88c4f6aa4ffe52e98ef81b
 
-Package-ID: npm:katex@0.16.47
+Package-ID: npm:katex@0.18.4
 License: MIT
 Distribution-class: runtime-dependency
 Disposition: packaged-license-document
@@ -9238,7 +9238,7 @@ Project: vfile/vfile
 License-text: available
 License-document-ref: sha256:e453dafb35c9b3cb911a8d2f1a0b37526ee15d1bc21cfc689756bed25e9483b8
 
-Package-ID: npm:vite@7.3.6
+Package-ID: npm:vite@7.3.7
 License: MIT
 Distribution-class: build-output-contributor
 Disposition: packaged-license-document
@@ -26284,7 +26284,7 @@ License-Document-End: sha256:be90cb181079fa9b5ce49638ce85fe7150572e949f8007bfc88
 --------------------------------------------------------------------------------
 
 License-Document: sha256:bf03f6d922a1b67d124af2d9d3b316596a2b98e6c3c7450cee87526df66b1ec7
-Applies-to: npm:vite@7.3.6
+Applies-to: npm:vite@7.3.7
 Source-files: LICENSE.md
 
 # Vite core license
@@ -30295,7 +30295,7 @@ License-Document-End: sha256:d2c4a2667e88ca68ced937efa2768130e147896bcf8d9bcaaa7
 --------------------------------------------------------------------------------
 
 License-Document: sha256:d3c8c167dfa0a8a7f2ace9fc23ddfb89e609adc13b113e958bede249592b852d
-Applies-to: npm:katex@0.16.47
+Applies-to: npm:katex@0.18.4
 Source-files: LICENSE
 
 The MIT License (MIT)

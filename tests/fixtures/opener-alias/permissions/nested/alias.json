@@ -1,0 +1,8 @@
+{
+  "permission": [{
+    "identifier": "review-open-alias",
+    "description": "Synthetic guard regression; never invoke an OS opener",
+    "commands": { "allow": ["plugin:opener|open_url"] },
+    "scope": { "allow": [{ "url": "tel:*" }] }
+  }]
+}

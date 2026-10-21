@@ -81,13 +81,14 @@ export function phraseMatches(
   text: string,
   query: string,
   prose = true,
+  maxMatches = Infinity,
 ): { start: number; end: number }[] {
   const normalized = normalizeSearchText(text, prose);
   const q = normalizeSearchText(query, prose).text.trim();
   if (!q) return [];
   const matches = [];
   let from = 0;
-  while (from < normalized.text.length) {
+  while (from < normalized.text.length && matches.length < maxMatches) {
     const index = normalized.text.indexOf(q, from);
     if (index < 0) break;
     // Never select only part of a case-fold or punctuation expansion.

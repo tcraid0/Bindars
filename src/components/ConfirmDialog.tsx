@@ -2,6 +2,7 @@ import { memo, useId, useRef } from "react";
 import { DialogFrame } from "./DialogFrame";
 
 interface ConfirmDialogProps {
+  busy?: boolean;
   visible: boolean;
   title: string;
   message: string;
@@ -17,6 +18,7 @@ interface ConfirmDialogProps {
 }
 
 function ConfirmDialogComponent({
+  busy = false,
   visible,
   title,
   message,
@@ -42,14 +44,17 @@ function ConfirmDialogComponent({
       descriptionId={messageId}
       initialFocusRef={initialFocusRef}
       onDismiss={onDismiss}
+      dismissible={!busy}
     >
       <p id={messageId} className="text-sm text-text-secondary mb-5">{message}</p>
+      {busy && <p role="status" className="text-sm text-text-secondary mb-3">Overwriting…</p>}
       <div className="flex items-center justify-end gap-2">
         <button
           ref={cancelRef}
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary transition-colors duration-120"
+          disabled={busy}
+          className="px-3 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
         >
           {cancelLabel}
         </button>
@@ -57,7 +62,8 @@ function ConfirmDialogComponent({
           ref={confirmRef}
           type="button"
           onClick={onConfirm}
-          className="px-3 py-1.5 rounded-md text-sm font-medium text-accent-text hover:bg-bg-tertiary transition-colors duration-120"
+          disabled={busy}
+          className="px-3 py-1.5 rounded-md text-sm font-medium text-accent-text hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
         >
           {confirmLabel}
         </button>
@@ -65,7 +71,8 @@ function ConfirmDialogComponent({
           <button
             type="button"
             onClick={onSecondary}
-            className={`px-3 py-1.5 rounded-md text-sm transition-colors duration-120 ${
+            disabled={busy}
+            className={`px-3 py-1.5 rounded-md text-sm transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait ${
               secondaryTone === "danger"
                 ? "text-danger hover:bg-danger/10"
                 : "text-text-secondary hover:bg-bg-tertiary"

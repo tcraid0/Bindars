@@ -439,133 +439,78 @@ test("a New request during a pending Save As write waits for the write, then run
   }
 });
 
-test("a cancelled overwrite's completion acts on nothing, and a later quit finds the saved text clean", async () => {
-  const rendered = await renderLifecycleApp();
-  const overwrite = deferred();
-  try {
-    await rendered.openLifecycleDocument();
-    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to save.`);
-    rendered.conflictNextWrite();
-    await rendered.requestQuit();
-    const conflict = await waitFor(() => confirmDialog(rendered.host));
-    assert.match(conflict.textContent, /File changed/);
-    rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflict);
-    await waitFor(() => assert.equal(overwrite.args?.force, true));
-    await cancelDialog(rendered.host);
-    noDialog(rendered.host);
-    assert.ok(rendered.host.querySelector(".cm-editor"));
+for (const boundary of ["edit-exit", "quit"]) {
+  for (const outcome of ["success", "failure", "recovery"]) {
+    test(`${boundary}: an active conflict overwrite owns the dialog until ${outcome}`, async () => {
+      const rendered = await renderLifecycleApp();
+      const overwrite = deferred();
+      const words = `${DOC_CONTENT}\nWords to overwrite.`;
+      const recoveryPath = "/tmp/Bindars recovered competing.md";
+      try {
+        await rendered.openLifecycleDocument();
+        await rendered.enterEditingWithDirtyText(words);
+        rendered.conflictNextWrite();
+        if (boundary === "quit") await rendered.requestQuit();
+        else dispatchShortcut("e");
+        const conflict = await waitFor(() => confirmDialog(rendered.host));
+        assert.match(conflict.textContent, /File changed/);
+        rendered.deferNextWrite(overwrite);
+        clickButton(rendered.host, "Overwrite", conflict);
+        await waitFor(() => assert.equal(overwrite.args?.force, true));
+        assert.match(conflict.querySelector('[role="status"]').textContent, /Overwriting/);
+        for (const button of conflict.querySelectorAll("button")) assert.equal(button.disabled, true);
 
-    // The write the cancelled dialog started still lands. Its continuation was
-    // cancelled, so it must neither quit nor open or dismiss a dialog.
-    await act(async () => {
-      overwrite.resolve({
-        conflict: false,
-        canonicalPath: DOC_PATH,
-        name: DOC_NAME,
-        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
-      });
-      await overwrite.promise;
+        // Neither buttons nor Escape may end the session or replace the
+        // continuation while a native write that cannot be cancelled is running.
+        for (const label of ["Reload", "Cancel", "Overwrite"]) clickButton(rendered.host, label, conflict);
+        dispatchWindowKey("Escape");
+        await rendered.requestQuit();
+        assert.equal(confirmDialog(rendered.host), conflict);
+        assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+        assert.equal(rendered.exitCalls().length, 0);
+        assert.equal(rendered.fileWrites().length, 2, "repeated clicks must not start another write");
+
+        await act(async () => {
+          if (outcome === "failure") {
+            overwrite.reject(new Error("Permission denied during overwrite"));
+            try { await overwrite.promise; } catch {}
+          } else {
+            overwrite.resolve({
+              conflict: false, canonicalPath: DOC_PATH, name: DOC_NAME,
+              currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
+              ...(outcome === "recovery" ? { recoveryPath } : {}),
+            });
+            await overwrite.promise;
+          }
+        });
+
+        if (outcome === "success") {
+          await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
+          if (boundary === "quit") await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
+          else assert.equal(rendered.exitCalls().length, 0);
+          noDialog(rendered.host);
+        } else {
+          await waitFor(() => assert.ok([...conflict.querySelectorAll("button")].every(button => !button.disabled)));
+          assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
+          assert.equal(rendered.exitCalls().length, 0);
+          assert.equal(confirmDialog(rendered.host), conflict);
+          if (outcome === "failure") {
+            assert.match(document.body.textContent, /Permission denied during overwrite/);
+          } else {
+            assert.match(document.body.textContent, /Bindars recovered competing\.md/);
+          }
+          await cancelDialog(rendered.host);
+          assert.ok(rendered.host.querySelector(".cm-editor"));
+          assert.equal(rendered.exitCalls().length, 0);
+        }
+        assert.equal(rendered.fileWrites().length, 2);
+      } finally {
+        overwrite.resolve(null);
+        await rendered.cleanup();
+      }
     });
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    assert.ok(rendered.host.querySelector(".cm-editor"));
-    noDialog(rendered.host);
-    assert.equal(rendered.exitCalls().length, 0);
-    // The conflicting autosave attempt and the overwrite are the only writes.
-    assert.equal(rendered.fileWrites().length, 2);
-
-    await rendered.requestQuit();
-    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
-    assert.equal(rendered.fileWrites().length, 2, "the overwritten text was already saved");
-  } finally {
-    overwrite.resolve(null);
-    await rendered.cleanup();
   }
-});
-
-test("a quit requested while a cancelled overwrite is still writing waits for it and then quits cleanly", async () => {
-  const rendered = await renderLifecycleApp();
-  const overwrite = deferred();
-  try {
-    await rendered.openLifecycleDocument();
-    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to save.`);
-    rendered.conflictNextWrite();
-    await rendered.requestQuit();
-    const conflict = await waitFor(() => confirmDialog(rendered.host));
-    rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflict);
-    await waitFor(() => assert.equal(overwrite.args?.force, true));
-    await cancelDialog(rendered.host);
-
-    await rendered.requestQuit();
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    noDialog(rendered.host);
-    assert.ok(rendered.host.querySelector(".cm-editor"), "quit must wait for the pending overwrite");
-    assert.equal(rendered.exitCalls().length, 0);
-
-    await act(async () => {
-      overwrite.resolve({
-        conflict: false,
-        canonicalPath: DOC_PATH,
-        name: DOC_NAME,
-        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
-      });
-      await overwrite.promise;
-    });
-    await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
-    noDialog(rendered.host);
-    // The conflicting autosave attempt and the overwrite; the quit adds no write.
-    assert.equal(rendered.fileWrites().length, 2, "no duplicate write of the overwritten text");
-    assert.equal(rendered.fileWrites().at(-1), overwrite.args);
-    assert.equal(overwrite.args.content, `${DOC_CONTENT}\nWords to save.`);
-  } finally {
-    overwrite.resolve(null);
-    await rendered.cleanup();
-  }
-});
-
-test("Reload during a pending Overwrite ends the session, and the late overwrite result cannot revive it", async () => {
-  // Reload is the one route that still ends a session around a pending write:
-  // the person chose to discard. The write still lands; its stale completion
-  // must not reopen the editor, flash, or open a dialog.
-  const rendered = await renderLifecycleApp();
-  const overwrite = deferred();
-  try {
-    await rendered.openLifecycleDocument();
-    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\nWords to overwrite.`);
-    rendered.conflictNextWrite();
-    dispatchShortcut("e");
-    const conflict = await waitFor(() => confirmDialog(rendered.host));
-    assert.match(conflict.textContent, /File changed/);
-    rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflict);
-    await waitFor(() => assert.equal(overwrite.args?.force, true));
-    clickButton(rendered.host, "Reload", conflict);
-    await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
-    noDialog(rendered.host);
-
-    await act(async () => {
-      overwrite.resolve({
-        conflict: false,
-        canonicalPath: DOC_PATH,
-        name: DOC_NAME,
-        currentRevision: { mtimeMs: 3, size: overwrite.args.content.length, contentHash: "overwrite" },
-      });
-      await overwrite.promise;
-    });
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    assert.ok(!rendered.host.querySelector(".cm-editor"), "a stale overwrite must not reopen the editor");
-    noDialog(rendered.host);
-    assert.ok(!rendered.host.querySelector('[aria-label="Saved"]'));
-    assert.equal(rendered.exitCalls().length, 0);
-    // The conflicting autosave attempt and the overwrite; nothing writes after Reload.
-    assert.equal(rendered.fileWrites().length, 2);
-    assert.equal(rendered.fileWrites().at(-1), overwrite.args);
-  } finally {
-    overwrite.resolve(null);
-    await rendered.cleanup();
-  }
-});
+}
 
 // --- macOS close behavior ---
 
