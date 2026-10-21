@@ -150,6 +150,17 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked
 
+      - name: Verify refused overwrites on exFAT
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          bindars_volume_root="$(mktemp -d "$RUNNER_TEMP/bindars-exfat.XXXXXX")"
+          hdiutil create -size 64m -fs ExFAT -volname BindarsSaveTest -type SPARSE "$bindars_volume_root/volume"
+          mkdir "$bindars_volume_root/mount"
+          hdiutil attach -nobrowse -mountpoint "$bindars_volume_root/mount" "$bindars_volume_root/volume.sparseimage"
+          trap 'hdiutil detach "$bindars_volume_root/mount"' EXIT
+          TMPDIR="$bindars_volume_root/mount" cargo test --locked --lib document_write::tests::macos_volume_without_swap_refuses_replacement -- --ignored --exact
+
       - name: Typecheck, build, and bundle unsigned app
         run: npx tauri build --bundles app --no-sign --ci
 

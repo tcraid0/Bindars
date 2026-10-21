@@ -77,7 +77,8 @@ export function retainedVersionNotice(recoveryPath: string): string {
 
 export function saveErrorBlocksCurrentPath(error: unknown): boolean {
   const normalized = normalizeFileError(error, "");
-  return normalized.native?.detail === "destination-changed";
+  return normalized.native?.detail === "destination-changed"
+    || normalized.native?.detail === "unsafe-replacement";
 }
 
 export function isSuccessfulSave(result: EditorSaveResult): result is SuccessfulEditorSaveResult {

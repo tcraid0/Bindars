@@ -1,7 +1,7 @@
 //! The opened parent owns every operation: mutable ancestor paths cannot redirect
 //! a save. Where supported, exchange retains the displaced entry for inspection.
-//! Other filesystems use plain replacement (without competing-version recovery)
-//! or exclusive creation through an open file handle.
+//! Filesystems without exchange refuse replacement. New files may still be
+//! created exclusively through an open file handle.
 use std::ffi::{CString, OsStr};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -210,24 +210,71 @@ fn rename_flags_unsupported(error: &io::Error) -> bool {
     code == libc::ENOTSUP || code == libc::EOPNOTSUPP
 }
 
-fn replace_at(parent: &File, from: &OsStr, to: &OsStr) -> io::Result<()> {
-    let from = name_cstring(from)?;
-    let to = name_cstring(to)?;
-    // SAFETY: live directory fd and NUL-terminated single-component names.
-    // renameat replaces the entry itself, never a final symlink's referent.
-    if unsafe {
-        libc::renameat(
-            parent.as_raw_fd(),
-            from.as_ptr(),
-            parent.as_raw_fd(),
-            to.as_ptr(),
-        )
-    } == 0
-    {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+#[cfg(target_os = "macos")]
+fn volume_supports_swap(parent: &File) -> io::Result<bool> {
+    let mut volume = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    // SAFETY: parent is a live fd and volume has room for the complete result.
+    if unsafe { libc::fstatfs(parent.as_raw_fd(), volume.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
     }
+    // SAFETY: successful fstatfs initialized the result.
+    let volume = unsafe { volume.assume_init() };
+    let mount_bytes: Vec<u8> = volume.f_mntonname.iter().map(|byte| *byte as u8).collect();
+    let end = mount_bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+    // Volume attributes require the volume root. Verify its device matches the
+    // pinned destination directory, so a changed mount cannot grant capability.
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(Path::new(OsStr::from_bytes(&mount_bytes[..end])))?;
+    if root.metadata()?.dev() != parent.metadata()?.dev() {
+        return Ok(false);
+    }
+    let mut attributes = libc::attrlist {
+        bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: 0,
+        volattr: libc::ATTR_VOL_INFO | libc::ATTR_VOL_CAPABILITIES,
+        dirattr: 0,
+        fileattr: 0,
+        forkattr: 0,
+    };
+    #[repr(C)]
+    struct VolumeCapabilities {
+        length: u32,
+        capabilities: libc::vol_capabilities_attr_t,
+    }
+    let mut result = VolumeCapabilities {
+        length: 0,
+        capabilities: libc::vol_capabilities_attr_t {
+            capabilities: [0; 4],
+            valid: [0; 4],
+        },
+    };
+    // SAFETY: pointers refer to initialized, correctly aligned C layouts.
+    // Only a fixed-size capability attribute is requested; no variable data.
+    if unsafe {
+        libc::fgetattrlist(
+            root.as_raw_fd(),
+            (&mut attributes as *mut libc::attrlist).cast(),
+            (&mut result as *mut VolumeCapabilities).cast(),
+            std::mem::size_of::<VolumeCapabilities>(),
+            0,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let index = libc::VOL_CAPABILITIES_INTERFACES;
+    let swap = libc::VOL_CAP_INT_RENAME_SWAP;
+    Ok(
+        result.length as usize == std::mem::size_of::<VolumeCapabilities>()
+            && result.capabilities.valid[index] & swap != 0
+            && result.capabilities.capabilities[index] & swap != 0,
+    )
 }
 
 fn open_document(parent: &File, path: &Path) -> Result<File, NativeFileError> {
@@ -253,9 +300,8 @@ fn open_document(parent: &File, path: &Path) -> Result<File, NativeFileError> {
     Ok(file)
 }
 
-/// The displaced name does not exist after a reported exchange: macOS FAT
-/// performs a plain replace instead, so there is nothing to retain. Any
-/// failure after the name opened is not this case.
+/// A competing writer can remove the displaced name after an exchange.
+/// A failure after the name opened is not this case.
 fn displaced_name_missing(error: &NativeFileError) -> bool {
     error.category == Category::NotFound && error.operation == Op::ResolveDocument
 }
@@ -401,6 +447,13 @@ fn write_document_using(
         },
     };
     at_stage(SaveStage::Checked);
+    // Some macOS filesystems accept RENAME_SWAP but perform plain replacement.
+    // Require an explicit volume capability before putting the document at risk;
+    // unavailable/unknown capability information also refuses replacement.
+    #[cfg(target_os = "macos")]
+    if checked.is_some() && !volume_supports_swap(&parent).unwrap_or(false) {
+        return Err(NativeFileError::unsafe_replacement());
+    }
     let unique = format!(
         "{}-{}-{}",
         std::process::id(),
@@ -464,11 +517,9 @@ fn write_document_using(
         Ok(()) => checked.is_some(),
         Err(error) if rename_flags_unsupported(&error) => {
             let fallback = if checked.is_some() {
-                // Compatibility with filesystems lacking exchange: as in 1.5.0,
-                // an outside edit after revision checking can be overwritten.
-                // There is no displaced entry to inspect or report as recovery.
-                replace_at(&parent, temp, name)
-                    .map_err(|error| NativeFileError::from_io(Op::SaveDocument, path, error))
+                // Never downgrade a conditional save to unconditional replacement.
+                // The editor keeps its buffer and offers Save As to a new file.
+                Err(NativeFileError::unsafe_replacement())
             } else {
                 // The staged handle is closed. Release its space before creating
                 // another copy; failure to remove it must not start a second write.
@@ -764,110 +815,94 @@ mod tests {
         }
     }
 
-    // These guarantees hold both with exchange and on compatibility volumes.
-    // Run this test with TMPDIR on a real non-exchange filesystem as well.
     #[test]
-    fn filesystem_compatibility_saves_and_checks_revisions() {
-        for forced_fallback in [false, true] {
-            let rename = if forced_fallback {
-                unsupported_rename
-            } else {
-                rename_at
-            };
-            for create in [false, true] {
-                let (root, path, revision) = fixture("compatible-save");
-                if create {
-                    fs::remove_file(&path).unwrap();
-                }
-                let saved = write_document_using(
+    fn supported_filesystem_saves_and_checks_revisions() {
+        let (root, path, revision) = fixture("supported-save");
+        let saved = write_document_with(&path, "local", Some(&revision), false, |_| {}).unwrap();
+        assert!(!saved.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+        let opened = open_markdown_file_impl(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(saved.current_revision, opened.revision);
+        fs::write(&path, "outside before save").unwrap();
+        let conflict = write_document_with(
+            &path,
+            "rejected",
+            Some(&saved.current_revision),
+            false,
+            |_| {},
+        )
+        .unwrap();
+        assert!(conflict.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "outside before save");
+        let overwrite = write_document_with(
+            &path,
+            "explicit overwrite",
+            Some(&saved.current_revision),
+            true,
+            |_| {},
+        )
+        .unwrap();
+        assert!(!overwrite.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "explicit overwrite");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_exchange_preserves_original_and_competing_edits_even_when_forced() {
+        for force in [false, true] {
+            for competing in [false, true] {
+                let (root, path, revision) = fixture("refused-replacement");
+                let error = write_document_using(
                     &path,
-                    "local",
+                    "local unsaved text",
                     WriteMode::Save {
                         expected: Some(&revision),
-                        force: create,
+                        force,
                     },
+                    |stage| {
+                        if competing && stage == SaveStage::Replacing {
+                            fs::write(&path, "outside after check").unwrap();
+                        }
+                    },
+                    unsupported_rename,
+                )
+                .unwrap_err();
+                assert_eq!(error.detail, "unsafe-replacement");
+                assert!(error.message.contains("Save As"));
+                assert_eq!(
+                    fs::read_to_string(&path).unwrap(),
+                    if competing {
+                        "outside after check"
+                    } else {
+                        "original"
+                    }
+                );
+                assert_eq!(
+                    fs::read_dir(&root).unwrap().count(),
+                    1,
+                    "staged text must be removed"
+                );
+                let copy = root.join("saved-copy.md");
+                let saved = write_document_using(
+                    &copy,
+                    "local unsaved text",
+                    WriteMode::CreateNew,
                     |_| {},
-                    rename,
+                    unsupported_rename,
                 )
                 .unwrap();
                 assert!(!saved.conflict);
-                assert!(saved.recovery_path.is_none());
-                let opened = open_markdown_file_impl(path.to_string_lossy().into_owned()).unwrap();
-                assert_eq!(fs::read_to_string(&path).unwrap(), "local");
-                assert_eq!(saved.current_revision, opened.revision);
-                let next = write_document_using(
-                    &path,
-                    "next",
-                    WriteMode::Save {
-                        expected: Some(&saved.current_revision),
-                        force: false,
-                    },
-                    |_| {},
-                    rename,
-                )
-                .unwrap();
-                assert!(!next.conflict);
-                fs::write(&path, "outside before save").unwrap();
-                let conflict = write_document_using(
-                    &path,
-                    "rejected",
-                    WriteMode::Save {
-                        expected: Some(&next.current_revision),
-                        force: false,
-                    },
-                    |_| {},
-                    rename,
-                )
-                .unwrap();
-                assert!(conflict.conflict);
-                assert_eq!(fs::read_to_string(&path).unwrap(), "outside before save");
-                let overwrite = write_document_using(
-                    &path,
-                    "explicit overwrite",
-                    WriteMode::Save {
-                        expected: Some(&next.current_revision),
-                        force: true,
-                    },
-                    |_| {},
-                    rename,
-                )
-                .unwrap();
-                assert!(!overwrite.conflict);
-                assert_eq!(fs::read_to_string(&path).unwrap(), "explicit overwrite");
-                assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+                assert_eq!(fs::read_to_string(copy).unwrap(), "local unsaved text");
                 fs::remove_dir_all(root).unwrap();
             }
         }
     }
 
     #[test]
-    fn fallback_replacement_has_no_competing_version_recovery() {
-        let (root, path, revision) = fixture("fallback-race-limit");
-        let result = write_document_using(
-            &path,
-            "local",
-            WriteMode::Save {
-                expected: Some(&revision),
-                force: false,
-            },
-            |stage| {
-                if stage == SaveStage::Replacing {
-                    fs::write(&path, "outside after check").unwrap();
-                }
-            },
-            unsupported_rename,
-        )
-        .unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
-        assert!(result.recovery_path.is_none());
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn exchange_that_replaced_in_place_reports_no_recovery_copy() {
-        // macOS FAT accepts the exchange flag but performs a plain replace.
-        let (root, path, revision) = fixture("fat-exchange");
+    fn unsupported_exchange_still_reports_a_preexisting_conflict() {
+        let (root, path, revision) = fixture("unsupported-conflict");
+        fs::write(&path, "outside before check").unwrap();
         let result = write_document_using(
             &path,
             "local",
@@ -876,19 +911,32 @@ mod tests {
                 force: false,
             },
             |_| {},
-            |parent, from, to, exchange| {
-                if exchange {
-                    replace_at(parent, from, to)
-                } else {
-                    rename_at(parent, from, to, false)
-                }
-            },
+            unsupported_rename,
         )
         .unwrap();
-        assert!(!result.conflict);
-        assert_eq!(fs::read_to_string(&path).unwrap(), "local");
-        assert!(result.recovery_path.is_none());
+        assert!(result.conflict);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "outside before check");
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "run with TMPDIR on a disposable volume without RENAME_SWAP support"]
+    fn macos_volume_without_swap_refuses_replacement() {
+        let (root, path, revision) = fixture("real-unsupported-volume");
+        let parent = open_parent(&path).unwrap();
+        assert!(!volume_supports_swap(&parent).unwrap());
+        for force in [false, true] {
+            let error =
+                write_document_with(&path, "local", Some(&revision), force, |_| {}).unwrap_err();
+            assert_eq!(error.detail, "unsafe-replacement");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        }
+        let copy = root.join("new-copy.md");
+        write_document_using(&copy, "local", WriteMode::CreateNew, |_| {}, rename_at).unwrap();
+        assert_eq!(fs::read_to_string(copy).unwrap(), "local");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -917,8 +965,8 @@ mod tests {
 
     #[test]
     fn displaced_entry_removed_after_exchange_is_an_ordinary_save() {
-        // Indistinguishable from the FAT case above: the displaced name is gone,
-        // so nothing is retained and nothing is reported.
+        // Another writer can remove the displaced name after a supported swap;
+        // nothing remains to retain or report in that case.
         let (root, path, revision) = fixture("displaced-removed");
         let result = write_document_with(&path, "local", Some(&revision), false, |stage| {
             if stage == SaveStage::Exchanged {
@@ -1008,7 +1056,7 @@ mod tests {
             let (root, path, revision) = fixture("fallback-replace-symlink");
             let other = root.join("other.md");
             fs::write(&other, "original").unwrap();
-            let saved = write_document_using(
+            let error = write_document_using(
                 &path,
                 "local",
                 WriteMode::Save {
@@ -1023,9 +1071,13 @@ mod tests {
                 },
                 unsupported_rename,
             )
-            .unwrap();
-            assert!(!saved.conflict);
-            assert_eq!(fs::read_to_string(&path).unwrap(), "local");
+            .unwrap_err();
+            assert_eq!(error.detail, "unsafe-replacement");
+            assert!(fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(fs::read_to_string(&path).unwrap(), "original");
             assert_eq!(fs::read_to_string(other).unwrap(), "original");
             assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
             fs::remove_dir_all(root).unwrap();
@@ -1059,15 +1111,19 @@ mod tests {
                 unsupported_rename,
             )
             .unwrap_err();
-            assert_eq!(error.detail, "destination-changed");
-            assert!(error.message.contains(moved.to_string_lossy().as_ref()));
+            if create {
+                assert_eq!(error.detail, "destination-changed");
+                assert!(error.message.contains(moved.to_string_lossy().as_ref()));
+            } else {
+                assert_eq!(error.detail, "unsafe-replacement");
+            }
             assert_eq!(
                 fs::read_to_string(other.join("document.md")).unwrap(),
                 "other document"
             );
             assert_eq!(
                 fs::read_to_string(moved.join("document.md")).unwrap(),
-                "local"
+                if create { "local" } else { "original" }
             );
             assert_eq!(fs::read_dir(&moved).unwrap().count(), 1);
             fs::remove_file(&root).unwrap();
@@ -1095,6 +1151,7 @@ mod tests {
         for (codes, should_save) in [(unsupported, true), (rejected, false)] {
             for code in codes {
                 for create in [false, true] {
+                    let should_save = should_save && create;
                     let (root, path, revision) = fixture("fallback-error-gate");
                     if create {
                         fs::remove_file(&path).unwrap();

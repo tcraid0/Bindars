@@ -62,8 +62,8 @@ The copy contains the document text; annotations remain with the original path.
 
 Saving an existing file writes the complete new text to a hidden file in the
 same folder first, named `.bindars-save-` followed by a unique suffix, and then
-swaps it with the document (or, on volumes that cannot swap, renames it over
-the document). Exports write a hidden `.bindars-export-md-…` file first and
+swaps it with the document. If the volume cannot safely swap files, replacement
+is refused; use Save As with a new name or on a different drive. Exports write a hidden `.bindars-export-md-…` file first and
 rename it over the destination. On Windows the temporary file for saves is
 named `.bindars-tmp-…` and is not hidden. These files are plain, unencrypted
 text and hold the whole document while the save runs. A save that completes removes them in the same
@@ -82,12 +82,15 @@ beside the document. The warning in the editor names the file. If that rename
 fails, the version stays under its hidden `.bindars-save-` name, and the
 warning names that file instead.
 
-On filesystems without a working file-swap operation, including exFAT and
-FAT32 and potentially network shares, Bindars replaces the file without retaining
-the displaced version. If another program changes the file after Bindars checks
-it but before the replacement, that change can be overwritten without a recovery
-copy. Changes already present when Bindars checks still trigger the conflict
-decision. Avoid editing the same file in two programs at once on these volumes.
+On macOS and Linux, filesystems without a working file-swap operation cannot
+replace existing documents. On macOS, Bindars also requires the volume to report
+swap support; missing or unverifiable support is refused before replacement.
+This includes exFAT and FAT32 and can affect network shares. The editor keeps
+your text, pauses autosave for that path, and offers **Save As**. Choose a new
+filename or a different drive. Confirming Overwrite does not bypass this check.
+Creating a new file remains supported; choosing an existing destination on an
+unsupported volume is refused. A file already changed before the revision check
+still produces the normal conflict decision.
 
 Bindars never deletes these leftovers on its own: a leftover can hold the only
 remaining copy of some text. Review them and delete the ones you no longer

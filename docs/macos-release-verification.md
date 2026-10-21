@@ -57,6 +57,11 @@ Do not disable those checks or run this validator as the acceptance test for a
 signed app. Passing an unsigned sibling does not prove a separately built
 signed candidate has matching contents.
 
+macOS CI also mounts a disposable exFAT image and runs the otherwise ignored
+native test that checks refused overwrites and successful creation of a new
+file. This exercises unsupported-volume behavior without using user documents.
+It does not replace testing the packaged editor's Save As flow.
+
 ## 3. Inspect the signed app before notarization
 
 Set the paths to the actual signed candidate and a **new** evidence directory.
@@ -191,7 +196,7 @@ a current supported macOS; do not label an unavailable environment as passed.
 | Native lifecycle | Quit with the window hidden, reopen from the Dock, Finder open/double-click and Dock file drop. Test logout/shutdown with disposable work; the cancel-first quit guard can require repeating the OS request. |
 | Existing data and permissions | Upgrade from the supported earlier app using its production identity; verify synthetic documents, notes, preferences, session/recovery data, Drafts creation, and Documents/Desktop/Downloads permission grant and denial. |
 | Rendering and input | Packaged CSP, local fonts, ordinary math and default Mermaid diagrams, Find navigation/cleanup, dark selects, spellcheck, native printing, cancellation, and PDF output. |
-| Known limits | Keep the documented unsupported-swap filesystem and large-document limitations visible. A limited smoke test does not establish simultaneous-writer safety or unlimited document-size support. |
+| Known limits | Check that unsupported-swap volumes refuse overwrites and offer Save As; keep large-document limitations visible. A limited smoke test does not establish simultaneous-writer safety or unlimited document-size support. |
 
 ## 6. Record the release decision
 
