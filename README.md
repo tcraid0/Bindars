@@ -4,11 +4,10 @@ Read Markdown and Fountain files, highlight passages, and keep notes.
 
 Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
 
-Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Linux is
-the currently supported release platform. macOS has an unsigned Apple Silicon
-build and automated checks targeting macOS 15 or newer; signing, notarization,
-and final release testing remain pending. Windows releases also remain pending
-native testing and code signing.
+Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Downloads are
+available for Apple Silicon Macs and x86_64 Linux. The Mac app is signed with
+Developer ID and notarized by Apple. Windows releases remain pending native
+testing and code signing.
 
 ## What it does
 
@@ -170,6 +169,27 @@ independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
 
 ## Install
 
+### macOS (Apple Silicon)
+
+Download [Bindars 1.6.2 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.2/Bindars_1.6.2_aarch64.dmg),
+open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
+macOS may show its normal first-open confirmation for an internet download.
+Do not disable Gatekeeper or bypass a security block to install it.
+
+- Apple Silicon only; Intel Macs are not supported by this download.
+- Requires macOS 15.0 or newer. The signed app was tested interactively on
+  macOS 26.6.2. macOS 15 has automated source/build coverage; its signed-app GUI
+  behavior has not been verified.
+- Updates are manual: quit Bindars, download the new DMG, and replace the app
+  in Applications. Keep a backup of your documents and [Bindars data](docs/recovery-and-privacy.md)
+  before upgrading. Controlled prior-version upgrade testing remains pending.
+- Clean-account, first-use folder-permission, and logout/shutdown tests remain
+  pending. The release notes record the tested scope and known limitations.
+
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.2) includes
+`SHA256SUMS-macos.txt` for checking the download. Notarization is Apple's automated
+security check, not a Mac App Store review.
+
 ### Linux support
 
 Bindars currently publishes an x86_64 Debian package. Before publication, the
@@ -191,8 +211,7 @@ AppImage and Arch package distribution are paused while the project adds a
 repeatable compliance check for bundled native libraries. Other Linux users
 may build from source, but those builds are not official release artifacts.
 
-Windows and macOS are not included as stable downloads yet. The unsigned
-macOS development build is not a distribution-signed release.
+Windows downloads remain pending native testing and code signing.
 
 ## Build from source
 

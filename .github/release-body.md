@@ -1,3 +1,15 @@
+## Downloads
+
+- **Mac (Apple Silicon):** `Bindars_1.6.2_aarch64.dmg` — signed with Developer ID,
+  notarized by Apple, and stapled. Requires macOS 15.0 or newer; no Intel build.
+  Open the DMG, drag Bindars into Applications, and launch it normally.
+  macOS may ask you to confirm the first opening of an internet download.
+- **Linux (x86_64):** download the `.deb` and install with
+  `sudo apt install ./Bindars_*_amd64.deb`.
+
+Use `SHA256SUMS-macos.txt` for the Mac DMG and `SHA256SUMS` for the Debian package.
+Updates are manual; Bindars does not include an automatic updater.
+
 ## Changes in 1.6.2
 
 This update improves save safety, Find responsiveness, math rendering, and
@@ -30,6 +42,11 @@ release verification. It introduces no new document or annotation format.
 
 ## Upgrading
 
+On Mac, quit Bindars and replace the application in Applications with the copy
+from the new DMG. Back up your documents and Bindars data first. The signed Mac
+app passed tests with synthetic state, but a controlled upgrade from a prior
+version has not been run. See the storage locations linked below.
+
 People already using 1.5.x or 1.6.1 can update without a new format migration. Search
 data moves out of the settings file into a separate cache that Bindars rebuilds
 when needed. Bindars can now remember Home as the last place; builds before
@@ -44,8 +61,9 @@ for storage locations and details.
 
 ## Known limitations
 
-- Real exFAT and FAT32 drives and network shares have had limited testing and
-  need native validation for this release. Folder-change checks depend on filesystem identity
+- The signed Mac app passed overwrite refusal and Save As recovery on a real
+  exFAT test volume. FAT32 has native source-test coverage; network shares and
+  other drive configurations have limited testing. Folder-change checks depend on filesystem identity
   and cannot reliably detect every replacement on some network shares.
 - On macOS and Linux, existing files cannot be replaced on volumes without
   verified file-swap support, including exFAT/FAT32 and some network shares.
@@ -74,14 +92,30 @@ for storage locations and details.
   leftovers automatically; see [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md)
   before removing them.
 
-## Supported package
+## Platform validation
 
-Linux is the supported release platform, with an x86_64 Debian package only.
+The exact signed Mac app passed 28 native checks on macOS 26.6.2 arm64 using
+synthetic state on an existing account. These covered rendering, Find, saving,
+conflicts, failed-save recovery, annotations, Dock behavior, Finder Open With,
+printing/PDF, and exFAT recovery. No failure was reproduced in those checks.
+
+macOS 15 automated source tests, an unsigned build, and bundle validation passed;
+the signed app has not been tested interactively on macOS 15. Fresh-account,
+controlled upgrade, signed-app Drafts/first-use folder-permission, and
+logout/shutdown checks remain pending. This release proceeds with those known
+coverage limitations; notarization does not establish application compatibility.
+
+An earlier isolated build ignored Cmd-Q in the PDF Save sheet. This did not
+reproduce in three attempts on the signed app. The Quit menu worked in both.
+The native print sheet may request Local Network access for printer discovery;
+the prompt's behavior with access denied has not been verified.
+
+Linux distribution provides an x86_64 Debian package.
 The tag workflow publishes the exact package it has built, inspected, installed,
 and launched on Ubuntu 22.04. A manually dispatched candidate is a separate build.
 Debian 12 or newer and current Linux Mint releases are expected to work but do
 not receive the same automated test.
 
 AppImage and Arch distribution remain paused pending repeatable compliance
-checks. Windows and macOS binaries remain unpublished while native release
-testing and code signing are pending.
+checks. Windows binaries remain unpublished while native release testing and
+code signing are pending.

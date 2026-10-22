@@ -203,9 +203,12 @@ a current supported macOS; do not label an unavailable environment as passed.
 Keep a private candidate record with source identity, build/configuration,
 signature/entitlements inventory, submission UUID/result/log, ticket checks,
 final download checksum, and the native test matrix. Mark each entry passed,
-failed, or not run, with its evidence path. Unresolved core preservation,
-minimum-OS, installation/upgrade, signature, or download checks prevent a public
-release claim.
+failed, or not run, with its evidence path. Investigate failures in core
+preservation, signature, or download behavior before publication. If a required
+environment or scenario is unavailable, the release owner may explicitly accept
+that coverage limitation. Record the decision and disclose relevant compatibility
+and upgrade limitations in the release notes; never turn an unrun check into a
+pass or claim full validation of that environment.
 
 Publish only the artifact represented by that record. Installation instructions
 must state the tested architecture/minimum OS and the manual update process;
