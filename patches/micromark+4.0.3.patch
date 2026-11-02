@@ -1,8 +1,8 @@
 diff --git a/node_modules/micromark/dev/lib/create-tokenizer.js b/node_modules/micromark/dev/lib/create-tokenizer.js
-index abd242f..d8fa317 100644
+index b61ae35..4763ebc 100644
 --- a/node_modules/micromark/dev/lib/create-tokenizer.js
 +++ b/node_modules/micromark/dev/lib/create-tokenizer.js
-@@ -577,7 +577,9 @@ export function createTokenizer(parser, initialize, from) {
+@@ -574,7 +574,9 @@ export function createTokenizer(parser, initialize, from) {
        point = startPoint
        context.previous = startPrevious
        context.currentConstruct = startCurrentConstruct
@@ -14,10 +14,10 @@ index abd242f..d8fa317 100644
        accountForPotentialSkip()
        debug('position: restore: `%j`', point)
 diff --git a/node_modules/micromark/lib/create-tokenizer.js b/node_modules/micromark/lib/create-tokenizer.js
-index 50aded8..bb19e99 100644
+index ad8b247..a3bbb5d 100644
 --- a/node_modules/micromark/lib/create-tokenizer.js
 +++ b/node_modules/micromark/lib/create-tokenizer.js
-@@ -489,7 +489,9 @@ export function createTokenizer(parser, initialize, from) {
+@@ -487,7 +487,9 @@ export function createTokenizer(parser, initialize, from) {
        point = startPoint;
        context.previous = startPrevious;
        context.currentConstruct = startCurrentConstruct;

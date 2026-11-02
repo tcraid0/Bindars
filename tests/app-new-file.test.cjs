@@ -53,6 +53,9 @@ function retirementPaths(deletes) {
 async function waitFor(assertion) {
   let lastError;
   for (let attempt = 0; attempt < 30; attempt += 1) {
+    // A synchronous event can enqueue async admission cleanup even when the
+    // expected DOM is already visible. Settle it before accepting the result.
+    await act(async () => {});
     try {
       return assertion();
     } catch (error) {
@@ -206,7 +209,7 @@ async function renderEditorApp({
   saveDialog = () => saveDialogPath,
 } = {}) {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   ({ createRoot } = require("react-dom/client"));
 
   const originalMatchMedia = window.matchMedia;
@@ -1534,7 +1537,7 @@ test("formatting preference read and write failures keep a usable session fallba
 
 test("App routes Ctrl+N through guarded New behavior without welcome publication", async () => {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
   const welcomeReads = [];
@@ -1675,7 +1678,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
 
 test("App flushes pending CodeMirror content for exit, open, unload, and close guards", async () => {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
   let saveDialogCount = 0;
@@ -1730,7 +1733,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
       bubbles: false,
       cancelable: true,
     });
-    window.dispatchEvent(beforeUnload);
+    flushSync(() => window.dispatchEvent(beforeUnload));
     assert.equal(beforeUnload.defaultPrevented, true);
 
     dispatchShortcut("e");
@@ -1794,7 +1797,7 @@ test("App flushes pending CodeMirror content for exit, open, unload, and close g
 
 test("App save-as preserves typing and adopts the canonical path before the next save", async () => {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   ({ createRoot } = require("react-dom/client"));
   mockWindows("main");
   const dialogs = [];
@@ -1933,7 +1936,7 @@ async function renderContinuityApp({
   checkDraft = (args) => args.path === DRAFT_PATH,
 } = {}) {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   ({ createRoot } = require("react-dom/client"));
   window.localStorage.clear();
 

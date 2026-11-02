@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const React = require("react");
-const { flushSync } = require("react-dom");
+const { flushSync } = require("./react.cjs");
 const { createRoot } = require("react-dom/client");
 const { ToastProvider } = require("../../.tmp/workspace-tests/src/components/ToastProvider.js");
 

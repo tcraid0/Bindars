@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
-const { flushSync } = require("react-dom");
+const { flushSync } = require("./_helpers/react.cjs");
 const { createRoot } = require("react-dom/client");
 const index = require("../.tmp/workspace-tests/src/lib/workspace-index.js");
 const {

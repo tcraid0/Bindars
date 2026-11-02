@@ -1,6 +1,6 @@
 const Module = require("node:module");
 const React = require("react");
-const { flushSync } = require("react-dom");
+const { flushSync } = require("./react.cjs");
 const { createRoot } = require("react-dom/client");
 const { mockIPC } = require("@tauri-apps/api/mocks");
 

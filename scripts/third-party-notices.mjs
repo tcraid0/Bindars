@@ -505,8 +505,7 @@ function generateNpmEntries(lockPackages, documents) {
       const tauriApiDirectory = path.join(repoRoot, "node_modules", "@tauri-apps", "api");
       documentFiles = [
         ...documentFiles,
-        path.join(tauriApiDirectory, "LICENSE_APACHE-2.0"),
-        path.join(tauriApiDirectory, "LICENSE_MIT"),
+        ...rootDocumentFiles(tauriApiDirectory),
       ];
       evidence = "Packaged Tauri project license texts from @tauri-apps/api";
     }
@@ -531,15 +530,10 @@ function generateNpmEntries(lockPackages, documents) {
     const fontMetadataPath = path.join(packageDirectory, "metadata.json");
     const fontMetadata = existsSync(fontMetadataPath) ? readJson(fontMetadataPath) : null;
     const attribution = fontMetadata?.license?.attribution ?? null;
-    const explicitSelectedLicense =
-      lockEntry.name === "dompurify" && lockEntry.version === "3.4.14"
-        ? "Apache-2.0"
-        : null;
     const documentTexts = documentRefs.map((documentRef) => documents.get(documentRef).text);
     const selectedLicense = selectedLicenseFor(
       declaredLicense,
       documentTexts,
-      explicitSelectedLicense,
     );
     const licenseTextAvailable = hasRequiredLicenseText(
       declaredLicense,

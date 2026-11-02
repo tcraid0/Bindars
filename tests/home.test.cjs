@@ -9,6 +9,7 @@ const { click, pressKey } = require("./_helpers/component-view.cjs");
 
 async function until(assertion) {
   for (let i = 0; ; i++) {
+    await act(async () => {});
     try { return assertion(); } catch (error) { if (i === 80) throw error; }
     await act(async () => new Promise(resolve => setTimeout(resolve, 5)));
   }
@@ -319,7 +320,7 @@ const routes = {
     click([...app.host().querySelectorAll("button")].find(button => button.textContent === "Make a copy…"));
     return "A copy.md";
   },
-  async "Home"(app) { click(app.home()); return "Home"; },
+  async "Home"(app) { await act(async () => click(app.home())); return "Home"; },
   // The example is on the first-run screen (no history yet).
   async "Try an Example…"(app) {
     app.dialogs.save = "/fixture/Example.md";

@@ -60,6 +60,9 @@ jobs:
       - name: Audit production frontend dependencies
         run: npm audit --omit=dev --audit-level=moderate
 
+      - name: Audit development dependencies
+        run: npm audit --include=dev --audit-level=moderate
+
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --check

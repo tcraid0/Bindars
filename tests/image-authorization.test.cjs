@@ -30,6 +30,7 @@ function deferred() {
 async function waitFor(assertion) {
   let lastError;
   for (let attempt = 0; attempt < 40; attempt += 1) {
+    await act(async () => {});
     try {
       return assertion();
     } catch (error) {
@@ -58,7 +59,7 @@ const DOCUMENTS = {
 
 async function renderImageApp(t, { workspaceFiles = [] } = {}) {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   mockWindows("main");
   mockConvertFileSrc("macos");
   const originalMatchMedia = window.matchMedia;

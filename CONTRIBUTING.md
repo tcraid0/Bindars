@@ -15,7 +15,7 @@ cd src-tauri && cargo test --locked        # Rust unit and integration tests
 cd .. && npm run test:workspace            # Workspace integration tests
 ```
 
-Node >= 20.19.0 and Rust >= 1.88 on the stable toolchain are required.
+Node >= 20.19.0 and Rust >= 1.90 on the stable toolchain are required.
 
 Use the full `cargo test --locked` command: `--lib` skips the native opener
 permission guard in `src-tauri/tests/`.
@@ -59,6 +59,7 @@ node --test tests/version-consistency.test.cjs
 npm run licenses:test
 npm run licenses:check
 npm audit --omit=dev --audit-level=moderate
+npm audit --include=dev --audit-level=moderate
 cd src-tauri && cargo audit --file Cargo.lock
 ```
 
@@ -96,6 +97,25 @@ Before submitting a PR, these checks must pass:
 CI runs these automatically on every PR to `main`.
 
 Keep changes focused. One fix or feature per PR. Include a clear description of what changed and why.
+
+## Dependency updates
+
+Keep the JavaScript and Rust Tauri plugins compatible, and retain the parser
+patches in `patches/` until their JavaScriptCore regressions pass without them.
+After updating either lockfile, regenerate the committed license inventory:
+
+```bash
+cd src-tauri && cargo fetch --locked
+cd .. && npm run licenses:generate
+npm run licenses:test
+npm run licenses:check
+npm audit --include=dev --audit-level=moderate
+```
+
+Commit `THIRD-PARTY-NOTICES` and `third-party-software.json` with the lockfile
+changes. This also applies to Dependabot PRs that update runtime packages.
+Review Rust audit warnings and `.cargo/audit.toml` against the resolved graph;
+a passing audit can still contain unsoundness or maintenance warnings.
 
 ## License
 

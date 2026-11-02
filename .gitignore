@@ -48,6 +48,8 @@ Thumbs.db
 !LICENSE.md
 
 # Private project notes
+/docs/*-plan.md
+/docs/logo-designer-brief.md
 /docs/bugfix-brief.md
 /docs/editor-vision.md
 /docs/platform-distribution.md
