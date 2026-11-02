@@ -258,10 +258,9 @@ test("a user cycle ignores a stored theme that React has queued but not committe
     assert.equal(document.documentElement.getAttribute("data-theme"), "");
     assert.deepEqual(queuedStore.storeWrites, []);
 
-    queuedStore.queueStoredTheme("dark");
-    assert.equal(rendered.latest().theme, "light");
-
     await act(async () => {
+      queuedStore.queueStoredTheme("dark");
+      assert.equal(rendered.latest().theme, "light");
       rendered.latest().cycleTheme();
     });
 

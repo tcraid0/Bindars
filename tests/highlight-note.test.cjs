@@ -349,8 +349,10 @@ test('Tab can enter the toolbar even before the native selectionchange event arr
   const view = await mountToolbar(t);
   view.host.querySelector('main').focus();
   const range = document.createRange(); range.selectNodeContents(view.host.querySelector('p'));
-  window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
-  assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, true);
+  await act(async () => {
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    assert.equal((await pressKey(document.activeElement, 'Tab')).defaultPrevented, true);
+  });
   assert.ok(document.activeElement === findButton(view.host, 'Highlight Yellow'));
 });
 

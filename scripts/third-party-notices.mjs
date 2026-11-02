@@ -505,8 +505,7 @@ function generateNpmEntries(lockPackages, documents) {
       const tauriApiDirectory = path.join(repoRoot, "node_modules", "@tauri-apps", "api");
       documentFiles = [
         ...documentFiles,
-        path.join(tauriApiDirectory, "LICENSE_APACHE-2.0"),
-        path.join(tauriApiDirectory, "LICENSE_MIT"),
+        ...rootDocumentFiles(tauriApiDirectory),
       ];
       evidence = "Packaged Tauri project license texts from @tauri-apps/api";
     }

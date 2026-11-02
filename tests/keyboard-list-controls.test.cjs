@@ -200,7 +200,7 @@ test("an unfinished note commits to its originating document when the panel is r
   try {
     click(view.host.querySelector('[aria-label="Edit note"]'));
     const input = document.activeElement;
-    const { flushSync } = require("react-dom");
+    const { flushSync } = require("./_helpers/react.cjs");
     flushSync(() => {
       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, "Unfinished A note");
       input.dispatchEvent(new window.Event("input", { bubbles: true }));

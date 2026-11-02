@@ -222,7 +222,8 @@ const MATH_CLASS_NAMES = new Set(["language-math", "math-display", "math-inline"
 type HastElement = Extract<RootContent, { type: "element" }>;
 
 function elementClassNames(element: HastElement): string[] {
-  const className = element.properties?.className;
+  // Plugins can supply a raw attribute even though HAST types normalize it.
+  const className: unknown = element.properties?.className;
   if (Array.isArray(className)) return className.map(String);
   if (typeof className === "string") return className.split(/\s+/);
   return [];

@@ -99,7 +99,7 @@ async function requestQuit() {
 
 async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null, sidebarInitiallyOpen = false } = {}) {
   await installDom();
-  ({ flushSync } = require("react-dom"));
+  ({ flushSync } = require("./_helpers/react.cjs"));
   window.localStorage.clear();
   if (sidebarInitiallyOpen) window.localStorage.setItem("bindars-sidebar-visible", "true");
   const originalMatchMedia = window.matchMedia;

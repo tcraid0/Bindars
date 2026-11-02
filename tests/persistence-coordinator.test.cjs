@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { act } = React;
-const { flushSync } = require("react-dom");
+const { flushSync } = require("./_helpers/react.cjs");
 const { createRoot } = require("react-dom/client");
 const { installDom } = require("./_helpers/dom.cjs");
 
@@ -525,8 +525,10 @@ test("a failed manual save pauses the pending automatic retry", async (context) 
   });
 
   try {
-    rendered.api().recordSaveResult("error");
-    context.mock.timers.tick(AUTOSAVE_IDLE_MS * 2);
+    await act(async () => {
+      rendered.api().recordSaveResult("error");
+      context.mock.timers.tick(AUTOSAVE_IDLE_MS * 2);
+    });
     await flushPromises();
     assert.equal(saveCount, 0);
     assert.equal(rendered.api().autosaveIssue.kind, "error");
@@ -594,11 +596,13 @@ test("flush and cancellation join an in-flight autosave even when its callback f
     assert.equal(saveCount, 1, "all callers must share the same save attempt");
     assert.equal(cancellationFinished, false, "manual saves must wait for the current write");
 
-    pendingSave.resolve("conflict");
-    assert.deepEqual(await Promise.all([firstFlush, secondFlush, reentrantFlush]), [
-      "conflict", "conflict", "conflict",
-    ]);
-    assert.equal((await cancellation).kind, "conflict");
+    await act(async () => {
+      pendingSave.resolve("conflict");
+      assert.deepEqual(await Promise.all([firstFlush, secondFlush, reentrantFlush]), [
+        "conflict", "conflict", "conflict",
+      ]);
+      assert.equal((await cancellation).kind, "conflict");
+    });
     assert.equal(saveCount, 1);
   } finally {
     pendingSave.resolve("conflict");

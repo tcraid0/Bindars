@@ -4,15 +4,22 @@ on:
   push:
     branches: [main]
     paths:
+      - 'package.json'
       - 'package-lock.json'
+      - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
       - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
   pull_request:
     branches: [main]
     paths:
+      - 'package.json'
       - 'package-lock.json'
+      - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
       - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
+  workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6am UTC
 
@@ -32,6 +39,9 @@ jobs:
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Audit development dependencies
+        run: npm audit --include=dev --audit-level=moderate
 
   cargo-audit:
     name: cargo audit

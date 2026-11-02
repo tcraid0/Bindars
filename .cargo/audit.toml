@@ -1,59 +1,26 @@
-# Reviewed exceptions for the locked Tauri 2.11.6 / tauri-utils 2.9.3 graph.
-# Last reviewed: 2026-10-19 (RustSec database 999ec89d5d3f10f20be14750ec8c2d8b44e0ac9b).
+# Reviewed against Tauri 2.12.5 and the locked desktop dependency graph.
+# Last reviewed: 2026-11-01 (RustSec database 2295466c4e9df26647fd67d8fa1c705ac2fc7f81).
 # Checked aarch64-apple-darwin, x86_64-unknown-linux-gnu,
-# x86_64-pc-windows-msvc and --target all with current enabled features.
-# Runtime classification excludes build dependencies AND proc-macro paths.
-# Reassess on dependency, feature, target or logging changes; Mac target
-# absence does not establish safety for Linux or Windows.
+# x86_64-pc-windows-msvc and --target all. Runtime classification excludes
+# build dependencies and proc-macro paths. Reassess after dependency changes.
 #
-# Visible, unresolved warnings (deliberately NOT ignored):
-# - RUSTSEC-2024-0429: glib 0.18.5 VariantStrIter unsoundness. Absent on
-#   Mac/Windows, but in the Linux GTK runtime graph. Removed the old exception:
-#   no direct Bindars call is not proof that transitive Linux use is safe.
-# - RUSTSEC-2026-0097: rand 0.7.3 is build-only on all three targets via
-#   phf_generator -> phf_codegen -> selectors. phf_generator uses seeded
-#   SmallRng, not ThreadRng; rand's optional log feature is not enabled.
-#   The advisory requires reentrant ThreadRng use from a custom logger.
-#   No patched 0.7 release; removal needs an upstream tooling update.
-# - RUSTSEC-2026-0370, -0371, -0372: zvariant 5.9.2, zbus_names 4.3.1,
-#   zvariant_derive 5.9.2 maintenance notices. Absent on Mac/Windows; Linux
-#   uses zvariant/zbus_names via zbus and zvariant_derive as a proc macro.
+# Visible upstream warnings (not ignored):
+# - RUSTSEC-2024-0429: glib 0.18.5 VariantStrIter unsoundness remains in the
+#   Linux GTK3 runtime graph. The fix is in glib >=0.20, which cannot replace
+#   GTK3's 0.18 dependency without an upstream migration. Absent on Mac/Windows.
+# - RUSTSEC-2026-0370, -0371, -0372: zvariant 5.15.1, zbus_names 4.3.5 and
+#   zvariant_derive 5.15.1 maintenance notices remain through Linux zbus 5.
+#   Their replacements are in zbus 6; tauri-plugin-opener must migrate upstream.
+#   zvariant/zbus_names are runtime dependencies; zvariant_derive is a macro.
 #
-# Removed RUSTSEC-2024-0411 through -0420: all ten GTK3/ATK/GDK notices
-# were withdrawn on 2026-08-14 after upstream development resumed. These
-# crates remain relevant to Linux; withdrawal, not Mac absence, justifies
-# removing the shared exceptions.
+# Removed obsolete exceptions for instant, fxhash, unic-* and rkyv: these
+# packages are no longer locked. The old rand 0.7 warning is also gone.
+# Tokio is updated to 1.54.1, fixing RUSTSEC-2026-0386.
 
 [advisories]
 ignore = [
-    # Maintenance notices, with no specific vulnerability asserted. Retain
-    # bounded exceptions for upstream Tauri/notify dependencies; replace when
-    # compatible upstream versions remove them, not with direct major overrides.
-
-    # Linux-only compile-time dependency via glib-macros/gtk3-macros.
-    # Absent from Mac and Windows builds; not Linux runtime code.
-    "RUSTSEC-2024-0370", # proc-macro-error 1.0.4
-
-    # Runtime on all three targets: notify -> notify-types -> instant.
-    "RUSTSEC-2024-0384", # instant 0.1.13
-
-    # Build/proc-macro only on all three targets via selectors -> kuchikiki
-    # -> tauri-utils HTML code generation; absent from the runtime-only tree.
-    "RUSTSEC-2025-0057", # fxhash 0.2.1
-
-    # Runtime AND build paths on all three targets through
-    # urlpattern -> tauri-utils. These must not be classified as build-only.
-    "RUSTSEC-2025-0075", # unic-char-range 0.9.0
-    "RUSTSEC-2025-0080", # unic-common 0.9.0
-    "RUSTSEC-2025-0081", # unic-char-property 0.9.0
-    "RUSTSEC-2025-0098", # unic-ucd-version 0.9.0
-    "RUSTSEC-2025-0100", # unic-ucd-ident 0.9.0
-
-    # Inactive optional rust_decimal dependency, not compiled on any target:
-    # cargo tree --locked --target all -i rkyv@0.7.46 prints no path.
-    # tauri-plugin-log -> byte-unit enables only rust_decimal's std feature,
-    # not rkyv. cargo-audit still scans this Cargo.lock entry. If enabled,
-    # remove this exception and resolve the archive-validation vulnerability;
-    # the patch starts at 0.8.17, outside the unsupported 0.7 series.
-    "RUSTSEC-2026-0235", # rkyv 0.7.46
+    # RUSTSEC-2024-0370 is a maintenance notice, not a specific vulnerability.
+    # proc-macro-error 1.0.4 is Linux-only, compile-time code through
+    # glib-macros/gtk3-macros. Remove when GTK3 updates its macro dependencies.
+    "RUSTSEC-2024-0370",
 ]

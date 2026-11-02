@@ -4,7 +4,21 @@
 
 **Result:** The initial packaged-app checks verified document-editor spelling, corrections, undo/redo, and persistence. Two follow-ups addressed automatic changes in other inputs: first the React search/note fields, then CodeMirror's generated Find/Replace fields. The three builds and their separate evidence are recorded below; no run establishes every acceptance scenario or supported macOS version.
 
-The [implementation plan](macos-spellcheck-plan.md) contains the design rationale, preference keys, and full acceptance protocol. The implementation uses the existing CodeMirror editor, macOS checking, and document save path.
+The implementation uses the existing CodeMirror editor, macOS checking, and
+document save path. Mac document fields enable native spelling suggestions while
+disabling automatic correction. Search fields remain literal, and note fields
+allow explicit corrections. Native startup defaults apply only when the user
+has not saved a preference. The completed implementation plan is retained in
+Git history.
+
+For future native verification, use an isolated app identifier and record the
+OS, source commit, binary hash, language, and preference state. Check fresh and
+saved preferences; Markdown and Fountain; suggestions and undo/redo; immediate
+save and autosave; literal quotes, dashes, URLs, and text substitutions; search,
+notes, and Find/Replace; and light/dark themes. Reopen the actual saved files.
+Record incremental checking of existing or pasted text as observed, and verify
+the non-Mac input attributes remain unchanged. These are acceptance checks,
+not claims that every scenario below has passed.
 
 ## Original build and test environment
 

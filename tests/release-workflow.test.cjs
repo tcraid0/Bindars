@@ -64,3 +64,17 @@ test("CI and release verification run Rust integration tests as well as library 
     assert.equal(step.run, "cargo test --locked", "include src-tauri/tests in verification");
   }
 });
+
+test("security and release gates audit build and test dependencies", () => {
+  const audit = parse(fs.readFileSync(path.join(projectRoot, ".github/workflows/audit.yml"), "utf8"));
+  const release = parse(fs.readFileSync(workflowPath, "utf8"));
+  for (const job of [audit.jobs["npm-audit"], release.jobs.verify]) {
+    assert.equal(namedStep(job, "Audit development dependencies").run,
+      "npm audit --include=dev --audit-level=moderate");
+  }
+  for (const event of ["push", "pull_request"]) {
+    for (const file of ["package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", ".github/workflows/audit.yml"]) {
+      assert.ok(audit.on[event].paths.includes(file), `${event} must audit changes to ${file}`);
+    }
+  }
+});

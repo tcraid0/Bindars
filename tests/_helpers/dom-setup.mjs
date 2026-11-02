@@ -1,5 +1,8 @@
 import { Window } from "happy-dom";
 
+// Node's test runner does not configure React's act environment automatically.
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 let testWindow;
 
 export function installDomGlobals({ force = false } = {}) {
@@ -8,6 +11,12 @@ export function installDomGlobals({ force = false } = {}) {
   }
 
   const window = new Window();
+  window.document.insertBefore(
+    window.document.implementation.createDocumentType("html", "", ""),
+    window.document.documentElement,
+  );
+  // Happy DOM omits compatMode; the app's HTML doctype selects standards mode.
+  Object.defineProperty(window.document, "compatMode", { value: "CSS1Compat", configurable: true });
   testWindow = window;
   globalThis.window = window;
   // Node 21+ provides its own navigator. CodeMirror reads it at import time to

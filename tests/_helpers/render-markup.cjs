@@ -1,5 +1,5 @@
 const { createRoot } = require("react-dom/client");
-const { flushSync } = require("react-dom");
+const { flushSync } = require("./react.cjs");
 
 // Client rendering includes portalled modal content, which server rendering cannot render.
 function renderMarkup(element) {

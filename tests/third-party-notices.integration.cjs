@@ -36,18 +36,22 @@ test("regenerate-and-compare rejects edits to generated fields and mappings", as
 test("runtime exceptions are classified and resolved conservatively", async () => {
   const { buildRepositoryOutputs } = await noticesModule();
   const { inventory } = buildRepositoryOutputs();
-  const byId = new Map(inventory.packages.map((entry) => [entry.id, entry]));
+  function cargoPackage(name) {
+    const entries = inventory.packages.filter((entry) => entry.kind === "cargo" && entry.name === name);
+    assert.equal(entries.length, 1, `expected one locked ${name} version`);
+    return entries[0];
+  }
 
-  assert.equal(byId.get("cargo:brotli@8.0.2").reviewRequired, false);
-  assert.equal(byId.get("cargo:brotli@8.0.2").documentRefs.length, 2);
-  assert.equal(byId.get("cargo:siphasher@1.0.2").selectedLicense, "MIT");
+  assert.equal(cargoPackage("brotli").reviewRequired, false);
+  assert.equal(cargoPackage("brotli").documentRefs.length, 2);
+  assert.equal(cargoPackage("objc2").selectedLicense, "MIT");
   assert.equal(
-    byId.get("cargo:siphasher@1.0.2").disposition,
+    cargoPackage("objc2").disposition,
     "reviewed-standard-license-override",
   );
-  assert.equal(byId.get("cargo:siphasher@0.3.11").distributionClass, "inventory-only");
+  assert.equal(cargoPackage("proc-macro-error").distributionClass, "inventory-only");
   assert.equal(
-    byId.get("cargo:option-ext@0.2.0").sourceAvailability.sha256,
+    cargoPackage("option-ext").sourceAvailability.sha256,
     "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d",
   );
   const dompurify = inventory.packages.find((entry) => entry.kind === "npm" && entry.name === "dompurify");
