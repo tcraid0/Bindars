@@ -530,15 +530,10 @@ function generateNpmEntries(lockPackages, documents) {
     const fontMetadataPath = path.join(packageDirectory, "metadata.json");
     const fontMetadata = existsSync(fontMetadataPath) ? readJson(fontMetadataPath) : null;
     const attribution = fontMetadata?.license?.attribution ?? null;
-    const explicitSelectedLicense =
-      lockEntry.name === "dompurify" && lockEntry.version === "3.4.14"
-        ? "Apache-2.0"
-        : null;
     const documentTexts = documentRefs.map((documentRef) => documents.get(documentRef).text);
     const selectedLicense = selectedLicenseFor(
       declaredLicense,
       documentTexts,
-      explicitSelectedLicense,
     );
     const licenseTextAvailable = hasRequiredLicenseText(
       declaredLicense,
