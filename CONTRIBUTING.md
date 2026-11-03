@@ -15,7 +15,12 @@ cd src-tauri && cargo test --locked        # Rust unit and integration tests
 cd .. && npm run test:workspace            # Workspace integration tests
 ```
 
-Node >= 20.19.0 and Rust >= 1.90 on the stable toolchain are required.
+Use Node 24 LTS (selected by `.nvmrc`) for development and builds. Node 22.12
+or newer is supported; CI covers Node 22 and 24. Rust 1.90 or newer is required.
+CI runs the full Rust suite on stable and a compile check on Rust 1.90.
+
+On macOS and Linux, the Rust suite includes a real filesystem-watcher test for
+external saves and atomic file replacements, with a bounded wait for events.
 
 Use the full `cargo test --locked` command: `--lib` skips the native opener
 permission guard in `src-tauri/tests/`.

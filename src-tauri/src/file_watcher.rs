@@ -156,20 +156,11 @@ pub(crate) async fn watch_file(path: String, app: tauri::AppHandle) -> Result<()
     run_blocking_file_io(move || watch_file_impl(path, app)).await
 }
 
-fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), NativeFileError> {
-    let state = app.state::<FileWatcher>();
-    let requested_path = PathBuf::from(&path);
-    let request_id = {
-        let mut guard = state.0.lock().unwrap_or_else(|error| error.into_inner());
-        begin_watch_request(&mut guard, &requested_path)
-    };
-    let canonical_path = canonicalize_markdown_path(&requested_path)?;
-
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let (event_tx, event_rx) = mpsc::channel::<WatcherNotification>();
-
-    let watched_path = canonical_path.clone();
-    let watched_path_for_event = canonical_path.to_string_lossy().into_owned();
+fn create_document_watcher(
+    canonical_path: &Path,
+    event_tx: mpsc::Sender<WatcherNotification>,
+) -> Result<notify::RecommendedWatcher, NativeFileError> {
+    let watched_path = canonical_path.to_path_buf();
     let mut watcher =
         notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
             if let Some(notification) = classify_watcher_result(result, &watched_path) {
@@ -200,6 +191,23 @@ fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), NativeFile
                 error.to_string(),
             )
         })?;
+
+    Ok(watcher)
+}
+
+fn watch_file_impl(path: String, app: tauri::AppHandle) -> Result<(), NativeFileError> {
+    let state = app.state::<FileWatcher>();
+    let requested_path = PathBuf::from(&path);
+    let request_id = {
+        let mut guard = state.0.lock().unwrap_or_else(|error| error.into_inner());
+        begin_watch_request(&mut guard, &requested_path)
+    };
+    let canonical_path = canonicalize_markdown_path(&requested_path)?;
+
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (event_tx, event_rx) = mpsc::channel::<WatcherNotification>();
+    let watcher = create_document_watcher(&canonical_path, event_tx)?;
+    let watched_path_for_event = canonical_path.to_string_lossy().into_owned();
 
     // Spawn debounce thread: coalesce events within 500ms, then emit.
     let app_handle = app.clone();
@@ -337,6 +345,86 @@ fn should_unwatch_path(current_path: Option<&Path>, requested_path: &Path) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn native_watcher_detects_external_saves_and_replacements() {
+        use std::{
+            fs,
+            time::{Duration, Instant},
+        };
+
+        const QUIET_WINDOW: Duration = Duration::from_secs(1);
+        const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
+
+        struct Fixture(PathBuf);
+
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        // Isolate save styles from each other. macOS can also deliver events
+        // from fixture creation after watch() returns, so a fresh watcher alone
+        // does not establish a clean baseline.
+        for atomic_replace in [false, true] {
+            let root = crate::test_support::unique_temp_dir("native-watcher");
+            fs::create_dir(&root).expect("create watcher fixture");
+            let fixture = Fixture(root);
+            let document = fixture.0.join("document.md");
+            fs::write(&document, "before").expect("create watched document");
+            let document = dunce::canonicalize(&document).expect("canonical document path");
+            let (event_tx, event_rx) = mpsc::channel();
+            let _watcher = create_document_watcher(&document, event_tx)
+                .expect("start the app's native document watcher");
+
+            let settle_deadline = Instant::now() + EVENT_TIMEOUT;
+            loop {
+                assert!(
+                    settle_deadline.saturating_duration_since(Instant::now()) >= QUIET_WINDOW,
+                    "native watcher setup did not settle within {EVENT_TIMEOUT:?}"
+                );
+                match event_rx.recv_timeout(QUIET_WINDOW) {
+                    Ok(WatcherNotification::Changed) => continue,
+                    Err(mpsc::RecvTimeoutError::Timeout) => break,
+                    result => panic!("native watcher failed during setup: {result:?}"),
+                }
+            }
+
+            // Negative controls must stay quiet after setup. In particular,
+            // creating a replacement sibling must not count as saving the
+            // watched document before the rename actually happens.
+            assert_eq!(
+                event_rx.recv_timeout(QUIET_WINDOW),
+                Err(mpsc::RecvTimeoutError::Timeout),
+                "untouched document emitted a change"
+            );
+            fs::write(fixture.0.join("unrelated.md"), "unrelated")
+                .expect("write unrelated sibling");
+            assert_eq!(
+                event_rx.recv_timeout(QUIET_WINDOW),
+                Err(mpsc::RecvTimeoutError::Timeout),
+                "unrelated sibling emitted a document change"
+            );
+
+            if atomic_replace {
+                let replacement = fixture.0.join("replacement.md");
+                fs::write(&replacement, "after").expect("write replacement document");
+                fs::rename(&replacement, &document).expect("atomically replace document");
+            } else {
+                fs::write(&document, "after").expect("save document in place");
+            }
+
+            let notification = event_rx
+                .recv_timeout(EVENT_TIMEOUT)
+                .unwrap_or_else(|error| {
+                    panic!("native watcher missed save (atomic_replace={atomic_replace}): {error}")
+                });
+            assert_eq!(notification, WatcherNotification::Changed);
+            assert_eq!(fs::read_to_string(&document).unwrap(), "after");
+        }
+    }
 
     #[test]
     fn watcher_callback_errors_become_unavailable_notifications() {
