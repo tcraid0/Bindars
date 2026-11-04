@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22", "24"]
+        node-version: ["22", "24"]
     steps:
       - uses: actions/checkout@v7
 
@@ -32,13 +32,13 @@ jobs:
         run: npm run test:workspace
 
       - name: Install WebKit style-check dependencies
-        if: matrix.node-version == '22'
+        if: matrix.node-version == '24'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb dbus-x11 python3-gi gir1.2-webkit2-4.1
 
       - name: Verify rendered theme and packaged styles
-        if: matrix.node-version == '22'
+        if: matrix.node-version == '24'
         run: dbus-run-session -- xvfb-run -a env WEBKIT_DISABLE_COMPOSITING_MODE=1 /usr/bin/python3 scripts/verify-webkit-csp-styles.py
 
   licenses:
@@ -50,7 +50,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install Rust stable
@@ -101,6 +101,13 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --lib --tests --locked -- -D warnings
 
+      - name: Install minimum supported Rust
+        uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Check minimum supported Rust
+        working-directory: src-tauri
+        run: cargo +1.90.0 check --locked
+
   macos:
     name: macOS 15 arm64
     runs-on: macos-15
@@ -113,7 +120,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install Rust stable

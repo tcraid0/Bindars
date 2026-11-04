@@ -215,7 +215,7 @@ Windows downloads remain pending native testing and code signing.
 
 ## Build from source
 
-Requires Node 20.19 or newer and Rust 1.90 or newer on the stable toolchain.
+Use Node 24 LTS (`.nvmrc`); Node 22.12 or newer and Rust 1.90 or newer are required.
 
 ```bash
 npm ci
