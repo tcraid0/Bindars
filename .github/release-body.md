@@ -1,16 +1,14 @@
-> Draft: 1.6.3 release artifacts and candidate-specific platform validation are pending.
-
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.6.3_aarch64.dmg` — pending validation of the
-  signed, notarized, and stapled release candidate. Requires macOS 15.0 or newer;
-  no Intel build. Once available, open the DMG, drag Bindars into Applications,
+- **Mac (Apple Silicon):** `Bindars_1.6.3_aarch64.dmg` — signed with Developer ID,
+  notarized by Apple, and stapled. Requires macOS 15.0 or newer;
+  no Intel build. Open the DMG, drag Bindars into Applications,
   and launch it normally. macOS may ask you to confirm the first opening of an
   internet download.
-- **Linux (x86_64):** the `.deb` is pending release-workflow validation. Once
-  available, install with `sudo apt install ./Bindars_*_amd64.deb`.
+- **Linux (x86_64):** install the `.deb` with
+  `sudo apt install ./Bindars_*_amd64.deb`.
 
-The release will include `SHA256SUMS-macos.txt` for the Mac DMG and `SHA256SUMS`
+The release includes `SHA256SUMS-macos.txt` for the Mac DMG and `SHA256SUMS`
 for the Debian package. Updates are manual; Bindars does not include an automatic
 updater.
 
@@ -85,8 +83,10 @@ The dependency refresh since 1.6.2 includes:
 ## Upgrading
 
 On Mac, quit Bindars and replace the application in Applications with the copy
-from the new DMG. Back up your documents and Bindars data first. Validation of
-an upgrade from 1.6.2 to this candidate is pending.
+from the new DMG. Back up your documents and Bindars data first. A controlled
+1.6.2-to-1.6.3 upgrade using synthetic documents, a draft, notes, bookmarks,
+preferences, recent entries, and a saved reading section passed on macOS 26.6.2.
+This used the existing account with isolated app data, not a fresh account.
 
 Updating from 1.6.2 requires no new format migration. For people coming from
 older versions: search data is kept in a separate cache that Bindars can
@@ -110,6 +110,10 @@ for storage locations and details.
   misplaced formulas in WebKit. Default math rendering is unaffected.
 - Reading position restores a section rather than an exact pixel offset. Very
   last-moment scrolling or preference changes may not be recorded before quitting.
+- Opening a different file through the native Open dialog can retain the previous
+  reader scroll offset, placing a shorter document partway down or at its end.
+  Use the table of contents or scroll to the top. This behavior also exists in
+  1.6.2; it was identified during this release's native checks.
 - Some printed headings can be separated from their following content, and table
   headers may not repeat on continuation pages. Very wide tables can wrap words
   within cells. Native Linux and Windows printing remain unverified. The Mac
@@ -134,18 +138,31 @@ for storage locations and details.
 
 ## Platform validation
 
-**Pending for 1.6.3:** validation of the exact signed Mac application, final DMG,
-download/install behavior, upgrade from 1.6.2, and Debian release artifact.
-The native checks recorded for 1.6.2 do not establish that this candidate passed.
+The exact signed Mac app was tested on **macOS 26.6.2, Apple Silicon**, using
+synthetic documents and isolated app data in the existing account. Checks covered
+the controlled upgrade, readable titles and search, long-note expansion in real
+WebKit, native folder selection/cancellation and focus, Recent and folder Add Back,
+exact saved bytes, read-only failure and Save As recovery, conflict
+Cancel/Overwrite/Reload, math/Mermaid/Fountain rendering, Find, native print
+cancellation and PDF output, window reopen through Finder, and a draft edit saved
+immediately before normal Quit.
 
-The UX changes have source-test and browser/macOS WKWebView coverage using
-production components and synthetic documents/picker results. These checks do
-not replace testing the packaged app with the real native file picker.
+The final DMG and its mounted app passed signature, notarization, stapled-ticket,
+integrity, and Gatekeeper checks. Every regular file in the mounted app matches
+the native-tested copy. Notarization is not a substitute for application testing.
 
-Interactive coverage on macOS 15, fresh-account and first-use folder permissions,
-and logout/shutdown remains unestablished for this candidate. Candidate results
-and any accepted coverage limitations must be recorded before publication;
-notarization alone does not establish application compatibility.
+The signed GUI was **not tested on macOS 15 or in a fresh account**. First-use
+folder permission grant/denial, a browser-downloaded quarantined or offline first
+launch, logout/shutdown, direct Dock interactions, physical printing, and the
+packaged editor's exFAT Save As flow were not tested for this candidate. macOS 15
+CI separately passed source tests, parser checks, native exFAT checks, and an
+unsigned arm64 bundle build/validation; it does not establish signed-GUI coverage.
+
+The manually dispatched Debian candidate passed package/content/license inspection,
+installation, linked-library checks, built-frontend WebKit checks with simulated
+packaged CSP, and a 20-second installed-app headless launch on Ubuntu 22.04.
+Its portal warnings and headless environment mean
+interactive native pickers and printing remain unverified.
 
 Linux distribution provides an x86_64 Debian package. The tag workflow builds,
 inspects, installs, and launches its package on Ubuntu 22.04 before publishing
