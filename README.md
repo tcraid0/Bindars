@@ -184,7 +184,7 @@ independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
 
 ### macOS (Apple Silicon)
 
-Download [Bindars 1.6.2 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.2/Bindars_1.6.2_aarch64.dmg),
+Download [Bindars 1.6.3 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.3/Bindars_1.6.3_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
 macOS may show its normal first-open confirmation for an internet download.
 Do not disable Gatekeeper or bypass a security block to install it.
@@ -195,11 +195,12 @@ Do not disable Gatekeeper or bypass a security block to install it.
   behavior has not been verified.
 - Updates are manual: quit Bindars, download the new DMG, and replace the app
   in Applications. Keep a backup of your documents and [Bindars data](docs/recovery-and-privacy.md)
-  before upgrading. Controlled prior-version upgrade testing remains pending.
+  before upgrading. A controlled 1.6.2-to-1.6.3 upgrade passed with synthetic data
+  in the existing account.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
 
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.2) includes
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.3) includes
 `SHA256SUMS-macos.txt` for checking the download. Notarization is Apple's automated
 security check, not a Mac App Store review.
 
