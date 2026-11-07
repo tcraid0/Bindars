@@ -5,7 +5,7 @@ export function PathDetails({ path, label }: { path: string; label?: string }) {
   const summary = label ?? locationLabel(path);
   return (
     <details className="document-location text-xs text-text-secondary">
-      <summary aria-label={`Location of ${fileName(path)}: ${summary}`}>
+      <summary aria-label={label ? undefined : `Location of ${fileName(path)}: ${summary}`}>
         {summary}
       </summary>
       <p className="break-all my-1">{path}</p>

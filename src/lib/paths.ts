@@ -11,9 +11,34 @@ export function parentPath(path: string): string {
 }
 
 /** Compact context for document lists; disclosures expose the complete path. */
-export function locationLabel(path: string): string {
+export function locationLabel(path: string, ancestors = 2): string {
   const parent = parentPath(path);
-  return parent.split("/").filter(Boolean).slice(-2).join(" › ") || parent;
+  const parts = parent.split("/").filter(Boolean);
+  // Expanded Recent context can need the root as well as every parent.
+  if (ancestors > 2 && ancestors > parts.length) return parent;
+  return parts.slice(-ancestors).join(" › ") || parent;
+}
+
+/** Only colliding Recent filenames need visible ancestry, across the whole list. */
+export function recentLocationLabels(paths: readonly string[]): ReadonlyMap<string, string> {
+  const groups = new Map<string, Map<string, string>>();
+  for (const path of paths) {
+    const identity = toPathIdentityKey(path);
+    const name = fileName(identity);
+    if (!groups.has(name)) groups.set(name, new Map());
+    groups.get(name)!.set(identity, path);
+  }
+  const labels = new Map<string, string>();
+  for (const group of groups.values()) {
+    if (group.size < 2) continue;
+    const entries = [...group];
+    let depth = 2;
+    while (new Set(entries.map(([identity]) => locationLabel(identity, depth))).size < group.size) depth++;
+    for (const [identity, path] of entries) {
+      labels.set(identity, locationLabel(path, depth));
+    }
+  }
+  return labels;
 }
 
 export function isRelativeDocumentPath(path: string): boolean {

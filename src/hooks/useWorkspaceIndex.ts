@@ -63,6 +63,7 @@ export function useWorkspaceIndex(
   // parsed text. Discovery must still confirm a candidate before publication.
   const known = useRef(new Map<string, WorkspaceDocIndex>());
   const cacheLoad = useRef<Promise<void> | null>(null);
+  const lastDraftsRoot = useRef<string | null>(null);
   const listingCache = useRef<{
     root: string | null;
     refresh: number;
@@ -214,6 +215,7 @@ export function useWorkspaceIndex(
       status: "indexing",
       error: null,
       draftsError: null,
+      draftsRootPath: lastDraftsRoot.current,
     }));
     const run = async () => {
       // The disposable cache is read once per session, as candidates only.
@@ -280,6 +282,11 @@ export function useWorkspaceIndex(
               ...EMPTY_LIST,
               files: lastKnown.filter((doc) => doc.sources?.includes("draft")),
             };
+      // Drafts has independent scope; a failed listing cannot replace its known
+      // root with the parent of an arbitrary cached (possibly nested) document.
+      if (draftResult.status === "fulfilled" && draftResult.value) {
+        lastDraftsRoot.current = drafts.canonicalRoot ?? null;
+      }
       if (
         folderResult.status === "fulfilled" &&
         draftResult.status === "fulfilled"
@@ -366,6 +373,7 @@ export function useWorkspaceIndex(
         issues: folder.issues ?? [],
         limitHit: folder.limitHit || drafts.limitHit,
         draftsSkipped: drafts.skipped ?? false,
+        draftsRootPath: lastDraftsRoot.current,
         error:
           folderResult.status === "rejected"
             ? normalizeFileError(

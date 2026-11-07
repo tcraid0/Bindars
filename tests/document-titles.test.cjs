@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { renderComponent, click } = require("./_helpers/component-view.cjs");
+const { renderComponent, click, focus } = require("./_helpers/component-view.cjs");
 const { documentTitle } = require("../.tmp/workspace-tests/src/lib/document-title.js");
 const { prepareCatalogDocument, discoveredDocument } = require("../.tmp/workspace-tests/src/lib/document-catalog.js");
 const { searchWorkspaceDocs } = require("../.tmp/workspace-tests/src/lib/workspace-search.js");
@@ -33,15 +33,15 @@ for (const welcome of [false, true]) {
       openingPath: null, onOpen: path => opened.push(path), onRemove() {} });
     t.after(view.cleanup);
     const buttons = [...view.host.querySelectorAll("[data-path] > div > button")];
-    buttons[0].focus();
-    assert.match(buttons[0].getAttribute("aria-label"), /^Open notes.md,/);
+    focus(buttons[0]);
+    assert.equal(buttons[0].getAttribute("aria-label"), `Open notes.md${welcome ? ", Research" : ""}`);
     const title = "A long document title that helps a reader recognize their notes ".repeat(5).trim();
     view.render({ details: new Map(files.map(f => [f.path, { title, section: null }])) });
     assert.ok(document.activeElement === buttons[0], "indexing does not replace the focused button");
     for (const [i, button] of buttons.entries()) {
       assert.ok(button.textContent.startsWith(title));
       assert.ok(button.textContent.includes(files[i].name));
-      assert.ok(button.getAttribute("aria-label").startsWith(`Open ${title}, ${files[i].name},`));
+      assert.ok(button.getAttribute("aria-label").startsWith(`Open ${title}, ${files[i].name}`));
       click(button);
     }
     assert.deepEqual(opened, files.map(f => f.path));

@@ -617,6 +617,8 @@ test("Search explains the selected scope and exposes the selected document full 
     assert.ok(details);
     assert.equal(details.open, false);
     assert.equal(details.querySelector("p").textContent, "/workspace/first.md");
+    const summary = details.querySelector("summary");
+    assert.equal(summary.getAttribute("aria-label") ?? summary.textContent, "Location of first.md", "the supplied path label is announced once");
     assert.ok(!details.closest('[role="option"]'));
     view.render({ folderOnly: false, folderName: undefined });
     assert.match(scope(), /Searching recent documents, drafts\./);

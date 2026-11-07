@@ -79,9 +79,13 @@ opened documents from any location. Its rows keep their order while you use the
 sidebar, returning to most-recent-first when you hide and show it or relaunch.
 Resizing the window does not reshuffle it.
 New documents enter at the top. Home, Recent, and Search use a document's title
-when available, with its filename and location alongside it. While titles are
-being prepared, filenames appear immediately. Recent also shows when you last
-opened each document. **Back** returns to documents opened from Recent.
+when available, keeping its exact filename alongside it when distinct. While
+titles are being prepared, filenames appear immediately. Recent shows folder
+context when filenames collide. Hover over a row or focus it with the keyboard
+for its full location and **Last opened** details. Page Up / Page Down scroll long
+details while the row is focused; Escape dismisses them.
+Home and Search keep their richer context visible. **Back** returns to documents
+opened from Recent.
 
 Removing a document from Recent leaves an untimed **Add Back** notice, shared
 with Home. Add Back preserves its previous last-opened time and restores the latest
@@ -97,8 +101,9 @@ on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
 
 **Drafts** lists existing files in Documents › Bindars Drafts, including drafts
 no longer in Recent, using a heading or opening text alongside the filename.
-New documents are saved here until you save them somewhere else. The header
-and folder browser keep filenames.
+New documents are saved here until you save them somewhere else. The shared
+Drafts location is disclosed once above the list, with full file paths retained
+for recovery notices. The header and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
 to your Documents folder. Choose **Show existing drafts** to list it; once
@@ -184,7 +189,7 @@ independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
 
 ### macOS (Apple Silicon)
 
-Download [Bindars 1.6.3 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.3/Bindars_1.6.3_aarch64.dmg),
+Download [Bindars 1.6.4 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.4/Bindars_1.6.4_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
 macOS may show its normal first-open confirmation for an internet download.
 Do not disable Gatekeeper or bypass a security block to install it.
@@ -195,12 +200,11 @@ Do not disable Gatekeeper or bypass a security block to install it.
   behavior has not been verified.
 - Updates are manual: quit Bindars, download the new DMG, and replace the app
   in Applications. Keep a backup of your documents and [Bindars data](docs/recovery-and-privacy.md)
-  before upgrading. A controlled 1.6.2-to-1.6.3 upgrade passed with synthetic data
-  in the existing account.
+  before upgrading. This update introduces no new document or annotation format.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
 
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.3) includes
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.4) includes
 `SHA256SUMS-macos.txt` for checking the download. Notarization is Apple's automated
 security check, not a Mac App Store review.
 

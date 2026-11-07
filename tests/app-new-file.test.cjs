@@ -6019,6 +6019,29 @@ for (const route of ['Escape', 'button', 'editor']) {
   });
 }
 
+for (const mode of ['Find', 'Edit']) {
+  for (const visible of [false, true]) {
+    test(`Recent hover leaves ${mode} Escape working on the first press (details visible=${visible})`, async () => {
+      const rendered = await renderContinuityApp({ sidebarRead: Promise.resolve(true) });
+      try {
+        dispatchShortcut(mode === 'Find' ? 'f' : 'e');
+        const surface = mode === 'Find' ? '.search-bar' : '.cm-editor';
+        await waitFor(() => assert.ok(rendered.host.querySelector(surface)));
+        const row = rendered.host.querySelector('.document-sidebar [data-path] > div > button');
+        assert.ok(row);
+        await act(async () => row.dispatchEvent(new window.PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })));
+        if (visible) {
+          await act(async () => new Promise(resolve => setTimeout(resolve, 480)));
+          assert.ok(document.querySelector('[role="tooltip"]:not([hidden])'));
+        }
+        dispatchElementKey(document.activeElement, 'Escape');
+        await waitFor(() => assert.ok(!rendered.host.querySelector(surface), `${mode} closes with one Escape while a Recent row is hovered`));
+        assert.ok(!document.querySelector('[role="tooltip"]:not([hidden])'));
+      } finally { await rendered.cleanup(); }
+    });
+  }
+}
+
 test('reader focus return: background reconciliation never requests focus', async () => {
   const rendered = await renderContinuityApp();
   try {
@@ -7891,7 +7914,7 @@ test("Recent records Back at the prior heading, clears Forward, and ignores same
     const failed = deferred();
     rendered.deferNextOpen(failed);
     const row = rendered.host.querySelector('[aria-label^="Open B.md"]');
-    row.focus();
+    await act(async () => row.focus());
     await open("B");
     await waitFor(() => assert.equal(failed.args?.path, "/tmp/B.md"));
     await act(async () => failed.reject({ category: "notFound", message: "Missing file" }));

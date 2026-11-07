@@ -145,7 +145,7 @@ test("drafts exist outside Recent, sources deduplicate and unchanged reconciliat
   let reads = 0,
     folderVersion = 1;
   ipc({
-    list_draft_documents: () => listing([meta("/draft/old.md")]),
+    list_draft_documents: () => ({ ...listing([meta("/draft/old.md")]), canonicalRoot: "/draft" }),
     inspect_document_files: () => [meta("/folder/a.md", folderVersion)],
     list_workspace_markdown_files: () =>
       listing([meta("/folder/a.md", folderVersion)]),
@@ -159,6 +159,7 @@ test("drafts exist outside Recent, sources deduplicate and unchanged reconciliat
   ]);
   await until(() => assert.equal(view.get().state.status, "ready"));
   assert.equal(view.get().docs.length, 2);
+  assert.equal(view.get().state.draftsRootPath, "/draft");
   assert.deepEqual(
     view.get().docs.find((d) => d.path === "/folder/a.md").sources,
     ["folder", "recent"],
@@ -239,6 +240,36 @@ for (const next of [null, "/replacement"])
     assert.ok(!view.get().docs.some((d) => d.path.startsWith("/folder/")));
     assert.equal(view.get().state.rootPath, next);
   });
+test("failed Drafts refresh keeps its canonical root even when the first cached draft is nested", async t => {
+  let fail = false;
+  let draftsRoot = "/drafts";
+  ipc({ list_draft_documents: () => {
+    if (fail) throw Error("Drafts listing unavailable");
+    return { ...listing([meta(`${draftsRoot}/Nested/note.md`)]), canonicalRoot: draftsRoot };
+  } });
+  const view = await mount(t, "/folder", [], true);
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  await act(async () => view.host.querySelector("#navigation-tab-Drafts").click());
+  const disclosedRoot = () => view.host.querySelector(".navigation-help > .document-location p")?.textContent;
+  assert.equal(disclosedRoot(), "/drafts");
+  fail = true;
+  await act(async () => view.get().reindex());
+  await until(() => {
+    assert.equal(view.get().state.status, "ready");
+    assert.ok(view.get().state.draftsError);
+  });
+  assert.ok(view.get().docs.some(doc => doc.path === "/drafts/Nested/note.md"));
+  assert.equal(disclosedRoot(), "/drafts", "failure keeps the known shared root, not Nested");
+  await view.render("/another-folder");
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  assert.equal(disclosedRoot(), "/drafts", "Drafts location is independent of the added folder");
+  fail = false;
+  draftsRoot = "/relocated-drafts";
+  await act(async () => view.get().reindex());
+  await until(() => assert.equal(view.get().state.status, "ready"));
+  assert.equal(disclosedRoot(), "/relocated-drafts", "a successful native listing updates the root");
+});
+
 test("cache failures do not prevent document discovery or reading", async (t) => {
   ipc({
     load_search_cache: () => {
