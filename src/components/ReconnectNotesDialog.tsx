@@ -206,7 +206,7 @@ export function ReconnectNotesDialog({
   return (
     <DialogFrame
       visible
-      title="Find Notes · Reconnect a document"
+      title="Reconnect notes"
       initialFocusRef={selectRef}
       onDismiss={() => {
         if (!busy) onClose();

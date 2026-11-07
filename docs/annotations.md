@@ -17,6 +17,13 @@ Escape cancels the current edit. Cancelling an empty note leaves its highlight.
 Starting another note, leaving the panel, or switching documents commits the
 current note to the document where editing began.
 
+Long notes show a three-line preview. **Read more** reveals the full note inline;
+**Show less** returns to the preview. Short notes need no expansion control. You
+can expand several notes independently, even while editing is temporarily
+unavailable. Expansion does not save changes or move your reading position.
+Choose the quotation to return to its highlighted passage, or **Edit note** to
+change the note.
+
 ## Location and document identity
 
 New highlights record the selected occurrence as well as its quotation and
@@ -58,8 +65,8 @@ Diagrams reapply saved highlights after their asynchronous rendering finishes.
 
 ## Reconnecting notes after a rename or move
 
-Choose **Find Notes…** in Highlights & notes or document navigation. A missing
-Recent document also offers **Locate / reconnect notes…**. Select the original
+Choose **Reconnect notes…** in Highlights & notes or beside a missing document
+in document navigation. Select the original
 document; its full path and counts distinguish collections with the same name.
 Choose the destination file to preview how many highlighted passages are located,
 uncertain, or missing using the existing conservative annotation rules. The

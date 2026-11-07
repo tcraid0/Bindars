@@ -3,6 +3,7 @@ import type { RecentFile } from "../types";
 import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
+import { documentTitle } from "../lib/document-title";
 
 /** What the search index knows about a recent file, keyed by path identity. */
 export type RecentDetails = ReadonlyMap<string, { title: string | null; section: string | null }>;
@@ -19,7 +20,7 @@ interface RecentFilesProps {
   /** Home marks the file you were last reading. */
   continuePath?: string | null;
   welcome?: boolean;
-  /** Home names each document by its title and the section it was left at. */
+  /** Shared document titles; Home also shows the section it was left at. */
   details?: RecentDetails;
 }
 
@@ -66,7 +67,9 @@ export function RecentFiles({
         const isOpening = file.path === openingPath;
         const key = toPathIdentityKey(file.path);
         const isUnavailable = recovery && key === toPathIdentityKey(recovery.path);
-        const { title = null, section = null } = details?.get(key) ?? {};
+        const detail = details?.get(key);
+        const title = documentTitle(file.name, detail?.title);
+        const section = detail?.section ?? null;
         // Home's cue says where to continue, so it needs a known section.
         const isContinue = file.path === continuePath && !isUnavailable && section !== null;
         const continueLabel = isContinue ? `Continue at ${section}` : null;
@@ -118,12 +121,12 @@ export function RecentFiles({
                   <>
                     <div
                       className="text-sm font-medium text-text-primary break-words"
-                      title={file.name}
+                      title={title ?? file.name}
                     >
-                      {file.name}
+                      {title ?? file.name}
                     </div>
                     <div className="text-xs text-text-muted break-words mt-0.5">
-                      {location} · {status ?? timeAgo(file.openedAt)}
+                      {title && `${file.name} · `}{location} · {status ?? timeAgo(file.openedAt)}
                     </div>
                   </>
                 )}
@@ -153,7 +156,7 @@ export function RecentFiles({
                 );
                 onRemove(file.path);
               }}
-              aria-label={`Remove ${file.name} from recent files`}
+              aria-label={`Remove ${title ?? file.name}${title ? `, ${file.name}` : ""} from recent files`}
               disabled={isOpening}
               className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                 welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}

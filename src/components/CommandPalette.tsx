@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef } from "react";
 import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
-import { locationLabel } from "../lib/paths";
+import { fileName, locationLabel } from "../lib/paths";
+import { documentTitle } from "../lib/document-title";
 import { MAX_WORKSPACE_BODY_CHARS } from "../lib/workspace-limits";
 import { PathDetails } from "./PathDetails";
 interface CommandPaletteProps {
@@ -128,37 +129,37 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
         aria-label="Matching documents"
         className="max-h-[40vh] overflow-y-auto"
       >
-        {results.map((hit, index) => (
-          <li
-            key={hit.path}
-            id={`document-result-${index}`}
-            role="option"
-            aria-selected={index === selectedIndex}
-            onMouseEnter={() => onHoverIndex(index)}
-            onClick={() => onOpenHit(hit)}
-            className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
-          >
-            <strong className="break-words">
-              {hit.kind === "title" && hit.title && hit.snippet === hit.title
-                ? hit.title
-                : hit.name || hit.relPath}
-            </strong>
-            <p className="text-xs text-text-secondary break-all">
-              {hit.name} · {locationLabel(hit.path)}
-            </p>
-            {hit.snippet && <p className="my-1 break-words">{hit.snippet}</p>}
-            {!hit.snippet && hit.title && (
-              <p className="my-1 break-words">{hit.title}</p>
-            )}
-            {!!hit.passageCount && (
-              <p className="text-xs text-text-secondary">
-                {hit.passageCount} matching passage
-                {hit.passageCount === 1 ? "" : "s"}
+        {results.map((hit, index) => {
+          const name = hit.name || fileName(hit.path);
+          const title = documentTitle(name, hit.title, hit.draftLabel);
+          const label = title ?? name;
+          return (
+            <li
+              key={hit.path}
+              id={`document-result-${index}`}
+              role="option"
+              aria-selected={index === selectedIndex}
+              onMouseEnter={() => onHoverIndex(index)}
+              onClick={() => onOpenHit(hit)}
+              className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
+            >
+              <strong className="break-words">
+                {label}
+              </strong>
+              <p className="text-xs text-text-secondary break-all">
+                {title && `${name} · `}{locationLabel(hit.path)}
               </p>
-            )}
-            {hit.problem && <p className="text-xs">{hit.problem}</p>}
-          </li>
-        ))}
+              {hit.snippet && hit.snippet !== label && <p className="my-1 break-words">{hit.snippet}</p>}
+              {!!hit.passageCount && (
+                <p className="text-xs text-text-secondary">
+                  {hit.passageCount} matching passage
+                  {hit.passageCount === 1 ? "" : "s"}
+                </p>
+              )}
+              {hit.problem && <p className="text-xs">{hit.problem}</p>}
+            </li>
+          );
+        })}
       </ul>
       {!results.length && (
         <p className="p-4 text-sm">

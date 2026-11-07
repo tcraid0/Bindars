@@ -100,6 +100,7 @@ export function searchWorkspaceDocs(
         relPath: doc.relPath,
         name: doc.name,
         title: doc.title,
+        draftLabel: doc.sources?.includes("draft") ? doc.draftLabel : undefined,
         problem: doc.problem,
         kind: "title",
         headingId: null,
@@ -194,6 +195,7 @@ export function searchWorkspaceDocs(
       relPath: doc.relPath,
       name: doc.name,
       title: doc.title,
+      draftLabel: doc.sources?.includes("draft") ? doc.draftLabel : undefined,
       problem: doc.problem,
       kind:
         nameMatch || titleMatch

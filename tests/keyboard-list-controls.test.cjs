@@ -272,3 +272,72 @@ for (const welcome of [false, true]) {
     } finally { view.cleanup(); }
   });
 }
+
+test('note disclosure follows measured overflow, stays read-only, and remeasures width and content', async t => {
+  await installDom();
+  const observers = new Set();
+  const originalObserver = window.ResizeObserver;
+  window.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; observers.add(this); }
+    observe(element) { this.element = element; }
+    disconnect() { observers.delete(this); }
+  };
+  // DOM tests exercise the measurement contract; the browser check verifies real clipping.
+  const proto = window.HTMLElement.prototype;
+  const scroll = Object.getOwnPropertyDescriptor(proto, 'scrollHeight');
+  const client = Object.getOwnPropertyDescriptor(proto, 'clientHeight');
+  let overflows = new Set(['Long first', 'Long second']);
+  Object.defineProperty(proto, 'scrollHeight', { configurable: true, get() { return overflows.has(this.textContent) ? 96 : 32; } });
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get() { return this.classList.contains('line-clamp-3') ? 48 : 96; } });
+  t.after(() => {
+    window.ResizeObserver = originalObserver;
+    if (scroll) Object.defineProperty(proto, 'scrollHeight', scroll); else delete proto.scrollHeight;
+    if (client) Object.defineProperty(proto, 'clientHeight', client); else delete proto.clientHeight;
+  });
+  const items = ['Short', 'Long first', 'Long second'].map((note, i) => ({ id: String(i), exact: `Passage ${i}`, color: 'yellow', note }));
+  const updates = [], jumps = [];
+  const view = renderComponent(AnnotationsPanel, { visible: true, filePath: '/a.md', fileName: 'a.md',
+    annotationStatus: 'ready', annotationsReady: true, highlights: items, bookmarks: [], headings: [],
+    onUpdateHighlight: (...args) => updates.push(args), onClickHighlight: id => jumps.push(id) });
+  t.after(view.cleanup);
+  const rows = () => [...view.host.querySelectorAll('li')];
+  const disclosure = row => row.querySelector('[aria-expanded]');
+  assert.equal(disclosure(rows()[0]), null);
+  assert.equal(disclosure(rows()[1]).textContent, 'Read more');
+  focus(disclosure(rows()[1]));
+  click(disclosure(rows()[1]));
+  click(disclosure(rows()[2]));
+  assert.equal(disclosure(rows()[1]).getAttribute('aria-expanded'), 'true');
+  assert.equal(disclosure(rows()[2]).getAttribute('aria-expanded'), 'true');
+  assert.equal(disclosure(rows()[1]).textContent, 'Show less');
+  assert.deepEqual(updates, []);
+  assert.deepEqual(jumps, []);
+  assert.ok(document.activeElement === disclosure(rows()[1]));
+  view.render({ mutationsDisabled: true });
+  assert.equal(rows()[1].querySelector('[aria-label="Edit note"]').disabled, true);
+  assert.equal(disclosure(rows()[1]).disabled, false);
+  click(disclosure(rows()[1]));
+  assert.equal(disclosure(rows()[1]).getAttribute('aria-expanded'), 'false');
+  assert.equal(disclosure(rows()[2]).getAttribute('aria-expanded'), 'true');
+  overflows = new Set();
+  const { flushSync } = require('./_helpers/react.cjs');
+  flushSync(() => observers.forEach(observer => observer.callback()));
+  assert.equal(disclosure(rows()[1]), null, 'a wider unclipped preview no longer needs Read more');
+  assert.equal(document.activeElement.textContent, 'Long first', 'focus stays on the note when its disclosure disappears');
+  assert.equal(disclosure(rows()[2]).textContent, 'Show less', 'expanded state never auto-collapses');
+  overflows = new Set(['Changed note']);
+  view.render({ highlights: items.map((item, i) => i === 1 ? { ...item, note: 'Changed note' } : item), mutationsDisabled: false });
+  assert.equal(disclosure(rows()[1]).textContent, 'Read more');
+  click(disclosure(rows()[1]));
+  click(rows()[1].querySelector('[aria-label="Edit note"]'));
+  assert.equal(document.activeElement.value, 'Changed note');
+  flushSync(() => observers.forEach(observer => observer.callback()));
+  assert.equal(document.activeElement.tagName, 'TEXTAREA');
+  pressKey('Escape');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Edit note');
+  assert.deepEqual(updates, []);
+  view.render({ filePath: '/b.md' });
+  assert.equal(disclosure(rows()[2]), null, 'expansion never leaks to the same annotation id in another document');
+  click(rows()[2].querySelector('button'));
+  assert.deepEqual(jumps, ['2'], 'the quotation retains its independent jump action');
+});

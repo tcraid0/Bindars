@@ -7208,6 +7208,36 @@ for (const format of ["markdown", "fountain"]) {
   }
 }
 
+test("Recent saves a section selected before history finished loading", async (context) => {
+  const held = deferred();
+  const path = "/tmp/late-history.md";
+  const history = { value: { version: 1, files: [
+    { path, name: "late-history.md", openedAt: 1, lastHeadingId: "first" },
+  ] }, writes: [], read: () => held.promise };
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const rendered = await renderContinuityApp({ requestedPath: path, recentStorage: history, readySelector: null });
+  try {
+    await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
+    await act(async () => context.mock.timers.tick(3000));
+    const second = await waitFor(() => {
+      const button = [...rendered.host.querySelectorAll('[aria-label="Table of contents"] button')]
+        .find(button => button.textContent.trim() === "Second");
+      assert.ok(button); return button;
+    });
+    await act(async () => second.click());
+    await act(async () => context.mock.timers.tick(1000));
+    assert.equal(history.writes.filter(write => write.key === "recent-files").length, 0);
+    await act(async () => held.resolve(history.value));
+    await waitFor(() => assert.ok(history.writes.some(write => write.key === "recent-files")));
+    await act(async () => context.mock.timers.tick(1500));
+    assert.equal(history.value.files.find(file => file.path === path).lastHeadingId, "second");
+  } finally {
+    context.mock.timers.reset();
+    held.resolve(history.value);
+    await rendered.cleanup();
+  }
+});
+
 test("saved heading restores when the reader mounts after the session document loads", async () => {
   const held = deferred();
   const history = { value: { version: 1, files: [] }, writes: [], read: () => held.promise };

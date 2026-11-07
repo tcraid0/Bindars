@@ -2171,11 +2171,99 @@ body[data-printing] .print-hide {
 /* Document navigation stays reachable at native interface zoom and narrow widths.
    The width comes from READER_PANEL_WIDTHS, like the other reader panels. */
 .document-sidebar {
+  container: document-navigation / size;
   max-width: 90vw;
   flex-shrink: 0;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
+}
+.navigation-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.navigation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.navigation-header {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 10;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.navigation-folder-context {
+  position: relative;
+  padding-bottom: 0.5rem;
+}
+.navigation-folder-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 0.9rem;
+}
+.navigation-folder-heading .navigation-action {
+  flex-shrink: 0;
+  padding: 0.4rem 0;
+  font-size: 0.75rem;
+}
+.folder-options {
+  position: absolute;
+  top: 100%;
+  left: 0.5rem;
+  right: 0.5rem;
+  max-height: 50dvh;
+  max-height: min(50dvh, calc(100cqh - 12rem));
+  overflow-y: auto;
+}
+.folder-options > button {
+  display: block;
+  width: 100%;
+}
+.navigation-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.25rem 0.9rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.navigation-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.navigation-breadcrumbs button,
+.navigation-crumb [aria-current] {
+  flex-shrink: 0;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-block: 0.25rem;
+}
+.navigation-breadcrumbs button {
+  color: var(--accent-text);
+}
+.navigation-breadcrumbs button:hover {
+  text-decoration: underline;
+}
+/* At short pane heights (including zoom or a wrapped app toolbar), use the
+   same scroller for everything. Inline options cannot be clipped by the list. */
+@container document-navigation (max-height: 480px) {
+  .navigation-layout { display: block; overflow-y: auto; }
+  .navigation-scroll { overflow: visible; }
+  .folder-options {
+    position: static;
+    margin: 0.25rem 0.5rem;
+    max-height: none;
+    overflow: visible;
+  }
 }
 .navigation-tabs {
   display: flex;
@@ -2217,9 +2305,14 @@ body[data-printing] .print-hide {
   text-align: left;
 }
 .navigation-folder-name {
-  margin: 0.75rem 0.9rem 0;
-  font-size: 1rem;
-  overflow-wrap: anywhere;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .document-list {
   margin: 0;

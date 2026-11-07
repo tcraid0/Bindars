@@ -109,6 +109,7 @@ async function until(assertion) {
 }
 test("reconnection previews exact and missing passages, retains all records, and requires an explicit commit", async (t) => {
   const view = await mount(t);
+  assert.equal(view.dialog().querySelector("h2").textContent, "Reconnect notes");
   assert.match(view.dialog().textContent, /2 highlights, 2 notes, 1 bookmarks/);
   await act(async () => view.button("Choose destination document…").click());
   await until(() =>

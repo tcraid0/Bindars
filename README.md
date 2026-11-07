@@ -78,8 +78,16 @@ Bindars opens documents where they already are. **Recent** holds the last 25
 opened documents from any location. Its rows keep their order while you use the
 sidebar, returning to most-recent-first when you hide and show it or relaunch.
 Resizing the window does not reshuffle it.
-New documents enter at the top, and each row shows its location and last-opened
-time on one quiet line. **Back** returns to documents opened from Recent.
+New documents enter at the top. Home, Recent, and Search use a document's title
+when available, with its filename and location alongside it. While titles are
+being prepared, filenames appear immediately. Recent also shows when you last
+opened each document. **Back** returns to documents opened from Recent.
+
+Removing a document from Recent leaves an untimed **Add Back** notice, shared
+with Home. Add Back preserves its previous last-opened time and restores the latest
+section, including reading progress made while the document was removed.
+The notice stays until you add it back, dismiss it, reopen that document, remove
+another entry, or end the session. Files and notes are unchanged.
 
 The sidebar starts hidden and remembers your choice. A one-time note offers
 **Show Sidebar** when you open a second distinct document; if the reading hint
@@ -101,9 +109,14 @@ In **Folders**, choose **Add Folder…** to browse one folder's supported files 
 subfolders. Nothing is moved or copied. The picker starts in the folder of the
 document you are reading. Opening another file does not add or scan its parent
 folder, and saving a document keeps its place in the folder list. Browsing does
-not change where new documents autosave. **Remove from Sidebar** removes only
-this folder reference; the inline **Add Back** action restores it. Neither action
-moves or deletes documents or notes.
+not change where new documents autosave. Choose an ancestor in the breadcrumb
+path to navigate up. Browsing stays in your chosen directory when you open a
+document elsewhere. **Folder options** contains **Choose another folder…**, full
+folder and current locations, and **Remove from Sidebar**. Removal affects only
+this folder reference; the inline, untimed **Add Back** action restores it.
+Neither action moves or deletes documents or notes. Tabs, Search, and compact
+folder context stay visible while browsing; at short window heights or high
+interface zoom, the whole sidebar scrolls so every control remains reachable.
 
 **Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
 Its Scope menu can narrow results to that folder. Unquoted words may occur in

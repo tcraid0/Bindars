@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { RecentFile } from "../types";
 import { RecentFiles, type RecentDetails } from "./RecentFiles";
+import { RecentRemovalNotice, type RecentRemovalRecovery } from "./RecentRemovalNotice";
 import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-recovery";
 import { toPathIdentityKey } from "../lib/paths";
 import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
@@ -33,6 +34,7 @@ interface EmptyStateProps {
   preferHome?: boolean;
   recentFiles: RecentFile[];
   recentDetails?: RecentDetails;
+  recentRemoval?: RecentRemovalRecovery | null;
   recentHistoryUnavailable?: boolean;
   /** The recent file to mark "Continue at", if its section is known. */
   continuePath?: string | null;
@@ -46,7 +48,7 @@ interface EmptyStateProps {
 
 function EmptyStateComponent({
   onOpenFile, onNewFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
-  recentFiles, recentDetails, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
+  recentFiles, recentDetails, recentRemoval, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
   openingPath, recovery, onRetry, onDismiss,
 }: EmptyStateProps) {
   const recentList = recentFiles.slice(0, 5);
@@ -230,6 +232,7 @@ function EmptyStateComponent({
             )}
           </div>
           {recoveryMessage}
+          <RecentRemovalNotice recovery={recentRemoval} onLeave={() => headingRef.current?.focus({ preventScroll: true })} />
           {!blank && recents}
           {few && startRows}
           <p className="text-xs text-text-muted mt-5 px-3">
@@ -267,6 +270,7 @@ function EmptyStateComponent({
         </div>
         {!recovery && <p className="text-xs text-text-muted mt-6">Or drop a Markdown or Fountain file here</p>}
         {(recentList.length > 0 || recentHistoryUnavailable) && recents}
+        <RecentRemovalNotice recovery={recentRemoval} onLeave={() => openRef.current?.focus({ preventScroll: true })} />
         {shortcuts}
       </div>
     </div>
