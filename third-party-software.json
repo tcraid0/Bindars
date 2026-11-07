@@ -316,12 +316,12 @@
       ]
     },
     {
-      "id": "cargo:async-executor@1.14.0",
+      "id": "cargo:async-executor@1.14.1",
       "kind": "cargo",
       "name": "async-executor",
-      "version": "1.14.0",
+      "version": "1.14.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a",
+      "checksum": "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37",
       "declaredLicense": "Apache-2.0 OR MIT",
       "authors": [
         "Stjepan Glavina <stjepang@gmail.com>",
@@ -21274,7 +21274,7 @@
         "cargo:ambient-authority@0.0.2",
         "cargo:anyhow@1.0.104",
         "cargo:async-channel@2.5.0",
-        "cargo:async-executor@1.14.0",
+        "cargo:async-executor@1.14.1",
         "cargo:async-io@2.6.0",
         "cargo:async-lock@3.4.2",
         "cargo:async-process@2.5.0",
@@ -22914,7 +22914,7 @@
       "packages": [
         "cargo:ambient-authority@0.0.2",
         "cargo:async-channel@2.5.0",
-        "cargo:async-executor@1.14.0",
+        "cargo:async-executor@1.14.1",
         "cargo:async-io@2.6.0",
         "cargo:async-lock@3.4.2",
         "cargo:async-process@2.5.0",
