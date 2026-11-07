@@ -8,6 +8,7 @@ import { RecentFiles, type RecentDetails } from "./RecentFiles";
 import { DocumentList } from "./DocumentList";
 import { FolderContext } from "./FolderContext";
 import { fileName, toPosixPath } from "../lib/paths";
+import { PathDetails } from "./PathDetails";
 import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
@@ -70,6 +71,7 @@ function SidebarComponent(props: SidebarProps) {
   if (!visible) return null;
   const folderDocs = docs.filter((doc) => doc.sources?.includes("folder"));
   const drafts = docs.filter((doc) => doc.sources?.includes("draft"));
+  const draftsLocation = state.draftsRootPath;
   const normalizedDir = toPosixPath(directory);
   const prefix = normalizedDir ? `${normalizedDir}/` : "";
   const subfolders = (state.directories ?? [])
@@ -211,6 +213,9 @@ function SidebarComponent(props: SidebarProps) {
                 <p className="navigation-help">
                   New documents are saved here until you save them somewhere else.
                 </p>
+                {draftsLocation && <div className="navigation-help">
+                  <PathDetails path={draftsLocation} label="Bindars Drafts location" />
+                </div>}
                 {state.draftsError && (
                   <p role="status" className="navigation-help">
                     {state.draftsError}{" "}

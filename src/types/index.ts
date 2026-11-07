@@ -175,6 +175,7 @@ export interface WorkspaceState {
   issues?: string[];
   draftsError?: string | null;
   draftsSkipped?: boolean;
+  draftsRootPath?: string | null;
 }
 
 export interface WorkspaceFileMeta {

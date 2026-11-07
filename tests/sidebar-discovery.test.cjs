@@ -176,7 +176,7 @@ test("menu sidebar actions sync intent, respect dialogs, and hide a fit-hidden s
     });
     assert.ok(!sidebar());
     await menu("toggle-sidebar");
-    assert.deepEqual([...sidebar().querySelectorAll('button[aria-label^="Open "]')].map(row => row.title), ["/fixture/B.md", "/fixture/A.md"]);
+    assert.deepEqual([...sidebar().querySelectorAll('[data-path]')].map(row => row.dataset.path), ["/fixture/B.md", "/fixture/A.md"]);
     assert.equal(view.titleStates.at(-1), true);
   } finally { Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth }); }
 });

@@ -1,9 +1,10 @@
-import { locationLabel, toPathIdentityKey } from "../lib/paths";
+import { locationLabel, recentLocationLabels, toPathIdentityKey } from "../lib/paths";
 import type { RecentFile } from "../types";
 import { useRef } from "react";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 import { documentTitle } from "../lib/document-title";
+import { useRecentFileDetails } from "./useRecentFileDetails";
 
 /** What the search index knows about a recent file, keyed by path identity. */
 export type RecentDetails = ReadonlyMap<string, { title: string | null; section: string | null }>;
@@ -50,6 +51,8 @@ export function RecentFiles({
   details,
 }: RecentFilesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const locations = recentLocationLabels(files.map(file => file.path));
+  const supplementary = useRecentFileDetails(welcome ? [] : files, timeAgo);
 
   return (
     <div
@@ -62,7 +65,7 @@ export function RecentFiles({
       {files.length === 0 && (unavailable ? (
         <div className="px-4 py-8 text-center text-text-muted text-sm">Recent history is unavailable.</div>
       ) : <p className="navigation-help">Documents you open will appear here.</p>)}
-      {files.map((file) => {
+      {files.map((file, index) => {
         const isActive = file.path === currentFilePath;
         const isOpening = file.path === openingPath;
         const key = toPathIdentityKey(file.path);
@@ -73,7 +76,9 @@ export function RecentFiles({
         // Home's cue says where to continue, so it needs a known section.
         const isContinue = file.path === continuePath && !isUnavailable && section !== null;
         const continueLabel = isContinue ? `Continue at ${section}` : null;
-        const location = locationLabel(file.path);
+        const location = welcome ? locationLabel(file.path) : locations.get(key);
+        const name = `${title ?? file.name}${title ? `, ${file.name}` : ""}`;
+        const identity = `${name}${location ? `, ${location}` : ""}`;
         const status = isOpening ? "Opening…" : isUnavailable ? "Unavailable" : null;
         return (
           <div
@@ -84,11 +89,12 @@ export function RecentFiles({
           >
             <div className="flex-1 min-w-0">
               <button
+                {...(!welcome ? supplementary.triggerProps(file, index) : {})}
                 type="button"
                 onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Open ${title ?? file.name}${title ? `, ${file.name}` : ""}, ${location}${continueLabel ? `, ${continueLabel}` : ""}`}
-                title={file.path}
+                aria-label={`Open ${identity}${continueLabel ? `, ${continueLabel}` : ""}`}
+                title={welcome ? file.path : undefined}
                 aria-current={isActive ? "page" : undefined}
                 aria-busy={isOpening}
                 aria-disabled={isOpening || isUnavailable || undefined}
@@ -120,20 +126,20 @@ export function RecentFiles({
                 ) : (
                   <>
                     <div
-                      className="text-sm font-medium text-text-primary break-words"
-                      title={title ?? file.name}
+                      className="recent-file-name text-sm font-medium text-text-primary"
                     >
                       {title ?? file.name}
                     </div>
-                    <div className="text-xs text-text-muted break-words mt-0.5">
-                      {title && `${file.name} · `}{location} · {status ?? timeAgo(file.openedAt)}
-                    </div>
+                    {title && <div className="recent-file-name text-xs text-text-secondary mt-0.5">{file.name}</div>}
+                    {location && <div className="recent-file-name text-xs text-text-muted mt-0.5">{location}</div>}
+                    {status && <div className="text-xs text-text-secondary mt-0.5">{status}</div>}
                   </>
                 )}
               </button>
             </div>
             {isUnavailable && onRetry && (
               <button
+                {...(!welcome ? supplementary.triggerProps(file, index) : {})}
                 type="button"
                 onClick={(event) => {
                   event.currentTarget.parentElement?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
@@ -141,12 +147,13 @@ export function RecentFiles({
                 }}
                 disabled={isOpening || recovery.retryDisabled}
                 className="text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none"
-                aria-label={`Retry opening ${file.name}`}
+                aria-label={`Retry opening ${welcome ? file.name : identity}`}
               >
                 Retry
               </button>
             )}
             <button
+              {...(!welcome && isUnavailable ? supplementary.triggerProps(file, index) : {})}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -156,11 +163,11 @@ export function RecentFiles({
                 );
                 onRemove(file.path);
               }}
-              aria-label={`Remove ${title ?? file.name}${title ? `, ${file.name}` : ""} from recent files`}
+              aria-label={`Remove ${welcome ? name : identity} from recent files`}
               disabled={isOpening}
               className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                 welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
-              title="Remove from recent"
+              title={!welcome && isUnavailable ? undefined : "Remove from recent"}
             >
               <svg
                 width="14"
@@ -179,6 +186,7 @@ export function RecentFiles({
           </div>
         );
       })}
+      {supplementary.details}
     </div>
   );
 }

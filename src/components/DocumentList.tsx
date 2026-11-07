@@ -47,11 +47,10 @@ export function DocumentList({
                 </span>
               )}
             </button>
-            {/* Folder rows sit under the folder's own location. */}
-            {drafts && <PathDetails path={doc.path} label="Bindars Drafts" />}
             {doc.problem && (
               <div className="document-problem">
                 <p>{doc.problem}</p>
+                {drafts && <PathDetails path={doc.path} label="File location" />}
                 <button type="button" onClick={onRetry}>
                   Retry
                 </button>{" "}
