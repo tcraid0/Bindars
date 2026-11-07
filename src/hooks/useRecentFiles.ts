@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { loadRecentFiles, saveRecentFiles } from "../lib/recent-files";
 import type { RecentFile } from "../types";
+import { toPathIdentityKey } from "../lib/paths";
 
 const MAX_RECENT = 25;
 
@@ -10,6 +11,12 @@ export function useRecentFiles() {
   // Mutations use the latest list even within one React batch, without doing
   // persistence inside a state updater that StrictMode can replay.
   const filesRef = useRef(recentFiles);
+  const [removedRecent, setRemovedRecent] = useState<RecentFile | null>(null);
+  const removedRef = useRef<RecentFile | null>(null);
+  const dismissRecentRemoval = useCallback(() => {
+    removedRef.current = null;
+    setRemovedRecent(null);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -38,6 +45,7 @@ export function useRecentFiles() {
 
   const addRecent = useCallback(
     (path: string, name: string) => {
+      if (removedRef.current && toPathIdentityKey(removedRef.current.path) === toPathIdentityKey(path)) dismissRecentRemoval();
       const prev = filesRef.current;
       const existing = prev.find((f) => f.path === path);
       const filtered = prev.filter((f) => f.path !== path);
@@ -50,21 +58,52 @@ export function useRecentFiles() {
       };
       persist([entry, ...filtered].slice(0, MAX_RECENT));
     },
-    [persist],
+    [persist, dismissRecentRemoval],
   );
 
   const removeRecent = useCallback(
-    (path: string) => {
+    (path: string, { recoverable = false } = {}) => {
+      if (status !== "ready") return;
+      const removed = filesRef.current.find(file => file.path === path);
+      if (recoverable && removed) {
+        removedRef.current = removed;
+        setRemovedRecent(removed);
+      } else if (removedRef.current?.path === path) {
+        dismissRecentRemoval();
+      }
       persist(filesRef.current.filter((f) => f.path !== path));
     },
-    [persist],
+    [persist, status, dismissRecentRemoval],
   );
+
+  const restoreRemovedRecent = useCallback(() => {
+    const removed = removedRef.current;
+    if (!removed || status !== "ready") return;
+    const current = filesRef.current;
+    // A reopened document's live reading state wins, including within one batch.
+    if (!current.some(file => toPathIdentityKey(file.path) === toPathIdentityKey(removed.path))) {
+      // Reserve one place for the restored record, even if it is the oldest.
+      const kept = [...current].sort((a, b) => b.openedAt - a.openedAt).slice(0, MAX_RECENT - 1);
+      persist([...kept, removed].sort((a, b) => b.openedAt - a.openedAt));
+    }
+    dismissRecentRemoval();
+    return removed;
+  }, [persist, status, dismissRecentRemoval]);
 
   const updateScrollPosition = useCallback(
     (path: string, headingId: string | null) => {
       const prev = filesRef.current;
       const idx = prev.findIndex((f) => f.path === path);
-      if (idx === -1 || prev[idx].lastHeadingId === headingId) return;
+      if (idx === -1) {
+        const removed = removedRef.current;
+        if (removed?.path === path && removed.lastHeadingId !== headingId) {
+          const updated = { ...removed, lastHeadingId: headingId };
+          removedRef.current = updated;
+          setRemovedRecent(updated);
+        }
+        return;
+      }
+      if (prev[idx].lastHeadingId === headingId) return;
       const next = [...prev];
       next[idx] = { ...next[idx], lastHeadingId: headingId };
       persist(next);
@@ -80,5 +119,6 @@ export function useRecentFiles() {
     [recentFiles],
   );
 
-  return { recentFiles, status, addRecent, removeRecent, updateScrollPosition, getScrollPosition };
+  return { recentFiles, status, addRecent, removeRecent, updateScrollPosition, getScrollPosition,
+    removedRecent, restoreRemovedRecent, dismissRecentRemoval };
 }

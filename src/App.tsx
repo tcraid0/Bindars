@@ -36,6 +36,7 @@ import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { HighlightToolbar } from "./components/HighlightToolbar";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
+import { documentTitle } from "./lib/document-title";
 import { CommandPalette } from "./components/CommandPalette";
 import { PresentationView } from "./components/PresentationView";
 import { parseSlides } from "./lib/slide-parser";
@@ -52,7 +53,7 @@ import type { ReconciliationSignal } from "./hooks/useDocumentReconciliation";
 import { useReconciliationLifecycle } from "./hooks/useReconciliationLifecycle";
 import { useHeadings } from "./hooks/useHeadings";
 import { useDragDrop } from "./hooks/useDragDrop";
-import { OPENABLE_FILE_TYPES_DESCRIPTION, replaceOpenableDocumentExtension } from "./lib/openable-files";
+import { OPENABLE_FILE_TYPES_DESCRIPTION } from "./lib/openable-files";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useSteadyRecentOrder } from "./hooks/useSteadyRecentOrder";
 import { useSessionRestore } from "./hooks/useSessionRestore";
@@ -222,7 +223,8 @@ function App() {
   // Virtual drafts have no folder to authorize; a file waits for the native
   // acceptance of exactly the published path.
   const imagesAuthorized = filePath === null || imageDocumentPath === filePath;
-  const { recentFiles, status: recentFilesStatus, addRecent, removeRecent, updateScrollPosition, getScrollPosition } = useRecentFiles();
+  const { recentFiles, status: recentFilesStatus, addRecent, removeRecent, updateScrollPosition, getScrollPosition,
+    removedRecent, restoreRemovedRecent, dismissRecentRemoval } = useRecentFiles();
   const { canGoBack, canGoForward, pushEntry, peekBack, commitBack, peekForward, commitForward } =
     useNavigationHistory();
   const workspaceRoot = useWorkspaceRoot();
@@ -240,8 +242,7 @@ function App() {
     return new Map(recentFiles.map(file => {
       const key = toPathIdentityKey(file.path);
       const doc = docs.get(key);
-      const title = doc?.title && doc.title !== file.name
-        && doc.title !== replaceOpenableDocumentExtension(file.name, "") ? doc.title : null;
+      const title = documentTitle(file.name, doc?.title, doc?.sources?.includes("draft") ? doc.draftLabel : undefined);
       const section = doc?.headings.find((heading, index) => index > 0 && heading.id === file.lastHeadingId)?.text || null;
       return [key, { title, section }];
     }));
@@ -439,7 +440,11 @@ function App() {
   const currentFileIsDraftRef = useRef(currentFileIsDraft);
   const draftClassificationRef = useRef<{ path: string; promise: Promise<boolean> } | null>(null);
   const loadedContentRef = useRef(content);
-  const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingScrollSaveRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    path: string;
+    headingId: string;
+  } | null>(null);
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const progressTextRef = useRef<HTMLSpanElement | null>(null);
   const keyDownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -1821,6 +1826,16 @@ function App() {
   // consumed once by the newly mounted, correctly scoped reader DOM.
   const openAttemptIdRef = useRef(0);
 
+  const rememberReopenedRemoval = useCallback(() => {
+    const published = getPublishedDocument();
+    if (removedRecent && published.filePath && published.filePath === filePath && published.fileName
+      && toPathIdentityKey(removedRecent.path) === toPathIdentityKey(published.filePath)) {
+      // Reopening the current file may leave filePath unchanged, so the usual
+      // recent-history effect will not run. This is a fresh open, not Add Back.
+      addRecent(published.filePath, published.fileName);
+    }
+  }, [removedRecent, filePath, getPublishedDocument, addRecent]);
+
   const openPathAndScroll = useCallback(
     async (
       path: string,
@@ -1836,7 +1851,10 @@ function App() {
       if (openAttemptIdRef.current !== openAttemptId) return { status: "superseded" };
 
       // Until the observer reports, the place is the target, not the last document's heading.
-      if (result.status === "opened") activeHeadingIdRef.current = headingId;
+      if (result.status === "opened") {
+        activeHeadingIdRef.current = headingId;
+        rememberReopenedRemoval();
+      }
       if (result.status === "opened" && headingId) {
         setPendingReaderTarget({
           kind: "heading",
@@ -1846,7 +1864,7 @@ function App() {
       }
       return result;
     },
-    [openFilePathWithStatus],
+    [openFilePathWithStatus, rememberReopenedRemoval],
   );
 
   // Session restore: reopen last file + scroll position on startup
@@ -2004,6 +2022,7 @@ function App() {
     mainScrollRef.current?.focus({ preventScroll: true });
   });
 
+  const removedRecentPath = removedRecent?.path;
   const handleActiveHeadingChange = useCallback((headingId: string | null) => {
     activeHeadingIdRef.current = headingId;
     currentPositionRef.current = {
@@ -2012,22 +2031,34 @@ function App() {
     };
     notifySessionPositionChanged();
 
-    if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
-    scrollSaveTimerRef.current = null;
     const path = currentFilePathRef.current;
-    if (!path || !headingId) return;
-    scrollSaveTimerRef.current = setTimeout(() => {
-      scrollSaveTimerRef.current = null;
+    const pending = pendingScrollSaveRef.current;
+    // A Recent notice can report the same heading again. Keep its original
+    // save deadline unless this document now needs an immediate memory update.
+    if (pending && pending.path === path && pending.headingId === headingId
+      && path !== removedRecentPath) return;
+    if (pending) clearTimeout(pending.timer);
+    pendingScrollSaveRef.current = null;
+    if (!path || !headingId || recentFilesStatus !== "ready") return;
+    // The pending removal is memory-only. Keep it current even if Add Back or
+    // another document is chosen before the normal persistence delay expires.
+    if (path === removedRecentPath) {
+      updateScrollPosition(path, headingId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      pendingScrollSaveRef.current = null;
       if (currentFilePathRef.current !== path || activeHeadingIdRef.current !== headingId) return;
       updateScrollPosition(path, headingId);
     }, 1500);
-  }, [notifySessionPositionChanged, updateScrollPosition]);
+    pendingScrollSaveRef.current = { timer, path, headingId };
+  }, [notifySessionPositionChanged, updateScrollPosition, removedRecentPath, recentFilesStatus]);
 
   useEffect(() => {
     return () => {
-      if (scrollSaveTimerRef.current) {
-        clearTimeout(scrollSaveTimerRef.current);
-        scrollSaveTimerRef.current = null;
+      if (pendingScrollSaveRef.current) {
+        clearTimeout(pendingScrollSaveRef.current.timer);
+        pendingScrollSaveRef.current = null;
       }
     };
   }, []);
@@ -2264,6 +2295,7 @@ function App() {
     ) => {
       // Same-file shortcut: skip re-reading and scroll directly
       if (filePath && toPathIdentityKey(path) === toPathIdentityKey(filePath)) {
+        rememberReopenedRemoval();
         if (anchor) {
           if (!scrollToFragment(anchor, { behavior: "auto" })) {
             toast(`Link target "#${anchor}" not found in this document`, "error");
@@ -2274,7 +2306,7 @@ function App() {
 
       await openAndRecordHistory(path, anchor, retryAction);
     },
-    [filePath, openAndRecordHistory, scrollToFragment, toast],
+    [filePath, openAndRecordHistory, scrollToFragment, toast, rememberReopenedRemoval],
   );
 
   // Back and Forward share one move, to Home or to a document at its heading.
@@ -3142,8 +3174,16 @@ function App() {
   // keeps the entry in recent files.
   const removeRecentFile = (path: string) => {
     if (toPathIdentityKey(path) === recoveryPathKey) dismissRecentRecovery();
-    removeRecent(path);
+    removeRecent(path, { recoverable: true });
   };
+  const recentRemoval = removedRecent ? {
+    file: removedRecent,
+    restore: () => {
+      const restored = restoreRemovedRecent();
+      if (restored) toast(`Added ${restored.name} back to Recent.`);
+    },
+    dismiss: dismissRecentRemoval,
+  } : null;
 
   return (
     <div
@@ -3233,6 +3273,9 @@ function App() {
         <Sidebar
           visible={visiblePanels.sidebar}
           recentFiles={sidebarRecentFiles}
+          recentDetails={recentDetails}
+          recentRemoval={recentRemoval}
+          announceRecentRemoval={documentOpen}
           recentHistoryUnavailable={recentFilesStatus !== "ready"}
           currentFilePath={filePath}
           openingPath={openingPath}
@@ -3391,6 +3434,7 @@ function App() {
                   recentFiles={recentFiles}
                   recentHistoryUnavailable={recentFilesStatus !== "ready"}
                   recentDetails={recentDetails}
+                  recentRemoval={recentRemoval}
                   continuePath={continuePath}
                   onOpenRecent={guardedOpenRecent}
                   onRemoveRecent={removeRecentFile}

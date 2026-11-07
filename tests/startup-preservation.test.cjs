@@ -376,3 +376,99 @@ test('Recent retains 25 opened documents with their saved sections', async t => 
   assert.equal(saved[24].path, '/23.md');
   assert.equal(saved[24].lastHeadingId, 'section-23');
 });
+
+// Explicit Recent removal is recoverable; draft retirement and other cleanup are not.
+test('Recent recovery merges the full record after intervening opens/removals and does not persist its notice', async t => {
+  const original = { ...recent('/original.md', 'saved-section'), openedAt: 25, futureContext: { line: 12 } };
+  const disk = storage(t, { 'recent-files': { version: 1, files: [original, recent('/other.md'), recent('/retired.md')] } });
+  const view = await mount(t, fresh().recents, true);
+  await act(async () => view.current.removeRecent('/retired.md'));
+  assert.equal(view.current.removedRecent, null);
+  await act(async () => {
+    view.current.removeRecent('/original.md', { recoverable: true });
+    view.current.addRecent('/new.md', 'new.md');
+    view.current.removeRecent('/other.md');
+  });
+  assert.deepEqual(view.current.removedRecent, original);
+  await act(async () => view.current.restoreRemovedRecent());
+  assert.deepEqual(view.current.recentFiles.map(f => f.path), ['/new.md', '/original.md']);
+  assert.deepEqual(view.current.recentFiles[1], original);
+  assert.equal(view.current.removedRecent, null);
+  assert.deepEqual(Object.keys(disk.durable()['recent-files']).sort(), ['files', 'version']);
+});
+
+test('reading while removed updates the pending Recent section without persisting it or changing its timestamp', async t => {
+  const original = { ...recent(), futureContext: { line: 12 } };
+  const disk = storage(t, { 'recent-files': { version: 1, files: [original] } });
+  const view = await mount(t, fresh().recents, true);
+  await act(async () => view.current.removeRecent(original.path, { recoverable: true }));
+  const writesAfterRemoval = disk.writes.length;
+  await act(async () => {
+    view.current.updateScrollPosition('/unrelated.md', 'unrelated');
+    view.current.updateScrollPosition(original.path, null);
+  });
+  assert.equal(view.current.removedRecent.lastHeadingId, null);
+  await act(async () => view.current.updateScrollPosition(original.path, 'later-section'));
+  assert.deepEqual(view.current.removedRecent, { ...original, lastHeadingId: 'later-section' });
+  assert.equal(disk.writes.length, writesAfterRemoval);
+  assert.deepEqual(disk.durable()['recent-files'].files, []);
+  await act(async () => view.current.restoreRemovedRecent());
+  assert.deepEqual(view.current.recentFiles, [{ ...original, lastHeadingId: 'later-section' }]);
+  assert.deepEqual(disk.durable()['recent-files'].files, view.current.recentFiles);
+});
+
+test('only the newest explicit removal can be added back; Dismiss and session end forget it', async t => {
+  storage(t, { 'recent-files': { version: 1, files: [recent('/one.md'), recent('/two.md')] } });
+  const view = await mount(t, fresh().recents, true);
+  await act(async () => {
+    view.current.removeRecent('/one.md', { recoverable: true });
+    view.current.removeRecent('/two.md', { recoverable: true });
+    view.current.restoreRemovedRecent();
+  });
+  assert.deepEqual(view.current.recentFiles.map(f => f.path), ['/two.md']);
+  await act(async () => view.current.removeRecent('/two.md', { recoverable: true }));
+  await act(async () => view.current.dismissRecentRemoval());
+  await act(async () => view.current.restoreRemovedRecent());
+  assert.deepEqual(view.current.recentFiles, []);
+  await act(async () => {
+    view.current.addRecent('/again.md', 'again.md');
+    view.current.removeRecent('/again.md', { recoverable: true });
+  });
+  await view.unmount();
+  const next = await mount(t, fresh().recents);
+  assert.equal(next.current.removedRecent, null);
+  assert.deepEqual(next.current.recentFiles, []);
+});
+
+test('reopening clears recovery and a stale Add Back callback cannot overwrite newer reading state', async t => {
+  storage(t, { 'recent-files': { version: 1, files: [recent()] } });
+  const view = await mount(t, fresh().recents, true);
+  await act(async () => view.current.removeRecent('/old.md', { recoverable: true }));
+  const staleRestore = view.current.restoreRemovedRecent;
+  await act(async () => {
+    view.current.addRecent('/old.md', 'old.md');
+    view.current.updateScrollPosition('/old.md', 'new-section');
+    staleRestore();
+  });
+  assert.equal(view.current.removedRecent, null);
+  assert.equal(view.current.recentFiles.length, 1);
+  assert.equal(view.current.recentFiles[0].lastHeadingId, 'new-section');
+  assert.ok(view.current.recentFiles[0].openedAt > 1);
+});
+
+test('Add Back reserves a place for an old entry in a full list without changing its timestamp', async t => {
+  const original = recent('/oldest.md', 'oldest-section');
+  const others = Array.from({ length: 24 }, (_, i) => ({ ...recent(`/file-${i}.md`), openedAt: 100 - i }));
+  storage(t, { 'recent-files': { version: 1, files: [...others, original] } });
+  const view = await mount(t, fresh().recents, true);
+  await act(async () => {
+    view.current.removeRecent(original.path, { recoverable: true });
+    view.current.addRecent('/new.md', 'new.md');
+    view.current.restoreRemovedRecent();
+  });
+  assert.equal(view.current.recentFiles.length, 25);
+  assert.deepEqual(view.current.recentFiles.at(-1), original);
+  assert.equal(view.current.recentFiles[0].path, '/new.md');
+  assert.equal(view.current.recentFiles.some(f => f.path === '/file-23.md'), false);
+  assert.deepEqual(view.current.recentFiles.slice(1, -1), others.slice(0, -1));
+});

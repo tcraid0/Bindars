@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { setTimeout: pollTimeout } = require("node:timers");
 const { act } = require("react");
 const { mockWindows, clearMocks } = require("@tauri-apps/api/mocks");
 const { emit } = require("@tauri-apps/api/event");
@@ -11,7 +12,8 @@ async function until(assertion) {
   for (let i = 0; ; i++) {
     await act(async () => {});
     try { return assertion(); } catch (error) { if (i === 80) throw error; }
-    await act(async () => new Promise(resolve => setTimeout(resolve, 5)));
+    // Fixture polling stays live when a test controls the app's timers.
+    await act(async () => new Promise(resolve => pollTimeout(resolve, 5)));
   }
 }
 const deferred = () => {
@@ -534,7 +536,10 @@ test("removing the last recent file on Home keeps compact Home through Quit and 
   click(app.host().querySelector('.empty-state [aria-label="Remove A.md from recent files"]'));
   await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   assert.ok(atHome(app), "removing the last row does not change the page");
-  const startsHome = () => assert.match(app.host().querySelector(".empty-state").textContent, /^HomeStart with a document/);
+  const startsHome = () => {
+    assert.equal(pageHeading(app).textContent, "Home");
+    assert.equal(app.host().querySelector(".empty-state h2").textContent, "Start with a document");
+  };
   startsHome();
   await app.quit();
   await app.relaunch();
@@ -633,4 +638,146 @@ test("a missing file named at launch is reported on Home instead of reopening th
   await act(async () => app.launchHolds.get(path).reject({ category: "notFound", operation: "readDocument", message: "Missing", detail: "fixture" }));
   await until(() => assert.match(app.host().querySelector(".empty-state-recovery-message")?.textContent ?? "", /notes\.md/));
   assert.deepEqual(app.opened, [path], "the explicit file wins over restoration, even when it is missing");
+});
+
+test('Home and sidebar share explicit removal, restore Search membership, and preserve newer sidebar ordering', async t => {
+  const files = ['A', 'B', 'C'].map((name, i) => ({ path: `/fixture/${name}.md`, name: `${name}.md`, openedAt: 10-i, lastHeadingId: i === 1 ? 'second' : null }));
+  const app = await mount(t, { initialPath: null, recentFiles: files, session: { kind: 'home', savedAt: 1 } });
+  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  const sidebar = await until(() => { const s = app.host().querySelector('.document-sidebar'); assert.ok(s); return s; });
+  const remove = path => app.host().querySelector(`.empty-state [data-path="${path}"] [aria-label$="from recent files"]`);
+  remove(files[1].path).focus();
+  click(remove(files[1].path));
+  await until(() => assert.equal(app.host().querySelectorAll('.recent-removal-notice').length, 2));
+  assert.equal(app.host().querySelector('.empty-state .recent-removal-notice').getAttribute('aria-live'), 'polite');
+  assert.equal(sidebar.querySelector('.recent-removal-notice').getAttribute('aria-live'), 'off');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Open C.md, fixture');
+  const search = [...sidebar.querySelectorAll('button')].find(b => b.textContent === 'Search documents…');
+  click(search);
+  await until(() => assert.ok(document.querySelector('[role="listbox"]')));
+  assert.ok(![...document.querySelectorAll('[role="option"]')].some(row => row.textContent.includes('B.md')));
+  click([...document.querySelectorAll('button')].find(b => b.textContent === 'Close Search'));
+  await app.open('/fixture/D.md');
+  const order = [...sidebar.querySelectorAll('[data-path]')].map(row => row.dataset.path);
+  const addBack = [...sidebar.querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === 'Add Back');
+  addBack.focus(); click(addBack);
+  await until(() => assert.ok(sidebar.querySelector('.recent-removal-notice') === null));
+  assert.equal(document.activeElement.getAttribute('role'), 'tabpanel');
+  assert.deepEqual([...sidebar.querySelectorAll('[data-path]')].map(row => row.dataset.path), ['/fixture/B.md', ...order]);
+  assert.deepEqual(app.settings['recent-files'].files.find(f => f.path === '/fixture/B.md'), files[1]);
+  click(search);
+  await until(() => assert.ok([...document.querySelectorAll('[role="option"]')].some(row => row.textContent.includes('B.md'))));
+});
+
+test('restoring an unavailable Recent entry clears its error recovery and does not reopen it', async t => {
+  const missing = { path: '/fixture/missing.md', name: 'missing.md', openedAt: 1, lastHeadingId: 'saved' };
+  const app = await mount(t, { initialPath: null, recentFiles: [missing], session: { kind: 'home', savedAt: 1 } });
+  click(app.host().querySelector('[data-path] button'));
+  await until(() => assert.ok(app.host().querySelector('[aria-label="Retry opening missing.md"]')));
+  click(app.host().querySelector('[aria-label$="from recent files"]'));
+  assert.ok(app.host().querySelector('.recent-removal-notice'));
+  const before = app.opened.length;
+  click([...app.host().querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === 'Add Back'));
+  await until(() => assert.ok(app.host().querySelector('[data-path]')));
+  assert.equal(app.opened.length, before);
+  assert.ok(app.host().querySelector('[aria-label="Retry opening missing.md"]') === null);
+  assert.ok(app.host().querySelector('.empty-state-recovery-message') === null);
+});
+
+test('reopening the still-current document clears its explicit removal and records a fresh open', async t => {
+  const app = await mount(t);
+  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  const remove = await until(() => { const b = app.host().querySelector('.document-sidebar [aria-label$="from recent files"]'); assert.ok(b); return b; });
+  click(remove);
+  assert.ok(app.host().querySelector('.recent-removal-notice'));
+  await until(() => assert.deepEqual(app.settings['recent-files'].files, []));
+  await app.open('/fixture/A.md');
+  await until(() => assert.ok(!app.host().querySelector('.recent-removal-notice')));
+  assert.equal(app.settings['recent-files'].files.length, 1);
+  assert.equal(app.settings['recent-files'].files[0].path, '/fixture/A.md');
+});
+
+for (const timing of ['before the scroll-save delay', 'after the scroll-save delay', 'after immediately leaving the removed document']) {
+  test(`Add Back keeps the latest reading section ${timing}`, async t => {
+    const leaveBeforeRestore = timing === 'after immediately leaving the removed document';
+    const app = await mount(t, { recentFiles: [{ path: '/fixture/A.md', name: 'A.md', openedAt: 1, lastHeadingId: 'amd' }] });
+    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    const sidebar = app.host().querySelector('.document-sidebar');
+    const original = structuredClone(app.settings['recent-files'].files[0]);
+    assert.equal(app.host().querySelector('article h1').id, original.lastHeadingId);
+    await act(async () => click(sidebar.querySelector('[aria-label$="from recent files"]')));
+    const second = await until(() => {
+      const button = [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === 'Second');
+      assert.ok(button); return button;
+    });
+    await act(async () => click(second));
+    assert.equal(app.host().querySelector('.toc-active-item').textContent, 'Second');
+    if (timing === 'after the scroll-save delay') await act(async () => new Promise(resolve => setTimeout(resolve, 1600)));
+    if (leaveBeforeRestore) await app.open('/fixture/B.md');
+    await act(async () => click([...sidebar.querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === 'Add Back')));
+    await until(() => assert.deepEqual(app.settings['recent-files'].files.find(f => f.path === original.path), { ...original, lastHeadingId: 'second' }));
+    if (!leaveBeforeRestore) {
+      app.scrolled.length = 0;
+      await act(async () => click(sidebar.querySelector('[data-path="/fixture/A.md"] button')));
+      assert.deepEqual(app.scrolled, [], 'the current Recent row must not jump back to the removed section');
+    }
+  });
+}
+
+for (const action of ['remove', 'Dismiss', 'Add Back']) {
+  test(`unrelated Recent ${action} keeps the current section's original save deadline`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.after(() => t.mock.timers.reset());
+    const currentPath = '/fixture/A.md';
+    const otherPath = '/fixture/B.md';
+    const app = await mount(t, { recentFiles: [
+      { path: currentPath, name: 'A.md', openedAt: 2, lastHeadingId: 'amd' },
+      { path: otherPath, name: 'B.md', openedAt: 1, lastHeadingId: 'bmd' },
+    ] });
+    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    const sidebar = app.host().querySelector('.document-sidebar');
+    const removeOther = () => click(sidebar.querySelector(`[data-path="${otherPath}"] [aria-label$="from recent files"]`));
+    const second = await until(() => {
+      const button = [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === 'Second');
+      assert.ok(button); return button;
+    });
+    if (action !== 'remove') await act(async () => removeOther());
+    const original = structuredClone(app.settings['recent-files'].files.find(f => f.path === currentPath));
+    const current = () => app.settings['recent-files'].files.find(f => f.path === currentPath);
+
+    await act(async () => click(second));
+    assert.equal(app.host().querySelector('.toc-active-item').textContent, 'Second');
+    await act(async () => t.mock.timers.tick(1000));
+    await act(async () => {
+      if (action === 'remove') removeOther();
+      else click([...sidebar.querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === action));
+    });
+    await act(async () => t.mock.timers.tick(499));
+    assert.deepEqual(current(), original, 'the pending section is not saved early');
+    await act(async () => t.mock.timers.tick(1));
+    assert.deepEqual(current(), { ...original, lastHeadingId: 'second' },
+      'changing another Recent entry must not postpone the current section save');
+  });
+}
+
+test('a different active heading replaces the pending section and its save deadline', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => t.mock.timers.reset());
+  const path = '/fixture/A.md';
+  const app = await mount(t, { recentFiles: [{ path, name: 'A.md', openedAt: 1, lastHeadingId: 'second' }] });
+  const heading = label => [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === label);
+  const second = await until(() => { const button = heading('Second'); assert.ok(button); return button; });
+  const current = () => app.settings['recent-files'].files.find(f => f.path === path);
+  const original = structuredClone(current());
+
+  await act(async () => click(second));
+  await act(async () => t.mock.timers.tick(1000));
+  await act(async () => click(heading('A.md')));
+  assert.equal(app.host().querySelector('.toc-active-item').textContent, 'A.md');
+  await act(async () => t.mock.timers.tick(500));
+  assert.deepEqual(current(), original, 'the old timer must not save the replacement heading early');
+  await act(async () => t.mock.timers.tick(999));
+  assert.deepEqual(current(), original);
+  await act(async () => t.mock.timers.tick(1));
+  assert.deepEqual(current(), { ...original, lastHeadingId: 'amd' });
 });

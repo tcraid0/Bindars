@@ -1,5 +1,5 @@
 import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
-import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { memo, useState, useRef, useEffect, useCallback, useLayoutEffect, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -41,6 +41,49 @@ interface AnnotationsPanelProps {
   onClose: () => void;
   fileName: string | null;
   headings: HeadingItem[];
+}
+
+/** Reading state only; the panel retains ownership of editing and saving. */
+function NoteText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const id = useId();
+
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const measure = () => {
+      // Measure the real three-line layout even while the note is expanded.
+      // Restore the class before painting; never change the reading state here.
+      element.classList.add("line-clamp-3");
+      const overflows = element.scrollHeight > element.clientHeight;
+      if (!overflows && !expanded && document.activeElement === toggleRef.current) element.focus({ preventScroll: true });
+      setClipped(overflows);
+      if (expanded) element.classList.remove("line-clamp-3");
+    };
+    measure();
+    const observer = new window.ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, expanded]);
+
+  return (
+    <div className="flex-1 min-w-0 pl-4.5">
+      <p ref={textRef} id={id} tabIndex={-1} className={`text-xs text-text-muted italic whitespace-pre-wrap [overflow-wrap:anywhere] ${expanded ? "" : "line-clamp-3"}`}>{text}</p>
+      {(clipped || expanded) && (
+        <button ref={toggleRef} type="button" aria-expanded={expanded} aria-controls={id}
+          className="text-xs text-accent-text hover:underline mt-1"
+          onClick={() => {
+            if (expanded && !clipped) textRef.current?.focus({ preventScroll: true });
+            setExpanded(value => !value);
+          }}>
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export const AnnotationsPanel = memo(function AnnotationsPanel({
@@ -268,7 +311,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
         onCancel={finishRecovery} onDismiss={finishRecovery} />
       {saving && <p className="px-4 pb-2 text-xs text-text-muted" role="status">Saving highlights and notes...</p>}
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
-      <button className="navigation-action" onClick={onFindNotes}>Find Notes…</button>
+      <button className="navigation-action" onClick={onFindNotes}>Reconnect notes…</button>
       {loadError && (
         <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{loadError}</p>
@@ -405,7 +448,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   </div>
                 ) : hl.note ? (
                   <div className="px-2 pb-1.5 flex items-start gap-1">
-                    <p className="text-xs text-text-muted italic line-clamp-3 flex-1 pl-4.5">{hl.note}</p>
+                    <NoteText key={`${filePath}:${hl.id}`} text={hl.note} />
                     <button
                       type="button"
                       disabled={mutationsDisabled}

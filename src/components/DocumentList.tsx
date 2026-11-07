@@ -57,7 +57,7 @@ export function DocumentList({
                 </button>{" "}
                 {doc.coverage === "missing" && onFindNotes ? (
                   <button type="button" onClick={() => onFindNotes(doc.path)}>
-                    Locate / reconnect notes…
+                    Reconnect notes…
                   </button>
                 ) : (
                   <button

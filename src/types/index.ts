@@ -258,6 +258,7 @@ export interface SearchPassage {
 export interface WorkspaceSearchHit {
   name?: string;
   title?: string | null;
+  draftLabel?: string;
   problem?: string;
   passages?: SearchPassage[];
   passage?: SearchPassage;
