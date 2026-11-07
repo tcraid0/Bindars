@@ -154,7 +154,9 @@ the native-tested copy. Notarization is not a substitute for application testing
 The signed GUI was **not tested on macOS 15 or in a fresh account**. First-use
 folder permission grant/denial, a browser-downloaded quarantined or offline first
 launch, logout/shutdown, direct Dock interactions, physical printing, and the
-packaged editor's exFAT Save As flow were not tested for this candidate. macOS 15
+packaged editor's exFAT Save As flow were not tested for this candidate. Neither
+were delayed writes, quitting with the window hidden, Finder default-association
+double-click, or comprehensive spellcheck/dark-select behavior. macOS 15
 CI separately passed source tests, parser checks, native exFAT checks, and an
 unsigned arm64 bundle build/validation; it does not establish signed-GUI coverage.
 
