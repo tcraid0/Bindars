@@ -1,241 +1,132 @@
-# Bindars
+<p align="center">
+  <a href="https://bindars.dev">
+    <img src="assets/brand/app-icon.svg" alt="Bindars" width="96" height="96">
+  </a>
+</p>
 
-Read Markdown and Fountain files, highlight passages, and keep notes.
+<h1 align="center">Bindars</h1>
 
-Bindars is a local-first desktop app for reading `.md`, `.markdown`, and `.fountain` files. It renders GitHub Flavored Markdown with Mermaid diagrams, LaTeX math, syntax-highlighted code, footnotes, and frontmatter. No cloud, no account, no network requests - your files stay on your machine.
+<p align="center">
+  <strong>Read, highlight, and make notes on your own files.</strong><br>
+  A free, open-source Markdown and Fountain reader for Mac and Linux.
+</p>
 
-Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4. Downloads are
-available for Apple Silicon Macs and x86_64 Linux. The Mac app is signed with
-Developer ID and notarized by Apple. Windows releases remain pending native
-testing and code signing.
+<p align="center">
+  <a href="https://github.com/tcraid0/Bindars/releases/download/v1.6.4/Bindars_1.6.4_aarch64.dmg">Mac download (Apple Silicon, macOS 15+)</a> ·
+  <a href="https://github.com/tcraid0/Bindars/releases/latest">Linux releases (.deb, x86_64)</a><br>
+  <a href="https://bindars.dev">Website</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/reading-dark.webp">
+  <img src="assets/readme/reading-light.webp" alt="Francis Bacon's Of Studies open in Bindars, with highlighted passages, a table of contents, and notes alongside the text." width="1920">
+</picture>
+
+*Bindars 1.6.1 on Linux.*
+
+Open a Markdown document or Fountain screenplay, mark the passages you want to
+come back to, and leave yourself a note. Reading and highlighting leave the
+document unchanged; highlights, notes, and bookmarks are saved separately on
+your computer. There's no account, telemetry, or automatic update check.
+
+Supported files are `.md`, `.markdown`, and `.fountain`. Bindars doesn't import
+Word or PDF documents.
 
 ## What it does
 
-- GFM tables, task lists, footnotes, and smart typography
-- Mermaid diagrams and KaTeX math rendering (`$$x^2$$` inline, `$$` blocks for display math; single `$` is reserved for plain text so dollar amounts in prose render as written)
-- Syntax-highlighted code blocks (highlight.js)
-- Four themes: light, sepia, dark, midnight
-- Table of contents with scroll tracking
-- Highlights & notes, plus bookmarks for returning to headings
-  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
-- Recent, Drafts, and an optional folder browser, with Search documents and passage navigation
-- Persistent whole-interface zoom, separate from reading typography
-- Fountain screenplay rendering with character focus and scene navigation
-- Focus mode and presentation mode
-- Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
-- Show the opened file in Finder (macOS) or its folder from either Read or Edit mode
-- Autosave within 10 seconds, and new documents saved as ordinary files in a Bindars Drafts folder ([how saving works](docs/recovery-and-privacy.md)), with guarded Save/Save As and external-change reconciliation
-- Optional Markdown heading formatting with an instant plain-markup fallback
-- macOS spelling underlines and native right-click suggestions while editing
-- Print the document or save it as PDF; export highlights and notes separately as Markdown
-- Keyboard-driven workflow - choose **Help > Keyboard Shortcuts** on macOS or
-  press Ctrl+? on Linux for the full shortcut list
+- **Reading settings.** Light, Sepia, Dark, and Midnight themes, plus adjustable
+  fonts, text size, width, and spacing. Focus mode hides the surrounding controls.
+- **Navigation and search.** Reopen where you left off, browse Recent, Drafts, or
+  a folder of your own, and search across documents to jump straight to a passage.
+- **Markdown rendering.** Tables, task lists, footnotes, syntax-highlighted code,
+  Mermaid diagrams, KaTeX math, and frontmatter.
+- **Editing.** Switch between Read and Edit without losing your place. Autosave
+  writes to ordinary files. Print a document or save it as PDF.
 
-See [highlights, notes, and recovery](docs/annotations.md) for location, saving,
-and document-path limitations. You can also paste plain text into a new document.
-Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
-or PDF documents.
+## Highlights and notes
 
-On the first launch, choose **Try an Example…** and save a copy to try
-highlighting and notes; an empty Home offers it too. Select a passage and
-choose **Note**, or choose **Add note** on an existing highlight.
-Reopen your saved copy from Home, **Recent**, **Open**, or your file manager.
-Choosing **Try an Example…** again asks where to save a fresh copy;
-confirming replacement writes the example text over the file you choose.
+Select a passage and choose one of four highlight colors, or choose **Note** to
+start writing. Your highlights, notes, and bookmarks collect in the side panel.
+Choose a highlight to jump back to that passage, or export the list as Markdown.
 
-### Spelling on macOS
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/highlight-dark.webp">
+    <img src="assets/readme/highlight-light.webp" alt="Selecting a passage reveals four highlight colors and a Note action." width="460">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/notes-dark.webp">
+    <img src="assets/readme/notes-light.webp" alt="The side panel lists a bookmark and highlighted quotations, including a saved note." width="220">
+  </picture>
+</p>
 
-In Edit mode, macOS can underline misspelled words and offer corrections when
-you right-click them. Notes also retain native spelling assistance. Automatic
-spelling correction is off in both fields; document search, the quick switcher,
-and Edit-mode Find/Replace disable autocorrection and spelling underlines to keep
-search and replacement text literal.
-Checking follows native timing, so existing text may not be marked until you
-edit it. These field controls apply only on macOS; Linux behavior is unchanged.
+To try it, choose **Try an Example…**, save a copy, and select a passage.
+[How notes are saved and reconnected](docs/annotations.md).
 
-Quotes, dashes, text shortcuts, and URLs stay literal by default; saved native
-Substitutions choices can override those defaults. See the
-[validation notes](docs/macos-spellcheck-validation.md) for tested behavior
-and remaining platform coverage.
+## Fountain screenplays
 
-### Finding documents
+Open a `.fountain` file in script layout. Use character focus to follow one
+character, or jump between scenes from Contents. Highlights and notes work
+here too, so you can export your notes when you're ready to revise.
 
-**Home** is where you choose what to read next. It lists your five most recent
-documents by their own titles, with the section you were in and when you last
-opened each; **Continue at** and its section mark the one you were reading.
-**Open File…** and **New** sit beside the heading; until Home lists three
-documents, ways to start sit below the list instead. Go there with the **Home**
-button after Back and Forward,
-Shift+Cmd+H on macOS or Alt+Home on Linux, or **File › Home** on macOS. Going
-Home from an edited document saves or asks first, as opening another file does.
-Bindars reopens where you left off: the document you were reading, at its
-section, or Home if you left from Home. A file you open from Finder, the command
-line or a drop always comes first. **Back**
-and **Forward** include Home, and Back returns from every way of opening a
-document.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/fountain-dark.png">
+    <img src="assets/readme/fountain-light.png" alt="A Fountain screenplay in Bindars, showing an exterior scene heading, action, character names, parentheticals, and indented dialogue." width="560">
+  </picture>
+</p>
 
-Bindars opens documents where they already are. **Recent** holds the last 25
-opened documents from any location. Its rows keep their order while you use the
-sidebar, returning to most-recent-first when you hide and show it or relaunch.
-Resizing the window does not reshuffle it.
-New documents enter at the top. Home, Recent, and Search use a document's title
-when available, keeping its exact filename alongside it when distinct. While
-titles are being prepared, filenames appear immediately. Recent shows folder
-context when filenames collide. Hover over a row or focus it with the keyboard
-for its full location and **Last opened** details. Page Up / Page Down scroll long
-details while the row is focused; Escape dismisses them.
-Home and Search keep their richer context visible. **Back** returns to documents
-opened from Recent.
-
-Removing a document from Recent leaves an untimed **Add Back** notice, shared
-with Home. Add Back preserves its previous last-opened time and restores the latest
-section, including reading progress made while the document was removed.
-The notice stays until you add it back, dismiss it, reopen that document, remove
-another entry, or end the session. Files and notes are unchanged.
-
-The sidebar starts hidden and remembers your choice. A one-time note offers
-**Show Sidebar** when you open a second distinct document; if the reading hint
-is showing, it waits for a later document open. Use the toolbar button or
-Cmd+B / Ctrl+B to toggle it;
-on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
-
-**Drafts** lists existing files in Documents › Bindars Drafts, including drafts
-no longer in Recent, using a heading or opening text alongside the filename.
-New documents are saved here until you save them somewhere else. The shared
-Drafts location is disclosed once above the list, with full file paths retained
-for recovery notices. The header and folder browser keep filenames.
-
-On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
-to your Documents folder. Choose **Show existing drafts** to list it; once
-Bindars has saved a draft or found existing ones, later launches list Drafts
-automatically.
-
-In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Nothing is moved or copied. The picker starts in the folder of the
-document you are reading. Opening another file does not add or scan its parent
-folder, and saving a document keeps its place in the folder list. Browsing does
-not change where new documents autosave. Choose an ancestor in the breadcrumb
-path to navigate up. Browsing stays in your chosen directory when you open a
-document elsewhere. **Folder options** contains **Choose another folder…**, full
-folder and current locations, and **Remove from Sidebar**. Removal affects only
-this folder reference; the inline, untimed **Add Back** action restores it.
-Neither action moves or deletes documents or notes. Tabs, Search, and compact
-folder context stay visible while browsing; at short window heights or high
-interface zoom, the whole sidebar scrolls so every control remains reachable.
-
-**Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
-Its Scope menu can narrow results to that folder. Unquoted words may occur in
-any order; double quotes request a phrase within a text block. Results group by
-document, with separate passage counts. Filename/title matches rank first, then
-exact phrases, nearby terms, and scattered terms. Up to 50 documents and five
-passages per document are shown, with totals when results are truncated.
-
-Choose a passage to open it and highlight the requested occurrence, including
-in the document already open. Repeated passages keep their occurrence. A changed
-or unresolved passage produces an explanation and refreshes search. **Find in
-Document** (Cmd+F / Ctrl+F) finds a phrase in the displayed document; only valid
-phrase results populate it. Unordered-term results highlight their passage
-without putting search operators into Find.
-
-Use Cmd+G / Ctrl+G for the next Find match and Shift+Cmd+G / Ctrl+Shift+G
-for the previous match.
-
-Both searches ignore case, ordinary prose whitespace, and soft line breaks.
-They equate straight/curly quotes, `--`/en dash, `---`/em dash, and `...`/ellipsis.
-Other punctuation stays literal. Find includes displayed code and rendered
-math, retaining their literal punctuation and whitespace. Document Search excludes code, math,
-diagrams and images, and covers the first 30,000 extracted body characters plus
-headings and names. These forgiving search rules do not change annotation
-identity or location rules.
-
-Files appear before text preparation finishes and remain findable by filename
-when reading or parsing fails. Status and recovery actions distinguish missing,
-unreadable, invalid-encoding, oversized and overly complex documents. There is
-no promise that every discovered file can be displayed. The folder browser skips
-hidden folders, `node_modules`, `target`, `vendor`, and symbolic links. Discovery
-is bounded to 5,000 documents per folder/Drafts source, 100,000 visited entries,
-20,000 subfolders and 32 levels; a partial-list notice identifies these limits.
-Lists initially render 100 entries and provide buttons for more.
-
-Successful saves update Search immediately. Returning to the app reconciles
-external changes; unchanged file size and modification time avoid reparsing.
-Discovery and text work publish incrementally and discard obsolete results when
-the configured folder changes. Continuous folder watching is not enabled.
-Actual incoming links live in the collapsed **Linked from** section in Contents;
-**Unlinked mentions** remains a separate collapsed section.
-
-### Interface zoom
-
-Use **View** or Cmd+plus/minus (Ctrl equivalents on Linux) to zoom the entire
-interface from 75% to 300%. Cmd+0 / Ctrl+0 chooses **Actual Size** and changes only
-interface zoom. Zoom is saved between launches. Reader Settings still provides
-independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
-
-### Rendering rules
-
-- Raw HTML in Markdown is removed, not rendered: `<br>`, `<details>`, `<img>`,
-  and similar tags disappear and only the Markdown around them is shown.
-- Images must be relative paths inside the document's folder (or a subfolder).
-  Remote images, `data:` URLs, and absolute paths are not loaded. A `../`
-  segment is allowed only while the resolved path stays inside that folder.
-  Image shortcuts (symbolic links) must also resolve inside that folder.
-  Images larger than 20 MiB are not loaded, and images are served only for
-  the document currently open in the reader.
-- Links to other `.md`, `.markdown`, and `.fountain` files open in the reader,
-  including `../` paths. `http(s)` and `mailto` links open in your system
-  browser or mail client; other URL schemes are removed.
+*Fountain example from [bindars.dev](https://bindars.dev).*
 
 ## Install
 
 ### macOS (Apple Silicon)
 
-Download [Bindars 1.6.4 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.4/Bindars_1.6.4_aarch64.dmg),
-open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
-macOS may show its normal first-open confirmation for an internet download.
-Do not disable Gatekeeper or bypass a security block to install it.
+[Download Bindars 1.6.4 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.4/Bindars_1.6.4_aarch64.dmg),
+open the DMG, and drag **Bindars** into **Applications**. Requires macOS 15 or
+later; Intel Macs aren't supported. The app is signed with Developer ID and
+notarized by Apple. Updates are manual.
 
-- Apple Silicon only; Intel Macs are not supported by this download.
-- Requires macOS 15.0 or newer. The signed app was tested interactively on
-  macOS 26.6.2. macOS 15 has automated source/build coverage; its signed-app GUI
-  behavior has not been verified.
-- Updates are manual: quit Bindars, download the new DMG, and replace the app
-  in Applications. Keep a backup of your documents and [Bindars data](docs/recovery-and-privacy.md)
-  before upgrading. This update introduces no new document or annotation format.
-- Clean-account, first-use folder-permission, and logout/shutdown tests remain
-  pending. The release notes record the tested scope and known limitations.
-- At extreme interface zoom with the sidebar open, the reading pane can require
-  horizontal scrolling. This existing behavior was reproduced at 300% in both
-  1.6.3 and 1.6.4; Recent details stay within the window.
-
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.4) includes
-`SHA256SUMS-macos.txt` for checking the download. Notarization is Apple's automated
-security check, not a Mac App Store review.
-
-### Linux support
-
-Bindars currently publishes an x86_64 Debian package. Before publication, the
-release workflow inspects the package, installs it, and launches it on Ubuntu
-22.04. Debian 12 or newer and current Linux Mint releases are expected to work
-but do not receive the same automated test.
+Tested interactively on macOS 26.6.2; macOS 15 signed-app GUI testing remains
+pending. See the [installation notes](docs/installation.md#macos-apple-silicon) for tested scope,
+known limitations, checksums, and updating.
 
 ### Debian / Ubuntu / Linux Mint
 
-Download the `.deb` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest) and install:
+Download the x86_64 `.deb` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest),
+then install it:
 
 ```bash
 sudo apt install ./Bindars_*_amd64.deb
 ```
 
-### Other Linux distributions
+Each release is installed and launched on Ubuntu 22.04 before publication.
+Debian 12 or newer and current Linux Mint releases are expected to work, but
+don't receive the same automated test.
 
-AppImage and Arch package distribution are paused while the project adds a
-repeatable compliance check for bundled native libraries. Other Linux users
-may build from source, but those builds are not official release artifacts.
+Windows releases are pending native testing and code signing. AppImage and Arch
+package distribution are paused. Other Linux distributions can
+[build from source](#build-from-source); those builds aren't official releases.
 
-Windows downloads remain pending native testing and code signing.
+## Documentation
+
+- [Using Bindars](docs/usage.md): navigation, search, keyboard shortcuts,
+  interface zoom, macOS spelling, and rendering rules.
+- [Highlights and notes](docs/annotations.md): annotation storage, file moves,
+  exports, and recovery.
+- [Saving your work](docs/recovery-and-privacy.md): autosave, Drafts, backups,
+  and files left behind by interrupted saves.
+- [Installation notes](docs/installation.md): platform support, checksums,
+  updates, and known limitations.
+- [Report a problem](https://github.com/tcraid0/Bindars/issues).
+
+Raw HTML and remote images aren't rendered; see the
+[rendering rules](docs/usage.md#rendering-rules) for supported local images and links.
 
 ## Build from source
 
+Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4.
 Use Node 24 LTS (`.nvmrc`); Node 22.12 or newer and Rust 1.90 or newer are required.
 
 ```bash
@@ -243,15 +134,15 @@ npm ci
 npm run tauri -- build
 ```
 
-Artifacts land in `src-tauri/target/release/bundle/`. Local Tauri builds may
-create several platform-specific formats, but the official release workflow
-publishes only the Debian package.
+Artifacts land in `src-tauri/target/release/bundle/`. Local builds may create
+several platform-specific formats; see the [installation notes](docs/installation.md)
+for the downloads the project currently publishes.
 
 ## Development
 
 ```bash
 npm run tauri -- dev     # full app with hot reload
-npm run dev              # frontend only (port 5173)
+npm run dev             # frontend only (port 5173)
 ```
 
 Run checks before committing:
@@ -264,4 +155,4 @@ cd .. && npm run test:workspace        # integration tests
 
 ## License
 
-MIT
+[MIT](LICENSE).
