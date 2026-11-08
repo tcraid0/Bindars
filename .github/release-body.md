@@ -36,7 +36,10 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 - Opening a different file through the native Open dialog can retain the previous
   reader scroll offset, placing a shorter document partway down or at its end.
   Use the table of contents or scroll to the top. This behavior also exists in
-  1.6.2; it was identified during this release's native checks.
+  1.6.2; it was identified during the 1.6.3 native checks.
+- At extreme interface zoom with the sidebar open, the remaining reading pane
+  can require horizontal scrolling. This was reproduced at 300% in both 1.6.3
+  and 1.6.4; Recent details remain bounded within the window.
 - Some printed headings can be separated from their following content, and table
   headers may not repeat on continuation pages. Very wide tables can wrap words
   within cells. Native Linux and Windows printing remain unverified. The Mac
@@ -65,4 +68,8 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 
 Source checks and independent reviews cover document identity, collision ancestry, delayed indexing, keyboard focus, Escape ownership, opening/removal/retry, Drafts recovery and Home/Search preservation. Isolated native WebKit fixtures passed all ten interface zoom steps from 75% to 300% across four window sizes and all four themes, including keyboard access to long details.
 
-Final candidate, packaging and platform results are recorded before publication. VoiceOver speech, a fresh macOS account, macOS 15 signed-GUI behavior and interactive Linux/Windows behavior have not been established by these fixture checks. Windows binaries, AppImage and Arch distribution remain unpublished.
+The Apple Silicon Mac download is Developer ID signed, notarized and stapled. The final DMG and its contained app passed signature, ticket and Gatekeeper checks; the contained app matches the native-tested app byte for byte. On macOS 26.6.2, native checks passed for filename/folder selection, focus and Escape, Search, exact saved fixture bytes, math/Mermaid rendering, unavailable-file retry, removal, Home and normal Quit. A narrow synthetic-state upgrade from 1.6.3 restored the document session, Recent identities and zoom preference. Native interface zoom was exercised through 300%.
+
+The Debian package passes metadata/content checks, notice verification, installation and a headless launch test on Ubuntu 22.04. macOS 15 arm64 has automated source/build coverage.
+
+This is limited native coverage. A fresh account, quarantined browser-download and offline first launch, macOS 15 signed-app GUI, VoiceOver speech, permission grant/denial, and the complete lifecycle/conflict-recovery/printing matrix were not established for this candidate. The synthetic upgrade smoke test does not establish exhaustive annotation/recovery upgrade behavior. Interactive Linux/Windows behavior remains unverified. Windows binaries, AppImage and Arch distribution remain unpublished.
