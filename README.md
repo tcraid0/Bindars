@@ -203,6 +203,9 @@ Do not disable Gatekeeper or bypass a security block to install it.
   before upgrading. This update introduces no new document or annotation format.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
+- At extreme interface zoom with the sidebar open, the reading pane can require
+  horizontal scrolling. This existing behavior was reproduced at 300% in both
+  1.6.3 and 1.6.4; Recent details stay within the window.
 
 The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.4) includes
 `SHA256SUMS-macos.txt` for checking the download. Notarization is Apple's automated
