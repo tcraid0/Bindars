@@ -183,6 +183,24 @@ export const markdownFormattingEnabled = StateField.define<boolean>({
   },
 });
 
+// Source columns remain useful for commands, but ch is the width of a zero,
+// not the width of spaces/dashes/brackets in the proportional writing font.
+// Measure only visible item prefixes; no DOM geometry or document parser work.
+const prefixCanvases = new WeakMap<EditorView, CanvasRenderingContext2D | null>();
+function listPrefixMeasurer(view: EditorView): ((prefix: string) => number) | null {
+  let canvas = prefixCanvases.get(view);
+  if (canvas === undefined) {
+    canvas = document.createElement("canvas").getContext("2d");
+    prefixCanvases.set(view, canvas);
+  }
+  if (!canvas) return null;
+  const style = window.getComputedStyle(view.contentDOM);
+  canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  canvas.letterSpacing = style.letterSpacing;
+  const context = canvas;
+  return prefix => context.measureText(prefix).width;
+}
+
 function buildHeadingDecorationSet(view: EditorView): DecorationSet {
   if (!view.state.field(markdownFormattingEnabled)) return Decoration.none;
 
@@ -204,6 +222,7 @@ function buildHeadingDecorationSet(view: EditorView): DecorationSet {
   // Iterate only visible source. Inline marks never replace characters or
   // introduce atomic ranges; selection, search and caret movement stay native.
   const decoratedListLines = new Set<number>();
+  const measurePrefix = listPrefixMeasurer(view);
   for (const { from, to } of view.visibleRanges) {
     const decoratedTo = Math.min(to, from + 12000);
     tree.iterate({ from, to: decoratedTo, enter(node) {
@@ -234,8 +253,10 @@ function buildHeadingDecorationSet(view: EditorView): DecorationSet {
       if (!marker) continue;
       const itemLine = view.state.doc.lineAt(item.from);
       const column = marker.to - itemLine.from + Math.max(1, listMarkerSpacing(view.state.doc.sliceString(marker.to, itemLine.to)).length);
+      const prefix = itemLine.text.slice(0, column).padEnd(column, " ");
+      const indent = measurePrefix ? `${measurePrefix(prefix)}px` : `${column}ch`;
       ranges.push(Decoration.line({ class: "cm-md-list-line", attributes: {
-        style: `padding-left: ${column}ch; text-indent: -${column}ch`,
+        style: `padding-left: ${indent}; text-indent: -${indent}`,
       } }).range(line.from));
     }
   }
@@ -253,7 +274,7 @@ export const markdownHeadingViewPlugin = ViewPlugin.fromClass(class {
     const formattingChanged = update.startState.field(markdownFormattingEnabled)
       !== update.state.field(markdownFormattingEnabled);
     const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
-    if (update.docChanged || update.viewportChanged || formattingChanged || treeChanged) {
+    if (update.docChanged || update.viewportChanged || update.geometryChanged || formattingChanged || treeChanged) {
       this.decorations = buildHeadingDecorationSet(update.view);
     }
   }

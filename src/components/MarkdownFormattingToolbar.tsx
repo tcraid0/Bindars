@@ -177,6 +177,9 @@ function LinkForm({ form, editorRef }: { form: EditorLinkForm; editorRef: RefObj
       aria-describedby={`${id}-hint${error ? ` ${id}-error` : ""}`} /></label>
     <p id={`${id}-hint`}>Web address, email (mailto:), #section, or relative document path.</p>
     {error && <p role="alert" id={`${id}-error`} className="text-danger">{error}</p>}
-    <div className="markdown-link-actions"><button type="submit">Apply link</button><button type="button" onClick={() => editorRef.current?.cancelLink(form.id)}>Cancel</button></div>
+    {/* macOS may focus the enclosing Document instead of a clicked button.
+        Keep the field focused until the action runs, so outside-focus dismissal
+        cannot retire the form between mousedown and click. Tab remains native. */}
+    <div className="markdown-link-actions" onMouseDown={event => event.preventDefault()}><button type="submit">Apply link</button><button type="button" onClick={() => editorRef.current?.cancelLink(form.id)}>Cancel</button></div>
   </form>;
 }

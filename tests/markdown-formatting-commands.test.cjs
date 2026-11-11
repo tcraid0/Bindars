@@ -640,7 +640,10 @@ test("availability reuses math scans by document identity and incremental Markdo
     assert.equal(applyEmphasisCommand(view, "bold").applied, true);
     assert.equal(mathParse.mock.callCount(), 2, "Apply reuses the baseline and parses only the candidate");
     emphasisCommandStatus(view.state, "bold");
-    assert.equal(mathParse.mock.callCount(), 3, "a document edit invalidates the scan");
+    assert.equal(mathParse.mock.callCount(), 2, "accepted formatting retains its validated candidate");
+    view.dispatch({ changes: { from: view.state.doc.length, insert: " " } });
+    emphasisCommandStatus(view.state, "bold");
+    assert.equal(mathParse.mock.callCount(), 3, "ordinary typing invalidates the scan");
 
     const replacement = "alpha $$secret$$";
     view.setState(EditorState.create({
@@ -941,4 +944,41 @@ test('Apply reuses existing document safety ceilings without introducing a small
     assert.equal(view.state, state);
     assert.equal(spy.mock.callCount(), 0, 'oversized input never reaches the reader parser');
   });
+});
+
+test('accepted emphasis retains its validated reader tree for the next command but edits invalidate it', (t) => {
+  const { unified } = require('unified');
+  const proto = Object.getPrototypeOf(unified());
+  const parse = t.mock.method(proto, 'parse');
+  useSpec('[[word]]\n\nThe relation is $$x^2$$.', {}, (view) => {
+    assert.equal(applyEmphasisCommand(view, 'bold').applied, true);
+    assert.equal(parse.mock.callCount(), 2, 'cold baseline and candidate');
+    assert.equal(applyEmphasisCommand(view, 'italic').applied, true);
+    assert.equal(view.state.sliceDoc(), '***word***\n\nThe relation is $$x^2$$.');
+    assert.equal(parse.mock.callCount(), 3, 'the actual dispatched immutable document reuses its validated tree');
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '\nUnrelated typing.' }, selection: EditorSelection.cursor(5) });
+    assert.equal(applyEmphasisCommand(view, 'italic').applied, true);
+    assert.equal(parse.mock.callCount(), 5, 'ordinary typing needs both fresh parses');
+    assert.equal(undo(view), true);
+    assert.equal(view.state.sliceDoc(), '***word***\n\nThe relation is $$x^2$$.\nUnrelated typing.');
+    assert.equal(redo(view), true);
+    assert.equal(view.state.sliceDoc(), '**word**\n\nThe relation is $$x^2$$.\nUnrelated typing.');
+  });
+});
+
+test('reader cache distinguishes the same immutable text serialized with different line breaks', (t) => {
+  const { Text } = require('@codemirror/state');
+  const { unified } = require('unified');
+  const proto = Object.getPrototypeOf(unified());
+  const parse = t.mock.method(proto, 'parse');
+  const doc = Text.of(['word', '', '$$x^2$$']);
+  for (const lineBreak of ['\n', '\r\n', '\r']) {
+    withView(doc, EditorSelection.single(0, 4), {
+      lineSeparator: lineBreak,
+    }, view => {
+      assert.equal(applyEmphasisCommand(view, 'bold').applied, true);
+      assert.equal(view.state.sliceDoc(), ['**word**', '', '$$x^2$$'].join(lineBreak));
+    });
+  }
+  assert.equal(parse.mock.callCount(), 6, 'each serialization has a fresh baseline and candidate');
 });

@@ -1,6 +1,6 @@
 import { indentLess, indentMore, isolateHistory } from "@codemirror/commands";
 import { ensureSyntaxTree, syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
-import { EditorSelection, EditorState, StateField, type ChangeSet, type ChangeSpec, type Text } from "@codemirror/state";
+import { EditorSelection, EditorState, StateField, type ChangeSet, type ChangeSpec, type Text, type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { SyntaxNode, Tree } from "@lezer/common";
 import type { Nodes, Root } from "mdast";
@@ -84,6 +84,10 @@ type DocumentProtection = {
 // CodeMirror Text is immutable. Selection changes and the two toolbar buttons
 // share this scan; editing or replacing the document gets a fresh entry.
 const protectionCache = new WeakMap<Text, { lineBreak: string; protection: DocumentProtection }>();
+// Reader trees are immutable too. Retain the validated candidate on the actual
+// dispatched Text, so a subsequent command need not parse that baseline again.
+// Serialization matters: the same Text can belong to states with LF/CRLF/CR.
+const readerCache = new WeakMap<Text, { lineBreak: string; reader: ReaderDocument }>();
 
 interface FormattingEdit {
   status: EmphasisCommandStatus;
@@ -112,10 +116,11 @@ export function applyEmphasisCommand(
     return { ...plan.status, handled: true, applied: false };
   }
 
-  const invalid = readerRefusal(view.state, plan, command);
+  const transaction = formattingTransaction(view.state, plan);
+  const invalid = readerRefusal(view.state, plan, command, transaction);
   if (invalid) return { ...refused(invalid).status, handled: true, applied: false };
 
-  return dispatchFormatting(view, plan);
+  return dispatchFormatting(view, plan, transaction);
 }
 
 function commandRefusal(state: EditorState, composing: boolean): string | null {
@@ -299,13 +304,13 @@ function validateEdit(
  * either parser tree: the baseline is shared with the existing math scan.
  * Typography transforms are deliberately outside this raw-grammar comparison.
  */
-function readerRefusal(state: EditorState, plan: EmphasisEdit, command: EmphasisCommand): string | null {
+function readerRefusal(state: EditorState, plan: EmphasisEdit, command: EmphasisCommand, transaction: Transaction): string | null {
   try {
     const protection = documentProtection(state);
     if (!protection.ok) return protection.reason;
     const before = protection.reader ??= parseReader(state.doc, state.lineBreak);
-    const changes = plan.changes!;
-    const after = parseReader(changes.apply(state.doc), state.lineBreak);
+    const changes = transaction.changes;
+    const after = parseReader(transaction.newDoc, state.lineBreak);
     const adding = !plan.status.active;
     const wrapped = adding ? after : before;
     const expected = plan.coverage.map(({ from, to }) => ({
@@ -327,6 +332,8 @@ function readerRefusal(state: EditorState, plan: EmphasisEdit, command: Emphasis
 }
 
 function parseReader(doc: Text, lineBreak: string): ReaderDocument {
+  const cached = readerCache.get(doc);
+  if (cached?.lineBreak === lineBreak) return cached.reader;
   const source = doc.sliceString(0, doc.length, lineBreak);
   assertDocumentComplexity(source, "markdown");
   // Extract exactly as MarkdownRenderer does, including invalid/scalar YAML
@@ -336,7 +343,9 @@ function parseReader(doc: Text, lineBreak: string): ReaderDocument {
   const { body } = extractFrontmatter(source);
   const normalized = lineBreak === "\n" ? body : body.split(lineBreak).join("\n");
   const text = withoutByteOrderMark(normalized);
-  return { tree: mathDocument.parse(text), offset: doc.length - text.length };
+  const reader = { tree: mathDocument.parse(text), offset: doc.length - text.length };
+  readerCache.set(doc, { lineBreak, reader });
+  return reader;
 }
 
 function readerCoverage(node: Nodes): Range[] {
@@ -752,13 +761,17 @@ export function applyListCommand(view: EditorView, command: ListCommand): ListCo
   return dispatchFormatting(view, planList(view.state, command, view.composing));
 }
 
-function dispatchFormatting(view: EditorView, plan: FormattingEdit): EmphasisCommandResult {
+function formattingTransaction(state: EditorState, plan: FormattingEdit): Transaction {
+  return state.update({ changes: plan.changes!, selection: plan.selection!,
+    annotations: isolateHistory.of("full"), userEvent: "input" });
+}
+
+function dispatchFormatting(view: EditorView, plan: FormattingEdit, transaction?: Transaction): EmphasisCommandResult {
   if (!plan.changes || !plan.selection || !plan.status.available) {
     return { ...plan.status, handled: true, applied: false };
   }
   const before = view.state.doc;
-  view.dispatch({ changes: plan.changes, selection: plan.selection,
-    annotations: isolateHistory.of("full"), userEvent: "input" });
+  view.dispatch(transaction ?? formattingTransaction(view.state, plan));
   if (view.state.doc.eq(before)) {
     return { available: false, active: false, reason: READ_ONLY_REASON, handled: true, applied: false };
   }
@@ -1076,11 +1089,21 @@ function inlineBoundaryRefusal(state: EditorState, tree: Tree, boundaries: numbe
     const text = state.doc.sliceString(from, entry.to);
     if (!text.includes("~")) continue;
     if (!checkDocumentComplexity(text, "markdown").ok) return COMPLEXITY_REASON;
+    // One long paragraph may have thousands of changed line boundaries and
+    // strike spans. Find the first boundary after each span's start instead
+    // of rescanning every boundary for every span.
+    entry.boundaries.sort((a, b) => a - b);
     let crossing = false;
     visit(mathDocument.parse(text), "delete", (node) => {
       const start = from + (node.position?.start.offset ?? 0);
       const end = from + (node.position?.end.offset ?? text.length);
-      if (entry.boundaries.some((pos) => start < pos && pos < end)) crossing = true;
+      let low = 0, high = entry.boundaries.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (entry.boundaries[middle] <= start) low = middle + 1;
+        else high = middle;
+      }
+      if (low < entry.boundaries.length && entry.boundaries[low] < end) crossing = true;
     });
     if (crossing) return LIST_INLINE_REASON;
   }

@@ -303,6 +303,40 @@ function inputField(field, value) {
 }
 function submitForm(form) { flushSync(() => form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))); }
 
+test('Link pointer actions survive the macOS non-focusable-button mouse sequence', async () => {
+  const r = await render('alpha beta');
+  r.host.tabIndex = -1;
+  // WKWebView can focus the enclosing Document instead of the clicked button.
+  // Model that default only when mousedown allows it; jsdom has no native default.
+  const pointerClick = button => {
+    flushSync(() => {
+      button.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      const down = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+      button.dispatchEvent(down);
+      if (!down.defaultPrevented) r.host.focus();
+    });
+    if (button.isConnected) flushSync(() => button.click());
+  };
+  try {
+    r.view.dispatch({ selection: EditorSelection.single(10, 6) });
+    flushSync(() => r.ref.current.beginLink());
+    inputField(r.host.querySelector('[name="destination"]'), 'https://example.com/pointer');
+    pointerClick(r.button('Apply link'));
+    assert.equal(r.view.state.sliceDoc(), 'alpha [beta](<https://example.com/pointer>)');
+    assert.equal(undoDepth(r.view.state), 1);
+    assert.ok(document.activeElement === r.view.contentDOM);
+    flushSync(() => undo(r.view));
+    assert.equal(r.view.state.sliceDoc(), 'alpha beta');
+    flushSync(() => r.ref.current.beginLink());
+    inputField(r.host.querySelector('[name="destination"]'), '#cancelled');
+    pointerClick(r.button('Cancel'));
+    assert.ok(!r.host.querySelector('form'));
+    assert.equal(r.view.state.sliceDoc(), 'alpha beta');
+    assert.deepEqual([r.view.state.selection.main.anchor, r.view.state.selection.main.head], [10, 6]);
+    assert.ok(document.activeElement === r.view.contentDOM);
+  } finally { r.cleanup(); }
+});
+
 test('typed Link draft survives Styled click-through, harmless effects and parse publication, then applies to its original selection', async () => {
   const source='label\n\n'+('ordinary study paragraph\n\n'.repeat(9500));
   let toggles=0;

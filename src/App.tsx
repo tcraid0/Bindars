@@ -2872,6 +2872,10 @@ function App() {
     const ctrl = isPrimaryModifier(e);
     const key = e.key.toLowerCase();
     const altGraph = e.getModifierState?.("AltGraph") ?? false;
+    // Option changes the printable key on macOS (Option+M is µ). Keep the
+    // existing physical shortcut without treating AltGraph text as a command.
+    const formattingShortcut = ctrl && e.altKey && !altGraph && (key === "m"
+      || detectShortcutPlatform() === "macos" && e.code === "KeyM");
     const target = e.target as HTMLElement | null;
     const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable || Boolean(target.closest?.("[data-markdown-controls]")));
     const inEditorPanel = editing && typeof target?.closest === "function" && Boolean(target.closest(".cm-panel"));
@@ -2905,7 +2909,7 @@ function App() {
         || key === "n"
         || key === "o"
         || key === "e"
-        || (e.altKey && !altGraph && key === "m")
+        || formattingShortcut
         || (e.shiftKey && key === "t")
       );
       if (appShortcutBeforeInput) e.preventDefault();
@@ -2944,7 +2948,7 @@ function App() {
     // App owns this persisted view preference. Reader and Fountain sessions
     // deliberately leave Ctrl+Alt+M inert rather than borrowing the Notes
     // shortcut's behavior.
-    if (ctrl && e.altKey && !altGraph && key === "m") {
+    if (formattingShortcut) {
       if (editing && fileType === "markdown") {
         e.preventDefault();
         markdownFormatting.toggle();

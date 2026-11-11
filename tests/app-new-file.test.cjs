@@ -1329,6 +1329,14 @@ test("Markdown formatting shortcut toggles only in the editor and respects panel
     assert.equal(metaToggle.defaultPrevented, true);
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
+    const optionProducedKey = withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "µ", { code: "KeyM", metaKey: true, altKey: true }));
+    assert.equal(optionProducedKey.defaultPrevented, true);
+    assert.equal(view.state.field(markdownFormattingEnabled), true);
+    withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "µ", { code: "KeyM", metaKey: true, altKey: true }));
+    assert.equal(view.state.field(markdownFormattingEnabled), false);
+
     const altGraphToggle = dispatchEditorKey(rendered.host, "m", {
       ctrlKey: true,
       altKey: true,
