@@ -62,6 +62,8 @@ export async function createPositionedAnchor(range: Range, container: HTMLElemen
   if (!selection) return null;
   const { text, start, end, exact } = selection;
   const [sourceHash, textHash] = await Promise.all([digest(source), digest(text)]);
+  const current = selectionOffsets(range, container);
+  if (!current || current.text !== text || current.start !== start || current.end !== end) return null;
   const prefix = text.slice(Math.max(0, start - CONTEXT_CHARS), start);
   const suffix = text.slice(end, end + CONTEXT_CHARS);
   let contextMatches = 0;
@@ -102,9 +104,10 @@ export function resolveAnchor(anchor: TextAnchor, container: HTMLElement, eviden
       && matchesContext(text, index, exact, prefix, suffix)) matches.push(index);
     from = index + 1;
   }
-  // If the original context was duplicated, a now-unique survivor may be the
-  // other passage after deletion. Position evidence cannot authorize that move.
-  if (matches.length === 1 && (!position || position.contextUnique === true)) {
+  // Legacy context has no evidence that it ever identified a unique passage.
+  // A now-unique survivor may be the other copy after deletion. Keep it
+  // uncertain until the user confirms it. Modern fallback policy is unchanged.
+  if (matches.length === 1 && position?.contextUnique === true) {
     const range = rangeForOffsets(spans, matches[0], matches[0] + exact.length);
     if (range) return { status: "located", range };
   }

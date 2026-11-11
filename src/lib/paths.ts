@@ -166,6 +166,31 @@ export function resolveMarkdownLink(
   return { path: resolved, anchor };
 }
 
+export const MARKDOWN_LINK_PROTOCOLS = ["http", "https", "mailto"];
+
+/** Validate command input against the reader's schemes and local-file resolver. */
+export function markdownLinkDestination(input: string, currentFilePath: string | null): string | null {
+  if (/[\u0000-\u001f\u007f]/.test(input)) return null;
+  const href = input.trim().replace(/^(?:https?|mailto):/i, (scheme) => scheme.toLowerCase());
+  const decoded = decodeUriComponentSafe(href);
+  if (!href || /[\u0000-\u001f\u007f]/.test(decoded)) return null;
+  if (href.startsWith("#")) return href.slice(1).trim() ? href : null;
+  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(href)?.[1];
+  if (scheme) {
+    if (!MARKDOWN_LINK_PROTOCOLS.includes(scheme)) return null;
+    if (scheme !== "mailto" && !/^https?:\/\//.test(href)) return null;
+    try {
+      const url = new URL(href);
+      if (scheme === "mailto" ? !url.pathname.trim() : !url.hostname) return null;
+    } catch { return null; }
+    return href;
+  }
+  // Validate decoded absolute paths as well as the literal form. The existing
+  // resolver remains responsible for extensions, relative paths and fragments.
+  if (/^[\\/]|^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
+  return currentFilePath && resolveMarkdownLink(href, currentFilePath) ? href : null;
+}
+
 export function decodeUriComponentSafe(value: string): string {
   try {
     return decodeURIComponent(value);

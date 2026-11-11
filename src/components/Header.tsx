@@ -3,7 +3,6 @@ import type { Theme, FileType } from "../types";
 import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
 import { useToast } from "./ToastProvider";
-import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
@@ -50,8 +49,6 @@ interface HeaderProps {
   onPresent: () => void;
   canPresent: boolean;
   fileType: FileType;
-  markdownFormattingEnabled: boolean;
-  onToggleMarkdownFormatting: () => void;
 }
 
 const themeLabels: Record<Theme, string> = {
@@ -101,8 +98,6 @@ function HeaderComponent({
   onPresent,
   canPresent,
   fileType,
-  markdownFormattingEnabled,
-  onToggleMarkdownFormatting,
 }: HeaderProps) {
   const { toast } = useToast();
   const isMac = detectShortcutPlatform() === "macos";
@@ -263,14 +258,7 @@ function HeaderComponent({
                 title={`Edit mode (${formatShortcutLabel("toggleEditMode")})`}
               >Edit</button>
             </div>
-            <div className="w-[60px] shrink-0">
-              {isEditing && fileType === "markdown" && (
-                <MarkdownFormattingToggle
-                  enabled={markdownFormattingEnabled}
-                  onToggle={onToggleMarkdownFormatting}
-                />
-              )}
-            </div>
+
           </>
         )}
       </div>

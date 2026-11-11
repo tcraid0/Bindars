@@ -66,7 +66,7 @@ import { useSearch } from "./hooks/useSearch";
 import { useReducedMotion } from "./hooks/useReducedMotion";
 import { useFileWatcher } from "./hooks/useFileWatcher";
 import type { WatcherUnavailableReason } from "./hooks/useFileWatcher";
-import { useAnnotations } from "./hooks/useAnnotations";
+import { useAnnotations, type PassageChoice } from "./hooks/useAnnotations";
 import { useWorkspaceRoot } from "./hooks/useWorkspaceRoot";
 import { useWorkspaceIndex } from "./hooks/useWorkspaceIndex";
 import { useWorkspaceSearch } from "./hooks/useWorkspaceSearch";
@@ -280,6 +280,7 @@ function App() {
     addHighlight,
     removeHighlight,
     updateHighlight,
+    beginPassageChoice,
     toggleBookmark,
     isBookmarked,
     removeBookmark,
@@ -328,6 +329,8 @@ function App() {
   const startNoteRef = useRef<((id: string) => void) | null>(null);
   const pendingNoteScrollRef = useRef<{ id: string; path: string | null; content: string | null } | null>(null);
   const [annotationLocations, setAnnotationLocations] = useState<Record<string, string>>({});
+  const [passageChoice, setPassageChoice] = useState<PassageChoice | null>(null);
+  const passageChoiceTrigger = useRef<HTMLElement | null>(null);
   const [tocVisible, setTocVisible] = useState(true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
   const readerControlsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -2161,6 +2164,30 @@ function App() {
   }, [sidebarVisible, sidebarHintRequested, sidebarHintAvailable, dismissSidebarHint]);
 
   // Annotations: highlight handler
+  const handleChoosePassage = useCallback((id: string) => {
+    const choice = beginPassageChoice(id);
+    if (!choice) return;
+    passageChoice?.cancel();
+    const snapshot = getPublishedDocument();
+    const isCurrent = () => choice.isCurrent() && getPublishedDocument() === snapshot && !editingRef.current;
+    passageChoiceTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPassageChoice({ ...choice, isCurrent,
+      usePassage: (anchor, headingId) => isCurrent() && choice.usePassage(anchor, headingId) });
+    window.getSelection()?.removeAllRanges();
+    contentRef.current?.closest<HTMLElement>("[tabindex]")?.focus({ preventScroll: true });
+  }, [beginPassageChoice, getPublishedDocument, passageChoice]);
+  const endPassageChoice = useCallback((cancelled: boolean) => {
+    passageChoice?.cancel();
+    setPassageChoice(null);
+    if (cancelled && passageChoiceTrigger.current?.isConnected) passageChoiceTrigger.current.focus({ preventScroll: true });
+    passageChoiceTrigger.current = null;
+  }, [passageChoice]);
+  useEffect(() => {
+    if (passageChoice && (!passageChoice.isCurrent() || actionAdmissionInFlight || presentationMode || !readerDocumentReady)) {
+      passageChoice.cancel(); setPassageChoice(null); passageChoiceTrigger.current = null;
+    }
+  }, [passageChoice, highlights, content, filePath, editing, actionAdmissionInFlight, presentationMode, readerDocumentReady]);
+
   const handleHighlight = useCallback((anchor: TextAnchor, color: HighlightColor, headingId: string | null) => {
     if (addHighlight(anchor, color, headingId)) dismissReadingHint();
   }, [addHighlight, dismissReadingHint]);
@@ -2846,7 +2873,7 @@ function App() {
     const key = e.key.toLowerCase();
     const altGraph = e.getModifierState?.("AltGraph") ?? false;
     const target = e.target as HTMLElement | null;
-    const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable || Boolean(target.closest?.("[data-markdown-controls]")));
     const inEditorPanel = editing && typeof target?.closest === "function" && Boolean(target.closest(".cm-panel"));
 
     // Presentation keys yield to controls; Escape still exits the mode.
@@ -2979,6 +3006,13 @@ function App() {
         closeSearch();
         return;
       }
+      return;
+    }
+
+    if (editing && target?.closest?.("[data-markdown-controls]") && ctrl
+      && ((key === "f" && !e.shiftKey) || key === "g")) {
+      e.preventDefault();
+      dispatchMenuAction(key === "f" ? "find" : e.shiftKey ? "find-previous" : "find-next");
       return;
     }
 
@@ -3251,8 +3285,6 @@ function App() {
           onPresent={enterPresentation}
           canPresent={canPresent}
           fileType={fileType}
-          markdownFormattingEnabled={markdownFormattingEnabled}
-          onToggleMarkdownFormatting={markdownFormatting.toggle}
         />
       )}
 
@@ -3381,6 +3413,9 @@ function App() {
                   scrollRootRef={mainScrollRef}
                   fileType={fileType}
                   markdownFormattingEnabled={markdownFormattingEnabled}
+                  filePath={filePath}
+                  onToggleMarkdownFormatting={markdownFormatting.toggle}
+                  onFormattingRefusal={reason => toast(reason, "info")}
                   settings={settings}
                   saveError={editor.saveError}
                   canSaveAsAfterError={editor.saveErrorRecovery === "save-as"}
@@ -3493,6 +3528,7 @@ function App() {
           onRemoveHighlight={removeHighlight}
           onUpdateHighlight={updateHighlight}
           onClickHighlight={handleClickHighlight}
+          onChoosePassage={handleChoosePassage}
           onClickBookmark={handleClickBookmark}
           onClose={closeAnnotationsPanel}
           fileName={fileName}
@@ -3523,6 +3559,8 @@ function App() {
           getActiveHeadingId={getActiveHeadingId}
           onHighlight={handleHighlight}
           onNote={handleNote}
+          passageChoice={passageChoice?.isCurrent() ? passageChoice : null}
+          onPassageChoiceEnd={endPassageChoice}
         />
       )}
       {focusMode && (
@@ -3536,9 +3574,6 @@ function App() {
           statsSummary={statsSummary}
           progressTextRef={progressTextRef}
           reducedEffects={reducedMotion}
-          showMarkdownFormatting={editing && fileType === "markdown"}
-          markdownFormattingEnabled={markdownFormattingEnabled}
-          onToggleMarkdownFormatting={markdownFormatting.toggle}
         />
       )}
       {focusedCharacter && parsedFountain && fileType === "fountain" && !focusMode && !presentationMode && (

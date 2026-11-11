@@ -1,7 +1,5 @@
-import remarkGfm from "remark-gfm";
 import remarkSmartypants from "remark-smartypants";
-import remarkMath from "remark-math";
-import remarkFrontmatter from "remark-frontmatter";
+import { markdownSyntax } from "./markdown-syntax";
 import rehypeSlug from "rehype-slug";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -201,12 +199,8 @@ export function remarkGatedSmartypants(options: SmartypantsGateOptions = {}) {
 }
 
 export const remarkPlugins: PluggableList = [
-  remarkGfm,
+  ...markdownSyntax,
   remarkGatedSmartypants,
-  // singleDollarTextMath off: single $...$ stays literal text so currency in
-  // prose ("$150 to $250") never parses as math; inline math uses $$...$$
-  [remarkMath, { singleDollarTextMath: false }],
-  remarkFrontmatter,
 ];
 
 export interface ExpensiveNodeLimits {

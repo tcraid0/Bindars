@@ -28,6 +28,7 @@
     "src/components/SaveWhisper.tsx",
     "src/components/CodeMirrorEditor.tsx",
     "src/components/markdown-decorations.ts",
+    "src/components/markdown-formatting-commands.ts",
     "src/components/MarkdownEditor.tsx",
     "src/components/ShortcutOverlay.tsx",
     "src/hooks/useEditor.ts",

@@ -107,7 +107,7 @@ async function until(assertion) {
     }
   }
 }
-test("reconnection previews exact and missing passages, retains all records, and requires an explicit commit", async (t) => {
+test("reconnection previews legacy uncertain and missing passages, retains all records, and requires an explicit commit", async (t) => {
   const view = await mount(t);
   assert.equal(view.dialog().querySelector("h2").textContent, "Reconnect notes");
   assert.match(view.dialog().textContent, /2 highlights, 2 notes, 1 bookmarks/);
@@ -115,7 +115,7 @@ test("reconnection previews exact and missing passages, retains all records, and
   await until(() =>
     assert.match(
       view.dialog().textContent,
-      /1 highlighted passages located; 0 uncertain; 1 missing/,
+      /0 highlighted passages located; 1 uncertain; 1 missing/,
     ),
   );
   assert.match(view.dialog().textContent, /1 of 1 bookmark headings found/);

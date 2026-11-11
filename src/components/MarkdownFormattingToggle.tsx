@@ -1,6 +1,7 @@
+import type { ButtonHTMLAttributes } from "react";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
 
-interface MarkdownFormattingToggleProps {
+interface MarkdownFormattingToggleProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> {
   enabled: boolean;
   onToggle: () => void;
   className?: string;
@@ -10,9 +11,11 @@ export function MarkdownFormattingToggle({
   enabled,
   onToggle,
   className = "",
+  ...buttonProps
 }: MarkdownFormattingToggleProps) {
   return (
     <button
+      {...buttonProps}
       type="button"
       onClick={onToggle}
       aria-label="Toggle markup formatting"

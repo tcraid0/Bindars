@@ -4,7 +4,7 @@ const React = require("react");
 const { act } = React;
 const { flushSync } = require("./_helpers/react.cjs");
 const { createRoot } = require("react-dom/client");
-const { undo } = require("@codemirror/commands");
+const { undo, redo } = require("@codemirror/commands");
 const { forceParsing, syntaxTree } = require("@codemirror/language");
 const { EditorView } = require("@codemirror/view");
 const {
@@ -977,7 +977,13 @@ for (const formatting of [true, false]) {
         assert.equal(view.state.doc.toString(), initialDocument);
         dispatchKey(view.contentDOM, 'Enter');
         dispatchKey(view.contentDOM, 'Enter');
-        assert.equal(view.state.doc.toString(), `${initialDocument}\n`);
+        assert.equal(view.state.doc.toString(), `${initialDocument}\n\n`);
+        view.dispatch(view.state.replaceSelection("foo"));
+        const { markdownArticle } = require("./_helpers/markdown-reader.cjs");
+        const article = markdownArticle(view.state.sliceDoc());
+        const paragraph = [...article.querySelectorAll("p")].find((node) => node.textContent === "foo");
+        assert.ok(paragraph, article.innerHTML);
+        assert.equal(paragraph.closest("li"), null, article.innerHTML);
       } finally { rendered.cleanup(); }
     });
   }
@@ -987,5 +993,216 @@ test('Fountain Enter does not apply Markdown list continuation', async () => {
   try {
     const view = findEditorView(rendered.host); view.dispatch({ selection: { anchor: view.state.doc.length } });
     dispatchKey(view.contentDOM, 'Enter'); assert.equal(view.state.doc.toString(), '- action\n');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`empty nested item outdents before exit; publication and Undo, styled=${formatting}`, async () => {
+    const publications = [];
+    const rendered = await renderEditor({ initialDocument: '- a\n  - ', markdownFormattingEnabled: formatting,
+      onBufferChange(content) { publications.push(content); return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '- a\n- ');
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '- a\n\n');
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), '- a\n- ');
+      dispatchKey(view.contentDOM, 'Enter');
+      view.dispatch({ ...view.state.replaceSelection('foo'), userEvent: 'input.type' });
+      assert.equal(rendered.ref.current.flushPendingChanges(), true);
+      assert.deepEqual(publications, ['- a\n\nfoo']);
+      await waitForPublication();
+      assert.equal(publications.length, 1);
+      view.dispatch({ ...view.state.replaceSelection(' bar'), userEvent: 'input.type' });
+      await waitForPublication();
+      assert.equal(publications.at(-1), '- a\n\nfoo bar');
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('numbered Enter continues intentional starts and renumbers the following run', async () => {
+  const rendered = await renderEditor({ initialDocument: '10) a\n11) b\n12) c', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: 5 } });
+    dispatchKey(view.contentDOM, 'Enter');
+    assert.equal(view.state.sliceDoc(), '10) a\n11) \n12) b\n13) c');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`existing indentation shortcuts are list-aware; generic and focus keys remain intact, styled=${formatting}`, async () => {
+    const publications = [];
+    const rendered = await renderEditor({ initialDocument: '10. parent\n11. [x] child', markdownFormattingEnabled: formatting,
+      onBufferChange(content) { publications.push(content); return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      assert.equal(dispatchKey(view.contentDOM, ']', { ctrlKey: true }).defaultPrevented, true);
+      assert.equal(view.state.sliceDoc(), '10. parent\n    1. [x] child');
+      assert.equal(rendered.ref.current.flushPendingChanges(), true);
+      assert.deepEqual(publications, ['10. parent\n    1. [x] child']);
+      dispatchKey(view.contentDOM, '[', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '10. parent\n11. [x] child');
+      view.dispatch({ selection: { anchor: 5 } });
+      dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '10. parent\n11. [x] child', 'first item must not fall through to fixed indent');
+      assert.equal(dispatchKey(view.contentDOM, 'Tab').defaultPrevented, false);
+      assert.equal(dispatchKey(view.contentDOM, 'Tab', { shiftKey: true }).defaultPrevented, false);
+      assert.equal(dispatchKey(view.contentDOM, 'Escape').defaultPrevented, false);
+      replaceEditorDocument(view, 'ordinary');
+      view.dispatch({ selection: { anchor: 3 } });
+      dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '  ordinary');
+      dispatchKey(view.contentDOM, '[', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), 'ordinary');
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('Fountain keeps generic indentation even for Markdown-looking text', async () => {
+  const rendered = await renderEditor({ initialDocument: '10. parent\n11. child', fileType: 'fountain', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state.sliceDoc(), '10. parent\n  11. child');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`ordered tasks continue unchecked and exit into a paragraph, styled=${formatting}`, async () => {
+    const rendered = await renderEditor({ initialDocument: '10) [x] a', markdownFormattingEnabled: formatting, onBufferChange() { return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '10) [x] a\n11) [ ] ');
+      dispatchKey(view.contentDOM, 'Enter');
+      view.dispatch(view.state.replaceSelection('foo'));
+      assert.equal(view.state.sliceDoc(), '10) [x] a\n\nfoo');
+      const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+      const article = markdownArticle(view.state.sliceDoc());
+      assert.equal(article.lastElementChild.tagName, 'P');
+      assert.equal(article.lastElementChild.textContent, 'foo');
+      assert.equal(article.querySelectorAll('input[checked]').length, 1);
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('ordered empty nested tasks outdent once and list exit retains CRLF and CR serialization', async () => {
+  for (const separator of ['\r\n', '\r']) {
+    const rendered = await renderEditor({ initialDocument: `10. [x] parent${separator}    1. [ ] `, onBufferChange() { return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}11. [ ] `);
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}${separator}`);
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}11. [ ] `);
+    } finally { rendered.cleanup(); }
+  }
+});
+
+for (const formatting of [true, false]) {
+  test(`middle list exit keeps both surrounding lists separate, styled=${formatting}`, async () => {
+    for (const [initialDocument, expected] of [
+      ['3. a\n4. \n5. c', '3. a\n\nfoo\n\n4. c'],
+      ['10) [x] a\n11) [ ] \n12) [x] b', '10) [x] a\n\nfoo\n\n11) [x] b'],
+      ['3. a\n\n4. \n5. c', '3. a\n\nfoo\n\n4. c'],
+    ]) {
+      const rendered = await renderEditor({ initialDocument, markdownFormattingEnabled: formatting,
+        onBufferChange() { return true; } });
+      try {
+        const view = findEditorView(rendered.host);
+        view.dispatch({ selection: { anchor: view.state.doc.line(view.state.doc.lines - 1).to } });
+        assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+        const exited = view.state.sliceDoc();
+        const caret = view.state.selection.main.head;
+        assert.equal(undo(view), true);
+        assert.equal(view.state.sliceDoc(), initialDocument);
+        assert.equal(redo(view), true);
+        assert.equal(view.state.sliceDoc(), exited);
+        assert.equal(view.state.selection.main.head, caret);
+        view.dispatch(view.state.replaceSelection('foo'));
+        assert.equal(view.state.sliceDoc(), expected);
+        const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+        const article = markdownArticle(view.state.sliceDoc());
+        assert.deepEqual([...article.children].map((node) => node.tagName), ['OL', 'P', 'OL']);
+        assert.equal(article.children[1].textContent, 'foo');
+        assert.equal(article.querySelectorAll('input[checked]').length, initialDocument.includes('[x]') ? 2 : 0);
+      } finally { rendered.cleanup(); }
+    }
+  });
+
+  test(`command-created empty nested tasks outdent with checked state intact, styled=${formatting}`, async () => {
+    const { applyListCommand } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
+    for (const [parent, child, expected] of [
+      ['- [x] parent', '  - child', '- [x] parent\n\n1. [ ] '],
+      ['- parent', '  - child', '- parent\n\n1. [ ] '],
+      ['10. [x] parent', '    1. [x] child', '10. [x] parent\n11. [x] '],
+      ['10. [x] parent', '    1. [X] child', '10. [x] parent\n11. [X] '],
+      ['- parent', '  - [X] child', '- parent\n- [X] '],
+    ]) {
+      const publications = [];
+      const rendered = await renderEditor({ initialDocument: `${parent}\n${child}`, markdownFormattingEnabled: formatting,
+        onBufferChange(content) { publications.push(content); return true; } });
+      try {
+        const view = findEditorView(rendered.host);
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+        if (child.includes('- child')) {
+          assert.equal(applyListCommand(view, 'numbered').applied, true);
+          assert.equal(applyListCommand(view, 'checklist').applied, true);
+        }
+        view.dispatch({ changes: { from: view.state.doc.length - 'child'.length, to: view.state.doc.length } });
+        const before = view.state.sliceDoc();
+        assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+        assert.equal(view.state.sliceDoc(), expected);
+        assert.equal(undo(view), true);
+        assert.equal(view.state.sliceDoc(), before);
+        assert.equal(redo(view), true);
+        view.dispatch(view.state.replaceSelection('foo'));
+        assert.equal(view.state.sliceDoc(), `${expected}foo`);
+        const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+        const article = markdownArticle(view.state.sliceDoc());
+        assert.equal(article.querySelectorAll('li li').length, 0, article.innerHTML);
+        assert.equal(article.querySelectorAll('input[type="checkbox"]').length, parent.includes('[x]') ? 2 : 1);
+        assert.equal(rendered.ref.current.flushPendingChanges(), true);
+        assert.equal(publications.at(-1), `${expected}foo`);
+      } finally { rendered.cleanup(); }
+    }
+  });
+}
+
+test('indent shortcut routing honors half-open selections and inspects every selection range', async () => {
+  const { EditorSelection } = require('@codemirror/state');
+  const rendered = await renderEditor({ initialDocument: 'plain\n- parent\n- child', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: EditorSelection.single(0, 6) });
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state.sliceDoc(), '  plain\n- parent\n- child');
+    assert.equal(undo(view), true);
+    view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(view.state.doc.length)], 0) });
+    const before = view.state;
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state, before, 'a second range in a list must refuse without generic fallback');
+  } finally { rendered.cleanup(); }
+});
+
+test('empty task Enter consumes refused outdent without falling through to generic newline', async () => {
+  const initialDocument = '- parent\n  1. [ ] \n  2. sibling';
+  const rendered = await renderEditor({ initialDocument, onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: view.state.doc.line(2).to } });
+    assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+    assert.equal(view.state.sliceDoc(), initialDocument);
+    assert.equal(undo(view), false);
   } finally { rendered.cleanup(); }
 });

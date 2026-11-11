@@ -37,6 +37,7 @@ interface AnnotationsPanelProps {
   onRemoveHighlight: (id: string) => void;
   onUpdateHighlight: (id: string, updates: Partial<Pick<Highlight, "color" | "note">>) => void;
   onClickHighlight: (id: string) => void;
+  onChoosePassage?: (id: string) => void;
   onClickBookmark: (headingId: string) => void;
   onClose: () => void;
   fileName: string | null;
@@ -101,6 +102,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   onRemoveHighlight,
   onUpdateHighlight,
   onClickHighlight,
+  onChoosePassage,
   onClickBookmark,
   onClose,
   fileName,
@@ -425,6 +427,12 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
                 {locations && locations[hl.id] !== "located" && <p className="px-2 text-xs text-text-muted">
                   {locations[hl.id] === "missing" ? "Location unavailable" : locations[hl.id] === "uncertain" ? "Location uncertain" : "Locating highlight..."}
+                </p>}
+                {onChoosePassage && <button type="button" disabled={mutationsDisabled || !annotationsReady}
+                  data-passage-action={hl.id} className="px-2 py-1 text-xs text-accent-text hover:underline"
+                  onClick={() => { saveNote(); onChoosePassage(hl.id); }}>Choose passage</button>}
+                {typeof hl.originalExcerpt === "string" && <p className="px-2 pb-1 text-xs text-text-muted whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  Original excerpt: {hl.originalExcerpt}
                 </p>}
                 {/* Note display / edit */}
                 {editingNoteId === hl.id ? (

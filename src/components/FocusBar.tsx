@@ -1,6 +1,5 @@
 import { memo, useState, useEffect, useRef } from "react";
 import { formatShortcutLabel } from "../lib/shortcut-labels";
-import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
 import { SaveWhisper } from "./SaveWhisper";
 
 interface FocusBarProps {
@@ -13,9 +12,6 @@ interface FocusBarProps {
   statsSummary: string | null;
   progressTextRef: React.RefObject<HTMLSpanElement | null>;
   reducedEffects: boolean;
-  showMarkdownFormatting: boolean;
-  markdownFormattingEnabled: boolean;
-  onToggleMarkdownFormatting: () => void;
 }
 
 const PROXIMITY_PX = 60;
@@ -30,9 +26,6 @@ function FocusBarComponent({
   statsSummary,
   progressTextRef,
   reducedEffects,
-  showMarkdownFormatting,
-  markdownFormattingEnabled,
-  onToggleMarkdownFormatting,
 }: FocusBarProps) {
   const [nearTop, setNearTop] = useState(false);
   const rafRef = useRef<number | null>(null);
@@ -98,12 +91,7 @@ function FocusBarComponent({
             {" · "}{statsSummary}
           </span>
         )}
-        {showMarkdownFormatting && (
-          <MarkdownFormattingToggle
-            enabled={markdownFormattingEnabled}
-            onToggle={onToggleMarkdownFormatting}
-          />
-        )}
+
         <button
           type="button"
           onClick={onExit}

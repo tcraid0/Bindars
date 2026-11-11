@@ -56,6 +56,8 @@ export interface Highlight {
   createdAt: number;
   nearestHeadingId: string | null;
   note?: string;
+  /** First excerpt before a user-confirmed passage replacement changed it. */
+  originalExcerpt?: string;
 }
 
 export interface Bookmark {

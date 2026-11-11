@@ -325,7 +325,7 @@ test("PresentationView resolves fragments only inside the active slide", async (
 
 
 const { highlightSearchMatches, clearSearchHighlights } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
-const { findAnchor, wrapRange } = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
+const { wrapRange } = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
 
 const markedContent = "# Title\n\n![Preview](preview.png)\n\n[Jump](#title) words `code` more words.\n\n[Next](next.md)\n\n```js\nconst words = 1;\n```\n\n| Text |\n| --- |\n| words |";
 
@@ -356,7 +356,10 @@ test("a rejected system link request shows exactly one error", async () => {
 
 function paintReaderMarks(host) {
   const article = host.querySelector("article");
-  const range = findAnchor({ prefix: "Jump", exact: " words ", suffix: "code" }, article);
+  const { collectText, rangeForOffsets } = require("../.tmp/workspace-tests/src/lib/dom-text.js");
+  const { text, spans } = collectText(article);
+  const start = text.indexOf(" words ");
+  const range = rangeForOffsets(spans, start, start + " words ".length);
   assert.ok(range);
   wrapRange(range, "annotation-highlight-yellow", "saved");
   assert.ok(highlightSearchMatches(article, "wo").length >= 3);

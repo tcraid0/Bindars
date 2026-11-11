@@ -6,7 +6,9 @@ import {
   EditorSelection,
   EditorState,
   Text,
+  Prec,
 } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
 import type { SourcePoint } from "../lib/editor-position";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -18,6 +20,14 @@ import {
   setMarkdownFormatting,
 } from "./markdown-decorations";
 
+import {
+  executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
+  type FormattingCommand, type FormattingToolbarState, type EmphasisCommandResult,
+  type LinkCommandIntent, type LinkCommandInput,
+} from "./markdown-formatting-commands";
+
+export interface EditorLinkForm { id: number; label: string }
+
 const BUFFER_PUBLICATION_DELAY_MS = 200;
 
 // App owns an unhandled Escape so it can guard mode exit without CodeMirror
@@ -27,6 +37,10 @@ const editorDefaultKeymap = defaultKeymap.filter((binding) => binding.key !== "E
 
 export interface CodeMirrorEditorHandle {
   focus: () => void;
+  executeFormatting: (command: FormattingCommand) => EmphasisCommandResult | null;
+  beginLink: () => void;
+  applyLink: (id: number, input: LinkCommandInput, composing?: boolean) => EmphasisCommandResult | null;
+  cancelLink: (id?: number, restoreFocus?: boolean) => void;
   find: () => void;
   findNext: () => void;
   findPrevious: () => void;
@@ -50,6 +64,13 @@ interface CodeMirrorEditorProps {
   fileType: FileType;
   markdownFormattingEnabled: boolean;
   onBufferChange: (content: string) => boolean;
+  filePath?: string | null;
+  formattingControlsRef?: RefObject<HTMLElement | null>;
+  onFormattingState?: (state: FormattingToolbarState) => void;
+  onFormattingRefusal?: (reason: string) => void;
+  onLinkFormChange?: (form: EditorLinkForm | null) => void;
+  onFocusToolbar?: () => void;
+  onExternalDocumentAdopted?: () => void;
 }
 
 type LineSeparator = "\n" | "\r\n" | "\r";
@@ -181,6 +202,13 @@ const editorTheme = EditorView.theme({
     fontSize: "1em",
     fontWeight: "650",
   },
+  ".cm-md-strong": { fontWeight: "700" },
+  ".cm-md-emphasis": { fontStyle: "italic" },
+  ".cm-md-divider": {
+    color: "var(--text-muted)",
+    borderBottom: "1px solid var(--border)",
+    paddingBlock: ".35em",
+  },
   ".cm-md-marker": {
     color: "var(--text-muted)",
   },
@@ -282,6 +310,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
     fileType,
     markdownFormattingEnabled,
     onBufferChange,
+    filePath = null, formattingControlsRef, onFormattingState, onFormattingRefusal, onLinkFormChange, onFocusToolbar, onExternalDocumentAdopted,
   }, ref) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -291,6 +320,8 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       externalDocument: string,
     ) => boolean>(() => false);
     const onBufferChangeRef = useRef(onBufferChange);
+    const interactionRef = useRef({ filePath, onFormattingState, onFormattingRefusal, onLinkFormChange, onFocusToolbar, onExternalDocumentAdopted });
+    const formattingBridgeRef = useRef<Pick<CodeMirrorEditorHandle, "executeFormatting" | "beginLink" | "applyLink" | "cancelLink"> | null>(null);
     const initialScrollTopRef = useRef<number | null>(null);
     const viewportMovedByUserRef = useRef(false);
 
@@ -298,9 +329,26 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       onBufferChangeRef.current = onBufferChange;
     }, [onBufferChange]);
 
+    useLayoutEffect(() => {
+      if (interactionRef.current.filePath !== filePath) formattingBridgeRef.current?.cancelLink(undefined, false);
+      interactionRef.current = { filePath, onFormattingState, onFormattingRefusal, onLinkFormChange, onFocusToolbar, onExternalDocumentAdopted };
+    });
+
     useImperativeHandle(ref, () => ({
+      executeFormatting: command => formattingBridgeRef.current?.executeFormatting(command) ?? null,
+      beginLink: () => formattingBridgeRef.current?.beginLink(),
+      applyLink: (id, input, composing) => formattingBridgeRef.current?.applyLink(id, input, composing) ?? null,
+      cancelLink: (id, restoreFocus) => formattingBridgeRef.current?.cancelLink(id, restoreFocus),
       focus: () => viewRef.current?.focus(),
-      find: () => { if (viewRef.current) openSearchPanel(viewRef.current); },
+      find: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        formattingBridgeRef.current?.cancelLink(undefined, false);
+        openSearchPanel(view);
+        // Explicit navigation from a form/control owns focus, independently of
+        // whether the browser focuses a newly mounted input through select().
+        view.dom.querySelector<HTMLInputElement>('.cm-search [main-field]')?.focus();
+      },
       findNext: () => { if (viewRef.current) findNext(viewRef.current); },
       findPrevious: () => { if (viewRef.current) findPrevious(viewRef.current); },
       flushPendingChanges: () => publishRef.current?.() ?? null,
@@ -341,6 +389,61 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       let publicationTimer: ReturnType<typeof setTimeout> | null = null;
       let baselineFrame: number | null = null;
       let applyingExternalDocument = false;
+      let feedbackFrame: number | null = null;
+      let lastFeedback = "";
+      let compositionActive = false;
+      let linkSequence = 0;
+      let link: { id: number; intent: LinkCommandIntent } | null = null;
+      const session = {};
+      const context = () => ({ session, filePath: interactionRef.current.filePath });
+      const reportReason = (reason: string | null) => {
+        if (reason) interactionRef.current.onFormattingRefusal?.(reason);
+      };
+      const report = (result: EmphasisCommandResult) => {
+        reportReason(result.reason);
+        return result;
+      };
+      const cancelLink = (id?: number, restoreFocus = true) => {
+        if (!link || (id !== undefined && id !== link.id) || !view) return;
+        cancelLinkCommand(view, link.intent, context(), restoreFocus);
+        link = null;
+        interactionRef.current.onLinkFormChange?.(null);
+      };
+      const scheduleFeedback = () => {
+        if (!view || viewRef.current !== view || fileType !== "markdown" || feedbackFrame !== null) return;
+        feedbackFrame = window.requestAnimationFrame(() => {
+          feedbackFrame = null;
+          if (!view || viewRef.current !== view) return;
+          const snapshot = formattingToolbarState(view.state, compositionActive || view.composing);
+          const key = JSON.stringify(snapshot);
+          if (key === lastFeedback) return;
+          lastFeedback = key;
+          interactionRef.current.onFormattingState?.(snapshot);
+        });
+      };
+      const compositionChanged = (active: boolean) => {
+        compositionActive = active;
+        if (active) cancelLink(undefined, false);
+        scheduleFeedback();
+      };
+      const compositionStart = () => compositionChanged(true);
+      const compositionEnd = () => {
+        compositionActive = false;
+        // CodeMirror settles its own composition flag after this DOM event.
+        scheduleFeedback();
+        setTimeout(scheduleFeedback, 0);
+      };
+      const executeFormatting = (command: FormattingCommand) => {
+        if (!view || fileType !== "markdown") return null;
+        cancelLink(undefined, false);
+        const result = compositionActive
+          ? { available: false, active: false, reason: "Finish the current composition before formatting.", handled: true as const, applied: false }
+          : executeFormattingCommand(view, command);
+        report(result);
+        view.focus();
+        scheduleFeedback();
+        return result;
+      };
       initialScrollTopRef.current = null;
       viewportMovedByUserRef.current = false;
       const scrollRoot = scrollRootRef?.current ?? null;
@@ -386,6 +489,14 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             EditorState.lineSeparator.of(preparedDocument.lineSeparator),
             EditorState.allowMultipleSelections.of(true),
             EditorView.lineWrapping,
+            EditorView.scrollMargins.of(() => {
+              const bar = formattingControlsRef?.current?.parentElement;
+              if (!bar) return null;
+              // CodeMirror's nested-scroll algorithm does not read CSS
+              // scroll-padding. Reserve the actual visible sticky controls.
+              return { top: Math.max(0, bar.getBoundingClientRect().bottom
+                - Math.max(0, scrollRootRef?.current?.getBoundingClientRect().top ?? 0)) };
+            }),
             EditorView.contentAttributes.of({
               "aria-label": "Edit document",
               "aria-multiline": "true",
@@ -394,9 +505,30 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             }),
             history(),
             search({ top: true }),
+            fileType === "markdown" ? Prec.highest(keymap.of([
+              { key: "Mod-b", run: () => { executeFormatting("bold"); return true; } },
+              { key: "Mod-i", run: () => { executeFormatting("italic"); return true; } },
+              { key: "Alt-F10", run: () => { interactionRef.current.onFocusToolbar?.(); return true; } },
+            ])) : [],
+            fileType === "markdown" ? EditorView.domEventHandlers({
+              beforeinput(event) {
+                const command = event.inputType === "formatBold" ? "bold" : event.inputType === "formatItalic" ? "italic"
+                  : event.inputType === "insertOrderedList" ? "numbered" : event.inputType === "insertUnorderedList" ? "bullets"
+                  : event.inputType === "formatIndent" ? "indent" : event.inputType === "formatOutdent" ? "outdent" : null;
+                if (!command && !event.inputType.startsWith("format")) return false;
+                event.preventDefault();
+                if (command) executeFormatting(command);
+                else reportReason("Use the formatting bar for supported Markdown formatting.");
+                return true;
+              },
+            }) : [],
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
               if (update.docChanged && !applyingExternalDocument) schedulePublication();
+              if (link && !linkCommandIsCurrent(update.view, link.intent, context())) cancelLink(undefined, false);
+              if (update.docChanged || update.selectionSet
+                || syntaxTree(update.startState) !== syntaxTree(update.state)
+                || update.startState.readOnly !== update.state.readOnly) scheduleFeedback();
               if (isMac && searchPanelOpen(update.state) && !searchPanelOpen(update.startState)) {
                 // CodeMirror mounts its search panel before notifying update listeners.
                 for (const input of update.view.dom.querySelectorAll(".cm-search input.cm-textfield")) {
@@ -405,7 +537,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
                 }
               }
             }),
-            fileType === "markdown" ? markdownFormattingExtensions(formattingEnabled) : [],
+            fileType === "markdown" ? markdownFormattingExtensions(formattingEnabled, report) : [],
             editorTheme,
           ],
         });
@@ -432,6 +564,40 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       view = createdView;
       viewRef.current = createdView;
       publishRef.current = publishPendingChanges;
+      formattingBridgeRef.current = {
+        executeFormatting,
+        cancelLink,
+        beginLink() {
+          if (fileType !== "markdown") return;
+          cancelLink(undefined, false);
+          if (compositionActive) {
+            reportReason("Finish the current composition before formatting.");
+            return;
+          }
+          const begun = beginLinkCommand(createdView, context());
+          reportReason(begun.reason);
+          if (!begun.intent) return;
+          link = { id: ++linkSequence, intent: begun.intent };
+          interactionRef.current.onLinkFormChange?.({ id: link.id, label: begun.intent.label });
+        },
+        applyLink(id, input, composing = false) {
+          if (!link || link.id !== id || !linkCommandIsCurrent(createdView, link.intent, context())) {
+            cancelLink(id, false);
+            return report({ available: false, active: false, handled: true, applied: false,
+              reason: "The document or selection changed. Open Link again." });
+          }
+          // A live form owns its one inline validation surface. Stale/no-form
+          // submissions above use the notice path because no form can show it.
+          if (composing || compositionActive) return { available: false, active: false, handled: true, applied: false,
+            reason: "Finish the current composition before formatting." };
+          const result = applyLinkCommand(createdView, link.intent, input, context());
+          if (result.applied) { cancelLink(undefined, false); createdView.focus(); }
+          return result;
+        },
+      };
+      host.addEventListener("compositionstart", compositionStart);
+      host.addEventListener("compositionend", compositionEnd);
+      scheduleFeedback();
       adoptExternalDocumentRef.current = (capturedDocument, externalDocument) => {
         publishPendingChanges();
         if (viewRef.current !== createdView) return false;
@@ -457,13 +623,19 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
           false,
         ) ?? markdownFormattingEnabled;
         const scrollTop = scrollRoot?.scrollTop ?? null;
-        const hadFocus = createdView.hasFocus;
+        const hadFocus = createdView.hasFocus || link !== null;
+        cancelLink(undefined, false);
+        if (feedbackFrame !== null) window.cancelAnimationFrame(feedbackFrame);
+        feedbackFrame = null;
+        lastFeedback = "";
         applyingExternalDocument = true;
         try {
           createdView.setState(createEditorState(external, selection, formattingEnabled));
         } finally {
           applyingExternalDocument = false;
         }
+        interactionRef.current.onExternalDocumentAdopted?.();
+        scheduleFeedback();
         if (scrollRoot && scrollTop !== null) scrollRoot.scrollTop = scrollTop;
         if (hadFocus && !createdView.hasFocus) createdView.focus();
         return true;
@@ -490,6 +662,11 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       }
 
       return () => {
+        cancelLink(undefined, false);
+        formattingBridgeRef.current = null;
+        if (feedbackFrame !== null) window.cancelAnimationFrame(feedbackFrame);
+        host.removeEventListener("compositionstart", compositionStart);
+        host.removeEventListener("compositionend", compositionEnd);
         if (publicationTimer) clearTimeout(publicationTimer);
         if (baselineFrame !== null) window.cancelAnimationFrame(baselineFrame);
         publicationTimer = null;

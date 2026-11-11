@@ -67,6 +67,10 @@ export function buildAnnotationMarkdown(
         lines.push(`>`);
         lines.push(`> — *${literal(hl.color.replace(/[\r\n]+/g, " "))} highlight*`);
         lines.push("");
+        if (typeof hl.originalExcerpt === "string") {
+          lines.push(`**Original excerpt:** ${literal(hl.originalExcerpt).replace(/\r?\n/g, "  \n")}`);
+          lines.push("");
+        }
         if (hl.note) {
           const safeNote = literal(hl.note.trim()).replace(/\r?\n/g, "  \n");
           lines.push(`**Note:** ${safeNote}`);

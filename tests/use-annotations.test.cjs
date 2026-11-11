@@ -702,3 +702,90 @@ test('reconnection refuses pending failed writes and preserves session records o
  await assert.rejects(view.api().reconnect('/a.md','/b.md',record(),{size:3,mtimeMs:1,contentHash:'x'}),/pending/);
  assert.equal(invoked,1);assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].note,'unsaved');
 });
+
+const replacementAnchor = (exact = 'new passage') => ({ exact, prefix: 'before ', suffix: ' after',
+  position: { format: 1, start: 7, end: 7 + exact.length, sourceHash: 'source', textHash: 'text', contextUnique: true } });
+
+test('passage recovery merges current note/color, retains identity/unknown fields and original excerpt across reload', async t => {
+  const initial = record(); initial.highlights[0].future = { retained: true }; initial.future = 42;
+  const { disk } = backingStore(t, new Map([['/a.md', initial]]));
+  const view = await mount(t);
+  const choice = view.api().beginPassageChoice('h');
+  await view.change(api => api.updateHighlight('h', { note: 'latest note', color: 'pink' }));
+  await view.change(() => assert.equal(choice.usePassage(replacementAnchor(), 'new-heading'), true));
+  const saved = disk.get('/a.md').highlights[0];
+  assert.deepEqual(saved, { ...initial.highlights[0], ...replacementAnchor(), note: 'latest note', color: 'pink', nearestHeadingId: 'new-heading', originalExcerpt: 'quote' });
+  assert.equal(disk.get('/a.md').future, 42);
+  assert.equal(choice.isCurrent(), false);
+  await view.render('/b.md'); await view.render('/a.md');
+  assert.deepEqual(view.api().highlights[0], saved);
+  await view.change(api => api.beginPassageChoice('h').usePassage(replacementAnchor('third passage'), null));
+  assert.equal(view.api().highlights[0].originalExcerpt, 'quote');
+});
+
+test('same-excerpt confirmation upgrades position without inventing an original excerpt', async t => {
+  backingStore(t); const view = await mount(t);
+  await view.change(api => assert.equal(api.beginPassageChoice('h').usePassage(replacementAnchor('quote'), null), true));
+  assert.equal(Object.hasOwn(view.api().highlights[0], 'originalExcerpt'), false);
+  assert.deepEqual(view.api().highlights[0].position, replacementAnchor('quote').position);
+});
+
+for (const stale of ['cancel', 'path-return', 'reload', 'deletion', 'other choice', 'reassigned', 'restore', 'lock']) {
+  test(`passage recovery refuses ${stale} without resurrecting or overwriting an attachment`, async t => {
+    const { writes } = backingStore(t); const view = await mount(t);
+    const choice = view.api().beginPassageChoice('h');
+    if (stale === 'cancel') choice.cancel();
+    if (stale === 'path-return') { await view.render('/b.md'); await view.render('/a.md'); }
+    if (stale === 'reload') await view.change(api => api.retryLoad());
+    if (stale === 'deletion') await view.change(api => api.removeHighlight('h'));
+    if (stale === 'other choice') view.api().beginPassageChoice('h');
+    if (stale === 'reassigned') await view.change(api => api.beginPassageChoice('h').usePassage(replacementAnchor('other'), null));
+    if (stale === 'restore') await view.change(api => api.restoreRecord(record()));
+    if (stale === 'lock') view.api().setLocked(true);
+    const before = copy(view.api().highlights), count = writes.length, version = view.api().getMutationVersion();
+    await view.change(() => assert.equal(choice.usePassage(replacementAnchor(), null), false));
+    assert.deepEqual(view.api().highlights, before); assert.equal(writes.length, count);
+    assert.equal(view.api().getMutationVersion(), version);
+  });
+}
+
+test('failed passage recovery remains pending for close protection and retries the newest note/color before reload', async t => {
+  const { disk } = backingStore(t); const view = await mount(t);
+  t.mock.method(storage, 'saveAnnotations', async () => { throw new Error('disk full'); });
+  await view.change(api => api.beginPassageChoice('h').usePassage(replacementAnchor(), null));
+  await view.change(api => api.updateHighlight('h', { note: 'while saving', color: 'blue' }));
+  assert.ok(view.api().saveError); assert.equal(view.api().canRetrySave, true);
+  assert.equal(disk.get('/a.md').highlights[0].exact, 'quote', 'failure is not persistence');
+  assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].exact, 'new passage');
+  assert.equal(view.api().recordState('/a.md'), 'annotated');
+  await view.render('/b.md'); await view.render('/a.md');
+  assert.equal(view.api().highlights[0].exact, 'new passage', 'pending work survives a path revisit');
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => disk.set(path, copy(data)));
+  await view.change(async api => { api.retrySave(); await api.waitForSaves(); });
+  assert.deepEqual(view.api().pendingRecords(), {});
+  await view.render('/b.md'); await view.render('/a.md');
+  assert.equal(view.api().highlights[0].note, 'while saving');
+  assert.equal(view.api().highlights[0].color, 'blue');
+  assert.equal(view.api().highlights[0].originalExcerpt, 'quote');
+});
+
+test('recovery to the second duplicate locates that exact reader occurrence after stored-record reload', async t => {
+  const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+  const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const { createPositionedAnchor, prepareAnnotationDocument, resolveAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const paragraph = 'A'.repeat(40) + 'quote' + 'B'.repeat(40);
+  const source = `${paragraph}\n\n${paragraph}`;
+  const reader = markdownArticle(source); const index = collectText(reader);
+  const start = index.text.lastIndexOf('quote');
+  const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 5), reader, source);
+  backingStore(t); const view = await mount(t);
+  await view.change(api => assert.equal(api.beginPassageChoice('h').usePassage(anchor, null), true));
+  await view.render('/b.md'); await view.render('/a.md');
+  const reopened = markdownArticle(source);
+  const result = resolveAnchor(view.api().highlights[0], reopened, await prepareAnnotationDocument(reopened, source));
+  assert.equal(result.status, 'located');
+  assert.ok(reopened.querySelectorAll('p')[1].contains(result.range.startContainer));
+  assert.equal(result.range.startOffset, 40);
+  const deleted = markdownArticle(paragraph);
+  assert.equal(resolveAnchor(view.api().highlights[0], deleted, await prepareAnnotationDocument(deleted, paragraph)).status, 'uncertain');
+});

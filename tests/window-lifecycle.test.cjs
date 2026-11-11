@@ -1,3 +1,4 @@
+const { positionedHighlight } = require("./_helpers/markdown-reader.cjs");
 const { createAppView } = require("./_helpers/render-app.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -1384,10 +1385,10 @@ test("reader search survives mixed inline text, clearing, and a different docume
 });
 
 test("saved highlights survive search and panel changes, then a saved edit returns to the reader", async () => {
-  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [{
+  const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT, highlights: [await positionedHighlight(MIXED_READER_CONTENT, {
     id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
     color: "yellow", note: "Saved note", nearestHeadingId: "lifecycle", createdAt: 1,
-  }] });
+  })] });
   try {
     await rendered.openLifecycleDocument();
     await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
@@ -1401,7 +1402,9 @@ test("saved highlights survive search and panel changes, then a saved edit retur
     dispatchShortcut("e");
     await waitFor(() => assert.match(rendered.host.querySelector('.markdown-body')?.textContent ?? "", /revised words/));
     assert.equal(rendered.diskContent(), edited);
-    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="saved"]')));
+    await waitFor(() => assert.match(rendered.host.textContent, /Location uncertain/));
+    assert.match(rendered.host.textContent, /Saved note/);
+    assert.ok(!rendered.host.querySelector('mark[data-highlight-id="saved"]'));
   } finally {
     await rendered.cleanup();
   }
@@ -1545,8 +1548,8 @@ test("macOS hide keeps pending annotations without asking to discard them", asyn
 });
 
 test("failed location evidence removes stale paint while keeping notes accessible", async (t) => {
-  const anchor = { id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
-    color: "yellow", note: "Still accessible", nearestHeadingId: "lifecycle", createdAt: 1 };
+  const anchor = await positionedHighlight(MIXED_READER_CONTENT, { id: "saved", prefix: "Jump", exact: " words ", suffix: "code",
+    color: "yellow", note: "Still accessible", nearestHeadingId: "lifecycle", createdAt: 1 });
   const rendered = await renderLifecycleApp({ content: MIXED_READER_CONTENT,
     highlights: [anchor, { ...anchor, id: "second" }] });
   try {
@@ -1652,9 +1655,10 @@ test("a failed native close cannot leave discard consent for the next close requ
 test("a delayed image failure preserves an adjacent saved annotation without search", async t => {
   for (const gap of ["", " "]) {
     await t.test(gap ? "separated text control" : "immediately adjacent annotation", async () => {
+      mockConvertFileSrc("macos");
       const rendered = await renderLifecycleApp({
         content: `# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.`,
-        highlights: [{ id: "adjacent", exact: "afterword", prefix: `Before ${gap}`, suffix: " needle", color: "yellow", createdAt: 1, nearestHeadingId: null }],
+        highlights: [await positionedHighlight(`# Lifecycle\n\nBefore ![Missing](missing.png)${gap}afterword needle here.`, { id: "adjacent", exact: "afterword", prefix: `Before ${gap}`, suffix: " needle", color: "yellow", createdAt: 1, nearestHeadingId: null })],
       });
       mockConvertFileSrc("macos");
       try {
@@ -1778,7 +1782,7 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
 test("unknown highlight colors render yellow while notes stay editable and removable", async () => {
   const writes = [];
   const rendered = await renderLifecycleApp({
-    highlights: [{ id: "unknown", exact: "Opening words.", prefix: "Lifecycle\n", suffix: "\nDeeper", color: "purple", note: "Remember this", createdAt: 1, nearestHeadingId: null }],
+    highlights: [await positionedHighlight(DOC_CONTENT, { id: "unknown", exact: "Opening words.", prefix: "Lifecycle\n", suffix: "\nDeeper", color: "purple", note: "Remember this", createdAt: 1, nearestHeadingId: null })],
     annotationWrite: async args => { writes.push(structuredClone(args)); },
   });
   try {

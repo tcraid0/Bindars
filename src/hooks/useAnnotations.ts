@@ -8,6 +8,7 @@ import type { FileAnnotations, Highlight, HighlightColor } from "../types";
 import type { TextAnchor } from "../lib/text-anchoring";
 
 interface Entry extends AnnotationRecord {
+  passageChoices: Map<string, object>;
   status: AnnotationLoadStatus;
   loadError: string | null;
   revision: number;
@@ -16,7 +17,18 @@ interface Entry extends AnnotationRecord {
   saveError: string | null;
 }
 
+/** An ephemeral intent; note/color edits do not invalidate its attachment. */
+export interface PassageChoice {
+  id: string;
+  excerpt: string;
+  isCurrent: () => boolean;
+  usePassage: (anchor: TextAnchor, headingId: string | null) => boolean;
+  cancel: () => void;
+}
+
 export function useAnnotations(filePath: string | null) {
+  const session = useRef({ filePath });
+  if (session.current.filePath !== filePath) session.current = { filePath };
   const entries = useRef(new Map<string, Entry>());
   const queue = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(false);
@@ -66,7 +78,7 @@ export function useAnnotations(filePath: string | null) {
     const previous = entries.current.get(filePath);
     // Disk cannot recover unacknowledged work. Keep this path's latest record.
     if (previous && previous.revision !== previous.savedRevision) return;
-    const entry: Entry = { ...readAnnotationRecord(null), status: "loading", loadError: null,
+    const entry: Entry = { ...readAnnotationRecord(null), passageChoices: new Map(), status: "loading", loadError: null,
       revision: 0, savedRevision: 0, writing: false, saveError: null };
     entries.current.set(filePath, entry);
     notify();
@@ -104,9 +116,10 @@ export function useAnnotations(filePath: string | null) {
     return mutate((prev) => ({ ...prev, highlights: [...prev.highlights, highlight] })) ? highlight.id : undefined;
   }, [mutate]);
   const removeHighlight = useCallback((id: string) => {
+    if (filePath) entries.current.get(filePath)?.passageChoices.delete(id);
     mutate((prev) => prev.highlights.some((h) => h.id === id)
       ? { ...prev, highlights: prev.highlights.filter((h) => h.id !== id) } : prev);
-  }, [mutate]);
+  }, [filePath, mutate]);
   const updateHighlight = useCallback((id: string, updates: Partial<Pick<Highlight, "color" | "note">>) => {
     mutate((prev) => {
       const highlight = prev.highlights.find((h) => h.id === id);
@@ -116,6 +129,32 @@ export function useAnnotations(filePath: string | null) {
       return { ...prev, highlights: prev.highlights.map((h) => h.id === id ? { ...h, ...updates } : h) };
     });
   }, [mutate]);
+  const beginPassageChoice = useCallback((id: string): PassageChoice | null => {
+    if (!filePath || locked.current || reconnecting.current) return null;
+    const entry = entries.current.get(filePath);
+    const highlight = entry?.annotations.highlights.find((h) => h.id === id);
+    if (!entry || entry.status !== "ready" || !highlight) return null;
+    const owner = session.current;
+    const token = {};
+    entry.passageChoices.set(id, token);
+    const isCurrent = () => mounted.current && session.current === owner && !locked.current && !reconnecting.current
+      && entries.current.get(filePath) === entry && entry.passageChoices.get(id) === token
+      && entry.annotations.highlights.some((h) => h.id === id);
+    const cancel = () => { if (entry.passageChoices.get(id) === token) entry.passageChoices.delete(id); };
+    return { id, excerpt: highlight.exact, isCurrent, cancel,
+      usePassage(anchor, headingId) {
+        if (!isCurrent() || !anchor.exact.trim() || !anchor.position) return false;
+        const accepted = mutate((prev) => ({ ...prev, highlights: prev.highlights.map((h) => h.id !== id ? h : {
+          ...h, ...anchor, nearestHeadingId: headingId,
+          // Preserve the earliest excerpt, as well as unrecognized future fields.
+          ...(!Object.prototype.hasOwnProperty.call(h, "originalExcerpt") && h.exact !== anchor.exact
+            ? { originalExcerpt: h.exact } : {}),
+        }) }));
+        if (accepted) cancel();
+        return !!accepted;
+      },
+    };
+  }, [filePath, mutate]);
   const toggleBookmark = useCallback((headingId: string, headingText: string) => {
     const bookmark = { id: crypto.randomUUID(), headingId, headingText, createdAt: Date.now() };
     mutate((prev) => ({ ...prev, bookmarks: prev.bookmarks.some((b) => b.headingId === headingId)
@@ -131,6 +170,7 @@ export function useAnnotations(filePath: string | null) {
     const entry = entries.current.get(filePath);
     if (!entry || entry.status !== "ready") return;
     Object.assign(entry, readAnnotationRecord(value));
+    entry.passageChoices.clear();
     entry.revision++;
     mutationVersion.current++;
     notify();
@@ -185,7 +225,7 @@ export function useAnnotations(filePath: string | null) {
     dataWarning: current && (current.retainedHighlights.length || current.retainedBookmarks.length)
       ? "Some annotation records could not be displayed. Their original data has been preserved." : null,
     highlights: annotations.highlights, bookmarks: annotations.bookmarks,
-    addHighlight, removeHighlight, updateHighlight, toggleBookmark, removeBookmark, isBookmarked,
+    addHighlight, removeHighlight, updateHighlight, beginPassageChoice, toggleBookmark, removeBookmark, isBookmarked,
     reconnect, restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
   };
 }

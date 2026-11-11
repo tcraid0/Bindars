@@ -4783,12 +4783,18 @@ test("changed reconciliation updates reader content and performs one corrective 
 });
 
 test("annotation highlights are reapplied after an unchanged reader remount", async () => {
+  await installDom();
+  const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+  const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const { createPositionedAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const source = '# First\n\nOpening words.\n\n## Second\n\nClosing words.';
+  const article = markdownArticle(source); const index = collectText(article);
+  const start = index.text.indexOf('Opening words');
+  const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 'Opening words'.length), article, source);
   const rendered = await renderContinuityApp({
     storedHighlights: [{
+      ...anchor,
       id: "opening-highlight",
-      prefix: "",
-      exact: "Opening words",
-      suffix: ".",
       color: "yellow",
       createdAt: 1,
       nearestHeadingId: "first",
@@ -7944,4 +7950,53 @@ test("Recent records Back at the prior heading, clears Forward, and ignores same
     await waitFor(() => current("A"));
     assert.equal(back().disabled, true, "only successful document changes were recorded");
   } finally { await rendered.cleanup(); }
+});
+
+test('App Choose passage cancels back to its row and confirms the second duplicate through the existing save/close guards', async () => {
+  let failWrite = true;
+  const paragraph = 'A'.repeat(40) + 'quote' + 'B'.repeat(40);
+  const old = { id: 'recover-me', exact: 'old excerpt', prefix: '', suffix: '', note: 'keep my note', color: 'pink', createdAt: 1, nearestHeadingId: null, future: 42 };
+  const rendered = await renderContinuityApp({ initialContent: `# First\n\n${paragraph}\n\n${paragraph}`,
+    readySelector: '#first', storedHighlights: [old], annotationWrite: () => { if (failWrite) throw Error('synthetic disk failure'); } });
+  try {
+    dispatchShortcut('m', { shiftKey: true });
+    const trigger = await waitFor(() => rendered.host.querySelector('[data-passage-action="recover-me"]') || assert.fail('Choose passage missing'));
+    trigger.focus(); flushSync(() => trigger.click());
+    assert.match(rendered.host.textContent, /Select a passage in Read/);
+    assert.ok(document.activeElement === rendered.host.querySelector('main'));
+    dispatchElementKey(document.activeElement, 'Escape');
+    await waitFor(() => assert.ok(document.activeElement === trigger));
+    assert.equal(rendered.annotationWrites.length, 0);
+    flushSync(() => trigger.click());
+    const p = rendered.host.querySelectorAll('article p')[1];
+    const range = document.createRange(); range.setStart(p.firstChild, 40); range.setEnd(p.firstChild, 45);
+    await act(async () => {
+      window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+      document.dispatchEvent(new window.Event('selectionchange'));
+    });
+    const confirm = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Use this passage');
+    assert.ok(confirm && !confirm.disabled); flushSync(() => confirm.click());
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save annotations/));
+    const changed = rendered.annotationWrites.at(-1).annotations.highlights[0];
+    assert.equal(changed.id, old.id); assert.equal(changed.note, old.note); assert.equal(changed.color, old.color);
+    assert.equal(changed.createdAt, old.createdAt); assert.equal(changed.future, 42);
+    assert.equal(changed.originalExcerpt, old.exact); assert.equal(changed.exact, 'quote');
+    assert.match(rendered.host.textContent, /Original excerpt: old excerpt/);
+    await waitFor(() => assert.ok(rendered.host.querySelectorAll('article p')[1].querySelector('mark[data-highlight-id="recover-me"]')));
+    assert.ok(rendered.host.querySelectorAll('article p')[0].querySelector('mark') === null);
+    await act(async () => emit('tauri://close-requested'));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    const keep = [...document.querySelectorAll('[role="dialog"] button')].find(b => /Keep open/i.test(b.textContent));
+    assert.ok(keep); flushSync(() => keep.click());
+    failWrite = false;
+    const retry = [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry');
+    assert.ok(retry); flushSync(() => retry.click());
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save annotations/));
+    rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+    rendered.setOpenDialogPath('/tmp/continuity.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="recover-me"]')));
+    assert.ok(rendered.host.querySelectorAll('article p')[1].querySelector('mark[data-highlight-id="recover-me"]'));
+  } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });
