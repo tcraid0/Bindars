@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EditorSelection, StateEffect } = require('@codemirror/state');
 const { undo, redo, undoDepth } = require('@codemirror/commands');
-const { beginLinkCommand, applyLinkCommand, cancelLinkCommand } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
+const { beginLinkCommand, applyLinkCommand, cancelLinkCommand, applyEmphasisCommand } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
 const { useSpec, withView } = require('./_helpers/markdown-command-view.cjs');
 const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
 const context = { filePath: '/workspace/note.md', session: 1 };
@@ -120,5 +120,54 @@ test('an intent rejected for a different file or session stays retired when its 
     const {intent}=beginLinkCommand(view,context),input={label:'label',destination:'#target'};
     assert.equal(applyLinkCommand(view,intent,input,owner).applied,false);
     assert.equal(applyLinkCommand(view,intent,input,context).applied,false);assert.equal(view.state.sliceDoc(),'label');
+  });
+});
+
+test('formatting after an accepted Link reuses its validated document with each line separator', t => {
+  const { unified } = require('unified');
+  const parse = t.mock.method(Object.getPrototypeOf(unified()), 'parse');
+  for (const lineSeparator of ['\n', '\r\n', '\r']) {
+    const lines = ['label', '', 'word', '', '$$x^2$$.'];
+    withView(lines.join(lineSeparator), EditorSelection.single(0, 5), { lineSeparator }, view => {
+      parse.mock.resetCalls();
+      const linked = submit(view, { label: 'label', destination: '#target' });
+      assert.equal(linked.applied, true, linked.reason);
+      assert.equal(parse.mock.callCount(), 2, 'Link validates the baseline and candidate');
+      const linkedSource = ['[label](<#target>)', ...lines.slice(1)].join(lineSeparator);
+      assert.equal(view.state.sliceDoc(), linkedSource);
+      assert.equal(undoDepth(view.state), 1);
+      const word = view.state.doc.toString().indexOf('word');
+      view.dispatch({ selection: EditorSelection.cursor(word + 2) });
+      assert.equal(applyEmphasisCommand(view, 'bold').applied, true);
+      assert.equal(parse.mock.callCount(), 3, 'only the emphasis candidate needs a new reader parse');
+      assert.equal(view.state.sliceDoc(), linkedSource.replace('word', '**word**'));
+      assert.equal(undoDepth(view.state), 2);
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), linkedSource);
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), lines.join(lineSeparator));
+      assert.equal(redo(view), true);
+      assert.equal(view.state.sliceDoc(), linkedSource);
+      assert.equal(redo(view), true);
+      assert.equal(view.state.sliceDoc(), linkedSource.replace('word', '**word**'));
+    });
+  }
+});
+
+test('ordinary typing after Link requires fresh authoritative reader validation', t => {
+  const { unified } = require('unified');
+  const parse = t.mock.method(Object.getPrototypeOf(unified()), 'parse');
+  useSpec('[[label]]\n\nword\n\n$$x^2$$.', {}, view => {
+    assert.equal(submit(view, { label: 'label', destination: '#target' }).applied, true);
+    const word = view.state.doc.toString().indexOf('word');
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '\nUnrelated typing.' },
+      selection: EditorSelection.cursor(word + 2) });
+    parse.mock.resetCalls();
+    const before = view.state.sliceDoc();
+    assert.equal(applyEmphasisCommand(view, 'bold').applied, true);
+    assert.equal(parse.mock.callCount(), 2, 'the edited baseline and candidate are both validated');
+    assert.equal(view.state.sliceDoc(), before.replace('word', '**word**'));
+    assert.equal(undo(view), true);
+    assert.equal(view.state.sliceDoc(), before);
   });
 });

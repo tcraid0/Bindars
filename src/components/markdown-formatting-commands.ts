@@ -1520,9 +1520,12 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
   const { from, to } = view.state.selection.main;
   const changes = view.state.changes({ from, to, insert });
   const selection = EditorSelection.single(from + insert.length);
+  const plan = { changes, selection, status: { available: true, active: false, reason: null } };
+  // Keep the validated reader tree on the exact document accepted by dispatch,
+  // as emphasis does, so the next command can reuse this immutable baseline.
+  const transaction = formattingTransaction(view.state, plan);
   try {
-    const candidate = changes.apply(view.state.doc);
-    const reader = parseReader(candidate, view.state.lineBreak);
+    const reader = parseReader(transaction.newDoc, view.state.lineBreak);
     let valid = false;
     visit(reader.tree, "link", (node) => {
       if (node.position?.start.offset !== from - reader.offset || node.position.end.offset !== from + insert.length - reader.offset) return;
@@ -1533,7 +1536,7 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
     });
     if (!valid) return refuse(CHANGED_SYNTAX_REASON);
   } catch (error) { return refuse(isDocumentComplexityError(error) ? COMPLEXITY_REASON : LOADING_REASON); }
-  const result = dispatchFormatting(view, { changes, selection, status: { available: true, active: false, reason: null } });
+  const result = dispatchFormatting(view, plan, transaction);
   if (result.applied) activeLinkIntents.delete(intent);
   return result;
 }
