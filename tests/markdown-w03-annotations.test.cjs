@@ -55,7 +55,7 @@ test('W03 actual command output distinguishes original occurrence, uncertain/mis
   }
 });
 
-test('format → unrelated typing → format keeps the second duplicate uncertain, with exact-source Undo recovery', async t => {
+test('unrefreshed evidence after format → unrelated typing → format remains uncertain, with exact-source Undo recovery', async t => {
   const paragraph = 'A'.repeat(40) + 'quote' + 'B'.repeat(40);
   const source = `${paragraph}\n\n${paragraph}`;
   const reader = markdownArticle(source); const index = collectText(reader); const start = index.text.lastIndexOf('quote');
@@ -72,7 +72,7 @@ test('format → unrelated typing → format keeps the second duplicate uncertai
     undo(host.view); assert.equal(await locate(anchor, host.view.state.sliceDoc()), 'uncertain');
     undo(host.view); assert.equal(await locate(anchor, host.view.state.sliceDoc()), 'uncertain');
     undo(host.view); assert.equal(host.view.state.sliceDoc(), source); assert.equal(await locate(anchor, source), 'located');
-    t.diagnostic('Mixed-edit duplicate continuity remains unresolved; no wrong occurrence painted, exact-source Undo restores the original positioned anchor.');
+    t.diagnostic('Without an R01 Read-boundary refresh the existing resolver stays conservative; exact-source Undo restores its original positioned anchor.');
   } finally { host.destroy(); }
 });
 

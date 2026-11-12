@@ -8008,3 +8008,249 @@ test('App Choose passage cancels back to its row and confirms the second duplica
     assert.ok(rendered.host.querySelectorAll('article p')[1].querySelector('mark[data-highlight-id="recover-me"]'));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });
+
+async function r01App(options = {}) {
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const source = options.initialContent ?? BASE;
+  const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+  const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const { createPositionedAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const reader = markdownArticle(source), index = collectText(reader), start = index.text.lastIndexOf('amber');
+  const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 5), reader, source);
+  const highlight = { ...anchor, id: 'r01-second', color: 'blue', note: 'SECOND original amber', createdAt: 17,
+    nearestHeadingId: null, originalExcerpt: 'old amber', future: { keep: true } };
+  const rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes', storedHighlights: [highlight], ...options });
+  await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]')));
+  return { rendered, highlight, source };
+}
+
+async function r01Enter(rendered) {
+  dispatchShortcut('e');
+  await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+  return findEditorView(rendered.host);
+}
+
+function r01Format(rendered, view, key) {
+  const at = view.state.doc.toString().lastIndexOf('amber');
+  flushSync(() => view.dispatch({ selection: { anchor: at + 2 } }));
+  dispatchEditorKey(rendered.host, key, { ctrlKey: true });
+}
+
+async function r01Read(rendered) {
+  flushSync(() => rendered.host.querySelector('[aria-label="Read mode"]').click());
+  await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+}
+
+async function r01AssertSecond(rendered) {
+  await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]')));
+  const paragraphs = [...rendered.host.querySelectorAll('article p')].filter(p => /observatory/.test(p.textContent));
+  assert.equal(paragraphs.length, 2);
+  assert.ok(paragraphs[0].querySelector('mark') === null);
+  assert.equal(paragraphs[1].querySelector('mark').textContent, 'amber');
+}
+
+test('R01 unannotated readers skip evidence work and empty continuity capture', async t => {
+  const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const continuity = require('../.tmp/workspace-tests/src/lib/highlight-continuity.js');
+  const prepare = t.mock.method(anchoring, 'prepareAnnotationDocument');
+  const capture = t.mock.method(continuity, 'captureHighlightBlocks');
+  const rendered = await renderContinuityApp();
+  try {
+    await act(async () => {
+      rendered.host.querySelector('article').dispatchEvent(new window.Event('bindars:diagram-rendered'));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    });
+    assert.equal(prepare.mock.callCount(), 0, 'no annotation evidence needed');
+    await r01Enter(rendered);
+    assert.equal(capture.mock.callCount(), 0, 'no highlights to track');
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 refresh waits for every Mermaid diagram to settle before saving reader evidence', async t => {
+  const Module = require('node:module');
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const dom = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const source = BASE + '\n```mermaid\ngraph TD; A-->B;\n```\n\n```mermaid\ngraph TD; C-->D;\n```\n';
+  const svg = '<svg><g><foreignObject><div>Start</div></foreignObject><text>End</text></g></svg>';
+  let holds = null;
+  const fake = { __esModule: true, default: { initialize() {}, async render(_id, chart) {
+    if (holds) await holds[chart.includes('A-->B') ? 0 : 1].promise;
+    return { svg };
+  } } };
+  const originalLoad = Module._load;
+  t.mock.method(Module, '_load', function(request, ...rest) {
+    return request === 'mermaid' ? fake : originalLoad.call(this, request, ...rest);
+  });
+  const hadComputedStyle = 'getComputedStyle' in globalThis;
+  if (!hadComputedStyle) globalThis.getComputedStyle = (...args) => window.getComputedStyle(...args);
+  const prepared = [], originalPrepare = anchoring.prepareAnnotationDocument;
+  const prepare = t.mock.method(anchoring, 'prepareAnnotationDocument', (...args) => {
+    const promise = originalPrepare(...args); prepared.push(promise); return promise;
+  });
+  const settled = host => waitFor(() => assert.equal(host.querySelectorAll('.mermaid-diagram:not(.mermaid-loading) svg').length, 2));
+  let rendered;
+  try {
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes' });
+    await settled(rendered.host);
+    const article = rendered.host.querySelector('article'), index = dom.collectText(article), start = index.text.lastIndexOf('amber');
+    const anchor = await anchoring.createPositionedAnchor(dom.rangeForOffsets(index.spans, start, start + 5), article, source);
+    await rendered.cleanup(); rendered = null;
+    const highlight = { ...anchor, id: 'r01-second', color: 'blue', note: 'SECOND original amber', createdAt: 17, nearestHeadingId: null };
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes', storedHighlights: [highlight] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    holds = [deferred(), deferred()];
+    const before = prepare.mock.callCount();
+    await r01Read(rendered);
+    await waitFor(() => assert.ok(prepare.mock.callCount() > before));
+    await act(async () => Promise.all(prepared));
+    assert.equal(rendered.host.querySelectorAll('.mermaid-loading').length, 2);
+    assert.equal(rendered.annotationWrites.length, 0, 'placeholder text must not become saved evidence');
+    const firstPaint = prepare.mock.callCount();
+    await act(async () => holds[0].resolve());
+    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.mermaid-loading').length, 1));
+    await waitFor(() => assert.ok(prepare.mock.callCount() > firstPaint));
+    await act(async () => Promise.all(prepared));
+    assert.equal(rendered.annotationWrites.length, 0, 'one remaining diagram still prevents refresh');
+    await act(async () => holds[1].resolve());
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 1));
+    const saved = rendered.annotationWrites[0].annotations.highlights[0];
+    const finalEvidence = await originalPrepare(rendered.host.querySelector('article'), rendered.diskContent());
+    assert.equal(saved.position.textHash, finalEvidence.textHash);
+    assert.equal(saved.position.sourceHash, finalEvidence.sourceHash);
+    assert.equal(saved.note, highlight.note);
+    const finalSource = rendered.diskContent();
+    await rendered.cleanup(); rendered = null;
+    holds = null;
+    rendered = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    assert.equal(rendered.annotationWrites.length, 0, 'reopen uses the saved exact evidence');
+  } finally {
+    holds?.forEach(hold => hold.resolve());
+    if (rendered) await rendered.cleanup();
+    if (!hadComputedStyle) delete globalThis.getComputedStyle;
+  }
+});
+
+test('R01 App mixed commands → clean/saved Read → second edit → reopen refreshes the original duplicate with exact CRLF', async () => {
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const { rendered, highlight } = await r01App({ initialContent: BASE.replaceAll('\n', '\r\n') });
+  try {
+    const view = await r01Enter(rendered);
+    r01Format(rendered, view, 'i');
+    assert.match(view.state.sliceDoc(), /the \*amber\* signal/);
+    const italic = view.state.sliceDoc();
+    flushSync(() => view.dispatch({ changes: { from: view.state.doc.length, insert: 'Elsewhere.\r\n' }, userEvent: 'input.type' }));
+    const typed = view.state.sliceDoc();
+    const at = view.state.doc.toString().lastIndexOf('amber');
+    flushSync(() => view.dispatch({ selection: { anchor: at + 2 } }));
+    flushSync(() => rendered.host.querySelector('[aria-label="Bold"]').click());
+    const final = view.state.sliceDoc(); assert.match(final, /the \*\*\*amber\*\*\* signal/);
+    flushSync(() => assert.equal(undo(view), true)); assert.equal(view.state.sliceDoc(), typed, 'Bold is one action');
+    const { redo } = require('@codemirror/commands');
+    flushSync(() => assert.equal(redo(view), true)); assert.equal(view.state.sliceDoc(), final);
+    assert.notEqual(italic, typed);
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    assert.equal(rendered.diskContent(), final); assert.equal(final.replaceAll('\r\n', '').includes('\n'), false);
+    const saved = rendered.annotationWrites.at(-1).annotations.highlights[0];
+    assert.notEqual(saved.position.sourceHash, highlight.position.sourceHash);
+    assert.deepEqual({ ...saved, prefix: highlight.prefix, suffix: highlight.suffix, position: highlight.position }, highlight);
+    const second = await r01Enter(rendered);
+    flushSync(() => second.dispatch({ changes: { from: 0, insert: 'New paragraph.\r\n\r\n' }, userEvent: 'input.type' }));
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+    await waitFor(() => assert.match(rendered.host.querySelector('header').textContent, /other\.md/));
+    rendered.clearOpenedPaths();
+    rendered.setOpenDialogPath('/tmp/continuity.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/continuity.md')));
+    await r01AssertSecond(rendered);
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 App refresh failure protects close and Retry saves the refreshed original occurrence', async () => {
+  let fail = true;
+  const { rendered } = await r01App({ annotationWrite: () => { if (fail) throw Error('synthetic annotation failure'); } });
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save annotations/));
+    await act(async () => emit('tauri://close-requested'));
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('close must protect refresh'));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    clickButton(rendered.host, 'Keep open', dialog);
+    fail = false;
+    dispatchShortcut('m', { shiftKey: true });
+    const retry = await waitFor(() => [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry') || assert.fail('retry missing'));
+    flushSync(() => retry.click());
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save annotations/));
+    await r01AssertSecond(rendered);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const route of ['rapid edit', 'file switch']) {
+  test(`R01 App stale reader completion cannot overwrite ${route}; rapid edit chains only observed documents`, async t => {
+    const { rendered } = await r01App();
+    const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+    const prepare = anchoring.prepareAnnotationDocument, held = deferred(); let waiting = false, once = true;
+    t.mock.method(anchoring, 'prepareAnnotationDocument', async (...args) => {
+      const evidence = await prepare(...args);
+      if (once && args[1].includes('*amber*')) { once = false; waiting = true; await held.promise; }
+      return evidence;
+    });
+    try {
+      const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+      await r01Read(rendered); await waitFor(() => assert.equal(waiting, true));
+      assert.equal(rendered.annotationWrites.length, 0, 'reader evidence still pending');
+      if (route === 'rapid edit') {
+        const next = await r01Enter(rendered);
+        flushSync(() => next.dispatch({ changes: { from: next.state.doc.length, insert: 'Second session.\n' }, userEvent: 'input.type' }));
+        await r01Read(rendered); await r01AssertSecond(rendered);
+        assert.equal(rendered.annotationWrites.length, 1);
+      } else {
+        rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+      }
+      const writes = rendered.annotationWrites.length;
+      await act(async () => held.resolve());
+      assert.equal(rendered.annotationWrites.length, writes, 'retired async reader has no mutation authority');
+      if (route === 'rapid edit') await r01AssertSecond(rendered);
+      else assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]') === null);
+    } finally { held.resolve(); await rendered.cleanup(); }
+  });
+}
+
+test('R01 App discard never refreshes the rejected editor document', async () => {
+  const { rendered, source } = await r01App();
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    rendered.failNextFileWrite(Error('synthetic source save failure'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Read mode"]').click());
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('save choice missing'));
+    clickButton(rendered.host, 'Discard', dialog);
+    await r01AssertSecond(rendered);
+    assert.equal(rendered.diskContent(), source); assert.equal(rendered.annotationWrites.length, 0);
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 App external adoption ends the observed chain without promoting contextual evidence', async () => {
+  const { rendered } = await r01App();
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.diskContent(), view.state.sliceDoc()));
+    rendered.setDiskContent(rendered.diskContent() + '\nExternal revision.\n');
+    await act(async () => { await emit('tauri://blur'); await emit('tauri://focus'); await waitForReconciliationWindow(); });
+    await waitFor(() => assert.match(view.state.sliceDoc(), /External revision/));
+    flushSync(() => view.dispatch({ changes: { from: view.state.doc.length, insert: 'More typing.\n' }, userEvent: 'input.type' }));
+    await r01Read(rendered);
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); await new Promise(setImmediate); });
+    assert.equal(rendered.annotationWrites.length, 0);
+    assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]') === null);
+    dispatchShortcut('m', { shiftKey: true });
+    await waitFor(() => assert.match(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Location uncertain/));
+  } finally { await rendered.cleanup(); }
+});

@@ -6,6 +6,7 @@ import { readAnnotationRecord, storedAnnotationRecord, type AnnotationRecord } f
 import { EMPTY_ANNOTATIONS, type AnnotationLoadStatus } from "../lib/annotation-state";
 import type { FileAnnotations, Highlight, HighlightColor } from "../types";
 import type { TextAnchor } from "../lib/text-anchoring";
+import { hasPassageBasis, type PassageRefresh } from "../lib/highlight-continuity";
 
 interface Entry extends AnnotationRecord {
   passageChoices: Map<string, object>;
@@ -129,6 +130,25 @@ export function useAnnotations(filePath: string | null) {
       return { ...prev, highlights: prev.highlights.map((h) => h.id === id ? { ...h, ...updates } : h) };
     });
   }, [mutate]);
+  const annotationSession = session.current;
+  const refreshPassages = useCallback((updates: PassageRefresh[]) => {
+    const accepted = new Map<string, TextAnchor>();
+    if (!updates.length || !mounted.current || session.current !== annotationSession || !filePath) return accepted;
+    const entry = entries.current.get(filePath);
+    const byId = new Map(updates.map(update => [update.id, update]));
+    mutate(prev => {
+      const highlights = prev.highlights.map(highlight => {
+        const update = byId.get(highlight.id);
+        if (!update || !update.anchor.position || entry?.passageChoices.has(highlight.id)
+          || !hasPassageBasis(highlight, update.basis) || highlight.exact !== update.anchor.exact) return highlight;
+        accepted.set(highlight.id, update.anchor);
+        // Attachment fields only: retain concurrent notes/colors and future fields.
+        return { ...highlight, prefix: update.anchor.prefix, suffix: update.anchor.suffix, position: update.anchor.position };
+      });
+      return accepted.size ? { ...prev, highlights } : prev;
+    });
+    return accepted;
+  }, [annotationSession, filePath, mutate]);
   const beginPassageChoice = useCallback((id: string): PassageChoice | null => {
     if (!filePath || locked.current || reconnecting.current) return null;
     const entry = entries.current.get(filePath);
@@ -225,7 +245,7 @@ export function useAnnotations(filePath: string | null) {
     dataWarning: current && (current.retainedHighlights.length || current.retainedBookmarks.length)
       ? "Some annotation records could not be displayed. Their original data has been preserved." : null,
     highlights: annotations.highlights, bookmarks: annotations.bookmarks,
-    addHighlight, removeHighlight, updateHighlight, beginPassageChoice, toggleBookmark, removeBookmark, isBookmarked,
+    addHighlight, removeHighlight, updateHighlight, refreshPassages, beginPassageChoice, toggleBookmark, removeBookmark, isBookmarked,
     reconnect, restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
   };
 }

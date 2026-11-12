@@ -74,6 +74,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       findPrevious: () => editorRef.current?.findPrevious(),
       flushPendingChanges: () => editorRef.current?.flushPendingChanges() ?? null,
       capturePosition: () => editorRef.current?.capturePosition() ?? null,
+      captureChanges: () => editorRef.current?.captureChanges() ?? null,
       adoptExternalDocument: (captured, external) => editorRef.current?.adoptExternalDocument(captured, external) ?? false,
       executeFormatting: command => editorRef.current?.executeFormatting(command) ?? null,
       beginLink: () => editorRef.current?.beginLink(),

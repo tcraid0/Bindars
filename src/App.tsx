@@ -91,6 +91,8 @@ import type { PendingAction, RetryablePendingAction } from "./lib/app-flow";
 import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
 import { resolveAnchor, prepareAnnotationDocument, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
+import type { AnnotationDocument } from "./lib/text-anchoring";
+import { captureHighlightBlocks, refreshHighlightBlocks, joinObservedChanges, type HighlightCapture, type ObservedEditorChanges } from "./lib/highlight-continuity";
 import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
@@ -280,6 +282,7 @@ function App() {
     addHighlight,
     removeHighlight,
     updateHighlight,
+    refreshPassages,
     beginPassageChoice,
     toggleBookmark,
     isBookmarked,
@@ -462,6 +465,15 @@ function App() {
   }, [reducedMotion, settings.reducedEffects]);
   const editingRef = useRef(editing);
   const editorSessionKeyRef = useRef(0);
+  const readerEvidenceRef = useRef<{
+    source: string; path: string | null; container: HTMLElement; evidence: AnnotationDocument;
+  } | null>(null);
+  const editContinuityRef = useRef<{
+    path: string; sessionKey: number; capture: HighlightCapture; previous: ObservedEditorChanges | null;
+  } | null>(null);
+  const pendingContinuityRef = useRef<{
+    path: string; sessionKey: number; capture: HighlightCapture; changes: ObservedEditorChanges; openGeneration: number;
+  } | null>(null);
   const editTransitionRef = useRef<EditTransition | null>(null);
   const editingFilePathRef = useRef<string | null>(null);
   const pendingExitReconciliationRef = useRef<PendingExitReconciliation | null>(null);
@@ -1060,12 +1072,32 @@ function App() {
     path: string | null,
     readerAnchor: ReaderAnchor | null = null,
   ) => {
+    const reader = readerEvidenceRef.current;
+    const pending = pendingContinuityRef.current;
+    const sameReader = !editingRef.current && fileType === "markdown" && path !== null
+      && getPublishedDocument().filePath === path && getPublishedDocument().content === initialContent;
+    // A rapid toggle can precede reader hashing/painting. Carry only an exact,
+    // still-owned observed chain; never infer identity from the new text.
+    const previous = sameReader && pending?.path === path
+      && pending.sessionKey === editorSessionKeyRef.current
+      && pending.openGeneration === getOpenOwnership().generation
+      && pending.changes.finalDocument === initialContent ? pending : null;
+    const readyCapture = highlights.length > 0 && sameReader && reader?.path === path && reader.source === initialContent
+      && reader.container === contentRef.current
+      ? captureHighlightBlocks(reader.container, initialContent, reader.evidence, highlights)
+      : null;
+    const capture = readyCapture ?? previous?.capture ?? null;
+    readerEvidenceRef.current = null;
+    pendingContinuityRef.current = null;
     pendingNoteScrollRef.current = null;
     supersedeReconciliation();
     pendingExitReconciliationRef.current = null;
     supersedePendingOpen();
     const nextSessionKey = editorSessionKeyRef.current + 1;
     editorSessionKeyRef.current = nextSessionKey;
+    editContinuityRef.current = capture && path ? {
+      path, sessionKey: nextSessionKey, capture, previous: readyCapture ? null : previous?.changes ?? null,
+    } : null;
     const initialEditorTarget = readerAnchor?.source ?? { line: 1, column: 1 };
     editor.enterEditMode(initialContent, revision);
     editingFilePathRef.current = path;
@@ -1084,7 +1116,7 @@ function App() {
     saveContinuationRef.current = null;
     setSavedFlash(false);
     if (searchVisible) closeSearch();
-  }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation]);
+  }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation, fileType, getPublishedDocument, getOpenOwnership, highlights]);
 
   const enterEditMode = useCallback(() => {
     if (
@@ -1104,6 +1136,9 @@ function App() {
   }, [beginEditSession, content, documentTransitionInFlight, editing, filePath, fileRevision, loading]);
 
   const resetEditSession = useCallback(() => {
+    editContinuityRef.current = null;
+    pendingContinuityRef.current = null;
+    readerEvidenceRef.current = null;
     supersedeReconciliation();
     editor.exitEditMode();
     editingFilePathRef.current = null;
@@ -1133,6 +1168,10 @@ function App() {
 
   const exitEditMode = useCallback((positionOutcome: EditExitPositionOutcome = "none") => {
     const transition = editTransitionRef.current;
+    const continuity = editContinuityRef.current;
+    const observed = positionOutcome === "clean" || positionOutcome === "saved"
+      ? editorSurfaceRef.current?.captureChanges() ?? null : null;
+    const changes = observed && continuity?.previous ? joinObservedChanges(continuity.previous, observed) : observed;
     const surfacePosition = positionOutcome === "clean" || positionOutcome === "saved"
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
@@ -1154,6 +1193,11 @@ function App() {
     const exitPath = editingFilePathRef.current;
     const documentKey = exitPath ? toPathIdentityKey(exitPath) : null;
     resetEditSession();
+    if (continuity && changes && continuity.path === exitPath && continuity.sessionKey === sessionKey
+      && continuity.capture.source === changes.initialDocument
+      && getPublishedDocument().filePath === exitPath && getPublishedDocument().content === changes.finalDocument) {
+      pendingContinuityRef.current = { ...continuity, changes, openGeneration: getOpenOwnership().generation };
+    }
 
     publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
     if (positionOutcome !== "none") requestReaderFocus();
@@ -1167,7 +1211,7 @@ function App() {
         editorSessionKey: sessionKey,
       };
     }
-  }, [publishSourceReaderTarget, requestReaderFocus, resetEditSession]);
+  }, [publishSourceReaderTarget, requestReaderFocus, resetEditSession, getPublishedDocument, getOpenOwnership]);
 
   // Frozen for the app's lifetime: the running platform cannot change, and
   // the close guard's window policy must stay stable across re-renders.
@@ -2204,6 +2248,7 @@ function App() {
   }, [addHighlight, filePath, content, preparePanelChange, dismissReadingHint]);
 
   // Repaint for document identity changes, even when another file has identical text.
+  const readerPublication = getPublishedDocument();
   useEffect(() => {
     const pending = pendingNoteScrollRef.current;
     if (pending && (pending.path !== filePath || pending.content !== content)) pendingNoteScrollRef.current = null;
@@ -2211,10 +2256,16 @@ function App() {
     const container = contentRef.current;
     if (!container || !isDocumentOpen(content)) return;
     if (!highlights.length) {
+      readerEvidenceRef.current = null;
+      pendingContinuityRef.current = null;
       clearAnnotationHighlights(container);
       setAnnotationLocations({});
       return;
     }
+    const published = readerPublication;
+    const sessionKey = editorSessionKeyRef.current;
+    const isCurrent = () => !editingRef.current && getPublishedDocument() === published
+      && editorSessionKeyRef.current === sessionKey && contentRef.current === container;
 
     let cancelled = false;
     let paintVersion = 0;
@@ -2224,11 +2275,21 @@ function App() {
       cancelAnimationFrame(frameId);
       frameId = requestAnimationFrame(() => {
         void prepareAnnotationDocument(container, content).then((evidence) => {
-          if (cancelled || version !== paintVersion || contentRef.current !== container) return;
+          if (cancelled || version !== paintVersion || !isCurrent()) return;
           clearAnnotationHighlights(container);
+          // Diagram completion changes reader text and requests another paint.
+          // Keep the observed chain until all placeholders have settled.
+          const settling = container.querySelector(".mermaid-loading") !== null;
+          readerEvidenceRef.current = settling ? null : { source: content, path: filePath, container, evidence };
+          const continuity = settling ? null : pendingContinuityRef.current;
+          if (!settling) pendingContinuityRef.current = null;
+          const updates = continuity?.path === filePath && continuity.sessionKey === sessionKey
+            && continuity.openGeneration === getOpenOwnership().generation
+            ? refreshHighlightBlocks(continuity.capture, continuity.changes, container, content, evidence) : [];
+          const refreshed = refreshPassages(updates);
           const locations: Record<string, string> = {};
           for (const hl of highlights) {
-            const result = resolveAnchor(hl, container, evidence);
+            const result = resolveAnchor(refreshed.get(hl.id) ?? hl, container, evidence);
             locations[hl.id] = result.status;
             if (result.range) wrapRange(result.range, `annotation-highlight-${displayHighlightColor(hl.color)}`, hl.id);
           }
@@ -2247,7 +2308,8 @@ function App() {
             }
           }
         }).catch(() => {
-          if (!cancelled && version === paintVersion) {
+          if (!cancelled && version === paintVersion && isCurrent()) {
+            readerEvidenceRef.current = null;
             const pending = pendingNoteScrollRef.current;
             if (pending?.path === filePath && pending.content === content && highlights.some((hl) => hl.id === pending.id)) {
               pendingNoteScrollRef.current = null;
@@ -2265,7 +2327,7 @@ function App() {
       cancelAnimationFrame(frameId);
       container.removeEventListener("bindars:diagram-rendered", repaint);
     };
-  }, [content, filePath, editing, highlights, readerDocumentReady]);
+  }, [content, filePath, editing, highlights, readerDocumentReady, readerPublication, refreshPassages, getPublishedDocument, getOpenOwnership]);
 
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {

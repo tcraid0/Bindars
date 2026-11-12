@@ -26,11 +26,14 @@ export function extractFrontmatter(content: string): {
   frontmatter: Frontmatter | null;
   body: string;
   bodyStartLine: number;
+  bodyStartColumn: number;
 } {
   // Frontmatter must start at the very beginning of the file.
   const text = withoutByteOrderMark(content);
   const match = text.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/);
-  if (!match) return { frontmatter: null, body: content, bodyStartLine: 1 };
+  // The Markdown parser skips a leading BOM without counting its source column.
+  const whole = { frontmatter: null, body: content, bodyStartLine: 1, bodyStartColumn: 1 + content.length - text.length };
+  if (!match) return whole;
 
   const yamlBlock = match[1];
   const body = match[2];
@@ -38,7 +41,7 @@ export function extractFrontmatter(content: string): {
   try {
     const parsed = parseYaml(yamlBlock);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { frontmatter: null, body: content, bodyStartLine: 1 };
+      return whole;
     }
 
     const fm = parsed as Record<string, unknown>;
@@ -53,14 +56,18 @@ export function extractFrontmatter(content: string): {
       fm.date = fm.date.toISOString().split("T")[0];
     }
 
+    const prefix = text.slice(0, text.length - body.length);
+    const skippedBodyMark = body.length - withoutByteOrderMark(body).length;
     return {
       frontmatter: Object.keys(fm).length > 0 ? fm : null,
       body,
-      bodyStartLine: countLogicalLines(text.slice(0, text.length - body.length)),
+      bodyStartLine: countLogicalLines(prefix),
+      // The body can share the closing fence's line, or itself begin with a BOM.
+      bodyStartColumn: prefix.length - Math.max(prefix.lastIndexOf("\n"), prefix.lastIndexOf("\r")) + skippedBodyMark,
     };
   } catch {
     // If YAML parsing fails, treat the whole content as markdown
-    return { frontmatter: null, body: content, bodyStartLine: 1 };
+    return whole;
   }
 }
 

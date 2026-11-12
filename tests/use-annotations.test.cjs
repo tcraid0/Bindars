@@ -789,3 +789,79 @@ test('recovery to the second duplicate locates that exact reader occurrence afte
   const deleted = markdownArticle(paragraph);
   assert.equal(resolveAnchor(view.api().highlights[0], deleted, await prepareAnnotationDocument(deleted, paragraph)).status, 'uncertain');
 });
+
+test('R01 refresh batches attachments and retains concurrent note/color, original excerpt and future fields', async t => {
+  const first = { ...record().highlights[0], ...replacementAnchor('quote'), originalExcerpt: 'earlier', future: { keep: true } };
+  const second = { ...first, id: 'second' };
+  const { disk, writes } = backingStore(t, new Map([['/a.md', { version: 3, highlights: [first, second], bookmarks: [], future: 42 }]]));
+  const view = await mount(t);
+  const bases = view.api().highlights;
+  await view.change(api => api.updateHighlight('h', { note: 'new thought', color: 'pink' }));
+  const beforeWrites = writes.length;
+  const anchor = { ...replacementAnchor('quote'), prefix: 'refreshed', position: { ...replacementAnchor('quote').position, sourceHash: 'new source' } };
+  await view.change(api => assert.equal(api.refreshPassages(bases.map(basis => ({ id: basis.id, basis, anchor }))).size, 2));
+  assert.equal(writes.length, beforeWrites + 1, 'one ordinary mutation/save for the batch');
+  const saved = disk.get('/a.md');
+  assert.equal(saved.highlights[0].note, 'new thought'); assert.equal(saved.highlights[0].color, 'pink');
+  assert.equal(saved.highlights[0].originalExcerpt, 'earlier'); assert.deepEqual(saved.highlights[0].future, { keep: true });
+  assert.equal(saved.future, 42); assert.equal(saved.highlights[1].prefix, 'refreshed');
+});
+
+for (const changed of ['manual recovery', 'active recovery', 'excerpt', 'context', 'position', 'removed', 'restore', 'file session', 'lock']) {
+  test(`R01 captured refresh loses to ${changed}`, async t => {
+    const item = { ...record().highlights[0], ...replacementAnchor('quote') };
+    const { writes } = backingStore(t, new Map([['/a.md', { highlights: [item], bookmarks: [] }]]));
+    const view = await mount(t), basis = view.api().highlights[0], refresh = view.api().refreshPassages;
+    if (changed === 'manual recovery') await view.change(api => api.beginPassageChoice('h').usePassage(replacementAnchor('quote'), null));
+    if (changed === 'active recovery') await view.change(api => api.beginPassageChoice('h'));
+    if (['excerpt','context','position','restore'].includes(changed)) await view.change(api => api.restoreRecord({ highlights: [{ ...item,
+      ...(changed === 'excerpt' ? { exact: 'other' } : changed === 'context' ? { prefix: 'other' } : {}),
+    }], bookmarks: [] }));
+    if (changed === 'removed') await view.change(api => api.removeHighlight('h'));
+    if (changed === 'file session') { await view.render('/b.md'); await view.render('/a.md'); }
+    if (changed === 'lock') view.api().setLocked(true);
+    const count = writes.length, before = view.api().highlights;
+    await view.change(() => assert.equal(refresh([{ id: 'h', basis, anchor: replacementAnchor('quote') }]).size, 0));
+    assert.equal(writes.length, count); assert.equal(view.api().highlights, before);
+  });
+}
+
+test('R01 failed refresh remains pending and retries latest data through the existing queue', async t => {
+  const item = { ...record().highlights[0], ...replacementAnchor('quote') };
+  const { disk } = backingStore(t, new Map([['/a.md', { highlights: [item], bookmarks: [] }]]));
+  const view = await mount(t), basis = view.api().highlights[0];
+  t.mock.method(storage, 'saveAnnotations', async () => { throw Error('full'); });
+  const anchor = { ...replacementAnchor('quote'), position: { ...item.position, sourceHash: 'refreshed' } };
+  await view.change(api => api.refreshPassages([{ id: 'h', basis, anchor }]));
+  await view.change(api => api.updateHighlight('h', { note: 'latest pending note', color: 'green' }));
+  assert.ok(view.api().saveError); assert.equal(view.api().pendingRecords()['/a.md'].highlights[0].position.sourceHash, 'refreshed');
+  assert.equal(disk.get('/a.md').highlights[0].position.sourceHash, 'source');
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => disk.set(path, copy(data)));
+  await view.change(api => api.retrySave()); await view.api().waitForSaves();
+  assert.deepEqual(view.api().pendingRecords(), {});
+  await view.render('/b.md'); await view.render('/a.md');
+  assert.equal(view.api().highlights[0].position.sourceHash, 'refreshed');
+  assert.equal(view.api().highlights[0].note, 'latest pending note'); assert.equal(view.api().highlights[0].color, 'green');
+});
+
+test('R01 refresh joins an already writing record; completion cannot erase newer attachment/note/color', async t => {
+  const item = { ...record().highlights[0], ...replacementAnchor('quote') };
+  const { disk } = backingStore(t, new Map([['/a.md', { highlights: [item], bookmarks: [] }]]));
+  const gate = deferred(); let calls = 0;
+  t.mock.method(storage, 'saveAnnotations', async (path, data) => {
+    if (++calls === 1) await gate.promise;
+    disk.set(path, copy(data));
+  });
+  const view = await mount(t), basis = view.api().highlights[0];
+  await view.change(api => api.updateHighlight('h', { note: 'pending first write' }));
+  const anchor = { ...replacementAnchor('quote'), position: { ...item.position, sourceHash: 'latest attachment' } };
+  await view.change(api => api.refreshPassages([{ id: 'h', basis, anchor }]));
+  await view.change(api => api.updateHighlight('h', { note: 'latest note', color: 'pink' }));
+  assert.equal(calls, 1);
+  await act(async () => gate.resolve()); await view.api().waitForSaves();
+  assert.equal(calls, 2);
+  assert.equal(disk.get('/a.md').highlights[0].position.sourceHash, 'latest attachment');
+  assert.equal(disk.get('/a.md').highlights[0].note, 'latest note');
+  assert.equal(disk.get('/a.md').highlights[0].color, 'pink');
+  assert.deepEqual(view.api().pendingRecords(), {});
+});

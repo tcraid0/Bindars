@@ -23,6 +23,17 @@ export interface AnnotationDocument {
 }
 export type AnchorStatus = "located" | "uncertain" | "missing";
 
+/** The same qualification is used by painting and observed-edit capture. */
+export function exactSnapshotPosition(anchor: TextAnchor, evidence: AnnotationDocument, text = evidence.text): AnchorPosition | null {
+  const p = anchor.position;
+  return p?.format === 1 && evidence.text === text
+    && p.sourceHash === evidence.sourceHash && p.textHash === evidence.textHash
+    && Number.isInteger(p.start) && Number.isInteger(p.end)
+    && p.start >= 0 && p.end > p.start && p.end <= text.length
+    && !!anchor.exact.trim() && !anchor.exact.includes("\0")
+    && text.slice(p.start, p.end) === anchor.exact ? p : null;
+}
+
 async function digest(text: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(bytes), (v) => v.toString(16).padStart(2, "0")).join("");
@@ -60,10 +71,19 @@ export function createAnchor(range: Range, container: HTMLElement): TextAnchor |
 export async function createPositionedAnchor(range: Range, container: HTMLElement, source: string): Promise<TextAnchor | null> {
   const selection = selectionOffsets(range, container);
   if (!selection) return null;
-  const { text, start, end, exact } = selection;
+  const { text, start, end } = selection;
   const [sourceHash, textHash] = await Promise.all([digest(source), digest(text)]);
   const current = selectionOffsets(range, container);
   if (!current || current.text !== text || current.start !== start || current.end !== end) return null;
+  return anchorFromVerifiedOffsets({ text, sourceHash, textHash }, start, end);
+}
+
+/** Build ordinary evidence after the caller has verified these rendered offsets. */
+export function anchorFromVerifiedOffsets(evidence: AnnotationDocument, start: number, end: number): TextAnchor | null {
+  const { text, sourceHash, textHash } = evidence;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > text.length || end <= start) return null;
+  const exact = text.slice(start, end);
+  if (!exact.trim() || exact.includes("\0")) return null;
   const prefix = text.slice(Math.max(0, start - CONTEXT_CHARS), start);
   const suffix = text.slice(end, end + CONTEXT_CHARS);
   let contextMatches = 0;
@@ -82,17 +102,15 @@ function matchesContext(text: string, index: number, exact: string, prefix: stri
     && text.slice(index + exact.length, index + exact.length + suffix.length) === suffix;
 }
 
-export function resolveAnchor(anchor: TextAnchor, container: HTMLElement, evidence?: AnnotationDocument): { status: AnchorStatus; range: Range | null } {
+export function resolveAnchor(anchor: TextAnchor, container: HTMLElement, evidence?: AnnotationDocument): { status: AnchorStatus; range: Range | null; basis?: "snapshot" | "context" } {
   const { exact, prefix, suffix } = anchor;
   if (typeof exact !== "string" || !exact.trim() || exact.includes("\0")) return { status: "missing", range: null };
   const { text, spans } = collectText(container);
   const position = anchor.position;
-  if (position?.format === 1 && evidence && evidence.text === text
-    && position.sourceHash === evidence.sourceHash && position.textHash === evidence.textHash
-    && Number.isInteger(position.start) && Number.isInteger(position.end)
-    && position.start >= 0 && position.end <= text.length && text.slice(position.start, position.end) === exact) {
-    const range = rangeForOffsets(spans, position.start, position.end);
-    if (range) return { status: "located", range };
+  const snapshot = evidence && exactSnapshotPosition(anchor, evidence, text);
+  if (snapshot) {
+    const range = rangeForOffsets(spans, snapshot.start, snapshot.end);
+    if (range) return { status: "located", range, basis: "snapshot" };
   }
   const matches: number[] = [];
   let foundExact = false;
@@ -109,7 +127,7 @@ export function resolveAnchor(anchor: TextAnchor, container: HTMLElement, eviden
   // uncertain until the user confirms it. Modern fallback policy is unchanged.
   if (matches.length === 1 && position?.contextUnique === true) {
     const range = rangeForOffsets(spans, matches[0], matches[0] + exact.length);
-    if (range) return { status: "located", range };
+    if (range) return { status: "located", range, basis: "context" };
   }
   return { status: foundExact ? "uncertain" : "missing", range: null };
 }

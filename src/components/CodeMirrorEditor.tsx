@@ -5,12 +5,15 @@ import { search, searchKeymap, searchPanelOpen, openSearchPanel, findNext, findP
 import {
   EditorSelection,
   EditorState,
+  ChangeSet,
+  MapMode,
   Text,
   Prec,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
 import type { SourcePoint } from "../lib/editor-position";
+import type { ObservedEditorChanges } from "../lib/highlight-continuity";
 import { isImeCompositionKey } from "../lib/keyboard";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { FileType } from "../types";
@@ -46,6 +49,7 @@ export interface CodeMirrorEditorHandle {
   findPrevious: () => void;
   flushPendingChanges: () => boolean | null;
   capturePosition: () => EditorSurfacePosition | null;
+  captureChanges: () => ObservedEditorChanges | null;
   adoptExternalDocument: (capturedDocument: string, externalDocument: string) => boolean;
 }
 
@@ -315,6 +319,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const publishRef = useRef<(() => boolean | null) | null>(null);
+    const captureChangesRef = useRef<() => ObservedEditorChanges | null>(() => null);
     const adoptExternalDocumentRef = useRef<(
       capturedDocument: string,
       externalDocument: string,
@@ -352,6 +357,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       findNext: () => { if (viewRef.current) findNext(viewRef.current); },
       findPrevious: () => { if (viewRef.current) findPrevious(viewRef.current); },
       flushPendingChanges: () => publishRef.current?.() ?? null,
+      captureChanges: () => captureChangesRef.current(),
       adoptExternalDocument: (capturedDocument, externalDocument) => (
         adoptExternalDocumentRef.current(capturedDocument, externalDocument)
       ),
@@ -389,6 +395,8 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       let publicationTimer: ReturnType<typeof setTimeout> | null = null;
       let baselineFrame: number | null = null;
       let applyingExternalDocument = false;
+      let observedChanges: ChangeSet | null = null;
+      let observedDocument: Text | null = null;
       let feedbackFrame: number | null = null;
       let lastFeedback = "";
       let compositionActive = false;
@@ -524,6 +532,14 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             }) : [],
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
+              if (update.docChanged && observedChanges) {
+                // setState/adoption and any unobserved replacement break ownership.
+                if (applyingExternalDocument || update.startState.doc !== observedDocument) observedChanges = null;
+                else {
+                  observedChanges = observedChanges.compose(update.changes);
+                  observedDocument = update.state.doc;
+                }
+              }
               if (update.docChanged && !applyingExternalDocument) schedulePublication();
               if (link && !linkCommandIsCurrent(update.view, link.intent, context())) cancelLink(undefined, false);
               if (update.docChanged || update.selectionSet
@@ -563,6 +579,29 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       });
       view = createdView;
       viewRef.current = createdView;
+      observedChanges = fileType === "markdown" ? ChangeSet.empty(state.doc.length) : null;
+      observedDocument = state.doc;
+      captureChangesRef.current = () => {
+        if (fileType !== "markdown" || !observedChanges || observedDocument !== createdView.state.doc) return null;
+        const changes = observedChanges, final = createdView.state.doc;
+        return {
+          initialDocument: preparedDocument.content,
+          finalDocument: createdView.state.sliceDoc(),
+          mapTextPoint(point) {
+            if (!Number.isInteger(point.line) || point.line < 1 || point.line > state.doc.lines
+              || !Number.isInteger(point.column) || point.column < 1) return null;
+            const line = state.doc.line(point.line);
+            if (point.column > line.length) return null;
+            const original = line.from + point.column - 1;
+            // Follow the first TEXT CHARACTER, never the gap before the block.
+            const start = changes.mapPos(original, 1, MapMode.TrackDel);
+            const end = changes.mapPos(original + 1, -1, MapMode.TrackDel);
+            if (start === null || end !== start + 1
+              || final.sliceString(start, start + 1) !== state.doc.sliceString(original, original + 1)) return null;
+            return sourcePointAt(final, start);
+          },
+        };
+      };
       publishRef.current = publishPendingChanges;
       formattingBridgeRef.current = {
         executeFormatting,
@@ -629,6 +668,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         feedbackFrame = null;
         lastFeedback = "";
         applyingExternalDocument = true;
+        observedChanges = null;
         try {
           createdView.setState(createEditorState(external, selection, formattingEnabled));
         } finally {
@@ -673,6 +713,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         baselineFrame = null;
         pendingPublication = false;
         publishRef.current = null;
+        captureChangesRef.current = () => null;
         adoptExternalDocumentRef.current = () => false;
         initialScrollTopRef.current = null;
         viewportMovedByUserRef.current = false;

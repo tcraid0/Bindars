@@ -2,6 +2,8 @@ import type { Root } from "hast";
 
 interface SourcePositionOptions {
   lineOffset?: number;
+  /** One-based source column of the parsed body's first character. */
+  firstLineColumn?: number;
 }
 
 export interface SourcePositionAttributes {
@@ -40,6 +42,7 @@ function firstTextPosition(node: PositionedNode): { line: number; column: number
 
 export function rehypeSourcePositions(options: SourcePositionOptions = {}) {
   const lineOffset = Math.max(0, Math.trunc(options.lineOffset ?? 0));
+  const firstLineShift = Math.max(0, Math.trunc(options.firstLineColumn ?? 1) - 1);
 
   return (tree: Root): void => {
     const visit = (node: PositionedNode): void => {
@@ -53,7 +56,7 @@ export function rehypeSourcePositions(options: SourcePositionOptions = {}) {
         if (anchor) {
           node.properties ??= {};
           node.properties.dataBindarsSourceLine = anchor.line + lineOffset;
-          node.properties.dataBindarsSourceColumn = anchor.column;
+          node.properties.dataBindarsSourceColumn = anchor.column + (anchor.line === 1 ? firstLineShift : 0);
         }
       }
 
