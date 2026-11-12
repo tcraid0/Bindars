@@ -1972,17 +1972,22 @@ body[data-printing] .print-hide {
     outline: none !important;
   }
 
-  /* Annotation highlights: subtle in print */
+  /* Annotation highlights: subtle in print. Native printing whitens
+     backgrounds unless they ask to print exactly. */
   mark[data-highlight-id] {
     background: #fef9c3 !important;
     color: inherit !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   /* ── Horizontal rules ── */
+  /* A border, like other printed rules: backgrounds are whitened on paper. */
   .markdown-body hr {
     border: none !important;
-    height: 1px !important;
-    background: #ccc !important;
+    border-top: 1px solid #ccc !important;
+    height: 0 !important;
+    background: none !important;
     margin: 1.5em 0 !important;
   }
 

@@ -166,6 +166,20 @@ test("Mermaid artwork keeps its matching backdrop and colors on paper", () => {
   assert.match(declarations, /print-color-adjust:\s*exact/);
 });
 
+// Native printing paints background colors white unless backgrounds are
+// printed. A divider drawn only as a background fill vanished from PDFs.
+test("dividers print as a visible line without relying on background printing", () => {
+  const declarations = printDeclarations(".markdown-body hr");
+  assert.match(declarations, /border-top:\s*1px solid #ccc !important/);
+  assert.match(declarations, /background:\s*none !important/);
+});
+
+test("annotation highlights keep their pale fill on paper", () => {
+  const declarations = printDeclarations("mark[data-highlight-id]");
+  assert.match(declarations, /background:\s*#fef9c3 !important/);
+  assert.match(declarations, /print-color-adjust:\s*exact/);
+});
+
 test("print css forces black text on table headers and cells", () => {
   for (const selector of [".markdown-body th", ".markdown-body td"]) {
     assert.match(printDeclarations(selector), /color:\s*black !important;/, selector);

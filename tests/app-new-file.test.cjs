@@ -4042,7 +4042,7 @@ test("clean exit restores cursor movement and scroll-only movement", async () =>
     assert.ok(visibleLine.getBoundingClientRect().bottom > main.getBoundingClientRect().top);
     view.dispatch({ selection: { anchor: view.state.doc.line(1).from } });
     main.scrollTop = 500;
-    main.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 500 }));
+    main.dispatchEvent(new window.Event("scroll"));
     const unchangedSelection = view.state.selection.main.head;
     dispatchShortcut("e");
     assert.equal(unchangedSelection, view.state.doc.line(1).from);

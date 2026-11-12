@@ -27,7 +27,7 @@ confirming replacement writes the example text over the file you choose.
 - Visible Read/Edit controls that keep your reading position, with undo history and find/replace while editing
 - Show the opened file in Finder (macOS) or its folder from either Read or Edit mode
 - Autosave within 10 seconds, and new documents saved as ordinary files in a Bindars Drafts folder ([how saving works](recovery-and-privacy.md)), with guarded Save/Save As and external-change reconciliation
-- Optional Markdown heading formatting with an instant plain-markup fallback
+- A Markdown formatting toolbar, with Styled and Plain writing views
 - macOS spelling underlines and native right-click suggestions while editing
 - Print the document or save it as PDF; export highlights and notes separately as Markdown
 - Keyboard-driven workflow - choose **Help > Keyboard Shortcuts** on macOS or
@@ -37,6 +37,77 @@ See [highlights, notes, and recovery](annotations.md) for location, saving,
 and document-path limitations. You can also paste plain text into a new document.
 Bindars opens `.md`, `.markdown`, and `.fountain` files; it does not import Word
 or PDF documents.
+
+## Formatting while writing
+
+Open a Markdown document and choose **Edit**. The formatting bar stays above
+your writing as you scroll. You can use its buttons, type Markdown yourself,
+or mix both. The saved file is still ordinary Markdown. Fountain files have
+no Markdown formatting bar.
+
+| Control | What it does |
+| --- | --- |
+| **Paragraph** menu | Choose Paragraph, Heading, Subheading, or Small heading for the current line. |
+| **Bold** | Make the selected text, or the word containing the cursor, bold. Choose it again to remove bold. |
+| **Bullets** / **Numbered** | Start a list or turn selected ordinary lines into list items. |
+| **Divider** | Insert a dividing line after the current block, with space to keep writing below it. |
+| **More → Italic** | Make the selected text, or the current word, italic. Choose it again to remove italic. |
+| **More → Link** | Enter the link text and destination, then choose Apply link. Selected plain text fills in the link text. |
+| **More → Checklist** | Turn ordinary lines or list items into a checklist. |
+| **More → Quote** | Turn an ordinary paragraph into a quote, or remove a simple quote's markers. |
+| **More → Indent / Outdent** | Move supported list items one level in or out. |
+| **Styled / Plain** | Change how Markdown looks while writing. This does not change the file's text. |
+
+Type some text before choosing Bold or Italic. You can also select a phrase,
+including its punctuation. On an empty line, or where there is no word at the
+cursor, these actions leave the text alone and explain that you need to select text. They do not
+turn on a style for the next words you type.
+
+To change existing lines, select them first. For a heading, use one ordinary
+line. For a list, select the lines and choose Bullets or Numbered. Pasted
+bullet symbols such as `•` can be converted with Bullets.
+
+To make a sub-item, put the cursor in a list item after another item, then
+choose **More → Indent**. This also works in numbered lists, including under
+`1.` and `10.`. Outdent moves a sub-item back. If later sub-items would be left
+behind, select those trailing items together. Press Enter to continue a list.
+Press Enter again on an empty top-level item to finish it and write a normal
+paragraph.
+
+Some selections cannot be converted safely. For example, a link that continues
+onto the next source line cannot be split into separate bullets. Bindars leaves
+the text unchanged and gives a short explanation.
+
+Styled shows headings, emphasis, list alignment, and dividers while keeping the
+Markdown marks visible. Plain uses plain markup. **Read** shows the rendered
+document. Document Bold and Italic are separate from your personal
+[highlights and notes](annotations.md).
+
+### Formatting shortcuts on macOS
+
+| Shortcut | Action |
+| --- | --- |
+| Cmd+E | Switch between Read and Edit. |
+| Cmd+B / Cmd+I | Bold / Italic in the Markdown editor. |
+| Cmd+] / Cmd+[ | Indent / outdent a list item. |
+| Option+F10 | Move from the editor to the formatting bar. |
+| Option+Cmd+M | Switch Styled / Plain. |
+| Cmd+Z / Shift+Cmd+Z | Undo / redo. Each formatting change is one step. |
+| Cmd+F | Open Find while editing. Escape closes Find first. |
+| Cmd+K | Open Search documents. |
+
+In the formatting bar, use Left and Right to move between controls. Enter
+opens a menu or applies an action. Use Up and Down within a menu. Escape
+closes the menu; Escape from the bar returns to writing. Tab continues past
+the bar or leaves the editor; it does not indent a list.
+
+To write in Focus mode, enter Focus from Read with Shift+Cmd+F, then switch to
+Edit with Cmd+E. The formatting bar stays available. See **Help → Keyboard
+Shortcuts** for the full list of keys on your platform.
+
+After revising an annotated document, use Read to check your highlights.
+[Annotation location and passage recovery](annotations.md#edits-made-in-bindars)
+explain which edits keep a passage located and how to place an uncertain one.
 
 ## Spelling on macOS
 
@@ -91,7 +162,7 @@ another entry, or end the session. Files and notes are unchanged.
 The sidebar starts hidden and remembers your choice. A one-time note offers
 **Show Sidebar** when you open a second distinct document; if the reading hint
 is showing, it waits for a later document open. Use the toolbar button or
-Cmd+B / Ctrl+B to toggle it;
+Cmd+B / Ctrl+B outside the Markdown editor to toggle it;
 on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
 
 **Drafts** lists existing files in Documents › Bindars Drafts, including drafts

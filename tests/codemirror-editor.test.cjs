@@ -869,14 +869,7 @@ test("initial source positioning is clamped, applied once, and captured without 
 
 test("scroll-only movement captures the first visible editor line without moving selection", async () => {
   await installDom();
-  const scrollRootRef = { current: document.body };
-  Object.defineProperties(document.body, {
-    scrollTop: { value: 0, writable: true, configurable: true },
-  });
-  document.body.getBoundingClientRect = () => ({
-    x: 0, y: 0, top: 0, bottom: 400, left: 0, right: 800,
-    width: 800, height: 400, toJSON() {},
-  });
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
   const rendered = await renderEditor({
     initialDocument: "First\nSecond\nThird",
     initialPosition: { line: 1, column: 1 },
@@ -886,9 +879,7 @@ test("scroll-only movement captures the first visible editor line without moving
 
   try {
     const view = findEditorView(rendered.host);
-    await act(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    });
+    await settleFrames();
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, false);
 
     const lines = view.contentDOM.querySelectorAll(".cm-line");
@@ -901,7 +892,7 @@ test("scroll-only movement captures the first visible editor line without moving
     });
     view.posAtCoords = () => null;
     document.body.scrollTop = 500;
-    document.body.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 500 }));
+    document.body.dispatchEvent(new window.Event("scroll"));
 
     const beforeSelection = view.state.selection.main.toJSON();
     const captured = rendered.ref.current.capturePosition();
@@ -916,14 +907,23 @@ test("scroll-only movement captures the first visible editor line without moving
   }
 });
 
-test("the first position read treats unsettled constructor scrolling as the baseline", async () => {
-  await installDom();
-  const scrollRootRef = { current: document.body };
-  Object.defineProperty(document.body, "scrollTop", {
-    value: 0,
-    writable: true,
-    configurable: true,
+function settleFrames() {
+  return act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+}
+
+function setScrollRoot(rect) {
+  Object.defineProperty(document.body, "scrollTop", { value: 0, writable: true, configurable: true });
+  document.body.getBoundingClientRect = () => ({
+    x: 0, y: rect.top, left: 0, right: 800, width: 800, height: rect.bottom - rect.top, toJSON() {}, ...rect,
+  });
+  return { current: document.body };
+}
+
+test("the view counts as moved only after the user scrolls it", async () => {
+  await installDom();
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
   const rendered = await renderEditor({
     initialDocument: "First\nSecond",
     initialPosition: { line: 2, column: 1 },
@@ -932,12 +932,67 @@ test("the first position read treats unsettled constructor scrolling as the base
   });
 
   try {
-    document.body.scrollTop = 500;
+    // The editor positions the shared scroll root during its own layout pass.
+    // Its scroll event is not the user's.
+    findEditorView(rendered.host).requestMeasure({
+      read() {},
+      write() { document.body.scrollTop = 300; },
+    });
+    await settleFrames();
+    document.body.dispatchEvent(new window.Event("scroll"));
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, false);
+
     document.body.scrollTop = 700;
+    document.body.dispatchEvent(new window.Event("scroll"));
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, true);
   } finally {
     rendered.cleanup();
+  }
+});
+
+for (const [label, initialDocument, line] of [
+  ["the visible editor line is read below the sticky formatting controls", "Covered\nVisible\nBelow", 2],
+  ["a blank line just below the sticky controls yields the next visible text", "Covered\n\nVisible", 3],
+]) test(label, async () => {
+  await installDom();
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
+  const bar = document.createElement("div");
+  const controls = document.createElement("div");
+  bar.appendChild(controls);
+  document.body.appendChild(bar);
+  bar.getBoundingClientRect = () => ({
+    x: 0, y: 0, top: 0, bottom: 100, left: 0, right: 800, width: 800, height: 100, toJSON() {},
+  });
+  const rendered = await renderEditor({
+    initialDocument,
+    initialPosition: { line: 1, column: 1 },
+    scrollRootRef,
+    formattingControlsRef: { current: controls },
+    onBufferChange() { return false; },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    await settleFrames();
+    const tops = [40, 110, 140];
+    view.contentDOM.querySelectorAll(".cm-line").forEach((line, index) => {
+      const top = tops[index];
+      line.getBoundingClientRect = () => ({
+        x: 0, y: top, top, bottom: top + 30, left: 0, right: 300, width: 300, height: 30, toJSON() {},
+      });
+    });
+    view.posAtCoords = () => null;
+    document.body.scrollTop = 500;
+    document.body.dispatchEvent(new window.Event("scroll"));
+
+    assert.deepEqual(rendered.ref.current.capturePosition(), {
+      cursor: { line: 1, column: 1 },
+      viewport: { line, column: 1 },
+      viewportMoved: true,
+    });
+  } finally {
+    rendered.cleanup();
+    bar.remove();
   }
 });
 

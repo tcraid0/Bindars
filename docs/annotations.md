@@ -38,8 +38,8 @@ does not choose the first match or use fuzzy similarity to guess. Nearby edits c
 with **Location uncertain**. Deleted or empty quotations show **Location
 unavailable**. Both states keep the note available for editing, removal, and
 export. Legacy annotations lack the original occurrence evidence; full-context
-matching cannot reconstruct evidence that was never saved. A legacy highlight
-can therefore attach to a sole remaining identical passage after deletion.
+matching cannot reconstruct evidence that was never saved. Their locations
+remain uncertain until you confirm a passage with **Choose passage**.
 
 ### Edits made in Bindars
 
@@ -103,6 +103,15 @@ artwork are excluded. Visible math and HTML inside diagram labels can be marked
 where the platform permits selecting that text; a selection spanning excluded
 text is rejected instead of silently clipped. Search can cross annotation marks.
 Diagrams reapply saved highlights after their asynchronous rendering finishes.
+
+### Choosing a passage again
+
+If a highlight shows **Location uncertain**, its note is still in
+**Highlights & notes**. Choose **Choose passage**, select the intended text in
+Read, then choose **Use this passage**. Check the occurrence carefully when
+the same words appear more than once. The note stays with the highlight.
+If you choose different words, the panel also keeps the original excerpt.
+Cancel leaves the attachment unchanged.
 
 ## Reconnecting notes after a rename or move
 

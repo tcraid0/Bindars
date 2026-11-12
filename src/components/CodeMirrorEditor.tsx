@@ -284,18 +284,29 @@ function sourcePointAt(doc: Text, position: number): SourcePoint {
   return { line: line.number, column: position - line.from + 1 };
 }
 
-function firstVisibleSourcePoint(view: EditorView, scrollRoot: HTMLElement): SourcePoint | null {
+/** Height of the sticky formatting controls covering the top of the shared scroll root. */
+function stickyControlsInset(controls: HTMLElement | null | undefined, scrollRoot: HTMLElement | null | undefined): number {
+  const bar = controls?.parentElement;
+  if (!bar) return 0;
+  return Math.max(0, bar.getBoundingClientRect().bottom - Math.max(0, scrollRoot?.getBoundingClientRect().top ?? 0));
+}
+
+function firstVisibleSourcePoint(view: EditorView, scrollRoot: HTMLElement, topInset: number): SourcePoint | null {
   const viewport = scrollRoot.getBoundingClientRect();
+  const top = viewport.top + topInset;
   for (const lineElement of view.contentDOM.querySelectorAll<HTMLElement>(".cm-line")) {
     const lineRect = lineElement.getBoundingClientRect();
-    if (lineRect.bottom <= viewport.top || lineRect.top >= viewport.bottom) continue;
+    if (lineRect.bottom <= top || lineRect.top >= viewport.bottom) continue;
 
     try {
       const coordinatePosition = view.posAtCoords({
         x: Math.max(lineRect.left, viewport.left) + 1,
-        y: Math.max(lineRect.top, viewport.top) + 1,
+        y: Math.max(lineRect.top, top) + 1,
       });
       const position = coordinatePosition ?? view.posAtDOM(lineElement, 0);
+      // A blank line has no reader block; the reader would fall back to the
+      // block before it. The first visible text is the next non-blank line.
+      if (!view.state.doc.lineAt(position).text.trim()) continue;
       return sourcePointAt(view.state.doc, position);
     } catch {
       // A line can disappear between the DOM query and position lookup when
@@ -326,8 +337,8 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
     const onBufferChangeRef = useRef(onBufferChange);
     const interactionRef = useRef({ filePath, onFormattingState, onFormattingRefusal, onLinkFormChange, onFocusToolbar, onExternalDocumentAdopted });
     const formattingBridgeRef = useRef<Pick<CodeMirrorEditorHandle, "executeFormatting" | "beginLink" | "applyLink" | "cancelLink"> | null>(null);
-    const initialScrollTopRef = useRef<number | null>(null);
     const viewportMovedByUserRef = useRef(false);
+    const stickyTopInset = () => stickyControlsInset(formattingControlsRef?.current, scrollRootRef?.current);
 
     useLayoutEffect(() => {
       onBufferChangeRef.current = onBufferChange;
@@ -365,22 +376,10 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         if (!view) return null;
         const cursor = sourcePointAt(view.state.doc, view.state.selection.main.head);
         const scrollRoot = scrollRootRef?.current ?? null;
-        const currentScrollTop = scrollRoot?.scrollTop ?? null;
-        if (initialScrollTopRef.current === null && currentScrollTop !== null) {
-          // A zero-layout test surface (or an exit before the first measured
-          // frame) may never run the post-centering callback. Treat the first
-          // read as settled instead of guessing that initialization moved.
-          initialScrollTopRef.current = currentScrollTop;
-        }
-        const initialScrollTop = initialScrollTopRef.current;
         return {
           cursor,
-          viewport: scrollRoot ? firstVisibleSourcePoint(view, scrollRoot) : null,
-          viewportMoved: viewportMovedByUserRef.current || (
-            currentScrollTop !== null
-            && initialScrollTop !== null
-            && Math.abs(currentScrollTop - initialScrollTop) > 1
-          ),
+          viewport: scrollRoot ? firstVisibleSourcePoint(view, scrollRoot, stickyTopInset()) : null,
+          viewportMoved: viewportMovedByUserRef.current,
         };
       },
     }), []);
@@ -392,7 +391,6 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       let view: EditorView | null = null;
       let pendingPublication = false;
       let publicationTimer: ReturnType<typeof setTimeout> | null = null;
-      let baselineFrame: number | null = null;
       let applyingExternalDocument = false;
       let observedChanges: ChangeSet | null = null;
       let observedDocument: Text | null = null;
@@ -451,14 +449,18 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         scheduleFeedback();
         return result;
       };
-      initialScrollTopRef.current = null;
       viewportMovedByUserRef.current = false;
       const scrollRoot = scrollRootRef?.current ?? null;
-      const recordUserViewportMovement = () => {
-        viewportMovedByUserRef.current = true;
+      // CodeMirror scrolls the shared root itself: the initial centering and
+      // its scroll anchoring when measured heights change (late parsing,
+      // fonts, wrapping). Remember where its measure cycles leave the root;
+      // any other scroll (wheel, scrollbar, keyboard) is the user's.
+      let editorScrollTop: number | null = null;
+      const recordViewportMovement = () => {
+        if (scrollRoot && editorScrollTop !== null
+          && Math.abs(scrollRoot.scrollTop - editorScrollTop) > 1) viewportMovedByUserRef.current = true;
       };
-      scrollRoot?.addEventListener("wheel", recordUserViewportMovement, { passive: true });
-      scrollRoot?.addEventListener("touchmove", recordUserViewportMovement, { passive: true });
+      scrollRoot?.addEventListener("scroll", recordViewportMovement, { passive: true });
 
       const publishPendingChanges = (): boolean | null => {
         if (!pendingPublication || !view || viewRef.current !== view) return null;
@@ -496,14 +498,9 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             EditorState.lineSeparator.of(preparedDocument.lineSeparator),
             EditorState.allowMultipleSelections.of(true),
             EditorView.lineWrapping,
-            EditorView.scrollMargins.of(() => {
-              const bar = formattingControlsRef?.current?.parentElement;
-              if (!bar) return null;
-              // CodeMirror's nested-scroll algorithm does not read CSS
-              // scroll-padding. Reserve the actual visible sticky controls.
-              return { top: Math.max(0, bar.getBoundingClientRect().bottom
-                - Math.max(0, scrollRootRef?.current?.getBoundingClientRect().top ?? 0)) };
-            }),
+            // CodeMirror's nested-scroll algorithm does not read CSS
+            // scroll-padding. Reserve the actual visible sticky controls.
+            EditorView.scrollMargins.of(() => ({ top: stickyTopInset() })),
             EditorView.contentAttributes.of({
               "aria-label": "Edit document",
               "aria-multiline": "true",
@@ -531,6 +528,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             }) : [],
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
+              if (scrollRoot && update.transactions.length === 0) editorScrollTop = scrollRoot.scrollTop;
               if (update.docChanged && observedChanges) {
                 // setState/adoption and any unobserved replacement break ownership.
                 if (applyingExternalDocument || update.startState.doc !== observedDocument) observedChanges = null;
@@ -676,30 +674,11 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         }
         interactionRef.current.onExternalDocumentAdopted?.();
         scheduleFeedback();
-        if (scrollRoot && scrollTop !== null) scrollRoot.scrollTop = scrollTop;
+        if (scrollRoot && scrollTop !== null) editorScrollTop = scrollRoot.scrollTop = scrollTop;
         if (hadFocus && !createdView.hasFocus) createdView.focus();
         return true;
       };
       createdView.focus();
-      if (initialOffset === null) {
-        initialScrollTopRef.current = scrollRootRef?.current?.scrollTop ?? null;
-      } else {
-        createdView.requestMeasure({
-          read: () => scrollRootRef?.current,
-          write: (scrollRoot) => {
-            if (!scrollRoot || viewRef.current !== createdView) return;
-            // CodeMirror applies its constructor scroll target after measure
-            // request writes. The next frame observes the settled centered
-            // position, so initialization is not mistaken for user scrolling.
-            baselineFrame = window.requestAnimationFrame(() => {
-              baselineFrame = null;
-              if (viewRef.current === createdView) {
-                initialScrollTopRef.current = scrollRoot.scrollTop;
-              }
-            });
-          },
-        });
-      }
 
       return () => {
         cancelLink(undefined, false);
@@ -708,17 +687,13 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         host.removeEventListener("compositionstart", compositionStart);
         host.removeEventListener("compositionend", compositionEnd);
         if (publicationTimer) clearTimeout(publicationTimer);
-        if (baselineFrame !== null) window.cancelAnimationFrame(baselineFrame);
         publicationTimer = null;
-        baselineFrame = null;
         pendingPublication = false;
         publishRef.current = null;
         captureChangesRef.current = () => null;
         adoptExternalDocumentRef.current = () => false;
-        initialScrollTopRef.current = null;
         viewportMovedByUserRef.current = false;
-        scrollRoot?.removeEventListener("wheel", recordUserViewportMovement);
-        scrollRoot?.removeEventListener("touchmove", recordUserViewportMovement);
+        scrollRoot?.removeEventListener("scroll", recordViewportMovement);
         if (viewRef.current === view) viewRef.current = null;
         createdView.destroy();
         view = null;
