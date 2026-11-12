@@ -29,7 +29,7 @@ export interface EmphasisCommandResult extends EmphasisCommandStatus {
 
 const LOADING_REASON = "Formatting context is still loading.";
 const MULTI_SELECTION_REASON = "Use one selection to format text.";
-const COMPOSITION_REASON = "Finish the current composition before formatting.";
+export const COMPOSITION_REASON = "Finish the current composition before formatting.";
 const READ_ONLY_REASON = "This document cannot be edited.";
 const METADATA_REASON = "Move out of the document details to format text.";
 const MATH_REASON = "Move out of math to format text.";
@@ -801,13 +801,13 @@ function listItem(state: EditorState, node: SyntaxNode): ListItemInfo | null {
   const tail = state.doc.sliceString(mark.to, line.to);
   const spacing = listMarkerSpacing(tail);
   if (spacing.length > 4 || tail.startsWith("\t")) return null;
-  const taskNode = node.getChild("Task")?.getChild("TaskMarker");
+  const taskNode = taskMarker(state, node);
   const contentColumn = mark.to - line.from + (spacing.length || 1);
   let prefixEnd = Math.min(line.to, line.from + contentColumn);
   let task: string | null = null;
   let taskSpacing = " ";
   if (taskNode) {
-    task = state.doc.sliceString(taskNode.from, taskNode.to);
+    task = taskNode.marker;
     const after = listMarkerSpacing(state.doc.sliceString(taskNode.to, line.to));
     prefixEnd = taskNode.to + after.length;
     taskSpacing = after || " ";
@@ -815,6 +815,39 @@ function listItem(state: EditorState, node: SyntaxNode): ListItemInfo | null {
   return { node, list: node.parent, line: line.number, endLine: state.doc.lineAt(node.to).number,
     indent, contentColumn, prefixEnd, marker, spacing: spacing || " ",
     number: /^\d/.test(marker) ? Number(marker.slice(0, -1)) : null, task, taskSpacing };
+}
+
+/** Read the checkbox once from the editor parser, shared by lists and completion. */
+function taskMarker(state: EditorState, item: SyntaxNode) {
+  const marker = item.getChild("Task")?.getChild("TaskMarker");
+  return marker ? { from: marker.from, to: marker.to, marker: state.doc.sliceString(marker.from, marker.to) } : null;
+}
+
+function taskOnLine(state: EditorState, tree: Tree, pos: number) {
+  const line = state.doc.lineAt(pos);
+  const item = ancestor(tree.resolveInner(line.to, -1), "ListItem");
+  return item && state.doc.lineAt(item.from).number === line.number ? taskMarker(state, item) : null;
+}
+
+const TASK_SELECTION_REASON = "Select one checklist item";
+const TASK_CURSOR_REASON = "Place the cursor on a checklist item";
+
+function planTaskCompletion(state: EditorState, composing: boolean): FormattingEdit {
+  const unavailable = commandRefusal(state, composing);
+  if (unavailable) return refused(unavailable);
+  if (!checkDocumentComplexity(state.sliceDoc(), "markdown").ok) return refused(COMPLEXITY_REASON);
+  const range = state.selection.main;
+  const line = state.doc.lineAt(range.from);
+  if (line.number !== state.doc.lineAt(range.to).number) return refused(TASK_SELECTION_REASON);
+  const tree = treeCovering(state, line.from, line.to);
+  if (!tree) return refused(LOADING_REASON);
+  const invalid = listRangeRefusal(state, tree, range.from, range.to);
+  if (invalid) return refused(invalid);
+  const task = taskOnLine(state, tree, range.from);
+  if (!task) return refused(TASK_CURSOR_REASON);
+  const checked = task.marker[1] !== " ";
+  const changes = state.changes({ from: task.from + 1, to: task.to - 1, insert: checked ? " " : "x" });
+  return { changes, selection: state.selection.map(changes), status: { available: true, active: checked, reason: null } };
 }
 
 /** Continuation needs this line's own item, never an ancestor's marker. */
@@ -1542,7 +1575,7 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
 }
 
 
-export type FormattingCommand = EmphasisCommand | ListCommand | BlockCommand;
+export type FormattingCommand = EmphasisCommand | ListCommand | BlockCommand | "toggleTask";
 export type ToolbarCommand = FormattingCommand | "link";
 export interface FormattingFeedback {
   /** Available means safe to attempt. Apply always validates the live state. */
@@ -1557,10 +1590,11 @@ export interface FormattingToolbarState {
 }
 const TOOLBAR_COMMANDS: readonly ToolbarCommand[] = [
   "paragraph", "h1", "h2", "h3", "bold", "italic", "bullets", "numbered",
-  "divider", "checklist", "quote", "indent", "outdent", "link",
+  "divider", "checklist", "quote", "indent", "outdent", "link", "toggleTask",
 ];
 
 export function executeFormattingCommand(view: EditorView, command: FormattingCommand): EmphasisCommandResult {
+  if (command === "toggleTask") return dispatchFormatting(view, planTaskCompletion(view.state, view.composing));
   if (command === "bold" || command === "italic") return applyEmphasisCommand(view, command);
   if (command === "bullets" || command === "numbered" || command === "checklist"
     || command === "indent" || command === "outdent") return applyListCommand(view, command);
@@ -1581,6 +1615,7 @@ export function formattingToolbarState(state: EditorState, composing = false): F
   if (unavailable) { disable(TOOLBAR_COMMANDS, unavailable); return result; }
   const range = state.selection.main;
   const tree = syntaxTree(state);
+  if (state.doc.lineAt(range.from).number !== state.doc.lineAt(range.to).number) disable(["toggleTask"], TASK_SELECTION_REASON);
   const end = range.empty ? range.to : Math.max(range.from, range.to - 1);
 
   // Use authoritative facts only when already cached. Metadata near the start
@@ -1661,6 +1696,12 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     for (const [id, level] of [["paragraph", 0], ["h1", 1], ["h2", 2], ["h3", 3]] as const) {
       if (commands[id].available) commands[id].active = result.headingLevel === level;
     }
+  }
+  const line = state.doc.lineAt(range.from);
+  if (commands.toggleTask.available && syntaxTreeAvailable(state, line.to)) {
+    const task = taskOnLine(state, tree, range.from);
+    if (task) commands.toggleTask.active = task.marker[1] !== " ";
+    else disable(["toggleTask"], TASK_CURSOR_REASON);
   }
   const firstItem = ancestor(tree.resolveInner(range.from, 1), "ListItem");
   const lastItem = ancestor(tree.resolveInner(end, 1), "ListItem");

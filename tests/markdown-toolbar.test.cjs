@@ -62,11 +62,38 @@ test('toolbar is one tab stop, arrow navigation wraps, Alt-F10 enters, and Escap
     assert.equal(r.host.querySelectorAll('[role="toolbar"] [tabindex="0"]').length,1);
     const event = key(r.view.contentDOM,'F10',{altKey:true}); assert.equal(event.defaultPrevented,true);
     const first = document.activeElement; assert.match(first.textContent,/Paragraph/);
+    const order = ['Paragraph ⌄', 'Bold', 'Bullets', 'Numbered', 'Checklist', 'More ⌄', 'Styled'];
+    assert.deepEqual([...r.host.querySelectorAll('[data-toolbar-item]')].map(b => b.textContent.trim()), order);
+    for (const expected of order.slice(1)) {
+      key(document.activeElement, 'ArrowRight'); assert.equal(document.activeElement.textContent.trim(), expected);
+      assert.equal(r.host.querySelectorAll('[role="toolbar"] [tabindex="0"]').length, 1);
+    }
+    key(document.activeElement, 'ArrowRight'); assert.ok(document.activeElement === first);
     key(first,'ArrowLeft'); assert.equal(document.activeElement.textContent,'Styled');
     key(document.activeElement,'ArrowRight'); assert.ok(document.activeElement === first);
     key(first,'Tab'); assert.equal(r.view.state.doc.toString(),'alpha beta');
     const escape = key(first,'Escape'); assert.equal(escape.defaultPrevented,true);
     assert.ok(document.activeElement === r.view.contentDOM);
+  } finally { r.cleanup(); }
+});
+
+test('vertical arrows open the focused style or More menu', async () => {
+  const r = await render();
+  try {
+    for (const arrow of ['ArrowDown', 'ArrowUp']) {
+      for (const [label, menu] of [['Text style: Paragraph', 'Text style'], ['More ⌄', 'More formatting']]) {
+        flushSync(() => r.button(label).focus());
+        assert.equal(key(document.activeElement, arrow).defaultPrevented, true);
+        assert.equal(r.host.querySelector('[role="menu"]').getAttribute('aria-label'), menu);
+        assert.ok(r.host.querySelector('[role="menu"]').contains(document.activeElement));
+        key(document.activeElement, 'Escape');
+        assert.ok(document.activeElement === r.button(label));
+      }
+    }
+    assert.doesNotMatch(r.host.textContent, /Formatting is checked when applied/);
+    flushSync(() => r.ref.current.beginLink());
+    assert.match(r.host.querySelector('form').textContent, /Link to/);
+    assert.ok(r.button('Add link'));
   } finally { r.cleanup(); }
 });
 
@@ -76,13 +103,13 @@ test('menus focus items, expose completed actions and consume Escape before edit
   window.addEventListener('keydown',onKey);
   try {
     r.click('More ⌄');
-    assert.deepEqual([...r.host.querySelectorAll('[role="menu"] button > span')].map(e=>e.textContent),['Italic','Link','Checklist','Quote','Indent','Outdent']);
+    assert.deepEqual([...r.host.querySelectorAll('[role="menu"] button > span')].map(e=>e.textContent),['Italic','Link','Quote','Divider','Indent more','Indent less','Mark done']);
     assert.equal(document.activeElement.textContent.startsWith('Italic'),true);
-    key(document.activeElement,'ArrowUp'); assert.equal(document.activeElement.textContent.startsWith('Outdent'),true);
+    key(document.activeElement,'ArrowUp'); assert.equal(document.activeElement.textContent.startsWith('Mark done'),true);
     key(document.activeElement,'Escape'); assert.equal(bubbled,0);
     assert.ok(r.host.querySelector('[role="menu"]') === null);
     assert.ok(document.activeElement === r.button('More ⌄'));
-    r.click('More ⌄'); r.click('Checklist'); assert.equal(r.view.state.doc.toString(),'- [ ] alpha beta');
+    r.click('Checklist'); assert.equal(r.view.state.doc.toString(),'- [ ] alpha beta');
     assert.ok(document.activeElement === r.view.contentDOM);
   } finally { window.removeEventListener('keydown',onKey); r.cleanup(); }
 });
@@ -156,7 +183,7 @@ test('composition, multi-selection and readonly guards apply to the bridge; Foun
     r.view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(1),EditorSelection.cursor(8)])});
     r.click('Bullets'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/one selection/);
     r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
-    r.click('Divider'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/cannot be edited/);
+    r.click('More ⌄'); r.click('Divider'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/cannot be edited/);
   } finally { r.cleanup(); }
   const fountain = await render('INT. ROOM - DAY',{fileType:'fountain'});
   try { assert.ok(fountain.host.querySelector('[role="toolbar"]') === null); assert.equal(fountain.ref.current.executeFormatting('bold'),null); }
@@ -265,7 +292,7 @@ test('list shortcut refusal uses the toolbar reporting path and ordinary indenta
     const original=r.view.state;
     assert.equal(key(r.view.contentDOM,']',{ctrlKey:true}).defaultPrevented,true);
     assert.equal(r.view.state,original); assert.match(r.refusals.at(-1),/preceding sibling/i);
-    const reason=r.refusals.at(-1); r.click('More ⌄');r.click('Indent');assert.equal(r.refusals.at(-1),reason);
+    const reason=r.refusals.at(-1); r.click('More ⌄');r.click('Indent more');assert.equal(r.refusals.at(-1),reason);
   } finally {r.cleanup();}
   const plain=await render('plain');
   try {key(plain.view.contentDOM,']',{ctrlKey:true});assert.equal(plain.view.state.doc.toString(),'  plain');}
@@ -321,7 +348,7 @@ test('Link pointer actions survive the macOS non-focusable-button mouse sequence
     r.view.dispatch({ selection: EditorSelection.single(10, 6) });
     flushSync(() => r.ref.current.beginLink());
     inputField(r.host.querySelector('[name="destination"]'), 'https://example.com/pointer');
-    pointerClick(r.button('Apply link'));
+    pointerClick(r.button('Add link'));
     assert.equal(r.view.state.sliceDoc(), 'alpha [beta](<https://example.com/pointer>)');
     assert.equal(undoDepth(r.view.state), 1);
     assert.ok(document.activeElement === r.view.contentDOM);
@@ -431,14 +458,14 @@ test('Link Apply rechecks live read-only state without discarding its draft', as
   } finally {r.cleanup();}
 });
 
-test('More exposes known Italic, Checklist and Quote states, and leaves unknown state unclaimed', async () => {
-  for(const [source,pos,label] of [['*word*',2,'Italic'],['- [ ] item',8,'Checklist'],['> quote',4,'Quote']]){
+test('More exposes known Italic and Quote states, and leaves unknown state unclaimed', async () => {
+  for(const [source,pos,label] of [['*word*',2,'Italic'],['> quote',4,'Quote']]){
     const r=await render(source);
     try {
       r.view.dispatch({selection:{anchor:pos}});await frame();r.click('More ⌄');
       const item=r.button(label);assert.equal(item.getAttribute('role'),'menuitemcheckbox');assert.equal(item.getAttribute('aria-checked'),'true');
       assert.ok(item.querySelector('[aria-hidden="true"]'),'known active state has a visible check');
-      for(const plain of ['Link','Indent','Outdent']) {assert.equal(r.button(plain).getAttribute('role'),'menuitem');assert.equal(r.button(plain).getAttribute('aria-checked'),null);}
+      for(const plain of ['Link','Indent more','Indent less']) {assert.equal(r.button(plain).getAttribute('role'),'menuitem');assert.equal(r.button(plain).getAttribute('aria-checked'),null);}
     } finally {r.cleanup();}
   }
   const r=await render('plain\n\n*italic*');
@@ -511,4 +538,47 @@ test('Find remains explicit draft dismissal and focuses its existing search fiel
     flushSync(()=>r.ref.current.find());await frame();assert.ok(!r.host.querySelector('form[aria-label="Insert link"]'));
     assert.equal(document.activeElement.name,'search');assert.equal(r.view.state.sliceDoc(),'label');assert.equal(undoDepth(r.view.state),0);
   } finally {r.cleanup();}
+});
+
+test('More completes one task in Styled and Plain, switches its action label, and restores writing focus', async () => {
+  for (const styled of [true, false]) {
+    const r = await render('- [ ] original\n- [X] neighbour', { markdownFormattingEnabled: styled });
+    try {
+      r.view.dispatch({ selection: { anchor: 3 } }); await frame();
+      r.click('More ⌄');
+      const done = r.button('Mark done');
+      assert.equal(done.getAttribute('role'), 'menuitem');
+      assert.equal(done.getAttribute('aria-checked'), null);
+      assert.equal(done.getAttribute('aria-disabled'), 'false');
+      flushSync(() => done.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })));
+      assert.equal(r.view.state.sliceDoc(), '- [x] original\n- [X] neighbour');
+      assert.ok(document.activeElement === r.view.contentDOM);
+      assert.equal(undoDepth(r.view.state), 1); await frame();
+      flushSync(() => r.button('More ⌄').focus()); key(document.activeElement, 'ArrowDown');
+      const notDone = r.button('Mark not done');
+      assert.equal(notDone.getAttribute('role'), 'menuitem');
+      assert.equal(notDone.getAttribute('aria-checked'), null);
+      key(document.activeElement, 'End'); assert.ok(document.activeElement === notDone);
+      // Happy DOM has no native Enter-to-click default; supply that keyboard click.
+      key(notDone, 'Enter'); flushSync(() => notDone.click());
+      assert.equal(r.view.state.sliceDoc(), '- [ ] original\n- [X] neighbour');
+      assert.ok(document.activeElement === r.view.contentDOM);
+      assert.equal(undoDepth(r.view.state), 2);
+      r.view.dispatch({ selection: { anchor: r.view.state.doc.length } }); await frame();
+      r.click('More ⌄'); assert.ok(r.button('Mark not done'));
+    } finally { r.cleanup(); }
+  }
+});
+
+test('More explains unavailable completion and uses the existing refusal path', async () => {
+  const r = await render('ordinary words');
+  try {
+    r.click('More ⌄'); const action = r.button('Mark done');
+    assert.equal(action.getAttribute('aria-disabled'), 'true');
+    assert.match(action.textContent, /Place the cursor on a checklist item/);
+    r.click('Mark done');
+    assert.equal(r.refusals.at(-1), 'Place the cursor on a checklist item');
+    assert.equal(r.view.state.sliceDoc(), 'ordinary words');
+    assert.ok(document.activeElement === r.view.contentDOM); assert.equal(undoDepth(r.view.state), 0);
+  } finally { r.cleanup(); }
 });

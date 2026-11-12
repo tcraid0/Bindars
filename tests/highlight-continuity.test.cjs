@@ -456,3 +456,44 @@ test('R01 seeded stress: a refreshed location is always the passage\'s own origi
   t.diagnostic(JSON.stringify(tally));
   assert.ok(tally.tracked > 150 && tally.correct > 20 && tally.correctAfterInBlockEdit > 5, 'the stress run exercised both ways of following a passage: ' + JSON.stringify(tally));
 });
+
+for (const route of ['saved Read', 'departure reopen']) {
+  test(`task completion retains the original repeated passage, note and colour through ${route}`, async t => {
+    const { P: phrase } = require('./_fixtures/highlight-continuity.cjs');
+    const source = '# Notes\n\n' + phrase + '\n\n- [ ] ' + phrase + '\n';
+    const surface = await mounted(t, source);
+    let reader = await surface.render(false);
+    const evidence = await prepareAnnotationDocument(reader, source), index = collectText(reader);
+    const start = occurrences(index.text, 'amber')[1];
+    const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 5), reader, source);
+    assert.equal(anchor.position.contextUnique, false, 'the repeated context must require observed Edit evidence');
+    await act(async () => surface.api().addHighlight(anchor, 'blue', 'notes'));
+    await act(async () => surface.api().restoreRecord({ version: 3, highlights: [{ ...surface.api().highlights[0], note: 'Original task note' }], bookmarks: [] }));
+    const before = structuredClone(surface.api().highlights[0]);
+    const capture = captureHighlightBlocks(reader, source, evidence, surface.api().highlights);
+    const view = await surface.render(true);
+    await act(async () => {
+      view.dispatch({ selection: { anchor: source.lastIndexOf('amber') } });
+      assert.equal(surface.editor.current.executeFormatting('toggleTask').applied, true);
+    });
+    const output = view.state.sliceDoc(), changes = surface.editor.current.captureChanges();
+    assert.equal(output, source.replace('[ ]', '[x]'));
+    reader = await surface.render(false, output);
+    const currentEvidence = await prepareAnnotationDocument(reader, output);
+    assert.equal(resolveAnchor(before, reader, currentEvidence).status, 'uncertain', 'a bare checkbox swap must not guess an occurrence');
+    const updates = route === 'saved Read'
+      ? refreshHighlightBlocks(capture, changes, reader, output, currentEvidence)
+      : await refreshDepartureClaims((await departureClaims(capture, changes)).map(({ id, claim }) => ({ ...surface.api().highlights[0], id, continuity: claim })), reader, output, currentEvidence);
+    assert.equal(updates.length, 1);
+    await act(async () => surface.api().refreshPassages(updates));
+    await surface.api().waitForSaves();
+    const current = surface.api().highlights[0];
+    assertOccurrence(current, reader, currentEvidence, 1, 'amber');
+    assert.equal(current.note, 'Original task note'); assert.equal(current.color, 'blue');
+    assert.equal(reader.querySelector('input').checked, true);
+    await surface.render(false, '# Other', '/other.md');
+    reader = await surface.render(false, output);
+    assertOccurrence(surface.api().highlights[0], reader, await prepareAnnotationDocument(reader, output), 1, 'amber');
+    assert.equal(surface.api().highlights[0].note, before.note); assert.equal(surface.api().highlights[0].color, before.color);
+  });
+}

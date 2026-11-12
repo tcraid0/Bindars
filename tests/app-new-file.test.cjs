@@ -8430,3 +8430,57 @@ for (const failure of ['digest', 'write', 'unannotated']) {
     } finally { await rendered.cleanup(); }
   });
 }
+
+for (const route of ['saved Read', 'quit']) {
+  test(`task completion through More retains the highlighted original task after ${route} and reopening`, async () => {
+    const { P: phrase } = require('./_fixtures/highlight-continuity.cjs');
+    const source = '# Notes\n\n' + phrase + '\n\n- [ ] ' + phrase + '\n';
+    let held = null;
+    const { rendered, highlight } = await r01App({ initialContent: source, annotationWrite: async () => { if (held) await held.promise; } });
+    assert.equal(highlight.position.contextUnique, false, 'repeated context requires observed Edit evidence');
+    let finalSource, saved;
+    const assertTaskOccurrence = async surface => {
+      await waitFor(() => assert.ok(surface.host.querySelector('mark[data-highlight-id="r01-second"]')));
+      const mark = surface.host.querySelector('mark[data-highlight-id="r01-second"]');
+      assert.ok(mark.closest('li'), 'the mark must stay inside the original task');
+      assert.equal(mark.textContent, 'amber');
+      assert.ok(surface.host.querySelector('article p mark') === null, 'the other occurrence must stay unmarked');
+      assert.equal(surface.host.querySelector('article input').checked, true);
+    };
+    try {
+      await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); await new Promise(resolve => requestAnimationFrame(resolve)); });
+      const view = await r01Enter(rendered);
+      flushSync(() => view.dispatch({ selection: { anchor: view.state.doc.toString().lastIndexOf('amber') } }));
+      const more = [...rendered.host.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.startsWith('More'));
+      flushSync(() => more.click());
+      const complete = [...rendered.host.querySelectorAll('[role="menu"] button')].find(b => b.textContent.startsWith('Mark done'));
+      assert.ok(complete); flushSync(() => complete.click());
+      finalSource = source.replace('[ ]', '[x]'); assert.equal(view.state.sliceDoc(), finalSource);
+      if (route === 'saved Read') {
+        dispatchShortcut('s'); await waitFor(() => assert.equal(rendered.diskContent(), finalSource));
+        await r01Read(rendered); await assertTaskOccurrence(rendered);
+      } else {
+        held = deferred();
+        await act(async () => emit('bindars://quit-requested'));
+        await waitFor(() => assert.ok(rendered.annotationWrites.at(-1)?.annotations.highlights[0].continuity));
+        saved = structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+        assert.equal(rendered.guardedExitCount(), 0, 'quit waits for the claim to be saved');
+        await act(async () => held.resolve());
+        await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+        assert.equal(rendered.diskContent(), finalSource);
+      }
+      await waitFor(() => assert.ok(rendered.annotationWrites.length));
+      saved ??= structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+      assert.equal(saved.note, highlight.note); assert.equal(saved.color, highlight.color);
+      if (route === 'quit') assert.ok(saved.continuity, 'quit must persist the observed Edit evidence');
+    } finally { held?.resolve(); await rendered.cleanup(); }
+    const reopened = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    try {
+      await assertTaskOccurrence(reopened);
+      if (route === 'quit') await waitFor(() => assert.ok(reopened.annotationWrites.length));
+      const current = reopened.annotationWrites.at(-1)?.annotations.highlights[0] ?? saved;
+      assert.equal(current.note, highlight.note); assert.equal(current.color, highlight.color);
+      assert.equal(current.continuity, undefined);
+    } finally { await reopened.cleanup(); }
+  });
+}

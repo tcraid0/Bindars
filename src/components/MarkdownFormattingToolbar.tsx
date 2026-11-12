@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { CodeMirrorEditorHandle, EditorLinkForm } from "./CodeMirrorEditor";
-import type { FormattingCommand, FormattingToolbarState, ToolbarCommand } from "./markdown-formatting-commands";
+import type { FormattingToolbarState, ToolbarCommand } from "./markdown-formatting-commands";
 import { formatShortcutLabel, isPrimaryModifier, type ShortcutId } from "../lib/shortcut-labels";
 import { isImeCompositionKey } from "../lib/keyboard";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
@@ -17,7 +17,16 @@ interface Props {
   onToggleStyled: () => void;
 }
 const styles = [["paragraph", "Paragraph"], ["h1", "Heading"], ["h2", "Subheading"], ["h3", "Small heading"]] as const;
-const more = [["italic", "Italic"], ["link", "Link"], ["checklist", "Checklist"], ["quote", "Quote"], ["indent", "Indent"], ["outdent", "Outdent"]] as const;
+const more = [["italic", "Italic"], ["link", "Link"], ["quote", "Quote"], ["divider", "Divider"], ["indent", "Indent more"], ["outdent", "Indent less"], ["toggleTask", "Mark done"]] as const;
+const controls = [
+  { kind: "menu", menu: "style" },
+  { kind: "command", command: "bold", label: "Bold" },
+  { kind: "command", command: "bullets", label: "Bullets" },
+  { kind: "command", command: "numbered", label: "Numbered" },
+  { kind: "command", command: "checklist", label: "Checklist" },
+  { kind: "menu", menu: "more" },
+  { kind: "toggle" },
+] as const;
 const shortcuts: Partial<Record<ToolbarCommand, ShortcutId>> = { bold: "formatBold", italic: "formatItalic", indent: "indentList", outdent: "outdentList" };
 
 export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkForm, styled, adoption, onToggleStyled }: Props) {
@@ -38,27 +47,18 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
   const feedback = (command: ToolbarCommand) => state?.commands[command];
   const describe = (command: ToolbarCommand) => {
     const item = feedback(command);
-    return item?.reason ?? (item?.active === null ? "Formatting is checked when applied." : "");
+    return item?.reason ?? "";
   };
   const run = (command: ToolbarCommand) => {
     dismiss(false);
     if (command === "link") editorRef.current?.beginLink();
-    else editorRef.current?.executeFormatting(command as FormattingCommand);
+    else editorRef.current?.executeFormatting(command);
   };
   const toggleMenu = (name: "style" | "more", trigger: HTMLButtonElement) => {
     if (menu === name) { dismiss(true); return; }
     triggerRef.current = trigger;
     setMenu(name);
   };
-  const primaryButton = (command: FormattingCommand, label: string, index: number) => (
-    <button type="button" data-toolbar-item tabIndex={tabStop === index ? 0 : -1}
-      onFocus={() => setTabStop(index)} onMouseDown={event => event.preventDefault()}
-      aria-label={label} aria-pressed={feedback(command)?.active ?? undefined}
-      aria-disabled={feedback(command)?.available === false}
-      aria-describedby={`${id}-${command}-hint`}
-      title={[label, shortcuts[command] && formatShortcutLabel(shortcuts[command]!), describe(command)].filter(Boolean).join(" · ")}
-      onClick={() => run(command)}>{label}</button>
-  );
   const heading = state?.headingLevel;
   const styleLabel = heading == null ? "Text style" : heading === 0 ? "Paragraph" : heading <= 3 ? styles[heading][1] : `Heading ${heading}`;
   return (
@@ -82,28 +82,33 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
           else if (event.key === "End") next = buttons.length - 1;
           else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); editorRef.current?.focus(); return; }
           else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            if (current === 0 || current === 5) {
-              event.preventDefault(); toggleMenu(current === 0 ? "style" : "more", buttons[current]);
+            const control = controls[current];
+            if (control?.kind === "menu") {
+              event.preventDefault(); toggleMenu(control.menu, buttons[current]);
             }
             return;
           } else return;
           event.preventDefault(); buttons[next]?.focus();
         }}>
-        <button type="button" data-toolbar-item tabIndex={tabStop === 0 ? 0 : -1} onFocus={() => setTabStop(0)}
-          aria-label={`Text style: ${styleLabel}`} aria-haspopup="menu" aria-expanded={menu === "style"} aria-controls={menu === "style" ? `${id}-menu` : undefined}
-          onClick={event => toggleMenu("style", event.currentTarget)}>{styleLabel} <span aria-hidden="true">⌄</span></button>
-        {primaryButton("bold", "Bold", 1)}
-        {primaryButton("bullets", "Bullets", 2)}
-        {primaryButton("numbered", "Numbered", 3)}
-        {primaryButton("divider", "Divider", 4)}
-        <button type="button" data-toolbar-item tabIndex={tabStop === 5 ? 0 : -1} onFocus={() => setTabStop(5)}
-          aria-haspopup="menu" aria-expanded={menu === "more"} aria-controls={menu === "more" ? `${id}-menu` : undefined}
-          onClick={event => toggleMenu("more", event.currentTarget)}>More <span aria-hidden="true">⌄</span></button>
-        <MarkdownFormattingToggle data-toolbar-item tabIndex={tabStop === 6 ? 0 : -1} onFocus={() => setTabStop(6)}
-          onMouseDown={event => event.preventDefault()} enabled={styled}
-          className="markdown-styled-toggle" onToggle={onToggleStyled} />
+        {controls.map((control, index) => {
+          const navigation = { "data-toolbar-item": true, tabIndex: tabStop === index ? 0 : -1, onFocus: () => setTabStop(index) };
+          if (control.kind === "toggle") return <MarkdownFormattingToggle key="styled" {...navigation} data-styled-toggle
+            onMouseDown={event => event.preventDefault()} enabled={styled}
+            className="markdown-styled-toggle" onToggle={onToggleStyled} />;
+          if (control.kind === "menu") return <button key={control.menu} type="button" {...navigation}
+            aria-label={control.menu === "style" ? `Text style: ${styleLabel}` : undefined}
+            aria-haspopup="menu" aria-expanded={menu === control.menu} aria-controls={menu === control.menu ? `${id}-menu` : undefined}
+            onClick={event => toggleMenu(control.menu, event.currentTarget)}>
+            {control.menu === "style" ? styleLabel : "More"} <span aria-hidden="true">⌄</span></button>;
+          const { command, label } = control;
+          return <button key={command} type="button" {...navigation} onMouseDown={event => event.preventDefault()}
+            aria-label={label} aria-pressed={feedback(command)?.active ?? undefined}
+            aria-disabled={feedback(command)?.available === false} aria-describedby={`${id}-${command}-hint`}
+            title={[label, shortcuts[command] && formatShortcutLabel(shortcuts[command]!), describe(command)].filter(Boolean).join(" · ")}
+            onClick={() => run(command)}>{label}</button>;
+        })}
       </div>
-      <span id={`${id}-help`} className="sr-only">{formatShortcutLabel("focusFormattingToolbar")} moves from the editor to formatting. Use arrow keys between controls, Tab to continue, or Escape to return to writing. Formatting is checked when applied.</span>
+      <span id={`${id}-help`} className="sr-only">{formatShortcutLabel("focusFormattingToolbar")} moves from the editor to formatting. Use arrow keys between controls, Tab to continue, or Escape to return to writing.</span>
       {Object.keys(state?.commands ?? {}).map(command => <span className="sr-only" key={command} id={`${id}-${command}-hint`}>{describe(command as ToolbarCommand)}</span>)}
       {menu && <div ref={panelRef} className={`markdown-formatting-menu markdown-formatting-menu-${menu}`} role="menu" id={`${id}-menu`}
         aria-label={menu === "style" ? "Text style" : "More formatting"} onKeyDown={event => {
@@ -118,12 +123,12 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
         }}>
         {(menu === "style" ? styles : more).map(([command, label]) => {
           const active = feedback(command)?.active;
-          const toggle = command === "italic" || command === "checklist" || command === "quote";
+          const toggle = command === "italic" || command === "quote";
           return <button type="button" key={command} role={menu === "style" ? "menuitemradio" : toggle && active != null ? "menuitemcheckbox" : "menuitem"}
           aria-checked={menu === "style" ? active === true : toggle ? active ?? undefined : undefined}
           aria-disabled={feedback(command)?.available === false} tabIndex={-1}
           onClick={() => run(command)}>
-          <span>{label}</span>{shortcuts[command] && <kbd>{formatShortcutLabel(shortcuts[command]!)}</kbd>}
+          <span>{command === "toggleTask" && active === true ? "Mark not done" : label}</span>{shortcuts[command] && <kbd>{formatShortcutLabel(shortcuts[command]!)}</kbd>}
           {menu === "more" && toggle && active === true && <span aria-hidden="true" className="markdown-menu-check">✓</span>}
           {describe(command) && <small>{describe(command)}</small>}
         </button>; })}
@@ -147,7 +152,7 @@ function LinkForm({ form, editorRef }: { form: EditorLinkForm; editorRef: RefObj
       if (!(event.target instanceof Node) || element?.contains(event.target)) return;
       // The display-only toggle must preserve the draft for both pointer and
       // shortcut use. Other deliberate navigation (including Find) dismisses it.
-      if ((event.target as Element).closest?.('[aria-label="Toggle markup formatting"]')) return;
+      if ((event.target as Element).closest?.('[data-styled-toggle]')) return;
       editorRef.current?.cancelLink(form.id, false);
     };
     document.addEventListener("focusin", outside);
@@ -173,13 +178,13 @@ function LinkForm({ form, editorRef }: { form: EditorLinkForm; editorRef: RefObj
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); editorRef.current?.cancelLink(form.id); }
   }}>
     <label htmlFor={`${id}-label`}>Link text<input id={`${id}-label`} name="label" value={label} onChange={event => { setLabel(event.target.value); setError(null); }} required /></label>
-    <label htmlFor={`${id}-destination`}>Destination<input id={`${id}-destination`} name="destination" value={destination} onChange={event => { setDestination(event.target.value); setError(null); }} required
+    <label htmlFor={`${id}-destination`}>Link to<input id={`${id}-destination`} name="destination" value={destination} onChange={event => { setDestination(event.target.value); setError(null); }} required
       aria-describedby={`${id}-hint${error ? ` ${id}-error` : ""}`} /></label>
     <p id={`${id}-hint`}>Web address, email (mailto:), #section, or relative document path.</p>
     {error && <p role="alert" id={`${id}-error`} className="text-danger">{error}</p>}
     {/* macOS may focus the enclosing Document instead of a clicked button.
         Keep the field focused until the action runs, so outside-focus dismissal
         cannot retire the form between mousedown and click. Tab remains native. */}
-    <div className="markdown-link-actions" onMouseDown={event => event.preventDefault()}><button type="submit">Apply link</button><button type="button" onClick={() => editorRef.current?.cancelLink(form.id)}>Cancel</button></div>
+    <div className="markdown-link-actions" onMouseDown={event => event.preventDefault()}><button type="submit">Add link</button><button type="button" onClick={() => editorRef.current?.cancelLink(form.id)}>Cancel</button></div>
   </form>;
 }

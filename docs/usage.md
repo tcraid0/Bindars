@@ -50,12 +50,13 @@ no Markdown formatting bar.
 | **Paragraph** menu | Choose Paragraph, Heading, Subheading, or Small heading for the current line. |
 | **Bold** | Make the selected text, or the word containing the cursor, bold. Choose it again to remove bold. |
 | **Bullets** / **Numbered** | Start a list or turn selected ordinary lines into list items. |
-| **Divider** | Insert a dividing line after the current block, with space to keep writing below it. |
+| **Checklist** | Turn ordinary lines or list items into a checklist. |
+| **More → Divider** | Insert a dividing line after the current block, with space to keep writing below it. |
 | **More → Italic** | Make the selected text, or the current word, italic. Choose it again to remove italic. |
-| **More → Link** | Enter the link text and destination, then choose Apply link. Selected plain text fills in the link text. |
-| **More → Checklist** | Turn ordinary lines or list items into a checklist. |
+| **More → Link** | Enter the link text and put its address in **Link to**, then choose **Add link**. Selected plain text fills in the link text. |
 | **More → Quote** | Turn an ordinary paragraph into a quote, or remove a simple quote's markers. |
-| **More → Indent / Outdent** | Move supported list items one level in or out. |
+| **More → Indent more / Indent less** | Move supported list items one level in or out. |
+| **More → Mark done / Mark not done** | Mark the checklist item on the cursor’s line done, or open it again. |
 | **Styled / Plain** | Change how Markdown looks while writing. This does not change the file's text. |
 
 Type some text before choosing Bold or Italic. You can also select a phrase,
@@ -68,8 +69,8 @@ line. For a list, select the lines and choose Bullets or Numbered. Pasted
 bullet symbols such as `•` can be converted with Bullets.
 
 To make a sub-item, put the cursor in a list item after another item, then
-choose **More → Indent**. This also works in numbered lists, including under
-`1.` and `10.`. Outdent moves a sub-item back. If later sub-items would be left
+choose **More → Indent more**. This also works in numbered lists, including under
+`1.` and `10.`. **Indent less** moves a sub-item back. If later sub-items would be left
 behind, select those trailing items together. Press Enter to continue a list.
 Press Enter again on an empty top-level item to finish it and write a normal
 paragraph.
@@ -82,6 +83,12 @@ Styled shows headings, emphasis, list alignment, and dividers while keeping the
 Markdown marks visible. Plain uses plain markup. **Read** shows the rendered
 document. Document Bold and Italic are separate from your personal
 [highlights and notes](annotations.md).
+
+To finish a task, place the cursor anywhere on its first line and choose
+**More → Mark done**. Choose **Mark not done** to open it again. Select only
+one source line at a time. This works in Styled and Plain, and each change is
+one Undo step. Checkboxes in Read display the saved state; they are not clickable.
+**Checklist** makes or removes a checklist; it does not mark tasks done.
 
 ### Formatting shortcuts on macOS
 
@@ -97,7 +104,8 @@ document. Document Bold and Italic are separate from your personal
 | Cmd+K | Open Search documents. |
 
 In the formatting bar, use Left and Right to move between controls. Enter
-opens a menu or applies an action. Use Up and Down within a menu. Escape
+opens a menu or applies an action. Up or Down on Paragraph or More opens its
+menu. Use Up and Down within a menu. Escape
 closes the menu; Escape from the bar returns to writing. Tab continues past
 the bar or leaves the editor; it does not indent a list.
 

@@ -2485,16 +2485,20 @@ body[data-printing] .print-hide {
   z-index: 20;
   margin-bottom: 1.25rem;
   padding: .5rem 0;
-  border-bottom: 1px solid var(--border);
   background: var(--bg-primary);
   font: 13px/1.4 var(--font-ui);
   color: var(--text-primary);
 }
+/* The existing inner toolbar paints the tray; the sticky outer bar stays opaque. */
 .markdown-formatting-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: .25rem;
+  padding: .25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-secondary);
 }
 .markdown-formatting-toolbar button,
 .markdown-formatting-menu button,

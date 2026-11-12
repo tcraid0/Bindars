@@ -23,7 +23,7 @@ import {
 } from "./markdown-decorations";
 
 import {
-  executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
+  COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
   type FormattingCommand, type FormattingToolbarState, type EmphasisCommandResult,
   type LinkCommandIntent, type LinkCommandInput,
 } from "./markdown-formatting-commands";
@@ -442,7 +442,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         if (!view || fileType !== "markdown") return null;
         cancelLink(undefined, false);
         const result = compositionActive
-          ? { available: false, active: false, reason: "Finish the current composition before formatting.", handled: true as const, applied: false }
+          ? { available: false, active: false, reason: COMPOSITION_REASON, handled: true as const, applied: false }
           : executeFormattingCommand(view, command);
         report(result);
         view.focus();
@@ -608,7 +608,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
           if (fileType !== "markdown") return;
           cancelLink(undefined, false);
           if (compositionActive) {
-            reportReason("Finish the current composition before formatting.");
+            reportReason(COMPOSITION_REASON);
             return;
           }
           const begun = beginLinkCommand(createdView, context());
@@ -626,7 +626,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
           // A live form owns its one inline validation surface. Stale/no-form
           // submissions above use the notice path because no form can show it.
           if (composing || compositionActive) return { available: false, active: false, handled: true, applied: false,
-            reason: "Finish the current composition before formatting." };
+            reason: COMPOSITION_REASON };
           const result = applyLinkCommand(createdView, link.intent, input, context());
           if (result.applied) { cancelLink(undefined, false); createdView.focus(); }
           return result;
