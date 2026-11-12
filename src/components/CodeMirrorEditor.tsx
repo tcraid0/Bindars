@@ -6,7 +6,6 @@ import {
   EditorSelection,
   EditorState,
   ChangeSet,
-  MapMode,
   Text,
   Prec,
 } from "@codemirror/state";
@@ -587,18 +586,19 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         return {
           initialDocument: preparedDocument.content,
           finalDocument: createdView.state.sliceDoc(),
-          mapTextPoint(point) {
+          mapTextPoint(point, length = 1) {
             if (!Number.isInteger(point.line) || point.line < 1 || point.line > state.doc.lines
-              || !Number.isInteger(point.column) || point.column < 1) return null;
+              || !Number.isInteger(point.column) || point.column < 1 || !Number.isInteger(length) || length < 1) return null;
             const line = state.doc.line(point.line);
-            if (point.column > line.length) return null;
-            const original = line.from + point.column - 1;
-            // Follow the first TEXT CHARACTER, never the gap before the block.
-            const start = changes.mapPos(original, 1, MapMode.TrackDel);
-            const end = changes.mapPos(original + 1, -1, MapMode.TrackDel);
-            if (start === null || end !== start + 1
-              || final.sliceString(start, start + 1) !== state.doc.sliceString(original, original + 1)) return null;
-            return sourcePointAt(final, start);
+            // A run stays on its own line, where editor and string offsets agree.
+            if (point.column + length - 1 > line.length) return null;
+            const first = line.from + point.column - 1, last = first + length - 1;
+            // Follow TEXT CHARACTERS, never a gap. touchesRange(first + 1, last) is
+            // true exactly when a change deletes or replaces any character of the
+            // run, or inserts between two of them. Typing at either edge is not a
+            // touch, for a single character too.
+            if (changes.touchesRange(first + 1, last)) return null;
+            return sourcePointAt(final, changes.mapPos(first, 1));
           },
         };
       };

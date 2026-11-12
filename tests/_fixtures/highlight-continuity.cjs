@@ -26,6 +26,10 @@ const P = "The observatory team records the amber signal while the surrounding c
 const W05 = "# Workflow check\n\nReading the **cobalt** finding carefully helps connect the observation with a clear explanation and a useful next step. This unique passage will carry the saved note through an ordinary revision.\n\nConsult the [reference](<https://example.com/reference>) before revising the *conclusion.*\n\n- Review observations.\n- Compare conclusions.\n\nThe observatory team records the amber signal while the surrounding context stays deliberately identical for this recovery check.\n\nThe observatory team records the amber signal while the surrounding context stays deliberately identical for this recovery check.\n\nA final sentence leaves room for an unrelated revision.\n";
 const SAME = "A".repeat(40) + "quote" + "B".repeat(40);
 const BASE = `# Notes\n\nIntro paragraph about the session.\n\n${P}\n\nMiddle paragraph with a few words.\n\n${P}\n\nClosing paragraph here.\n`;
+// The second copy's "amber signal" is split by markup: "amber **signal**".
+const SPLIT = BASE.replace("amber signal while the surrounding context stays deliberately identical for this recovery check.\n\nClosing", "amber **signal** while the surrounding context stays deliberately identical for this recovery check.\n\nClosing");
+const SAMEBLOCK = "Intro.\n\nAlpha amber beta amber gamma delta, with a longer tail so that the paragraph has room.\n\nEnd.\n";
+const OUTLINE = '# Notes\n\n- first bullet\n- unique amber phrase after\n- last bullet\n';
 
 // expected: index of the intended occurrence of `exact` in the NEW rendered text, or null if the passage itself is gone.
 const scenarios = [
@@ -86,7 +90,7 @@ const scenarios = [
     edits: (v) => { E.replace(v, "the amber", 1, "an amber"); } },
   { id: "S29 merge the passage paragraph into the previous one (delete blank line)", source: BASE, exact: "amber", nth: 1, expected: 1,
     edits: (v) => { E.replace(v, "words.\n\n" + P, 0, "words. " + P); } },
-  { id: "S30 KNOWN GAP: replace a phrase whose excerpt is split by markup, re-rendering the same excerpt at the same block offset", source: BASE.replace("amber signal while the surrounding context stays deliberately identical for this recovery check.\n\nClosing", "amber **signal** while the surrounding context stays deliberately identical for this recovery check.\n\nClosing"), exact: "amber signal", nth: 1, expected: null,
+  { id: "S30 KNOWN GAP: replace a phrase whose excerpt is split by markup, re-rendering the same excerpt at the same block offset", source: SPLIT, exact: "amber signal", nth: 1, expected: null,
     edits: (v) => { E.replace(v, "the amber **signal**", 0, "an amber signal"); } },
   { id: "S31 DEFINITIONAL: select-replace the passage word with identical text (block renders identically)", source: BASE, exact: "amber", nth: 1, expected: null,
     edits: (v) => { E.replace(v, "amber", 1, "amber"); } },
@@ -96,8 +100,46 @@ const scenarios = [
     edits: (v) => { E.typeAfter(v, "Gap", 0, " widened"); E.select(v, "repeats", 1); E.cmd(v, "bold"); E.select(v, "Intro", 0); E.cmd(v, "italic"); } },
   { id: "S23 unique passage (control), mixed edits", source: W05, exact: "cobalt", nth: 0, expected: 0,
     edits: (v) => { E.caret(v, "amber", 1); E.cmd(v, "italic"); E.typeEnd(v, "Revision.\n"); E.typeAfter(v, "Reading the", 0, " very"); } },
+
+  // In-block edits. P: the passage's own plain-text characters are untouched and are followed.
+  { id: "P01 (a) word typed directly before the passage in its paragraph", source: BASE, exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeBefore(v, "amber signal", 1, "bright "); } },
+  { id: "P02 (b) sentence appended and a letter typed against the passage's end (amber stays marked inside ambers)", source: BASE, exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeAfter(v, "recovery check.", 1, " One more sentence."); E.typeAfter(v, "the amber", 1, "s"); } },
+  { id: "P03 (d) first word of the passage block replaced", source: BASE, exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.replace(v, "The observatory", 1, "An observatory"); } },
+  { id: "P04 (e) paragraph split before the passage", source: BASE, exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeBefore(v, "records the amber", 1, "\n\n"); } },
+  { id: "P05 (e) passage paragraph merged into the previous one by removing only the blank line", source: BASE, exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.replace(v, "words.\n\n", 0, "words. "); } },
+  { id: "P06 (g) same-block duplicate: the other copy deleted", source: SAMEBLOCK, exact: "amber", nth: 1, expected: 0,
+    edits: (v) => { E.remove(v, "amber ", 0); } },
+  { id: "P07 list item: words typed earlier in the same item", source: OUTLINE, exact: "amber", nth: 0, expected: 0,
+    edits: (v) => { E.typeAfter(v, "unique", 0, " and rare"); } },
+  { id: "P08 CRLF: word typed before the passage in its paragraph", source: BASE.replace(/\n/g, "\r\n"), exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeBefore(v, "records the amber", 1, "now "); } },
+  { id: "P09 BOM and frontmatter: words typed before the passage in the first body paragraph", source: `\uFEFF---\ntitle: T\n---\n${P}\n\nGap.\n\n${P}\n`, exact: "amber", nth: 0, expected: 0,
+    edits: (v) => { E.typeAfter(v, "The observatory", 0, " night"); } },
+  // C: controls. The passage's own characters were removed, replaced or are not provably known; nothing may be painted.
+  { id: "C01 S30 sibling: the same retype when the highlight is only the plain word", source: SPLIT, exact: "amber", nth: 1, expected: null,
+    edits: (v) => { E.replace(v, "the amber **signal**", 0, "an amber signal"); } },
+  { id: "C02 a literal star beside an emphasis delimiter, retyped (why markup characters disqualify a run)", source: "a*\\**b plain words follow here\n\nOther.\n", exact: "*", nth: 0, expected: null,
+    edits: (v) => { E.replace(v, "\\**b", 0, "\\**c"); } },
+  { id: "C03 same-block duplicate: the highlighted copy deleted", source: SAMEBLOCK, exact: "amber", nth: 1, expected: null,
+    edits: (v) => { E.remove(v, " amber", 1); } },
+  { id: "C04 same-block duplicate: the highlighted copy deleted and retyped at the paragraph end", source: SAMEBLOCK, exact: "amber", nth: 1, expected: null,
+    edits: (v) => { E.remove(v, " amber", 1); E.typeAfter(v, "has room", 0, " amber"); } },
+  { id: "C05 unique passage deleted and retyped elsewhere in its paragraph", source: "Intro.\n\nBy the third week the team had found the cobalt ledger in a sealed crate, which changed the plan.\n\nOther.\n", exact: "cobalt ledger", nth: 0, expected: null,
+    edits: (v) => { E.remove(v, "cobalt ledger ", 0); E.typeAfter(v, "sealed crate", 0, " cobalt ledger"); } },
+  { id: "C06 highlighted sentence cut and pasted later in its paragraph", source: "Intro.\n\nOne. The cobalt ledger. Two. Three.\n\nOther.\n", exact: "The cobalt ledger.", nth: 0, expected: null,
+    edits: (v) => { E.move(v, "The cobalt ledger. ", 0, "Three", 0); } },
+  { id: "C07 whole passage paragraph cut and pasted at the end", source: "Intro.\n\nThe team found the cobalt ledger today.\n\nOther.\n", exact: "cobalt ledger", nth: 0, expected: null,
+    edits: (v) => { E.remove(v, "The team found the cobalt ledger today.\n\n", 0); E.typeEnd(v, "\nThe team found the cobalt ledger today.\n"); } },
+  // L: documented limits. Formatting before the passage in its paragraph leaves the location uncertain, as before.
+  { id: "L01 limit: bold earlier in the passage paragraph, sentence appended", source: BASE.replaceAll("observatory team", "**observatory** team"), exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeAfter(v, "recovery check.", 1, " One more sentence."); } },
+  { id: "L02 limit: a dash substitution earlier in the passage paragraph, sentence appended", source: BASE.replaceAll("observatory team", "observatory -- team"), exact: "amber", nth: 1, expected: 1,
+    edits: (v) => { E.typeAfter(v, "recovery check.", 1, " One more sentence."); } },
 ];
 
-
-const OUTLINE = '# Notes\n\n- first bullet\n- unique amber phrase after\n- last bullet\n';
 module.exports = { scenarios, E, BASE, P, OUTLINE, occurrences };

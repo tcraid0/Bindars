@@ -474,6 +474,14 @@ function App() {
   const pendingContinuityRef = useRef<{
     path: string; sessionKey: number; capture: HighlightCapture; changes: ObservedEditorChanges; openGeneration: number;
   } | null>(null);
+  // A pending chain counts only for the file, edit session and open generation
+  // that produced exactly this source.
+  const ownedPendingContinuity = useCallback((path: string | null, source: string | null) => {
+    const pending = pendingContinuityRef.current;
+    return pending && pending.path === path && pending.changes.finalDocument === source
+      && pending.sessionKey === editorSessionKeyRef.current
+      && pending.openGeneration === getOpenOwnership().generation ? pending : null;
+  }, [getOpenOwnership]);
   const editTransitionRef = useRef<EditTransition | null>(null);
   const editingFilePathRef = useRef<string | null>(null);
   const pendingExitReconciliationRef = useRef<PendingExitReconciliation | null>(null);
@@ -1073,15 +1081,11 @@ function App() {
     readerAnchor: ReaderAnchor | null = null,
   ) => {
     const reader = readerEvidenceRef.current;
-    const pending = pendingContinuityRef.current;
     const sameReader = !editingRef.current && fileType === "markdown" && path !== null
       && getPublishedDocument().filePath === path && getPublishedDocument().content === initialContent;
     // A rapid toggle can precede reader hashing/painting. Carry only an exact,
     // still-owned observed chain; never infer identity from the new text.
-    const previous = sameReader && pending?.path === path
-      && pending.sessionKey === editorSessionKeyRef.current
-      && pending.openGeneration === getOpenOwnership().generation
-      && pending.changes.finalDocument === initialContent ? pending : null;
+    const previous = sameReader ? ownedPendingContinuity(path, initialContent) : null;
     const readyCapture = highlights.length > 0 && sameReader && reader?.path === path && reader.source === initialContent
       && reader.container === contentRef.current
       ? captureHighlightBlocks(reader.container, initialContent, reader.evidence, highlights)
@@ -1116,7 +1120,7 @@ function App() {
     saveContinuationRef.current = null;
     setSavedFlash(false);
     if (searchVisible) closeSearch();
-  }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation, fileType, getPublishedDocument, getOpenOwnership, highlights]);
+  }, [closeSearch, editor.enterEditMode, searchVisible, supersedePendingOpen, supersedeReconciliation, fileType, getPublishedDocument, ownedPendingContinuity, highlights]);
 
   const enterEditMode = useCallback(() => {
     if (
@@ -1262,16 +1266,15 @@ function App() {
 
   const persistDepartureContinuity = useCallback(async () => {
     const published = getPublishedDocument();
-    const pending = pendingContinuityRef.current;
-    if (!pending || pending.path !== published.filePath || pending.changes.finalDocument !== published.content
-      || pending.sessionKey !== editorSessionKeyRef.current || pending.openGeneration !== getOpenOwnership().generation) return;
+    const pending = ownedPendingContinuity(published.filePath, published.content);
+    if (!pending) return;
     try {
       const claims = await departureClaims(pending.capture, pending.changes);
       if (getPublishedDocument() === published) recordDepartureClaims(claims);
     } catch {
       // Continuity is optional; the existing save/exit guard still owns departure.
     }
-  }, [getPublishedDocument, getOpenOwnership, recordDepartureClaims]);
+  }, [getPublishedDocument, ownedPendingContinuity, recordDepartureClaims]);
 
   const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
     void (async () => {
@@ -2303,17 +2306,16 @@ function App() {
       frameId = requestAnimationFrame(() => {
         void prepareAnnotationDocument(container, content).then(async (evidence) => {
           const persisted = container.querySelector(".mermaid-loading") ? []
-            : await refreshDepartureClaims(highlights, container, evidence);
+            : await refreshDepartureClaims(highlights, container, content, evidence);
           if (cancelled || version !== paintVersion || !isCurrent()) return;
           clearAnnotationHighlights(container);
           // Diagram completion changes reader text and requests another paint.
           // Keep the observed chain until all placeholders have settled.
           const settling = container.querySelector(".mermaid-loading") !== null;
           readerEvidenceRef.current = settling ? null : { source: content, path: filePath, container, evidence };
-          const continuity = settling ? null : pendingContinuityRef.current;
+          const continuity = settling ? null : ownedPendingContinuity(filePath, content);
           if (!settling) pendingContinuityRef.current = null;
-          const updates = continuity?.path === filePath && continuity.sessionKey === sessionKey
-            && continuity.openGeneration === getOpenOwnership().generation
+          const updates = continuity
             ? refreshHighlightBlocks(continuity.capture, continuity.changes, container, content, evidence) : [];
           const refreshed = refreshPassages([...persisted, ...updates]);
           const locations: Record<string, string> = {};
@@ -2356,7 +2358,7 @@ function App() {
       cancelAnimationFrame(frameId);
       container.removeEventListener("bindars:diagram-rendered", repaint);
     };
-  }, [content, filePath, editing, highlights, readerDocumentReady, readerPublication, refreshPassages, getPublishedDocument, getOpenOwnership]);
+  }, [content, filePath, editing, highlights, readerDocumentReady, readerPublication, refreshPassages, getPublishedDocument, ownedPendingContinuity]);
 
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {

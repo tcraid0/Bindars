@@ -131,40 +131,39 @@ export function useAnnotations(filePath: string | null) {
     });
   }, [mutate]);
   const annotationSession = session.current;
-  const refreshPassages = useCallback((updates: PassageRefresh[]) => {
-    const accepted = new Map<string, TextAnchor>();
-    if (!updates.length || !mounted.current || session.current !== annotationSession || !filePath) return accepted;
+  // Continuity results apply only to highlights still attached to the passage
+  // they were computed from, and never while a passage choice is in progress.
+  const updateTrackedPassages = useCallback(<T extends { id: string; basis: TextAnchor }>(
+    items: T[], apply: (highlight: Highlight, item: T) => Highlight) => {
+    if (!items.length || !mounted.current || session.current !== annotationSession || !filePath) return;
     const entry = entries.current.get(filePath);
-    const byId = new Map(updates.map(update => [update.id, update]));
-    mutate(prev => {
-      const highlights = prev.highlights.map(highlight => {
-        const update = byId.get(highlight.id);
-        if (!update || !update.anchor.position || entry?.passageChoices.has(highlight.id)
-          || !hasPassageBasis(highlight, update.basis) || highlight.exact !== update.anchor.exact) return highlight;
-        accepted.set(highlight.id, update.anchor);
-        // Attachment fields only: retain concurrent notes/colors and future fields.
-        const { continuity: _claim, ...retained } = highlight;
-        return { ...retained, prefix: update.anchor.prefix, suffix: update.anchor.suffix, position: update.anchor.position };
-      });
-      return accepted.size ? { ...prev, highlights } : prev;
-    });
-    return accepted;
-  }, [annotationSession, filePath, mutate]);
-  const recordDepartureClaims = useCallback((claims: PassageClaim[]) => {
-    if (!claims.length || !mounted.current || session.current !== annotationSession || !filePath) return;
-    const entry = entries.current.get(filePath);
-    const byId = new Map(claims.map(claim => [claim.id, claim]));
+    const byId = new Map(items.map(item => [item.id, item]));
     mutate(prev => {
       let changed = false;
       const highlights = prev.highlights.map(highlight => {
-        const update = byId.get(highlight.id);
-        if (!update || entry?.passageChoices.has(highlight.id) || !hasPassageBasis(highlight, update.basis)) return highlight;
-        changed = true;
-        return { ...highlight, continuity: update.claim };
+        const item = byId.get(highlight.id);
+        if (!item || entry?.passageChoices.has(highlight.id) || !hasPassageBasis(highlight, item.basis)) return highlight;
+        const next = apply(highlight, item);
+        if (next !== highlight) changed = true;
+        return next;
       });
       return changed ? { ...prev, highlights } : prev;
     });
   }, [annotationSession, filePath, mutate]);
+  const refreshPassages = useCallback((updates: PassageRefresh[]) => {
+    const accepted = new Map<string, TextAnchor>();
+    updateTrackedPassages(updates, (highlight, { anchor }) => {
+      if (!anchor.position || highlight.exact !== anchor.exact) return highlight;
+      accepted.set(highlight.id, anchor);
+      // Attachment fields only: retain concurrent notes/colors and future fields.
+      const { continuity: _claim, ...retained } = highlight;
+      return { ...retained, prefix: anchor.prefix, suffix: anchor.suffix, position: anchor.position };
+    });
+    return accepted;
+  }, [updateTrackedPassages]);
+  const recordDepartureClaims = useCallback((claims: PassageClaim[]) => {
+    updateTrackedPassages(claims, (highlight, { claim }) => ({ ...highlight, continuity: claim }));
+  }, [updateTrackedPassages]);
   const beginPassageChoice = useCallback((id: string): PassageChoice | null => {
     if (!filePath || locked.current || reconnecting.current) return null;
     const entry = entries.current.get(filePath);

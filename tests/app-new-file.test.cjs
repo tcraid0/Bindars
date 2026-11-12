@@ -8192,6 +8192,29 @@ test('R01 App refresh failure protects close and Retry saves the refreshed origi
   } finally { await rendered.cleanup(); }
 });
 
+test('R01 App words changed inside the highlighted paragraph keep the second duplicate and its refreshed location', async () => {
+  const { rendered, highlight } = await r01App();
+  const type = (view, at, insert) => flushSync(() => view.dispatch({ changes: { from: at, insert }, userEvent: 'input.type' }));
+  try {
+    const view = await r01Enter(rendered);
+    type(view, view.state.doc.toString().lastIndexOf('records the amber'), 'now ');
+    type(view, view.state.doc.toString().lastIndexOf('amber') + 5, 's');   // against the passage's edge: "ambers"
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    assert.match(rendered.diskContent(), /team now records the ambers signal/);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 1));
+    const saved = rendered.annotationWrites[0].annotations.highlights[0];
+    assert.equal(saved.continuity, undefined);
+    assert.notEqual(saved.position.sourceHash, highlight.position.sourceHash);
+    assert.deepEqual({ ...saved, prefix: highlight.prefix, suffix: highlight.suffix, position: highlight.position }, highlight);
+    // The refreshed location keeps the highlight followed through a second in-block edit.
+    const second = await r01Enter(rendered);
+    type(second, second.state.doc.toString().lastIndexOf('recovery check.') + 15, ' One more sentence.');
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 2));
+    assert.notEqual(rendered.annotationWrites[1].annotations.highlights[0].position.sourceHash, saved.position.sourceHash);
+  } finally { await rendered.cleanup(); }
+});
+
 for (const route of ['rapid edit', 'file switch']) {
   test(`R01 App stale reader completion cannot overwrite ${route}; rapid edit chains only observed documents`, async t => {
     const { rendered } = await r01App();
@@ -8256,15 +8279,22 @@ test('R01 App external adoption ends the observed chain without promoting contex
   } finally { await rendered.cleanup(); }
 });
 
-for (const [route, clean] of [["quit", false], ["quit", true], ["close", false], ["recent", false]]) {
-  test(`R01 departure claim precedes ${route} from ${clean ? 'clean' : 'dirty'} Edit and restores second occurrence`, async () => {
+for (const [route, clean, inBlock] of [["quit", false], ["quit", true], ["close", false], ["recent", false], ["quit", false, true]]) {
+  test(`R01 departure claim precedes ${route} from ${clean ? 'clean' : 'dirty'} Edit${inBlock ? ' after an in-block edit' : ''} and restores second occurrence`, async () => {
     let held = null;
     const history = { version: 3, value: { version: 1, files: ['continuity', 'other'].map(name => ({ path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 1 })) }, writes: [] };
     const { rendered, highlight } = await r01App({ recentStorage: history, sidebarRead: Promise.resolve(true), annotationWrite: async () => { if (held) await held.promise; } });
     let saved, finalSource;
     try {
-      const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
-      flushSync(() => view.dispatch({ changes: { from: 0, insert: 'Elsewhere.\n\n' }, userEvent: 'input.type' }));
+      const view = await r01Enter(rendered);
+      if (inBlock) {
+        // The highlighted paragraph's first word is replaced: only the passage's own characters identify it now.
+        const at = view.state.doc.toString().lastIndexOf('The observatory');
+        flushSync(() => view.dispatch({ changes: { from: at, to: at + 3, insert: 'An' }, userEvent: 'input.type' }));
+      } else {
+        r01Format(rendered, view, 'i');
+        flushSync(() => view.dispatch({ changes: { from: 0, insert: 'Elsewhere.\n\n' }, userEvent: 'input.type' }));
+      }
       if (clean) { dispatchShortcut('s'); await waitFor(() => assert.equal(rendered.diskContent(), view.state.sliceDoc())); }
       held = deferred();
       await act(async () => {
@@ -8275,6 +8305,7 @@ for (const [route, clean] of [["quit", false], ["quit", true], ["close", false],
       assert.equal(rendered.guardedExitCount(), 0);
       assert.equal(rendered.windowDestroyCount(), 0, 'requestExit waits for claim persistence');
       saved = structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+      assert.deepEqual(Object.keys(saved.continuity).filter(key => key === 'block' || key === 'run'), inBlock ? ['run'] : ['block', 'run']);
       finalSource = rendered.diskContent();
       await act(async () => held.resolve());
       if (route === 'quit') await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));

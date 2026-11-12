@@ -15,7 +15,8 @@ export interface ReaderAnchor {
   viewportOffsetPx: number;
 }
 
-const SOURCE_SELECTOR = "[data-bindars-source-line][data-bindars-source-column]";
+/** Reader blocks stamped with the source point of their first text character. */
+export const SOURCE_SELECTOR = "[data-bindars-source-line][data-bindars-source-column]";
 const HEADING_SELECTOR = "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]";
 
 function positiveInteger(value: string | undefined): number | null {
@@ -30,7 +31,7 @@ export function readSourcePoint(element: HTMLElement): SourcePoint | null {
   return line && column ? { line, column } : null;
 }
 
-function compareSourcePoints(left: SourcePoint, right: SourcePoint): number {
+export function compareSourcePoints(left: SourcePoint, right: SourcePoint): number {
   return left.line - right.line || left.column - right.column;
 }
 
