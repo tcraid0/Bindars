@@ -34,7 +34,7 @@ export function exactSnapshotPosition(anchor: TextAnchor, evidence: AnnotationDo
     && text.slice(p.start, p.end) === anchor.exact ? p : null;
 }
 
-async function digest(text: string): Promise<string> {
+export async function digest(text: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(bytes), (v) => v.toString(16).padStart(2, "0")).join("");
 }

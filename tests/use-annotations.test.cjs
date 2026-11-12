@@ -865,3 +865,22 @@ test('R01 refresh joins an already writing record; completion cannot erase newer
   assert.equal(disk.get('/a.md').highlights[0].color, 'pink');
   assert.deepEqual(view.api().pendingRecords(), {});
 });
+
+test('departure claims retain note/color, reject stale basis and passage choices, and clear on replacement', async t => {
+  const { disk } = backingStore(t);
+  const view = await mount(t);
+  const basis = view.api().highlights[0];
+  const claim = { format: 1, sourceHash: 'a'.repeat(64), blockHash: 'b'.repeat(64), line: 1, column: 1, start: 0, end: 5,
+    basis: { sourceHash: 'c'.repeat(64), textHash: 'd'.repeat(64), start: 0, end: 5 } };
+  await view.change(api => api.recordDepartureClaims([{ id: 'h', basis, claim }]));
+  await view.change(api => api.updateHighlight('h', { note: 'new', color: 'blue' }));
+  assert.deepEqual(view.api().highlights[0].continuity, claim);
+  const choice = view.api().beginPassageChoice('h');
+  await view.change(api => api.recordDepartureClaims([{ id: 'h', basis, claim: { ...claim, line: 9 } }]));
+  assert.equal(view.api().highlights[0].continuity.line, 1);
+  await view.change(() => choice.usePassage({ exact: 'quote', prefix: '', suffix: '', position: { format: 1, start: 1, end: 6, sourceHash: 'e'.repeat(64), textHash: 'f'.repeat(64), contextUnique: true } }, null));
+  assert.equal(view.api().highlights[0].continuity, undefined);
+  await view.change(api => api.recordDepartureClaims([{ id: 'h', basis, claim }]));
+  assert.equal(disk.get('/a.md').highlights[0].continuity, undefined);
+  assert.equal(view.api().highlights[0].note, 'new');
+});

@@ -92,7 +92,7 @@ import { formatReadingStatsSummary } from "./lib/reading-stats";
 import { prepareReaderDocument } from "./lib/document-processing";
 import { resolveAnchor, prepareAnnotationDocument, wrapRange, clearAnnotationHighlights } from "./lib/text-anchoring";
 import type { AnnotationDocument } from "./lib/text-anchoring";
-import { captureHighlightBlocks, refreshHighlightBlocks, joinObservedChanges, type HighlightCapture, type ObservedEditorChanges } from "./lib/highlight-continuity";
+import { captureHighlightBlocks, departureClaims, refreshDepartureClaims, refreshHighlightBlocks, joinObservedChanges, type HighlightCapture, type ObservedEditorChanges } from "./lib/highlight-continuity";
 import { createPrintCleanupController, preparePrintDocument } from "./lib/print-export";
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
@@ -282,7 +282,7 @@ function App() {
     addHighlight,
     removeHighlight,
     updateHighlight,
-    refreshPassages,
+    refreshPassages, recordDepartureClaims,
     beginPassageChoice,
     toggleBookmark,
     isBookmarked,
@@ -1166,12 +1166,20 @@ function App() {
     });
   }, []);
 
+  const captureOwnedEditContinuity = useCallback(() => {
+    const continuity = editContinuityRef.current;
+    const observed = editorSurfaceRef.current?.captureChanges();
+    const changes = observed && continuity?.previous ? joinObservedChanges(continuity.previous, observed) : observed;
+    const published = getPublishedDocument();
+    if (!continuity || !changes || continuity.path !== editingFilePathRef.current
+      || continuity.sessionKey !== editorSessionKeyRef.current || continuity.capture.source !== changes.initialDocument
+      || published.filePath !== continuity.path || published.content !== changes.finalDocument) return null;
+    return { ...continuity, changes, openGeneration: getOpenOwnership().generation };
+  }, [getPublishedDocument, getOpenOwnership]);
+
   const exitEditMode = useCallback((positionOutcome: EditExitPositionOutcome = "none") => {
     const transition = editTransitionRef.current;
-    const continuity = editContinuityRef.current;
-    const observed = positionOutcome === "clean" || positionOutcome === "saved"
-      ? editorSurfaceRef.current?.captureChanges() ?? null : null;
-    const changes = observed && continuity?.previous ? joinObservedChanges(continuity.previous, observed) : observed;
+    const continuity = positionOutcome === "clean" || positionOutcome === "saved" ? captureOwnedEditContinuity() : null;
     const surfacePosition = positionOutcome === "clean" || positionOutcome === "saved"
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
@@ -1193,11 +1201,7 @@ function App() {
     const exitPath = editingFilePathRef.current;
     const documentKey = exitPath ? toPathIdentityKey(exitPath) : null;
     resetEditSession();
-    if (continuity && changes && continuity.path === exitPath && continuity.sessionKey === sessionKey
-      && continuity.capture.source === changes.initialDocument
-      && getPublishedDocument().filePath === exitPath && getPublishedDocument().content === changes.finalDocument) {
-      pendingContinuityRef.current = { ...continuity, changes, openGeneration: getOpenOwnership().generation };
-    }
+    pendingContinuityRef.current = continuity;
 
     publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
     if (positionOutcome !== "none") requestReaderFocus();
@@ -1211,7 +1215,15 @@ function App() {
         editorSessionKey: sessionKey,
       };
     }
-  }, [publishSourceReaderTarget, requestReaderFocus, resetEditSession, getPublishedDocument, getOpenOwnership]);
+  }, [captureOwnedEditContinuity, publishSourceReaderTarget, requestReaderFocus, resetEditSession]);
+
+  // A clean or saved departure keeps its observed chain for the admitted action
+  // to persist. The frozen changes outlive the editor, so it closes as before.
+  const leaveEditKeepingContinuity = useCallback((leave: () => void) => {
+    const continuity = captureOwnedEditContinuity();
+    leave();
+    pendingContinuityRef.current = continuity;
+  }, [captureOwnedEditContinuity]);
 
   // Frozen for the app's lifetime: the running platform cannot change, and
   // the close guard's window policy must stay stable across re-renders.
@@ -1248,6 +1260,19 @@ function App() {
     if (admitted) finishActionAdmission(admitted.admissionId);
   }, [finishActionAdmission]);
 
+  const persistDepartureContinuity = useCallback(async () => {
+    const published = getPublishedDocument();
+    const pending = pendingContinuityRef.current;
+    if (!pending || pending.path !== published.filePath || pending.changes.finalDocument !== published.content
+      || pending.sessionKey !== editorSessionKeyRef.current || pending.openGeneration !== getOpenOwnership().generation) return;
+    try {
+      const claims = await departureClaims(pending.capture, pending.changes);
+      if (getPublishedDocument() === published) recordDepartureClaims(claims);
+    } catch {
+      // Continuity is optional; the existing save/exit guard still owns departure.
+    }
+  }, [getPublishedDocument, getOpenOwnership, recordDepartureClaims]);
+
   const executeAdmittedAction = useCallback((admitted: AdmittedAction) => {
     void (async () => {
       const openedFromWelcome = Boolean(document.querySelector(".empty-state"));
@@ -1255,6 +1280,7 @@ function App() {
         const terminating = admitted.action.kind === "quit-app" || (admitted.action.kind === "close-window" && closePolicy !== "hide");
         // Commit the note buffer while its originating document can still mutate.
         flushSync(() => flushAnnotationNoteRef.current?.());
+        await persistDepartureContinuity();
         if (terminating) {
           setAnnotationsLocked(true);
           if (!await annotationExit.requestExit()) return;
@@ -1274,7 +1300,7 @@ function App() {
         finishActionAdmission(admitted.admissionId);
       }
     })();
-  }, [finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion, getPublishedDocument, requestReaderFocus]);
+  }, [persistDepartureContinuity, finishActionAdmission, closePolicy, annotationExit.requestExit, setAnnotationsLocked, getAnnotationMutationVersion, getPublishedDocument, requestReaderFocus]);
 
   const resolvePendingAction = useCallback(() => {
     const admitted = pendingActionRef.current;
@@ -1286,11 +1312,12 @@ function App() {
     saveContinuationRef.current = null;
     if (intent === "stay-editing") return;
     if (editingRef.current) {
-      exitEditMode(pendingActionRef.current ? "none" : "saved");
+      if (pendingActionRef.current) leaveEditKeepingContinuity(() => exitEditMode("none"));
+      else exitEditMode("saved");
     }
     editingRef.current = false;
     resolvePendingAction();
-  }, [exitEditMode, resolvePendingAction]);
+  }, [exitEditMode, leaveEditKeepingContinuity, resolvePendingAction]);
 
   const discardEditsAndContinue = useCallback(() => {
     saveContinuationRef.current = null;
@@ -1427,7 +1454,7 @@ function App() {
       supersedeReconciliation();
     }
     if (decision === "run-after-exit") {
-      resetEditSession();
+      leaveEditKeepingContinuity(resetEditSession);
       executeAdmittedAction(admitted);
       return "accepted";
     }
@@ -1438,7 +1465,7 @@ function App() {
     pendingActionRef.current = admitted;
     void flushBeforeContinuation();
     return "accepted";
-  }, [beginActionAdmission, departureNeedsSettlement, executeAdmittedAction, presentationMode, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
+  }, [beginActionAdmission, departureNeedsSettlement, executeAdmittedAction, presentationMode, leaveEditKeepingContinuity, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
   // The native close and quit listeners are registered once; these mirrors
   // keep them pointed at the current guard admission.
   const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
@@ -2274,7 +2301,9 @@ function App() {
       const version = ++paintVersion;
       cancelAnimationFrame(frameId);
       frameId = requestAnimationFrame(() => {
-        void prepareAnnotationDocument(container, content).then((evidence) => {
+        void prepareAnnotationDocument(container, content).then(async (evidence) => {
+          const persisted = container.querySelector(".mermaid-loading") ? []
+            : await refreshDepartureClaims(highlights, container, evidence);
           if (cancelled || version !== paintVersion || !isCurrent()) return;
           clearAnnotationHighlights(container);
           // Diagram completion changes reader text and requests another paint.
@@ -2286,7 +2315,7 @@ function App() {
           const updates = continuity?.path === filePath && continuity.sessionKey === sessionKey
             && continuity.openGeneration === getOpenOwnership().generation
             ? refreshHighlightBlocks(continuity.capture, continuity.changes, container, content, evidence) : [];
-          const refreshed = refreshPassages(updates);
+          const refreshed = refreshPassages([...persisted, ...updates]);
           const locations: Record<string, string> = {};
           for (const hl of highlights) {
             const result = resolveAnchor(refreshed.get(hl.id) ?? hl, container, evidence);

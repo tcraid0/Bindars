@@ -158,3 +158,30 @@ A damaged collection can also prevent settings and recent files from loading.
 Restart after external repair, then use **Retry loading** if the annotations
 panel still reports an error. The recovery-copy UI requires a readable
 destination collection; it does not reset damaged primary storage.
+
+### Departure continuity
+
+Version 3 highlights may carry optional `continuity` evidence. Its format is
+`{format: 1, sourceHash, line, column, blockHash, start, end, basis}`. Hashes are
+lowercase SHA-256, using the same UTF-8 string convention as positioned anchors;
+`blockHash` covers captured rendered block text. No document text is stored in
+the claim. Line/column are one-based mapped source coordinates; start/end are
+zero-based rendered block offsets. `basis` contains the superseded position's
+`sourceHash`, `textHash`, `start`, and `end` values.
+
+Claims are queued once at admitted departure, while the originating file still
+owns the annotation hook, only when the observed final editor source equals the
+published saved source. Plain Edit→Read continues to use memory without this
+write. A settled reader verifies a claim only against its exact source hash and
+unchanged basis, requiring one candidate with identical block hash and excerpt
+slice. The normal position refresh removes the claim. Malformed claims are
+ignored without discarding highlights; different-source claims stay inert and
+cause no write. Note/color edits retain claims; passage replacement removes
+them. A newer claim replaces an older one. Older 1.6.4 record serialization
+preserves this optional field without a version bump.
+
+Entering Edit before a persisted claim has been verified remains conservative:
+that claim does not establish observed identity for a new edit session. In-block
+word changes, splits/merges and deleted original characters still may leave a
+location uncertain, including unique phrases in short outlines. No matching or
+legacy fallback policy is relaxed.

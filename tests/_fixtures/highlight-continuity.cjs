@@ -99,4 +99,5 @@ const scenarios = [
 ];
 
 
-module.exports = { scenarios, E, BASE, P, occurrences };
+const OUTLINE = '# Notes\n\n- first bullet\n- unique amber phrase after\n- last bullet\n';
+module.exports = { scenarios, E, BASE, P, OUTLINE, occurrences };

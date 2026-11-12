@@ -6,7 +6,7 @@ import { readAnnotationRecord, storedAnnotationRecord, type AnnotationRecord } f
 import { EMPTY_ANNOTATIONS, type AnnotationLoadStatus } from "../lib/annotation-state";
 import type { FileAnnotations, Highlight, HighlightColor } from "../types";
 import type { TextAnchor } from "../lib/text-anchoring";
-import { hasPassageBasis, type PassageRefresh } from "../lib/highlight-continuity";
+import { hasPassageBasis, type PassageRefresh, type PassageClaim } from "../lib/highlight-continuity";
 
 interface Entry extends AnnotationRecord {
   passageChoices: Map<string, object>;
@@ -143,11 +143,27 @@ export function useAnnotations(filePath: string | null) {
           || !hasPassageBasis(highlight, update.basis) || highlight.exact !== update.anchor.exact) return highlight;
         accepted.set(highlight.id, update.anchor);
         // Attachment fields only: retain concurrent notes/colors and future fields.
-        return { ...highlight, prefix: update.anchor.prefix, suffix: update.anchor.suffix, position: update.anchor.position };
+        const { continuity: _claim, ...retained } = highlight;
+        return { ...retained, prefix: update.anchor.prefix, suffix: update.anchor.suffix, position: update.anchor.position };
       });
       return accepted.size ? { ...prev, highlights } : prev;
     });
     return accepted;
+  }, [annotationSession, filePath, mutate]);
+  const recordDepartureClaims = useCallback((claims: PassageClaim[]) => {
+    if (!claims.length || !mounted.current || session.current !== annotationSession || !filePath) return;
+    const entry = entries.current.get(filePath);
+    const byId = new Map(claims.map(claim => [claim.id, claim]));
+    mutate(prev => {
+      let changed = false;
+      const highlights = prev.highlights.map(highlight => {
+        const update = byId.get(highlight.id);
+        if (!update || entry?.passageChoices.has(highlight.id) || !hasPassageBasis(highlight, update.basis)) return highlight;
+        changed = true;
+        return { ...highlight, continuity: update.claim };
+      });
+      return changed ? { ...prev, highlights } : prev;
+    });
   }, [annotationSession, filePath, mutate]);
   const beginPassageChoice = useCallback((id: string): PassageChoice | null => {
     if (!filePath || locked.current || reconnecting.current) return null;
@@ -164,12 +180,14 @@ export function useAnnotations(filePath: string | null) {
     return { id, excerpt: highlight.exact, isCurrent, cancel,
       usePassage(anchor, headingId) {
         if (!isCurrent() || !anchor.exact.trim() || !anchor.position) return false;
-        const accepted = mutate((prev) => ({ ...prev, highlights: prev.highlights.map((h) => h.id !== id ? h : {
-          ...h, ...anchor, nearestHeadingId: headingId,
+        const accepted = mutate((prev) => ({ ...prev, highlights: prev.highlights.map((h) => {
+          if (h.id !== id) return h;
+          const { continuity: _claim, ...retained } = h;
+          return { ...retained, ...anchor, nearestHeadingId: headingId,
           // Preserve the earliest excerpt, as well as unrecognized future fields.
           ...(!Object.prototype.hasOwnProperty.call(h, "originalExcerpt") && h.exact !== anchor.exact
             ? { originalExcerpt: h.exact } : {}),
-        }) }));
+        }; }) }));
         if (accepted) cancel();
         return !!accepted;
       },
@@ -245,7 +263,7 @@ export function useAnnotations(filePath: string | null) {
     dataWarning: current && (current.retainedHighlights.length || current.retainedBookmarks.length)
       ? "Some annotation records could not be displayed. Their original data has been preserved." : null,
     highlights: annotations.highlights, bookmarks: annotations.bookmarks,
-    addHighlight, removeHighlight, updateHighlight, refreshPassages, beginPassageChoice, toggleBookmark, removeBookmark, isBookmarked,
+    addHighlight, removeHighlight, updateHighlight, refreshPassages, recordDepartureClaims, beginPassageChoice, toggleBookmark, removeBookmark, isBookmarked,
     reconnect, restoreRecord, retryLoad, retrySave, waitForSaves, pendingRecords, recordState, setLocked, getMutationVersion,
   };
 }

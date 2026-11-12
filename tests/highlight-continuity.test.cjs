@@ -13,7 +13,7 @@ const { useAnnotations } = require('../.tmp/workspace-tests/src/hooks/useAnnotat
 const storage = require('../.tmp/workspace-tests/src/lib/annotation-storage.js');
 const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
 const { createPositionedAnchor, prepareAnnotationDocument, resolveAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
-const { captureHighlightBlocks, refreshHighlightBlocks, joinObservedChanges } = require('../.tmp/workspace-tests/src/lib/highlight-continuity.js');
+const { captureHighlightBlocks, refreshHighlightBlocks, joinObservedChanges, departureClaims, refreshDepartureClaims } = require('../.tmp/workspace-tests/src/lib/highlight-continuity.js');
 const settings = { fontSize: 18, contentWidth: 72, lineHeight: 1.6, fontFamily: 'newsreader', paragraphSpacing: 'comfortable', sceneLensEnabled: true, reducedEffects: false };
 
 async function mounted(t, source) {
@@ -95,6 +95,11 @@ for (const prefix of ['\uFEFF', '\uFEFF# ', '---\ntitle: T\n---', '---\ntitle: T
     const output = view.state.sliceDoc(), changes = surface.editor.current.captureChanges();
     reader = await surface.render(false, output);
     const currentEvidence = await prepareAnnotationDocument(reader, output);
+    const claims = await departureClaims(capture, changes);
+    const claimed = capture.blocks.map(item => ({ ...item.basis, id: item.id, continuity: claims.find(c => c.id === item.id)?.claim }));
+    const persistedUpdates = await refreshDepartureClaims(claimed, reader, currentEvidence);
+    assert.equal(persistedUpdates.length, 1);
+    assertOccurrence(persistedUpdates[0].anchor, reader, currentEvidence, 1, 'amber');
     const updates = refreshHighlightBlocks(capture, changes, reader, output, currentEvidence);
     assert.equal(updates.length, 1);
     await act(async () => surface.api().refreshPassages(updates));
@@ -129,7 +134,11 @@ for (const scenario of scenarios) {
     if (scenario.id.startsWith('S17')) assert.equal(output.replaceAll('\r\n', '').includes('\n'), false, 'uniform CRLF remains exact');
     reader = await surface.render(false, output);
     const evidence = await prepareAnnotationDocument(reader, output);
+    const claims = await departureClaims(capture, changes);
+    const claimed = capture.blocks.map(item => ({ ...item.basis, id: item.id, continuity: claims.find(c => c.id === item.id)?.claim }));
+    const persistedUpdates = await refreshDepartureClaims(claimed, reader, evidence);
     const updates = refreshHighlightBlocks(capture, changes, reader, output, evidence);
+    assert.deepEqual(persistedUpdates.map(({id, anchor}) => ({id, anchor})), updates.map(({id, anchor}) => ({id, anchor})), 'hash claims and in-memory verification agree');
     await act(async () => surface.api().refreshPassages(updates));
     const current = surface.api().highlights[0];
     const expected = supported.has(scenario.id.slice(0, 3)) ? scenario.expected : scenario.id.startsWith('S31') ? 1 : null;
@@ -223,3 +232,34 @@ test('R01 exact-source Undo uses existing snapshot evidence without refresh; tot
   assert.equal(resolveAnchor(anchor, gone, await prepareAnnotationDocument(gone, deleted)).status, 'missing');
   assert.equal(refreshHighlightBlocks(capture, changes, gone, deleted, await prepareAnnotationDocument(gone, deleted)).length, 0);
 });
+
+for (const mode of ['above', 'insert', 'same']) {
+  const sameBullet = mode === 'same';
+  test(`departure claims verify outline ${mode}: ${sameBullet ? 'same-bullet refusal' : 'adjacent-bullet edit'}`, async t => {
+    const { departureClaims, refreshDepartureClaims, validDepartureClaim } = require('../.tmp/workspace-tests/src/lib/highlight-continuity.js');
+    const { OUTLINE: source } = require('./_fixtures/highlight-continuity.cjs');
+    const surface = await mounted(t, source);
+    let reader = await surface.render(false);
+    const index = collectText(reader), start = index.text.indexOf('amber');
+    const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 5), reader, source);
+    await act(async () => surface.api().addHighlight(anchor, 'blue', null));
+    const highlights = surface.api().highlights;
+    const capture = captureHighlightBlocks(reader, source, await prepareAnnotationDocument(reader, source), highlights);
+    const view = await surface.render(true);
+    await act(async () => mode === 'insert' ? E.insertAt(view, view.state.sliceDoc().indexOf('- unique'), '- added bullet\n') : E.typeAfter(view, sameBullet ? 'after' : 'first', 0, ' revised'));
+    const output = view.state.sliceDoc();
+    const claims = await departureClaims(capture, surface.editor.current.captureChanges());
+    assert.equal(claims.length, 1); assert.ok(validDepartureClaim(claims[0].claim));
+    const claimed = [{ ...highlights[0], continuity: claims[0].claim }];
+    reader = await surface.render(false, output);
+    const evidence = await prepareAnnotationDocument(reader, output);
+    const updates = await refreshDepartureClaims(claimed, reader, evidence);
+    assert.equal(updates.length, sameBullet ? 0 : 1);
+    if (!sameBullet) assertOccurrence(updates[0].anchor, reader, evidence, 0, 'amber');
+    assert.deepEqual(await refreshDepartureClaims(claimed, reader, { ...evidence, sourceHash: 'e'.repeat(64) }), []);
+    for (const malformed of [null, {}, { ...claims[0].claim, start: -1 }, { ...claims[0].claim, basis: [] }]) {
+      assert.equal(validDepartureClaim(malformed), false);
+      assert.deepEqual(await refreshDepartureClaims([{ ...highlights[0], continuity: malformed }], reader, evidence), []);
+    }
+  });
+}
