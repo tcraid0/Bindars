@@ -575,7 +575,11 @@ test('More explains unavailable completion and uses the existing refusal path', 
   try {
     r.click('More ⌄'); const action = r.button('Mark done');
     assert.equal(action.getAttribute('aria-disabled'), 'true');
-    assert.match(action.textContent, /Place the cursor on a checklist item/);
+    assert.equal(action.querySelector('span').textContent, 'Mark done');
+    const { formatShortcutLabel } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+    assert.equal(action.querySelector('kbd').textContent, formatShortcutLabel('markDone'));
+    assert.match(action.title, /Place the cursor on a checklist item/);
+    assert.equal(document.getElementById(action.getAttribute('aria-describedby')).textContent, 'Place the cursor on a checklist item');
     r.click('Mark done');
     assert.equal(r.refusals.at(-1), 'Place the cursor on a checklist item');
     assert.equal(r.view.state.sliceDoc(), 'ordinary words');
@@ -784,5 +788,34 @@ test('the style button is named once when its style is unknown', async () => {
     assert.equal(style.getAttribute('aria-label'), 'Text style');
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true})); await frame(); await frame();
     assert.equal(style.getAttribute('aria-label'), 'Text style: Paragraph');
+  } finally { r.cleanup(); }
+});
+
+test('More keeps seven items with no explanation line wherever the cursor is', async () => {
+  for (const source of ['ordinary words', '# Heading', '- [ ] task', '```\ncode\n```', '| A |\n| - |\n| B |']) {
+    const r = await render(source);
+    try {
+      r.click('More ⌄');
+      const buttons = [...r.host.querySelectorAll('[role="menu"] button')];
+      assert.equal(buttons.length, 7);
+      for (const button of buttons) {
+        assert.ok(button.querySelector('small') === null);
+        const hint = document.getElementById(button.getAttribute('aria-describedby'));
+        assert.ok(hint, 'description resolves');
+        if (hint.textContent) assert.ok(button.title.includes(hint.textContent));
+      }
+    } finally { r.cleanup(); }
+  }
+});
+
+test('Styled/Plain keeps aria-pressed but not the pressed look', async () => {
+  const r = await render();
+  try {
+    const toggle = r.button('Toggle markup formatting');
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle.hasAttribute('data-styled-toggle'), true);
+    r.rerender({markdownFormattingEnabled:false});
+    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle.textContent, 'Plain');
   } finally { r.cleanup(); }
 });

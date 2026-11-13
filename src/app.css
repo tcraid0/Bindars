@@ -2512,7 +2512,7 @@ body[data-printing] .print-hide {
 .markdown-formatting-toolbar button:hover,
 .markdown-formatting-menu button:hover,
 .markdown-link-form button:hover { background: var(--bg-tertiary); }
-.markdown-formatting-toolbar [aria-pressed="true"],
+.markdown-formatting-toolbar [aria-pressed="true"]:not([data-styled-toggle]),
 .markdown-formatting-menu [aria-checked="true"] {
   color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -2526,7 +2526,9 @@ body[data-printing] .print-hide {
 }
 /* Wide enough for "Small heading ⌄", so the controls to its right never move. */
 .markdown-formatting-toolbar .markdown-style-button { min-width: 9em; text-align: start; }
-.markdown-formatting-toolbar .markdown-styled-toggle { margin-left: auto; border-color: var(--border); }
+/* Styled/Plain is a viewing preference: an ordinary button at the bar's end.
+   Its word shows the state; aria-pressed tells screen readers. */
+.markdown-formatting-toolbar [data-styled-toggle] { margin-left: auto; }
 .markdown-formatting-menu {
   position: absolute;
   top: 100%;
@@ -2541,9 +2543,8 @@ body[data-printing] .print-hide {
   box-shadow: 0 8px 24px rgb(0 0 0 / .12);
 }
 .markdown-formatting-menu-more { left: auto; right: 0; }
-.markdown-formatting-menu button { display: flex; width: 100%; text-align: left; flex-wrap: wrap; gap: .2rem .5rem; }
+.markdown-formatting-menu button { display: flex; width: 100%; text-align: left; gap: .5rem; }
 .markdown-formatting-menu kbd { margin-left: auto; color: var(--text-muted); font: inherit; }
-.markdown-formatting-menu small { flex-basis: 100%; color: var(--text-secondary); font-size: 12px; }
 .markdown-link-form { padding: .75rem .25rem .25rem; display: flex; flex-wrap: wrap; gap: .5rem .75rem; }
 .markdown-link-form label { flex: 1 1 12rem; min-width: 0; }
 .markdown-link-form input {

@@ -260,3 +260,8 @@ test("native and CSS print margins agree in physical units", () => {
   const native = fs.readFileSync(path.join(__dirname, "../src-tauri/src/printing.rs"), "utf8");
   assert.match(native, /PRINT_MARGIN_POINTS:\s*f64\s*=\s*2\.0\s*\/\s*2\.54\s*\*\s*72\.0/);
 });
+
+test("the formatting accent excludes the Styled/Plain preference", () => {
+  assert.equal(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]').trim(), "");
+  assert.match(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]:not([data-styled-toggle])'), /color:\s*var\(--accent-text\)/);
+});

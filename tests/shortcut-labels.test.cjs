@@ -8,9 +8,6 @@ const { renderMarkup } = require("./_helpers/render-markup.cjs");
 const { CommandPalette } = require("../.tmp/workspace-tests/src/components/CommandPalette.js");
 const { EmptyState } = require("../.tmp/workspace-tests/src/components/EmptyState.js");
 const { Header } = require("../.tmp/workspace-tests/src/components/Header.js");
-const {
-  MarkdownFormattingToggle,
-} = require("../.tmp/workspace-tests/src/components/MarkdownFormattingToggle.js");
 const { ShortcutOverlay } = require("../.tmp/workspace-tests/src/components/ShortcutOverlay.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js");
@@ -73,10 +70,6 @@ function renderPlatformLabels(navigatorValue) {
         onReindex() {},
         onOpenPath() {},
         onOpenPalette() {},
-      }),
-      React.createElement(MarkdownFormattingToggle, {
-        enabled: true,
-        onToggle() {},
       }),
       React.createElement(CommandPalette, {
         visible: true,
