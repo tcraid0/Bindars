@@ -64,7 +64,7 @@ test('styles refuse Setext, multiline paragraphs, containers and exposed syntax 
     useSpec(source, {}, view => refuse(view, command, /Setext/));
   }
   for (const source of ['al|pha\nbeta', '[[one\n\ntwo]]', '- # Ti|tle', '> Ti|tle', '# - it|em', '# $$ma|th$$', '```\nco|de\n```', '---\nke|y: value\n---\n\nbody']) {
-    useSpec(source, {}, view => refuse(view, 'paragraph', /paragraph|heading|math|code|details/i));
+    useSpec(source, {}, view => refuse(view, 'paragraph', /ordinary lines|paragraph|heading|math|code|details/i));
   }
 });
 
@@ -88,7 +88,7 @@ test('divider preserves words and authored separators, uses blank boundaries and
     redo(view); assert.equal(view.state.sliceDoc(), expected);
   });
   for (const source of ['> - item|', '```\na|\n```', '[[plain\n\n`code`]]', '---\nkey: val|ue\n---\n\nbody']) {
-    useSpec(source, {}, view => refuse(view, 'divider', /paragraph|heading|code|details/i));
+    useSpec(source, {}, view => refuse(view, 'divider', /ordinary lines|paragraph|heading|code|details/i));
   }
 });
 
@@ -107,7 +107,7 @@ test('quote/unquote preserves paragraphs, inline structures, blank lines and hal
     assert.equal(article.querySelectorAll('blockquote').length, 0);
   });
   useSpec('[[> alpha\nlazy]]', {}, view => apply(view, 'quote', 'alpha\nlazy'));
-  useSpec('> a|\n> b', {}, view => refuse(view, 'quote', /complete simple quote/));
+  useSpec('> a|\n> b', {}, view => refuse(view, 'quote', /whole quote/));
   for (const source of ['[[> a\n\nb]]', '> > a|', '> - a|', '> `a|`', '> $$a|$$', '> # a|', '<div>\na|\n</div>']) {
     useSpec(source, {}, view => refuse(view, 'quote', /quote|code|math|HTML/i));
   }
@@ -130,14 +130,14 @@ test('quote paragraph splits and joins use D30 inline boundaries, including read
 for (const command of ['paragraph','h1','divider','quote']) test(`${command} respects shared selection, IME and read-only guards`, () => {
   useSpec('text|', { readOnly: true }, view => refuse(view, command, /cannot be edited/));
   useSpec('text|', {}, view => {
-    Object.defineProperty(view, 'composing', { value: true }); refuse(view, command, /composition/);
+    Object.defineProperty(view, 'composing', { value: true }); refuse(view, command, /Finish typing first/);
   });
-  withView('alpha beta', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuse(view, command, /one selection/));
-  useSpec('text|', { markdown: false }, view => refuse(view, command, /loading/));
+  withView('alpha beta', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuse(view, command, /one cursor/));
+  useSpec('text|', { markdown: false }, view => refuse(view, command, /Still reading the document/));
 });
 
 test('headings retain literal words and divider refuses unsupported containers inside lists', () => {
-  useSpec('alpha #|##', {}, view => refuse(view, 'h1', /other Markdown/));
+  useSpec('alpha #|##', {}, view => refuse(view, 'h1', /nearby formatting/));
   useSpec('- parent\n  > child|', {}, view => refuse(view, 'divider', /list/));
   useSpec('alpha|\n\n# next', {}, view => {
     apply(view, 'divider', 'alpha\n\n* * *\n\n\n\n# next');

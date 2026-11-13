@@ -189,7 +189,7 @@ function LinkForm({ form, editorRef }: { form: EditorLinkForm; editorRef: RefObj
     <label htmlFor={`${id}-label`}>Link text<input id={`${id}-label`} name="label" value={label} onChange={event => { setLabel(event.target.value); setError(null); }} required /></label>
     <label htmlFor={`${id}-destination`}>Link to<input id={`${id}-destination`} name="destination" value={destination} onChange={event => { setDestination(event.target.value); setError(null); }} required
       aria-describedby={`${id}-hint${error ? ` ${id}-error` : ""}`} /></label>
-    <p id={`${id}-hint`}>Web address, email (mailto:), #section, or relative document path.</p>
+    <p id={`${id}-hint`}>A web address (https://…), an email (mailto:name@example.com), a heading in this document (#plan), or another document (notes.md).</p>
     {error && <p role="alert" id={`${id}-error`} className="text-danger">{error}</p>}
     {/* macOS may focus the enclosing Document instead of a clicked button.
         Keep the field focused until the action runs, so outside-focus dismissal

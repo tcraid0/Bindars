@@ -130,7 +130,7 @@ test('list edits refuse inline syntax that would split or join across the change
     ['[[- ~alpha\n- beta~]]', 'bullets'],
     ['[[alpha\\\nbeta]]', 'bullets'],
     ['[[- path C:\\\n- next]]', 'bullets'],
-  ]) useSpec(source, {}, (view) => refuse(view, command, /^This would change formatting, a link or a line break across these lines\./));
+  ]) useSpec(source, {}, (view) => refuse(view, command, /^Formatting or a link runs across these lines, so nothing was changed\.$/));
 });
 
 test('multiline inline syntax within one item or paragraph converts with its reader meaning intact', () => {
@@ -180,13 +180,13 @@ test('tildes and backslashes the reader keeps literal still convert in both dire
 
 test('protected content and unsupported containers refuse the whole operation', () => {
   for (const [sources, reason] of [
-    [['[[plain\n\n- item]]', '[[plain\n\n1. item\n\n- other]]'], /^Select ordinary lines or adjacent items in one list\.$/],
+    [['[[plain\n\n- item]]', '[[plain\n\n1. item\n\n- other]]'], /^Select items from one list, or ordinary lines, but not both\.$/],
     [['[[plain\n\n```\ncode\n```]]', '[[plain `code`]]'], /^Move out of code to format text\.$/],
     [['[[plain $$x$$]]'], /^Move out of math to format text\.$/],
     [['[[---\ntitle: a\n---\ntext]]'], /^Move out of the document details to format text\.$/],
     [['[[plain\n\n<div>html</div>]]'], /^Move out of HTML to format text\.$/],
-    [['[[plain\n\n> quote]]', '[[# heading]]'], /^Select a list with ordinary text and supported sub-items\.$/],
-    [['[[- a\n  - child]]'], /^Outdent sub-items before removing this list\.$/],
+    [['[[plain\n\n> quote]]', '[[# heading]]'], /^This works on ordinary lines and lists only\.$/],
+    [['[[- a\n  - child]]'], /^Move the sub-items out first with Indent less, then try again\.$/],
   ]) for (const source of sources) useSpec(source, {}, (view) => refuse(view, 'bullets', reason));
 });
 
@@ -202,10 +202,10 @@ test('lists retain uniform separators and refuse composition, readonly and multi
   useSpec('a|', { readOnly: true }, (view) => refuse(view, 'bullets', /cannot be edited/));
   useSpec('a|', {}, (view) => {
     Object.defineProperty(view, 'composing', { configurable: true, value: true });
-    refuse(view, 'bullets', /composition/);
+    refuse(view, 'bullets', /Finish typing first/);
   });
   withView('a b', EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(2)]), {},
-    (view) => refuse(view, 'bullets', /one selection/));
+    (view) => refuse(view, 'bullets', /one cursor/));
 });
 
 
@@ -287,11 +287,11 @@ test('kind conversion changes selected roots, shifts columns, and preserves chil
     assert.equal(article.querySelectorAll('ol > li').length, 2);
     assert.equal(article.querySelectorAll('ol > li > ul > li').length, 1);
     apply(view, 'bullets', '- parent\n  - child\n- next');
-    refuse(view, 'bullets', /Outdent/);
+    refuse(view, 'bullets', /Indent less/);
   });
   useSpec('- parent\n  - child|\n- next', {}, (view) => {
     apply(view, 'numbered', '- parent\n  1. child\n- next');
-    refuse(view, 'numbered', /Outdent/);
+    refuse(view, 'numbered', /Indent less/);
   });
 });
 
@@ -300,7 +300,7 @@ test('nested tasks retain completion during level changes and parent conversion'
     const article = apply(view, 'indent', '10) [X] parent\n    1) [x] child\n       - [ ] grand\n11) next');
     assert.equal(article.querySelectorAll('input[checked]').length, 2);
     apply(view, 'outdent', '10) [X] parent\n11) [x] child\n    - [ ] grand\n12) next');
-    refuse(view, 'checklist', /Outdent/);
+    refuse(view, 'checklist', /Indent less/);
   });
   useSpec('[[- [X] parent\n  - [x] child\n- plain]]', {}, (view) => {
     apply(view, 'checklist', '- [X] parent\n  - [x] child\n- [ ] plain');
@@ -309,20 +309,20 @@ test('nested tasks retain completion during level changes and parent conversion'
   });
   useSpec('- parent\n  [[- [x] child\n  - plain]]', {}, (view) => {
     apply(view, 'checklist', '- parent\n  - [x] child\n  - [ ] plain');
-    refuse(view, 'checklist', /Outdent/);
+    refuse(view, 'checklist', /Indent less/);
   });
 });
 
 test('hierarchy refuses first-item indent, mixed depths, unsafe removal and nontrailing outdent atomically', () => {
   for (const [source, command, reason] of [
-    ['- first|\n- next', 'indent', /preceding sibling/],
-    ['- first|', 'outdent', /top level/],
+    ['- first|\n- next', 'indent', /second item/],
+    ['- first|', 'outdent', /as far left/],
     ['- parent\n  [[- child\n- next]]', 'indent', /one list/],
-    ['- parent|\n  - child', 'bullets', /Outdent/],
-    ['- parent\n  - child|', 'bullets', /Outdent/],
-    ['- parent\n  - child|\n  - sibling', 'outdent', /trailing sibling/],
+    ['- parent|\n  - child', 'bullets', /Indent less/],
+    ['- parent\n  - child|', 'bullets', /Indent less/],
+    ['- parent\n  - child|\n  - sibling', 'outdent', /items below/],
     ['- parent\n- child|\n  ```\n  code\n  ```', 'indent', /code/],
-    ['> - parent\n> - child|', 'indent', /Select/],
+    ['> - parent\n> - child|', 'indent', /ordinary lines and lists/],
   ]) useSpec(source, {}, (view) => refuse(view, command, reason));
 });
 
@@ -336,8 +336,8 @@ test('outdent across list kinds preserves the moved kind and splits surrounding 
 });
 
 test('ordered starts that the reader treats as continuation require an explicit blank line', () => {
-  useSpec('10. parent\n    4) old\n11. child|', {}, (view) => refuse(view, 'indent', /blank line/));
-  useSpec('intro\n3. item|', {}, (view) => refuse(view, 'bullets', /Select/));
+  useSpec('10. parent\n    4) old\n11. child|', {}, (view) => refuse(view, 'indent', /empty line before this numbered list/));
+  useSpec('intro\n3. item|', {}, (view) => refuse(view, 'bullets', /ordinary lines and lists/));
 });
 
 test('list edits are isolated from surrounding typing and preserve logical caret offsets', () => {
@@ -426,7 +426,7 @@ test('newly exposed structures and protected descendants are rejected atomically
     ['- parent\n- child|\n  [a `code`](url)', 'indent'],
     ['- parent\n- child|\n\tcontinued', 'indent'],
     ['[[\ufeff---\ninvalid: [\n---\nbody]]', 'checklist'],
-  ]) useSpec(source, {}, (view) => refuse(view, command, /Select|Move/));
+  ]) useSpec(source, {}, (view) => refuse(view, command, /ordinary lines and lists|Move out of/));
 });
 
 test('half-open nested selections and uniform separators retain child structure and checked state', () => {
@@ -463,7 +463,7 @@ test('list commands refuse a genuinely incomplete parse and recover once it adva
   const source = 'first\n\n' + 'paragraph\n\n'.repeat(400) + '- parent\n- child';
   withView(source, EditorSelection.cursor(source.length), { language: new Language(commonmarkLanguage.data, partial), parse: false }, (view) => {
     assert.equal(syntaxTreeAvailable(view.state, source.length), false);
-    refuse(view, 'indent', /loading/);
+    refuse(view, 'indent', /Still reading the document/);
     released = true;
     assert.equal(forceParsing(view, source.length, 2000), true);
     assert.equal(applyListCommand(view, 'indent').applied, true);
@@ -487,7 +487,7 @@ test('task-preserving edits keep authored spacing and numbers; BOM and blank sel
     apply(view, 'outdent', '- parent\n- [X]   child');
   });
   useSpec('\ufeffalpha|', {}, (view) => refuse(view, 'bullets', /byte-order mark/));
-  useSpec('[[\n\n]]', {}, (view) => refuse(view, 'bullets', /Select/));
+  useSpec('[[\n\n]]', {}, (view) => refuse(view, 'bullets', /^Select items from one list, or ordinary lines, but not both\.$/));
 });
 
 test('list status reuses document protection without rescanning remote math on every candidate', (t) => {

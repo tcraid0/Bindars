@@ -128,7 +128,7 @@ test('link form fills selection, supports keyboard cancel and retires replacemen
       flushSync(()=>ref.current.beginLink()); const a = forms.at(-1); const view = findEditorView(host); const state = view.state;
       flushSync(()=>ref.current.beginLink()); const b = forms.at(-1); assert.notEqual(a.id,b.id); assert.equal(view.state,state);
       const stale = ref.current.applyLink(a.id,{label:'beta',destination:'https://example.com'});
-      assert.equal(stale.applied,false); assert.match(stale.reason,/Open Link again/); assert.equal(view.state,state);
+      assert.equal(stale.applied,false); assert.match(stale.reason,/Choose Link again/); assert.equal(view.state,state);
       flushSync(()=>ref.current.cancelLink(b.id)); assert.equal(ref.current.applyLink(b.id,{label:'x',destination:'#x'}).applied,false);
     } finally { flushSync(()=>root.unmount()); host.remove(); }
     flushSync(()=>r.ref.current.beginLink());
@@ -146,7 +146,7 @@ test('link form fills selection, supports keyboard cancel and retires replacemen
     flushSync(()=>field.dispatchEvent(new window.Event('input',{bubbles:true})));
     form.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));
     flushSync(()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-    assert.equal(r.view.state.doc.toString(),'alpha beta');assert.match(form.querySelector('[role="alert"]').textContent,/composition/);assert.deepEqual(r.refusals,[]);
+    assert.equal(r.view.state.doc.toString(),'alpha beta');assert.match(form.querySelector('[role="alert"]').textContent,/Finish typing first/);assert.deepEqual(r.refusals,[]);
     form.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));
     flushSync(()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
     assert.equal(r.view.state.doc.toString(),'alpha [beta](<https://example.com>)');
@@ -178,10 +178,10 @@ test('composition, multi-selection and readonly guards apply to the bridge; Foun
   try {
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));
     const source = r.view.state.doc;
-    r.click('Bold'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/composition/);
+    r.click('Bold'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/Finish typing first/);
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));
     r.view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(1),EditorSelection.cursor(8)])});
-    r.click('Bullets'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/one selection/);
+    r.click('Bullets'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/one cursor/);
     r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
     r.click('More ⌄'); r.click('Divider'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/cannot be edited/);
   } finally { r.cleanup(); }
@@ -291,7 +291,7 @@ test('list shortcut refusal uses the toolbar reporting path and ordinary indenta
     r.view.dispatch({selection:{anchor:3}});
     const original=r.view.state;
     assert.equal(key(r.view.contentDOM,']',{ctrlKey:true}).defaultPrevented,true);
-    assert.equal(r.view.state,original); assert.match(r.refusals.at(-1),/preceding sibling/i);
+    assert.equal(r.view.state,original); assert.match(r.refusals.at(-1),/second item/i);
     const reason=r.refusals.at(-1); r.click('More ⌄');r.click('Indent more');assert.equal(r.refusals.at(-1),reason);
   } finally {r.cleanup();}
   const plain=await render('plain');
@@ -304,9 +304,9 @@ test('feedback invalidates for composition without publishing or changing the do
   try {
     r.view.dispatch({selection:{anchor:2}});await frame();
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));await frame();
-    assert.match(r.button('Bold').getAttribute('title'),/composition/);
+    assert.match(r.button('Bold').getAttribute('title'),/Finish typing first/);
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));await frame();await frame();
-    assert.doesNotMatch(r.button('Bold').getAttribute('title'),/composition/);
+    assert.doesNotMatch(r.button('Bold').getAttribute('title'),/Finish typing first/);
     assert.equal(r.view.state.doc.toString(),'alpha');assert.deepEqual(r.publications,[]);
   } finally {r.cleanup();}
 });
@@ -413,13 +413,15 @@ test('a live Link form reports validation once inline and preserves fields durin
   try {
     r.view.dispatch({selection:{anchor:0,head:5}});flushSync(()=>r.ref.current.beginLink());
     const form=r.host.querySelector('form'), destination=form.querySelector('[name="destination"]');
+    assert.equal(document.getElementById(destination.getAttribute('aria-describedby')).textContent,
+      'A web address (https://…), an email (mailto:name@example.com), a heading in this document (#plan), or another document (notes.md).');
     inputField(destination,'javascript:bad');submitForm(form);
-    assert.ok(form.querySelector('[role="alert"]'));assert.match(form.textContent,/Enter an http/);
+    assert.ok(form.querySelector('[role="alert"]'));assert.equal(form.querySelector('[role="alert"]').textContent, 'Start a web address with https://, or use one of the kinds listed below.');
     assert.deepEqual(r.refusals,[],'form validation must not also emit a toast');
     inputField(destination,'https://example.com');
     form.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));submitForm(form);
     assert.ok(r.host.querySelector('form') === form);assert.equal(destination.value,'https://example.com');
-    assert.match(form.querySelector('[role="alert"]').textContent,/composition/);assert.deepEqual(r.refusals,[]);
+    assert.match(form.querySelector('[role="alert"]').textContent,/Finish typing first/);assert.deepEqual(r.refusals,[]);
     form.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));submitForm(form);
     assert.equal(r.view.state.sliceDoc(),'[label](<https://example.com>)');assert.deepEqual(r.refusals,[]);
   } finally {r.cleanup();}
@@ -578,10 +580,10 @@ test('More explains unavailable completion and uses the existing refusal path', 
     assert.equal(action.querySelector('span').textContent, 'Mark done');
     const { formatShortcutLabel } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
     assert.equal(action.querySelector('kbd').textContent, formatShortcutLabel('markDone'));
-    assert.match(action.title, /Place the cursor on a checklist item/);
-    assert.equal(document.getElementById(action.getAttribute('aria-describedby')).textContent, 'Place the cursor on a checklist item');
+    assert.match(action.title, /first line of a task/);
+    assert.equal(document.getElementById(action.getAttribute('aria-describedby')).textContent, 'Put the cursor on the first line of a task.');
     r.click('Mark done');
-    assert.equal(r.refusals.at(-1), 'Place the cursor on a checklist item');
+    assert.equal(r.refusals.at(-1), 'Put the cursor on the first line of a task.');
     assert.equal(r.view.state.sliceDoc(), 'ordinary words');
     assert.ok(document.activeElement === r.view.contentDOM); assert.equal(undoDepth(r.view.state), 0);
   } finally { r.cleanup(); }
@@ -615,7 +617,7 @@ test('list feedback at the end of a line matches what the list commands do', () 
     const shown = commands.formattingToolbarState(view.state, false).commands;
     assert.equal(shown.checklist.active, true);
     assert.equal(shown.indent.available, false);
-    assert.match(shown.indent.reason, /preceding sibling/);
+    assert.match(shown.indent.reason, /second item/);
     assert.equal(shown.outdent.available, false);
   });
   useSpec('- one\n- two|', {}, view => {
@@ -758,7 +760,7 @@ test('More shows the Mark done shortcut; Cmd/Ctrl+L off a task explains through 
     assert.equal(r.button('Mark done').querySelector('kbd').textContent, formatShortcutLabel('markDone'));
     r.click('Mark done');
     const reason = r.refusals.at(-1);
-    assert.equal(reason, 'Place the cursor on a checklist item');
+    assert.equal(reason, 'Put the cursor on the first line of a task.');
     key(r.view.contentDOM, 'l', isPrimaryModifier({metaKey:true,ctrlKey:false}) ? {metaKey:true} : {ctrlKey:true});
     assert.equal(r.refusals.at(-1), reason); assert.equal(r.refusals.length, 2);
     assert.equal(r.view.state.sliceDoc(), '# Heading');
@@ -773,7 +775,7 @@ test('clicking a protected or readonly task consumes the click and reports witho
       if (readonly) r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
       const selection = r.view.state.selection;
       assert.equal(press(r.view.contentDOM.querySelector('.cm-md-task')).defaultPrevented, true);
-      assert.match(r.refusals.at(-1), readonly ? /cannot be edited/ : /ordinary text/);
+      assert.match(r.refusals.at(-1), readonly ? /cannot be edited/ : /ordinary lines/);
       assert.equal(r.view.state.sliceDoc(), source);
       assert.ok(r.view.state.selection.eq(selection)); assert.equal(undoDepth(r.view.state), 0);
     } finally { r.cleanup(); }

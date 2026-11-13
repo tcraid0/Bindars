@@ -23,7 +23,7 @@ import {
 } from "./markdown-decorations";
 
 import {
-  FORMATTING_SHORTCUTS, COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
+  FORMATTING_SHORTCUTS, LINK_STALE_REASON, refusalResult, COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
   type FormattingCommand, type FormattingToolbarState, type EmphasisCommandResult,
   type LinkCommandIntent, type LinkCommandInput,
 } from "./markdown-formatting-commands";
@@ -443,7 +443,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         if (!view || fileType !== "markdown") return null;
         cancelLink(undefined, false);
         const result = compositionActive
-          ? { available: false, active: false, reason: COMPOSITION_REASON, handled: true as const, applied: false }
+          ? refusalResult(COMPOSITION_REASON)
           : executeFormattingCommand(view, command, at);
         report(result);
         view.focus();
@@ -632,13 +632,11 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         applyLink(id, input, composing = false) {
           if (!link || link.id !== id || !linkCommandIsCurrent(createdView, link.intent, context())) {
             cancelLink(id, false);
-            return report({ available: false, active: false, handled: true, applied: false,
-              reason: "The document or selection changed. Open Link again." });
+            return report(refusalResult(LINK_STALE_REASON));
           }
           // A live form owns its one inline validation surface. Stale/no-form
           // submissions above use the notice path because no form can show it.
-          if (composing || compositionActive) return { available: false, active: false, handled: true, applied: false,
-            reason: COMPOSITION_REASON };
+          if (composing || compositionActive) return refusalResult(COMPOSITION_REASON);
           const result = applyLinkCommand(createdView, link.intent, input, context());
           if (result.applied) { cancelLink(undefined, false); createdView.focus(); }
           return result;
