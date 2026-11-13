@@ -8,13 +8,28 @@ const mermaidBlock = fs.readFileSync(path.join(__dirname, "../src/components/Mer
 
 // These are CSS contracts, not layout/PDF tests. Match declarations attached
 // to the requested selector, rather than accepting a rule elsewhere in the file.
-function printDeclarations(selector) {
-  const printCss = css.slice(css.indexOf("@media print")).replace(/\/\*[\s\S]*?\*\//g, "");
-  return [...printCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+function declarations(cssText, selector) {
+  const withoutComments = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .filter(([, selectors]) => selectors.split(",").some((value) => value.trim() === selector))
     .map(([, , declarations]) => declarations)
     .join("\n");
 }
+
+function printDeclarations(selector) {
+  return declarations(css.slice(css.indexOf("@media print")), selector);
+}
+
+test("task items hang their checkbox instead of using a flex row", () => {
+  assert.doesNotMatch(declarations(css, ".markdown-body li.task-list-item"), /display:\s*flex/);
+});
+
+test("print checkboxes take their size from the screen rule", () => {
+  const rule = printDeclarations('.markdown-body input[type="checkbox"]');
+  assert.doesNotMatch(rule, /(?:width|height|margin(?:-[a-z]+)?):/);
+  assert.match(rule, /appearance:\s*none !important/);
+  assert.match(rule, /border:\s*1.5pt solid #666 !important/);
+});
 
 test("reader surfaces have no delayed entrance animation", () => {
   assert.doesNotMatch(css, /\.file-content-enter/);

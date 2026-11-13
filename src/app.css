@@ -602,16 +602,19 @@ button:active:not(:disabled),
   padding-left: 0.5em;
 }
 
+/* The box hangs in the item's left padding, so words, links, highlights,
+   sub-items and later paragraphs flow normally and wrap under the first word.
+   This one rule sizes the box for screen, slides and print. */
 .markdown-body li.task-list-item {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  padding-left: 1.25em;
 }
 
 .markdown-body li.task-list-item input[type="checkbox"] {
   accent-color: var(--accent-fill);
-  margin: 0;
-  flex-shrink: 0;
+  width: .75em;
+  height: .75em;
+  margin: 0 .25em 0 -1.25em;
+  vertical-align: middle;
 }
 
 .markdown-body hr {
@@ -2007,24 +2010,20 @@ body[data-printing] .print-hide {
     overflow: visible !important;
   }
 
-  /* ── Task list checkboxes ── */
+  /* ── Task list checkboxes: size and hang come from the screen rule ── */
   .markdown-body input[type="checkbox"] {
     appearance: none !important;
-    width: 10pt !important;
-    height: 10pt !important;
     border: 1.5pt solid #666 !important;
     border-radius: 2pt !important;
-    vertical-align: middle !important;
-    margin-right: 4pt !important;
     position: relative !important;
   }
 
   .markdown-body input[type="checkbox"]:checked::after {
     content: "\2713";
     position: absolute;
-    top: -1pt;
-    left: 1pt;
-    font-size: 8pt;
+    top: -.125em;
+    left: .125em;
+    font-size: .6em;
     color: #333;
   }
 
