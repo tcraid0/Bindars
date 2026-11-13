@@ -56,7 +56,7 @@ no Markdown formatting bar.
 | **More → Link** | Enter the link text and put its address in **Link to**, then choose **Add link**. Selected plain text fills in the link text. |
 | **More → Quote** | Turn an ordinary paragraph into a quote, or remove a simple quote's markers. |
 | **More → Indent more / Indent less** | Move supported list items one level in or out. |
-| **More → Mark done / Mark not done** | Mark the checklist item on the cursor’s line done, or open it again. |
+| **More → Mark done / Mark not done** | Mark the task on the cursor's line done, or open it again (Cmd+L). |
 | **Styled / Plain** | Change how Markdown looks while writing. This does not change the file's text. |
 
 Type some text before choosing Bold or Italic. You can also select a phrase,
@@ -84,11 +84,12 @@ Markdown marks visible. Plain uses plain markup. **Read** shows the rendered
 document. Document Bold and Italic are separate from your personal
 [highlights and notes](annotations.md).
 
-To finish a task, place the cursor anywhere on its first line and choose
-**More → Mark done**. Choose **Mark not done** to open it again. Select only
-one source line at a time. This works in Styled and Plain, and each change is
-one Undo step. Checkboxes in Read display the saved state; they are not clickable.
-**Checklist** makes or removes a checklist; it does not mark tasks done.
+To finish a task in Styled view, click its `[ ]` box; click `[x]` to open it again.
+Clicking the words still just places the cursor. In Styled or Plain, you can also
+put the cursor on the task's first line and press Cmd+L (Ctrl+L on Linux), or choose
+**More → Mark done**. Each change is one Undo step. Plain view has no clickable box.
+Checkboxes in Read show the saved state; they are not clickable. **Checklist**
+makes or removes a checklist; it does not mark tasks done.
 
 ### Formatting shortcuts on macOS
 
@@ -96,6 +97,8 @@ one Undo step. Checkboxes in Read display the saved state; they are not clickabl
 | --- | --- |
 | Cmd+E | Switch between Read and Edit. |
 | Cmd+B / Cmd+I | Bold / Italic in the Markdown editor. |
+| Cmd+L | Mark the task on the cursor's line done, or not done. |
+| Esc | Leave Edit and go back to Read. Esc closes Find or an open menu first. |
 | Cmd+] / Cmd+[ | Indent / outdent a list item. |
 | Option+F10 | Move from the editor to the formatting bar. |
 | Option+Cmd+M | Switch Styled / Plain. |

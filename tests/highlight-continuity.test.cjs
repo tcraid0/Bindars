@@ -457,7 +457,7 @@ test('R01 seeded stress: a refreshed location is always the passage\'s own origi
   assert.ok(tally.tracked > 150 && tally.correct > 20 && tally.correctAfterInBlockEdit > 5, 'the stress run exercised both ways of following a passage: ' + JSON.stringify(tally));
 });
 
-for (const route of ['saved Read', 'departure reopen']) {
+for (const route of ['saved Read', 'saved Read click', 'departure reopen']) {
   test(`task completion retains the original repeated passage, note and colour through ${route}`, async t => {
     const { P: phrase } = require('./_fixtures/highlight-continuity.cjs');
     const source = '# Notes\n\n' + phrase + '\n\n- [ ] ' + phrase + '\n';
@@ -474,14 +474,18 @@ for (const route of ['saved Read', 'departure reopen']) {
     const view = await surface.render(true);
     await act(async () => {
       view.dispatch({ selection: { anchor: source.lastIndexOf('amber') } });
-      assert.equal(surface.editor.current.executeFormatting('toggleTask').applied, true);
+      if (route === 'saved Read click') {
+        const box = view.contentDOM.querySelector('.cm-md-task');
+        assert.ok(box);
+        box.dispatchEvent(new window.MouseEvent('mousedown', {bubbles:true,cancelable:true,button:0,detail:1}));
+      } else assert.equal(surface.editor.current.executeFormatting('toggleTask').applied, true);
     });
     const output = view.state.sliceDoc(), changes = surface.editor.current.captureChanges();
     assert.equal(output, source.replace('[ ]', '[x]'));
     reader = await surface.render(false, output);
     const currentEvidence = await prepareAnnotationDocument(reader, output);
     assert.equal(resolveAnchor(before, reader, currentEvidence).status, 'uncertain', 'a bare checkbox swap must not guess an occurrence');
-    const updates = route === 'saved Read'
+    const updates = route.startsWith('saved Read')
       ? refreshHighlightBlocks(capture, changes, reader, output, currentEvidence)
       : await refreshDepartureClaims((await departureClaims(capture, changes)).map(({ id, claim }) => ({ ...surface.api().highlights[0], id, continuity: claim })), reader, output, currentEvidence);
     assert.equal(updates.length, 1);

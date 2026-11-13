@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { CodeMirrorEditorHandle, EditorLinkForm } from "./CodeMirrorEditor";
-import type { FormattingToolbarState, ToolbarCommand } from "./markdown-formatting-commands";
+import { FORMATTING_SHORTCUTS, type FormattingToolbarState, type ToolbarCommand } from "./markdown-formatting-commands";
 import { formatShortcutLabel, isPrimaryModifier, type ShortcutId } from "../lib/shortcut-labels";
 import { isImeCompositionKey } from "../lib/keyboard";
 import { MarkdownFormattingToggle } from "./MarkdownFormattingToggle";
@@ -27,7 +27,10 @@ const controls = [
   { kind: "menu", menu: "more" },
   { kind: "toggle" },
 ] as const;
-const shortcuts: Partial<Record<ToolbarCommand, ShortcutId>> = { bold: "formatBold", italic: "formatItalic", indent: "indentList", outdent: "outdentList" };
+const shortcuts: Partial<Record<ToolbarCommand, ShortcutId>> = {
+  ...Object.fromEntries(FORMATTING_SHORTCUTS.map(({ command, shortcut }) => [command, shortcut])),
+  indent: "indentList", outdent: "outdentList",
+};
 
 export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkForm, styled, adoption, onToggleStyled }: Props) {
   const id = useId();
@@ -67,7 +70,7 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
         || event.altKey || event.shiftKey) return;
       const target = event.target as HTMLElement;
       if (!target.closest('button') || !target.closest('[role="toolbar"], [role="menu"]')) return;
-      const command = event.key.toLowerCase() === "b" ? "bold" : event.key.toLowerCase() === "i" ? "italic" : null;
+      const command = FORMATTING_SHORTCUTS.find(({ key }) => key === event.key.toLowerCase())?.command;
       if (command) { event.preventDefault(); event.stopPropagation(); run(command); }
     }}>
       <div ref={toolbarRef} role="toolbar" aria-label="Markdown formatting" aria-describedby={`${id}-help`}

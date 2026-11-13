@@ -110,3 +110,19 @@ test('Enter after completing a task starts an open task for bullet and ordered l
     });
   }
 });
+
+test('completion at a clicked position ignores and keeps the selection', () => {
+  const source = '# Heading\n\n- [ ] task';
+  withView(source, EditorSelection.single(8, 2), {}, view => {
+    const selection = view.state.selection;
+    assert.equal(executeFormattingCommand(view, 'toggleTask', source.indexOf('[ ]')).applied, true);
+    assert.equal(view.state.sliceDoc(), source.replace('[ ]','[x]'));
+    assert.ok(view.state.selection.eq(selection));
+    assert.equal(undoDepth(view.state), 1);
+  });
+});
+
+test('a line without a task gives the task reason, even on a heading or quote', () => {
+  for (const spec of ['# Ti|tle', '> quo|te']) useSpec(spec, {}, view => refuses(view, /^Place the cursor on a checklist item$/));
+  useSpec('> - [ ] quo|ted', {}, view => refuses(view, /ordinary text and supported sub-items/));
+});

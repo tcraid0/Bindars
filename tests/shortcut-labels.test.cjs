@@ -259,3 +259,9 @@ test("the real Welcome template renders only explicit shortcut tokens", () => {
     /Unresolved shortcut token/,
   );
 });
+
+test("Mark done labels and help use the primary modifier on both platforms", () => {
+  assert.equal(formatShortcutLabel("markDone", "macos"), "⌘L");
+  assert.equal(formatShortcutLabel("markDone", "windows-linux"), "Ctrl+L");
+  assert.match(renderPlatformLabels({platform:"MacIntel"}), /Mark task done \/ not done/);
+});

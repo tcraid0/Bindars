@@ -23,7 +23,7 @@ import {
 } from "./markdown-decorations";
 
 import {
-  COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
+  FORMATTING_SHORTCUTS, COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
   type FormattingCommand, type FormattingToolbarState, type EmphasisCommandResult,
   type LinkCommandIntent, type LinkCommandInput,
 } from "./markdown-formatting-commands";
@@ -212,6 +212,7 @@ const editorTheme = EditorView.theme({
     borderBottom: "1px solid var(--border)",
     paddingBlock: ".35em",
   },
+  ".cm-md-task": { cursor: "pointer" },
   ".cm-md-marker": {
     color: "var(--text-muted)",
   },
@@ -438,12 +439,12 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         scheduleFeedback();
         setTimeout(scheduleFeedback, 0);
       };
-      const executeFormatting = (command: FormattingCommand) => {
+      const executeFormatting = (command: FormattingCommand, at?: number) => {
         if (!view || fileType !== "markdown") return null;
         cancelLink(undefined, false);
         const result = compositionActive
           ? { available: false, active: false, reason: COMPOSITION_REASON, handled: true as const, applied: false }
-          : executeFormattingCommand(view, command);
+          : executeFormattingCommand(view, command, at);
         report(result);
         view.focus();
         scheduleFeedback();
@@ -510,11 +511,22 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             history(),
             search({ top: true }),
             fileType === "markdown" ? Prec.highest(keymap.of([
-              { key: "Mod-b", run: () => { executeFormatting("bold"); return true; } },
-              { key: "Mod-i", run: () => { executeFormatting("italic"); return true; } },
+              ...FORMATTING_SHORTCUTS.map(({ command, key }) => ({ key: `Mod-${key}`, run: () => { executeFormatting(command); return true; } })),
               { key: "Alt-F10", run: () => { interactionRef.current.onFocusToolbar?.(); return true; } },
             ])) : [],
             fileType === "markdown" ? EditorView.domEventHandlers({
+              // Styled supplies task spans; Plain supplies none. A plain left
+              // click ticks without moving the cursor or starting a selection.
+              // Modified, composing and multi-cursor clicks stay CodeMirror's.
+              mousedown(event, editorView) {
+                const box = (event.target as Element | null)?.closest?.(".cm-md-task");
+                if (!box || event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey
+                  || compositionActive || editorView.composing || editorView.state.selection.ranges.length > 1) return false;
+                event.preventDefault();
+                // Swallow later presses in a double/triple click without ticking again.
+                if (event.detail <= 1) executeFormatting("toggleTask", editorView.posAtDOM(box));
+                return true;
+              },
               beforeinput(event) {
                 const command = event.inputType === "formatBold" ? "bold" : event.inputType === "formatItalic" ? "italic"
                   : event.inputType === "insertOrderedList" ? "numbered" : event.inputType === "insertUnorderedList" ? "bullets"

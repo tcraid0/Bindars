@@ -4,6 +4,7 @@ import { EditorSelection, EditorState, StateField, type ChangeSet, type ChangeSp
 import { EditorView } from "@codemirror/view";
 import type { SyntaxNode, Tree } from "@lezer/common";
 import type { Nodes, Root } from "mdast";
+import type { ShortcutId } from "../lib/shortcut-labels";
 import { assertDocumentComplexity, checkDocumentComplexity, isDocumentComplexityError } from "../lib/document-complexity";
 import { extractFrontmatter, withoutByteOrderMark } from "../lib/frontmatter";
 import { markdownSyntax } from "../lib/markdown-syntax";
@@ -832,18 +833,21 @@ function taskOnLine(state: EditorState, tree: Tree, pos: number) {
 const TASK_SELECTION_REASON = "Select one checklist item";
 const TASK_CURSOR_REASON = "Place the cursor on a checklist item";
 
-function planTaskCompletion(state: EditorState, composing: boolean): FormattingEdit {
+/** `at` is a clicked task box: its line is used and the selection is kept. */
+function planTaskCompletion(state: EditorState, composing: boolean, at?: number): FormattingEdit {
   const unavailable = commandRefusal(state, composing);
   if (unavailable) return refused(unavailable);
   if (!checkDocumentComplexity(state.sliceDoc(), "markdown").ok) return refused(COMPLEXITY_REASON);
-  const range = state.selection.main;
+  const range = at === undefined ? state.selection.main : EditorSelection.cursor(at);
   const line = state.doc.lineAt(range.from);
   if (line.number !== state.doc.lineAt(range.to).number) return refused(TASK_SELECTION_REASON);
   const tree = treeCovering(state, line.from, line.to);
   if (!tree) return refused(LOADING_REASON);
-  const invalid = listRangeRefusal(state, tree, range.from, range.to);
-  if (invalid) return refused(invalid);
   const task = taskOnLine(state, tree, range.from);
+  const invalid = listRangeRefusal(state, tree, range.from, range.to);
+  // Protected contexts give their own reason. A heading or quote line without
+  // a task says so, as the bar does.
+  if (invalid && (task || invalid !== LIST_STRUCTURE_REASON)) return refused(invalid);
   if (!task) return refused(TASK_CURSOR_REASON);
   const checked = task.marker[1] !== " ";
   const changes = state.changes({ from: task.from + 1, to: task.to - 1, insert: checked ? " " : "x" });
@@ -1576,6 +1580,14 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
 
 
 export type FormattingCommand = EmphasisCommand | ListCommand | BlockCommand | "toggleTask";
+/** Primary-key formatting shortcuts shared by the editor, labels and focused
+ * bar buttons. Key letters also appear in shortcut-labels.ts for display,
+ * following the app's existing convention. */
+export const FORMATTING_SHORTCUTS: readonly { command: FormattingCommand; key: string; shortcut: ShortcutId }[] = [
+  { command: "bold", key: "b", shortcut: "formatBold" },
+  { command: "italic", key: "i", shortcut: "formatItalic" },
+  { command: "toggleTask", key: "l", shortcut: "markDone" },
+];
 export type ToolbarCommand = FormattingCommand | "link";
 export interface FormattingFeedback {
   /** Available means safe to attempt. Apply always validates the live state. */
@@ -1593,8 +1605,9 @@ const TOOLBAR_COMMANDS: readonly ToolbarCommand[] = [
   "divider", "checklist", "quote", "indent", "outdent", "link", "toggleTask",
 ];
 
-export function executeFormattingCommand(view: EditorView, command: FormattingCommand): EmphasisCommandResult {
-  if (command === "toggleTask") return dispatchFormatting(view, planTaskCompletion(view.state, view.composing));
+/** `at` names a clicked task box; other commands ignore it. */
+export function executeFormattingCommand(view: EditorView, command: FormattingCommand, at?: number): EmphasisCommandResult {
+  if (command === "toggleTask") return dispatchFormatting(view, planTaskCompletion(view.state, view.composing, at));
   if (command === "bold" || command === "italic") return applyEmphasisCommand(view, command);
   if (command === "bullets" || command === "numbered" || command === "checklist"
     || command === "indent" || command === "outdent") return applyListCommand(view, command);

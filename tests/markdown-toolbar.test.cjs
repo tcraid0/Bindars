@@ -645,3 +645,133 @@ test('the caret before an indented sub-item reads that sub-item', () => {
     assert.equal(commands.executeFormattingCommand(view, 'outdent').applied, true);
   });
 });
+
+function press(target, options = {}) {
+  assert.ok(target, 'click target exists');
+  const event = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, detail: 1, ...options });
+  flushSync(() => target.dispatchEvent(event));
+  return event;
+}
+
+test('a plain click on a Styled task box ticks it once, keeps selection and focus, and is one Undo step', async () => {
+  for (const task of ['- [ ] open', '- [X] done', '- parent\n  - [ ] nested', '3) [ ] numbered']) {
+    const source = '# Heading\n\n' + task;
+    const r = await render(source);
+    try {
+      forceParsing(r.view, r.view.state.doc.length, 2000);
+      r.view.dispatch({ selection: EditorSelection.single(8, 2) });
+      const selection = r.view.state.selection;
+      assert.equal(press(r.view.contentDOM.querySelector('.cm-md-task')).defaultPrevented, true);
+      assert.equal(r.view.state.sliceDoc(), source.replace(/\[( |X)\]/, (_, done) => done === ' ' ? '[x]' : '[ ]'));
+      assert.ok(r.view.state.selection.eq(selection));
+      assert.ok(document.activeElement === r.view.contentDOM);
+      assert.equal(undoDepth(r.view.state), 1);
+      assert.equal(undo(r.view), true); assert.equal(r.view.state.sliceDoc(), source);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('modified, right-button, composing and multi-cursor clicks on a task box are left to the editor', async () => {
+  for (const options of [{shiftKey:true}, {metaKey:true}, {ctrlKey:true}, {altKey:true}, {button:2}, {button:1}, 'composition', 'cursors']) {
+    const r = await render('- [ ] task');
+    try {
+      forceParsing(r.view, r.view.state.doc.length, 2000);
+      if (options === 'composition') r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles:true }));
+      if (options === 'cursors') r.view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(0),EditorSelection.cursor(8)])});
+      press(r.view.contentDOM.querySelector('.cm-md-task'), typeof options === 'string' ? {} : options);
+      assert.equal(r.view.state.sliceDoc(), '- [ ] task');
+      assert.equal(undoDepth(r.view.state), 0);
+      assert.deepEqual(r.refusals, []);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('a double click on a task box ticks once and selects nothing', async () => {
+  const r = await render('- [ ] task');
+  try {
+    const box = () => r.view.contentDOM.querySelector('.cm-md-task');
+    const selection = r.view.state.selection;
+    press(box());
+    assert.equal(press(box(), {detail:2}).defaultPrevented, true);
+    assert.equal(press(box(), {detail:3}).defaultPrevented, true);
+    assert.equal(r.view.state.sliceDoc(), '- [x] task');
+    assert.ok(r.view.state.selection.eq(selection));
+    assert.equal(undoDepth(r.view.state), 1);
+  } finally { r.cleanup(); }
+});
+
+test('clicks on the dash, on the words, or in Plain view never tick', async () => {
+  for (const styled of [true, false]) {
+    const r = await render('- [ ] task', {markdownFormattingEnabled:styled});
+    try {
+      if (styled) press([...r.view.contentDOM.querySelectorAll('.cm-md-marker')].find(el => el.textContent === '-'));
+      else assert.ok(r.view.contentDOM.querySelector('.cm-md-task') === null);
+      press(r.view.contentDOM.querySelector('.cm-line'));
+      assert.equal(r.view.state.sliceDoc(), '- [ ] task');
+      assert.equal(undoDepth(r.view.state), 0);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('a task box split by a Find match ticks once', async () => {
+  const { SearchQuery, setSearchQuery, openSearchPanel } = require('@codemirror/search');
+  const r = await render('- [ ] task');
+  try {
+    r.view.dispatch({effects:setSearchQuery.of(new SearchQuery({search:'[ ] t'}))});
+    openSearchPanel(r.view); await frame();
+    const match = r.view.contentDOM.querySelector('.cm-md-task .cm-searchMatch, .cm-searchMatch .cm-md-task');
+    assert.ok(match, 'Find intersects the marker');
+    press(match);
+    assert.equal(r.view.state.sliceDoc(), '- [x] task');
+    assert.equal(undoDepth(r.view.state), 1);
+  } finally { r.cleanup(); }
+});
+
+test('Cmd/Ctrl+L marks the cursor task done in Styled and Plain, and from focused bar buttons', async () => {
+  const { isPrimaryModifier } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+  const modifiers = isPrimaryModifier({metaKey:true,ctrlKey:false}) ? {metaKey:true} : {ctrlKey:true};
+  for (const styled of [true, false]) for (const target of ['editor','bar','menu']) {
+    const r = await render('- [ ] task', {markdownFormattingEnabled:styled});
+    try {
+      r.view.dispatch({selection:{anchor:10}});
+      let element = r.view.contentDOM;
+      if (target === 'bar') element = r.button('Bold');
+      if (target === 'menu') { r.click('More ⌄'); element = r.button('Mark done'); }
+      flushSync(() => element.focus());
+      assert.equal(key(element, 'l', modifiers).defaultPrevented, true);
+      assert.equal(r.view.state.sliceDoc(), '- [x] task');
+      assert.equal(r.view.state.selection.main.head, 10);
+      assert.equal(undoDepth(r.view.state), 1);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('More shows the Mark done shortcut; Cmd/Ctrl+L off a task explains through the toast', async () => {
+  const { formatShortcutLabel, isPrimaryModifier } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+  const r = await render('# Heading');
+  try {
+    r.click('More ⌄');
+    assert.equal(r.button('Mark done').querySelector('kbd').textContent, formatShortcutLabel('markDone'));
+    r.click('Mark done');
+    const reason = r.refusals.at(-1);
+    assert.equal(reason, 'Place the cursor on a checklist item');
+    key(r.view.contentDOM, 'l', isPrimaryModifier({metaKey:true,ctrlKey:false}) ? {metaKey:true} : {ctrlKey:true});
+    assert.equal(r.refusals.at(-1), reason); assert.equal(r.refusals.length, 2);
+    assert.equal(r.view.state.sliceDoc(), '# Heading');
+  } finally { r.cleanup(); }
+});
+
+test('clicking a protected or readonly task consumes the click and reports without moving the cursor', async () => {
+  for (const readonly of [false, true]) {
+    const source = readonly ? '- [ ] task' : '> - [ ] task';
+    const r = await render(source);
+    try {
+      if (readonly) r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
+      const selection = r.view.state.selection;
+      assert.equal(press(r.view.contentDOM.querySelector('.cm-md-task')).defaultPrevented, true);
+      assert.match(r.refusals.at(-1), readonly ? /cannot be edited/ : /ordinary text/);
+      assert.equal(r.view.state.sliceDoc(), source);
+      assert.ok(r.view.state.selection.eq(selection)); assert.equal(undoDepth(r.view.state), 0);
+    } finally { r.cleanup(); }
+  }
+});
