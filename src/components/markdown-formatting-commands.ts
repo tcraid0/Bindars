@@ -1703,8 +1703,16 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     if (task) commands.toggleTask.active = task.marker[1] !== " ";
     else disable(["toggleTask"], TASK_CURSOR_REASON);
   }
-  const firstItem = ancestor(tree.resolveInner(range.from, 1), "ListItem");
-  const lastItem = ancestor(tree.resolveInner(end, 1), "ListItem");
+  // A line belongs to the item found at its first non-space character, the rule
+  // listContext uses, so the bar and the list commands agree. At most 100
+  // characters are read, which keeps feedback bounded (B10).
+  const lineStart = (pos: number) => {
+    const at = state.doc.lineAt(pos);
+    return at.from + /^\s*/.exec(state.doc.sliceString(at.from, Math.min(at.to, at.from + 100)))![0].length;
+  };
+  const start = lineStart(range.from);
+  const firstItem = ancestor(tree.resolveInner(start, 1), "ListItem");
+  const lastItem = ancestor(tree.resolveInner(lineStart(end), 1), "ListItem");
   if (sameNode(firstItem, lastItem)) {
     const item = listItem(state, firstItem!);
     if (item) {
@@ -1714,6 +1722,9 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     }
   } else if (!firstItem && !lastItem && complete && sameNode(firstBlock, lastBlock) && firstBlock?.name === "Paragraph") {
     for (const id of ["bullets", "numbered", "checklist"] as const) if (commands[id].available) commands[id].active = false;
+    disable(["indent", "outdent"], LIST_LEVEL_REASON);
+  } else if (!firstItem && !lastItem && range.empty && start === line.to) {
+    // An empty or whitespace-only line outside any item: Indent finds nothing to move.
     disable(["indent", "outdent"], LIST_LEVEL_REASON);
   }
   return result;

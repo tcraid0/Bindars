@@ -582,3 +582,66 @@ test('More explains unavailable completion and uses the existing refusal path', 
     assert.ok(document.activeElement === r.view.contentDOM); assert.equal(undoDepth(r.view.state), 0);
   } finally { r.cleanup(); }
 });
+
+test('list feedback at the end of a line matches what the list commands do', () => {
+  const cases = [
+    '- [ ] buy milk|\n- [ ] eggs', '- [ ] buy mi|lk\n- [ ] eggs',
+    '- [ ] buy milk\n- [ ] eggs|', '- [ ] a\n- [ ] b|\n- [ ] c',
+    '- one\n- two|\n- three', '1. one|\n2. two',
+    '- [ ] parent\n  - [ ] child|\n- [ ] next', '- [ ] parent|\n  - [ ] child',
+    '- [ ] first line\n  second line|\n- [ ] next', '- [ ] first line\nlazy|\n- [ ] next',
+    '- [ ] first\n\n  more|\n- [ ] next', '- one\n- |', '- [ ] one\n- [ ] |',
+  ];
+  for (const spec of cases) for (const command of ['indent', 'outdent', 'checklist', 'bullets', 'numbered']) {
+    useSpec(spec, {}, view => {
+      const shown = commands.formattingToolbarState(view.state, false).commands[command];
+      if (['checklist', 'bullets', 'numbered'].includes(command)) {
+        const kind = spec.includes('[ ]') ? 'checklist' : spec.startsWith('1.') ? 'numbered' : 'bullets';
+        assert.equal(shown.active, command === kind, spec + command);
+        const status = commands.listCommandStatus(view.state, command);
+        if (status.available) assert.equal(shown.active, status.active, spec + command);
+      }
+      const before = view.state.doc;
+      const result = commands.executeFormattingCommand(view, command);
+      if (!result.applied) assert.equal(view.state.doc, before, spec + command);
+      if (!shown.available) assert.equal(result.applied, false, spec + command);
+    });
+  }
+  useSpec('- [ ] buy milk|', {}, view => {
+    const shown = commands.formattingToolbarState(view.state, false).commands;
+    assert.equal(shown.checklist.active, true);
+    assert.equal(shown.indent.available, false);
+    assert.match(shown.indent.reason, /preceding sibling/);
+    assert.equal(shown.outdent.available, false);
+  });
+  useSpec('- one\n- two|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.indent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'indent').applied, true);
+  });
+  useSpec('- parent\n  - child|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.outdent.available, true);
+  });
+});
+
+test('an empty or blank line after a list greys Indent more and Indent less', () => {
+  for (const spec of ['- one\n- two\n|', '- one\n- two\n  |', '- one\n|\n- two', '|']) {
+    useSpec(spec, {}, view => {
+      for (const command of ['indent', 'outdent']) {
+        const shown = commands.formattingToolbarState(view.state, false).commands[command];
+        assert.equal(shown.available, false, spec);
+        assert.equal(shown.reason, commands.executeFormattingCommand(view, command).reason);
+      }
+    });
+  }
+  useSpec('- one\n- two\n' + ' '.repeat(101) + '|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.indent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'indent').applied, false);
+  });
+});
+
+test('the caret before an indented sub-item reads that sub-item', () => {
+  useSpec('- parent\n|  - child', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.outdent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'outdent').applied, true);
+  });
+});
