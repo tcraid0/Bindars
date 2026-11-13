@@ -775,3 +775,14 @@ test('clicking a protected or readonly task consumes the click and reports witho
     } finally { r.cleanup(); }
   }
 });
+
+test('the style button is named once when its style is unknown', async () => {
+  const r = await render('alpha');
+  try {
+    r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true})); await frame();
+    const style = r.host.querySelector('[aria-haspopup="menu"]');
+    assert.equal(style.getAttribute('aria-label'), 'Text style');
+    r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true})); await frame(); await frame();
+    assert.equal(style.getAttribute('aria-label'), 'Text style: Paragraph');
+  } finally { r.cleanup(); }
+});

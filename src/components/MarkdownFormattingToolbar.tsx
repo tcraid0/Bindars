@@ -64,6 +64,7 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
   };
   const heading = state?.headingLevel;
   const styleLabel = heading == null ? "Text style" : heading === 0 ? "Paragraph" : heading <= 3 ? styles[heading][1] : `Heading ${heading}`;
+  const styleName = heading == null ? "Text style" : `Text style: ${styleLabel}`;
   return (
     <div className="markdown-formatting-bar print-hide" data-markdown-controls onKeyDown={event => {
       if (event.defaultPrevented || isImeCompositionKey(event.nativeEvent) || !isPrimaryModifier(event.nativeEvent)
@@ -99,7 +100,8 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
             onMouseDown={event => event.preventDefault()} enabled={styled}
             className="markdown-styled-toggle" onToggle={onToggleStyled} />;
           if (control.kind === "menu") return <button key={control.menu} type="button" {...navigation}
-            aria-label={control.menu === "style" ? `Text style: ${styleLabel}` : undefined}
+            className={control.menu === "style" ? "markdown-style-button" : undefined}
+            aria-label={control.menu === "style" ? styleName : undefined}
             aria-haspopup="menu" aria-expanded={menu === control.menu} aria-controls={menu === control.menu ? `${id}-menu` : undefined}
             onClick={event => toggleMenu(control.menu, event.currentTarget)}>
             {control.menu === "style" ? styleLabel : "More"} <span aria-hidden="true">⌄</span></button>;

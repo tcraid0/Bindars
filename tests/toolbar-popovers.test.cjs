@@ -554,3 +554,21 @@ test('View zoom controls share toolbar Escape dismissal and restore their trigge
     assert.ok(view.host.querySelector('[aria-label="Interface zoom"]') === null);
   } finally { view.cleanup(); }
 });
+
+test("Find in Document keeps its place in Edit without being reachable there", async () => {
+  let found = 0;
+  const view = await setup({isEditing:false,onFind:() => found++});
+  try {
+    let button = buttonWithText(view.host, "Find in Document");
+    assert.ok(button);
+    assert.equal(button.disabled, false);
+    assert.equal(button.classList.contains("invisible"), false);
+    click(button); assert.equal(found, 1);
+    view.render({isEditing:true,onFind:() => found++});
+    button = buttonWithText(view.host, "Find in Document");
+    assert.ok(button);
+    assert.equal(button.disabled, true);
+    assert.equal(button.classList.contains("invisible"), true);
+    click(button); assert.equal(found, 1);
+  } finally { view.cleanup(); }
+});

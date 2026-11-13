@@ -411,7 +411,10 @@ function HeaderComponent({
           )}
         </div>}
         <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
-        {fileName && !isEditing && <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        {/* Find is a Read action. Edit keeps its place, hidden and inert, so the
+          Read/Edit switch and the controls beside it never move. */}
+        {fileName && <button type="button" disabled={isEditing}
+          className={`p-1.5 text-sm rounded hover:bg-bg-tertiary${isEditing ? " invisible" : ""}`} onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
         <div className="relative text-sm">
           <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
             className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>

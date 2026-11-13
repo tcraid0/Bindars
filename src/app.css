@@ -2524,6 +2524,8 @@ body[data-printing] .print-hide {
   outline: 2px solid var(--accent-indicator);
   outline-offset: 2px;
 }
+/* Wide enough for "Small heading ⌄", so the controls to its right never move. */
+.markdown-formatting-toolbar .markdown-style-button { min-width: 9em; text-align: start; }
 .markdown-formatting-toolbar .markdown-styled-toggle { margin-left: auto; border-color: var(--border); }
 .markdown-formatting-menu {
   position: absolute;
