@@ -130,7 +130,7 @@ test('list edits refuse inline syntax that would split or join across the change
     ['[[- ~alpha\n- beta~]]', 'bullets'],
     ['[[alpha\\\nbeta]]', 'bullets'],
     ['[[- path C:\\\n- next]]', 'bullets'],
-  ]) useSpec(source, {}, (view) => refuse(view, command, /^Formatting or a link runs across these lines, so nothing was changed\.$/));
+  ]) useSpec(source, {}, (view) => refuse(view, command, /^Formatting, a link or a line break runs across these lines, so nothing was changed\.$/));
 });
 
 test('multiline inline syntax within one item or paragraph converts with its reader meaning intact', () => {
@@ -487,7 +487,7 @@ test('task-preserving edits keep authored spacing and numbers; BOM and blank sel
     apply(view, 'outdent', '- parent\n- [X]   child');
   });
   useSpec('\ufeffalpha|', {}, (view) => refuse(view, 'bullets', /byte-order mark/));
-  useSpec('[[\n\n]]', {}, (view) => refuse(view, 'bullets', /^Select items from one list, or ordinary lines, but not both\.$/));
+  useSpec('[[\n\n]]', {}, (view) => refuse(view, 'bullets', /^These lines are empty\. Click on one line to start a list\.$/));
 });
 
 test('list status reuses document protection without rescanning remote math on every candidate', (t) => {

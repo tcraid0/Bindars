@@ -734,7 +734,8 @@ const LIST_TOP_REASON = "This item is already as far left as it goes.";
 const LIST_SELECTION_REASON = "Select items from one list, or ordinary lines, but not both.";
 const LIST_STRUCTURE_REASON = "This works on ordinary lines and lists only.";
 const LIST_REMOVAL_REASON = "Move the sub-items out first with Indent less, then try again.";
-const LIST_INLINE_REASON = "Formatting or a link runs across these lines, so nothing was changed.";
+const LIST_INLINE_REASON = "Formatting, a link or a line break runs across these lines, so nothing was changed.";
+const LIST_BLANK_REASON = "These lines are empty. Click on one line to start a list.";
 const INLINE_SPAN = /^(?:Emphasis|StrongEmphasis|Strikethrough|Link|Image)$/;
 
 interface ListItemInfo {
@@ -1021,6 +1022,7 @@ function planList(state: EditorState, command: ListCommand, composing: boolean):
       edits.push({ from: line.from, to: line.from + leading + glyph,
         insert: prefix + line.text.slice(0, leading) });
     }
+    if (!edits.length) return refused(LIST_BLANK_REASON);
   }
   const changingContainer = first && command !== "checklist"
     && (command === "numbered") !== (first.number !== null);
@@ -1262,7 +1264,8 @@ export interface BlockCommandStatus extends EmphasisCommandStatus {
   /** Zero is prose; null is mixed/unsupported. Existing H4–H6 stay distinct. */
   headingLevel: number | null;
 }
-const BLOCK_REASON = "Text styles work on ordinary lines, not in lists or quotes.";
+const BLOCK_REASON = "Text styles work on one ordinary line at a time, not in lists or quotes.";
+const DIVIDER_REASON = "Divider works on ordinary text and lists, not in quotes.";
 const QUOTE_REASON = "Quote works on ordinary paragraphs, or on a whole quote to remove it.";
 const SETEXT_REASON = "Edit this Setext heading directly.";
 
@@ -1388,7 +1391,7 @@ function planBlock(state: EditorState, command: BlockCommand, composing: boolean
 }
 
 function planDivider(state: EditorState, context: BlockLines, blocks: SyntaxNode[]): FormattingEdit {
-  if (blocks.some((node) => !/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12]|BulletList|OrderedList|HorizontalRule)$/.test(node.name))) return refused(BLOCK_REASON);
+  if (blocks.some((node) => !/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12]|BulletList|OrderedList|HorizontalRule)$/.test(node.name))) return refused(DIVIDER_REASON);
   for (const block of blocks) {
     if (block.name === "BulletList" || block.name === "OrderedList") {
       const invalid = listRangeRefusal(state, context.tree, block.from, block.to);
@@ -1554,7 +1557,7 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
   if (invalid) return refusalResult(invalid);
   if (!input.label.trim() || /[\u0000-\u001f\u007f]/.test(input.label)) return refusalResult("Enter the link text on one line.");
   const destination = markdownLinkDestination(input.destination, context.filePath);
-  if (!destination) return refusalResult("Start a web address with https://, or use one of the kinds listed below.");
+  if (!destination) return refusalResult("Start a web address with https://, or use one of the kinds listed above.");
   const label = input.label.replace(/[\\`*_[\]<>~&]/g, "\\$&");
   const escapedDestination = destination.replace(/[ <>\\]/g, (char) => encodeURIComponent(char)).replace(/&/g, "&amp;");
   const insert = `[${label}](<${escapedDestination}>)`;
@@ -1704,7 +1707,10 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     const name = firstBlock!.name;
     result.headingLevel = name === "Paragraph" ? 0 : /^(?:ATX|Setext)Heading[1-6]$/.test(name) ? Number(name.slice(-1)) : null;
     if (/^SetextHeading/.test(name)) disable(["paragraph", "h1", "h2", "h3"], SETEXT_REASON);
-    if (!/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12])$/.test(name)) disable(["paragraph", "h1", "h2", "h3"], BLOCK_REASON);
+    // Keep a more specific reason already found, and name code, HTML or a table as the command does.
+    if (!/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12])$/.test(name)) {
+      disable((["paragraph", "h1", "h2", "h3"] as const).filter(id => commands[id].available), reasonForSyntax(name) ?? BLOCK_REASON);
+    }
     if (/^(?:BulletList|OrderedList)$/.test(name)) disable(["quote"], QUOTE_REASON);
     if (name === "Blockquote") commands.quote.active = true;
     else if (name === "Paragraph") commands.quote.active = false;
@@ -1742,7 +1748,8 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     disable(["indent", "outdent"], LIST_LEVEL_REASON);
   } else if (!firstItem && !lastItem && range.empty && start === line.to) {
     // An empty or whitespace-only line outside any item: Indent finds nothing to move.
-    disable(["indent", "outdent"], LIST_LEVEL_REASON);
+    // A tab there is refused first by the command (listRangeRefusal), so say the same.
+    disable(["indent", "outdent"], /^ *\t/.test(line.text) ? LIST_STRUCTURE_REASON : LIST_LEVEL_REASON);
   }
   return result;
 }

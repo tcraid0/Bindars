@@ -175,7 +175,7 @@ test('ordinary typing after Link requires fresh authoritative reader validation'
 test('Link explains invalid text and addresses in plain English without an edit', () => {
   for (const [input, reason] of [
     [{label:'two\nlines',destination:'https://example.com'}, 'Enter the link text on one line.'],
-    [{label:'label',destination:'www.example.com'}, 'Start a web address with https://, or use one of the kinds listed below.'],
+    [{label:'label',destination:'www.example.com'}, 'Start a web address with https://, or use one of the kinds listed above.'],
   ]) useSpec('|', {}, view => {
     const before = view.state;
     const result = submit(view, input);

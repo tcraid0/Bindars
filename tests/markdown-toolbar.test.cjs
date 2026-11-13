@@ -416,7 +416,7 @@ test('a live Link form reports validation once inline and preserves fields durin
     assert.equal(document.getElementById(destination.getAttribute('aria-describedby')).textContent,
       'A web address (https://…), an email (mailto:name@example.com), a heading in this document (#plan), or another document (notes.md).');
     inputField(destination,'javascript:bad');submitForm(form);
-    assert.ok(form.querySelector('[role="alert"]'));assert.equal(form.querySelector('[role="alert"]').textContent, 'Start a web address with https://, or use one of the kinds listed below.');
+    assert.ok(form.querySelector('[role="alert"]'));assert.equal(form.querySelector('[role="alert"]').textContent, 'Start a web address with https://, or use one of the kinds listed above.');
     assert.deepEqual(r.refusals,[],'form validation must not also emit a toast');
     inputField(destination,'https://example.com');
     form.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));submitForm(form);
@@ -630,7 +630,7 @@ test('list feedback at the end of a line matches what the list commands do', () 
 });
 
 test('an empty or blank line after a list greys Indent more and Indent less', () => {
-  for (const spec of ['- one\n- two\n|', '- one\n- two\n  |', '- one\n|\n- two', '|']) {
+  for (const spec of ['- one\n- two\n|', '- one\n- two\n  |', '- one\n|\n- two', '- one\n\t|\n- two', '|']) {
     useSpec(spec, {}, view => {
       for (const command of ['indent', 'outdent']) {
         const shown = commands.formattingToolbarState(view.state, false).commands[command];
