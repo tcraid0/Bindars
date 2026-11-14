@@ -960,11 +960,13 @@ test("the editor opens on Read's screen height below the bar, and centres withou
     return original(position, options);
   };
   try {
-    for (const [label, initialScreenTopPx, withBar, expected] of [
-      ["Read's height", 250, true, { y: "start", yMargin: 250 - 50 - 58 }],
-      ["floored at the stuck bar", 80, true, { y: "start", yMargin: 0 }],
-      ["no Read height", null, true, { y: "center" }],
-      ["no formatting bar", 250, false, { y: "center" }],
+    // CodeMirror's own scroll leaves the line at screen 300 here. Where Read's height applies,
+    // the editor then moves the line the rest of the way; a centred opening is left alone.
+    for (const [label, initialScreenTopPx, withBar, expected, correctedScrollTop] of [
+      ["Read's height", 250, true, { y: "start", yMargin: 250 - 50 - 58 }, 300 - 250],
+      ["floored at the stuck bar", 80, true, { y: "start", yMargin: 0 }, 300 - (50 + 58)],
+      ["no Read height", null, true, { y: "center" }, 0],
+      ["no formatting bar", 250, false, { y: "center" }, 0],
     ]) {
       await installDom();
       scrolls.length = 0;
@@ -989,10 +991,18 @@ test("the editor opens on Read's screen height below the bar, and centres withou
       });
       try {
         const view = findEditorView(rendered.host);
+        // With a height and the Window global, CodeMirror's first measure completes as in the app.
+        Object.defineProperty(view.scrollDOM, "clientHeight", { value: 400 });
+        globalThis.Window = window.constructor;
+        view.contentDOM.querySelectorAll(".cm-line")[4].getBoundingClientRect = () => ({
+          x: 0, y: 300, top: 300, bottom: 330, left: 0, right: 300, width: 300, height: 30, toJSON() {},
+        });
         await settleFrames();
         const anchor = view.state.doc.line(5).from;
         assert.deepEqual(scrolls, [{ position: anchor, ...expected }], label);
+        assert.equal(document.body.scrollTop, correctedScrollTop, label);
         assert.equal(view.state.selection.main.head, anchor, label);
+        document.body.dispatchEvent(new window.Event("scroll"));
         assert.equal(rendered.ref.current.capturePosition().viewportMoved, false, label);
         assert.equal(undo(view), false, `${label}: the initial scroll adds no history`);
       } finally {
@@ -1002,6 +1012,7 @@ test("the editor opens on Read's screen height below the bar, and centres withou
     }
   } finally {
     EditorView.scrollIntoView = original;
+    delete globalThis.Window;
   }
 });
 

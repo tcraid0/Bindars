@@ -479,6 +479,8 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       // fonts, wrapping). Remember where its measure cycles leave the root;
       // any other scroll (wheel, scrollbar, keyboard) is the user's.
       let editorScrollTop: number | null = null;
+      // The opening line and where it belongs on screen, until CodeMirror has first measured.
+      let entryPlacement: { offset: number; screenTop: number } | null = null;
       const recordViewportMovement = () => {
         if (scrollRoot && editorScrollTop !== null
           && Math.abs(scrollRoot.scrollTop - editorScrollTop) > 1) viewportMovedByUserRef.current = true;
@@ -562,7 +564,17 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             }) : [],
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
-              if (scrollRoot && update.transactions.length === 0) editorScrollTop = scrollRoot.scrollTop;
+              if (scrollRoot && update.transactions.length === 0) {
+                // CodeMirror places the opening line using estimated heights for lines it has
+                // not drawn, then swaps in measured ones without holding the line. Once it has
+                // measured, move the line the rest of the way to its height in Read.
+                if (entryPlacement && update.geometryChanged) {
+                  const top = lineScreenTop(update.view, scrollRoot, sourcePointAt(update.state.doc, entryPlacement.offset));
+                  if (top !== null) scrollRoot.scrollTop += top - entryPlacement.screenTop;
+                  entryPlacement = null;
+                }
+                editorScrollTop = scrollRoot.scrollTop;
+              }
               if (update.docChanged && observedChanges) {
                 // setState/adoption and any unobserved replacement break ownership.
                 if (applyingExternalDocument || update.startState.doc !== observedDocument) observedChanges = null;
@@ -610,7 +622,9 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
           createdView.dispatch({ effects: EditorView.scrollIntoView(initialOffset, { y: "center" }) });
         } else {
           const stuckBarBottom = bar.offsetHeight + (Number.parseFloat(window.getComputedStyle(bar).top) || 0);
-          const wanted = editorEntryOffset(initialScreenTopPx, scrollRoot.getBoundingClientRect().top, stuckBarBottom);
+          const rootTop = scrollRoot.getBoundingClientRect().top;
+          const wanted = editorEntryOffset(initialScreenTopPx, rootTop, stuckBarBottom);
+          entryPlacement = { offset: initialOffset, screenTop: rootTop + wanted };
           createdView.dispatch({
             effects: EditorView.scrollIntoView(initialOffset, { y: "start", yMargin: wanted - stickyTopInset() }),
           });
