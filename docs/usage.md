@@ -17,7 +17,7 @@ confirming replacement writes the example text over the file you choose.
 - Mermaid diagrams and KaTeX math rendering (`$$x^2$$` inline, `$$` blocks for display math; single `$` is reserved for plain text so dollar amounts in prose render as written)
 - Syntax-highlighted code blocks (highlight.js)
 - Four themes: light, sepia, dark, midnight
-- Table of contents with scroll tracking
+- Table of contents with scroll tracking; it starts open and remembers if you close it
 - Highlights & notes, plus bookmarks for returning to headings
   (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
 - Recent, Drafts, and an optional folder browser, with Search documents and passage navigation

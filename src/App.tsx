@@ -73,6 +73,7 @@ import { useWorkspaceSearch } from "./hooks/useWorkspaceSearch";
 import { useWorkspaceInsights } from "./hooks/useWorkspaceInsights";
 import { useMarkdownFormatting } from "./hooks/useMarkdownFormatting";
 import { usePersistenceCoordinator } from "./hooks/usePersistenceCoordinator";
+import { usePersistedVisibility } from "./hooks/usePersistedVisibility";
 import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constants";
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
@@ -97,7 +98,6 @@ import { createPrintCleanupController, preparePrintDocument } from "./lib/print-
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
 import { initializeAnnotationStorage } from "./lib/annotation-storage";
-import { storeGet, storeSet } from "./lib/store";
 import { signalAppReady, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import {
   captureReaderAnchor,
@@ -319,14 +319,7 @@ function App() {
     return () => { active = false; };
   }, [toast]);
 
-  const [sidebarVisible, setSidebarVisible] = useState(() => {
-    try {
-      return localStorage.getItem("bindars-sidebar-visible") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const sidebarUpdatedRef = useRef(false);
+  const [sidebarVisible, changeStoredSidebarVisibility] = usePersistedVisibility("bindars-sidebar-visible", "sidebar-visible", false);
   const sidebarRecentFiles = useSteadyRecentOrder(recentFiles, sidebarVisible);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [reconnectSource, setReconnectSource] = useState<string | null | undefined>(undefined);
@@ -337,7 +330,7 @@ function App() {
   const [annotationLocations, setAnnotationLocations] = useState<Record<string, string>>({});
   const [passageChoice, setPassageChoice] = useState<PassageChoice | null>(null);
   const passageChoiceTrigger = useRef<HTMLElement | null>(null);
-  const [tocVisible, setTocVisible] = useState(true);
+  const [tocVisible, setTocVisible] = usePersistedVisibility("bindars-toc-visible", "toc-visible", true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
   const readerControlsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const readerControlsId = useId();
@@ -396,19 +389,6 @@ function App() {
     if (!annotationLoadError) return;
     toast(annotationLoadError, "error");
   }, [annotationLoadError, toast]);
-
-  // Restore sidebar state from Tauri store as async backup (if localStorage had no entry)
-  useEffect(() => {
-    let active = true;
-    try {
-      if (localStorage.getItem("bindars-sidebar-visible") !== null) return;
-    } catch { /* noop */ }
-    storeGet<unknown>("sidebar-visible").then((stored) => {
-      if (!active || sidebarUpdatedRef.current || typeof stored !== "boolean") return;
-      setSidebarVisible(stored);
-    });
-    return () => { active = false; };
-  }, []);
 
   // Pending action to run after confirm dialog resolves.
   const pendingActionRef = useRef<AdmittedAction | null>(null);
@@ -2554,12 +2534,9 @@ function App() {
   );
 
   const changeSidebarVisibility = useCallback((next: boolean) => {
-    sidebarUpdatedRef.current = true;
     preparePanelChange("sidebar", next);
-    setSidebarVisible(next);
-    try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
-    void storeSet("sidebar-visible", next);
-  }, [preparePanelChange]);
+    changeStoredSidebarVisibility(next);
+  }, [preparePanelChange, changeStoredSidebarVisibility]);
   const toggleSidebar = useCallback(() => {
     changeSidebarVisibility(!visiblePanels.sidebar);
   }, [visiblePanels.sidebar, changeSidebarVisibility]);
@@ -2574,7 +2551,7 @@ function App() {
     const next = !visiblePanels.toc;
     preparePanelChange("toc", next);
     setTocVisible(next);
-  }, [documentOpen, visiblePanels.toc, preparePanelChange]);
+  }, [documentOpen, visiblePanels.toc, preparePanelChange, setTocVisible]);
 
   const toggleReaderControls = useCallback(() => {
     setReaderControlsVisible((v) => !v);
