@@ -62,7 +62,7 @@ test("Search keeps the same label for name, title, body and empty queries withou
     view.render({ query, results });
     const row = document.querySelector('[role="option"]');
     assert.equal(row.querySelector("strong").textContent, "November planning");
-    assert.match(row.textContent, /meeting-v2.md · Research/);
+    assert.match(row.textContent, /meeting-v2.md in Research/);
     assert.equal([...row.querySelectorAll("p")].filter(p => p.textContent === "November planning").length, 0);
     if (query === "interview") {
       assert.match(row.textContent, /Follow up on the interview findings/);

@@ -656,7 +656,7 @@ test('Home and sidebar share explicit removal, restore Search membership, and pr
   click(search);
   await until(() => assert.ok(document.querySelector('[role="listbox"]')));
   assert.ok(![...document.querySelectorAll('[role="option"]')].some(row => row.textContent.includes('B.md')));
-  click([...document.querySelectorAll('button')].find(b => b.textContent === 'Close Search'));
+  click([...document.querySelectorAll('button')].find(b => b.textContent === 'Close'));
   await app.open('/fixture/D.md');
   const order = [...sidebar.querySelectorAll('[data-path]')].map(row => row.dataset.path);
   const addBack = [...sidebar.querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === 'Add Back');
