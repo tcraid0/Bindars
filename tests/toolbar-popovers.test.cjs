@@ -572,3 +572,20 @@ test("Find in Document keeps its place in Edit without being reachable there", a
     click(button); assert.equal(found, 1);
   } finally { view.cleanup(); }
 });
+
+
+test("document search actions keep Find, Search, View order in Read and Edit", async () => {
+  const view = await setup();
+  try {
+    for (const isEditing of [false, true]) {
+      view.render({ isEditing });
+      const buttons = [...view.host.querySelectorAll("header button")];
+      const find = buttonWithText(view.host, "Find in Document");
+      assert.deepEqual(buttons.slice(buttons.indexOf(find), buttons.indexOf(find) + 3)
+        .map(button => button.textContent), ["Find in Document", "Search", "View"]);
+      assert.equal(find.disabled, isEditing);
+      assert.equal(find.classList.contains("invisible"), isEditing);
+      assert.equal(buttonWithText(view.host, "View").title, "Interface zoom");
+    }
+  } finally { view.cleanup(); }
+});

@@ -6,6 +6,8 @@ import { useToast } from "./ToastProvider";
 import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
+const textButtonClass = "rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120";
+
 interface HeaderProps {
   onFind?: () => void;
   onSearchDocuments?: () => void;
@@ -268,7 +270,7 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onNewFile}
-          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className={`px-2.5 py-1.5 ${textButtonClass}`}
           title={`New file (${formatShortcutLabel("newFile")})`}
         >
           New
@@ -276,7 +278,7 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onOpenFile}
-          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className={`px-2.5 py-1.5 ${textButtonClass}`}
           title={`Open file (${formatShortcutLabel("openFile")})`}
         >
           Open
@@ -289,7 +291,7 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onSave}
-                className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                className={`px-2.5 py-1.5 ${textButtonClass}`}
                 title={`${saveChoosesLocation ? "Save to choose a filename and location" : "Save"} (${formatShortcutLabel("saveFile")})`}
               >
                 Save
@@ -410,14 +412,14 @@ function HeaderComponent({
             </>
           )}
         </div>}
-        <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
         {/* Find is a Read action. Edit keeps its place, hidden and inert, so the
           Read/Edit switch and the controls beside it never move. */}
         {fileName && <button type="button" disabled={isEditing}
-          className={`p-1.5 text-sm rounded hover:bg-bg-tertiary${isEditing ? " invisible" : ""}`} onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+          className={`p-1.5 ${textButtonClass}${isEditing ? " invisible" : ""}`} onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        <button type="button" className={`p-1.5 ${textButtonClass}`} onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
         <div className="relative text-sm">
           <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
-            className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
+            title="Interface zoom" className={`p-1.5 ${textButtonClass}`} onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
           {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="document-header-popover interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
             <p>Interface: {Math.round(zoom * 100)}%</p>
             <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
