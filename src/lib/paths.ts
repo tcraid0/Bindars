@@ -10,12 +10,24 @@ export function parentPath(path: string): string {
   return /^[A-Za-z]:$/.test(parent) ? `${parent}/` : parent;
 }
 
+let homeDirectory: string | null = null;
+
+/** Only the person's own home folder is omitted from location labels. */
+export function setHomeDirectory(path: string | null): void {
+  homeDirectory = path ? toPosixPath(path).replace(/\/+$/, "") : null;
+}
+
 /** Compact context for document lists; disclosures expose the complete path. */
 export function locationLabel(path: string, ancestors = 2): string {
   const parent = parentPath(path);
-  const parts = parent.split("/").filter(Boolean);
+  const home = homeDirectory;
+  const parentKey = toPathIdentityKey(parent);
+  const homeKey = home ? toPathIdentityKey(home) : null;
+  if (homeKey && parentKey === homeKey) return "Home folder";
+  const place = home && homeKey && parentKey.startsWith(`${homeKey}/`) ? parent.slice(home.length + 1) : parent;
+  const parts = place.split("/").filter(Boolean);
   // Expanded Recent context can need the root as well as every parent.
-  if (ancestors > 2 && ancestors > parts.length) return parent;
+  if (ancestors > 2 && ancestors > parts.length) return place !== parent ? parts.join(" › ") : parent;
   return parts.slice(-ancestors).join(" › ") || parent;
 }
 

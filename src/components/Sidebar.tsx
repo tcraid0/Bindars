@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   RecentFile,
   WorkspaceDocIndex,
@@ -68,9 +68,22 @@ function SidebarComponent(props: SidebarProps) {
     directoryFocusPending.current = false;
     panelRef.current?.focus();
   }, [directory]);
+  const occupied = useMemo(() => {
+    const found = new Set<string>();
+    for (const doc of docs) {
+      if (!doc.sources?.includes("folder")) continue;
+      let folder = "";
+      for (const part of toPosixPath(doc.relPath).split("/").slice(0, -1)) {
+        folder = folder ? `${folder}/${part}` : part;
+        found.add(folder);
+      }
+    }
+    return found;
+  }, [docs]);
   if (!visible) return null;
   const folderDocs = docs.filter((doc) => doc.sources?.includes("folder"));
   const drafts = docs.filter((doc) => doc.sources?.includes("draft"));
+  const firstListing = state.status === "indexing" && !state.indexedAt;
   const draftsLocation = state.draftsRootPath;
   const normalizedDir = toPosixPath(directory);
   const prefix = normalizedDir ? `${normalizedDir}/` : "";
@@ -78,7 +91,7 @@ function SidebarComponent(props: SidebarProps) {
     .map(toPosixPath)
     .filter(
       (path) =>
-        path.startsWith(prefix) && !path.slice(prefix.length).includes("/"),
+        path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && occupied.has(path),
     );
   const files = folderDocs.filter((doc) => {
     const rel = toPosixPath(doc.relPath);
@@ -200,7 +213,7 @@ function SidebarComponent(props: SidebarProps) {
                   )
                   .map((doc) => (
                     <div className="navigation-help" key={doc.path}>
-                      <p>Can't find {doc.name}.</p>
+                      <p>Can't find {doc.name}. It may have been moved or deleted.</p>
                       <button onClick={() => props.onFindNotes?.(doc.path)}>
                         Reconnect notes…
                       </button>
@@ -220,18 +233,24 @@ function SidebarComponent(props: SidebarProps) {
                   <p role="status" className="navigation-help">
                     {state.draftsError}{" "}
                     {isMac &&
-                      "Allow access in System Settings › Privacy & Security › Files and Folders. "}
+                      "If your Mac blocked access, allow it in System Settings › Privacy & Security › Files & Folders. "}
                     <button onClick={props.onReindexWorkspace}>Retry</button>
+                  </p>
+                )}
+                {state.draftsLimitHit && (
+                  <p role="status" className="navigation-help">
+                    Only some drafts are listed. Use Open to open one that isn't shown.
                   </p>
                 )}
                 {!drafts.length && !state.draftsError && state.draftsSkipped && (
                   <div className="navigation-help">
-                    <button onClick={props.onShowDrafts}>Show existing drafts</button>
+                    <button onClick={props.onShowDrafts}>Show earlier drafts</button>
+                    {isMac && <p>Your Mac may ask to let Bindars open Documents.</p>}
                   </div>
                 )}
                 {!drafts.length && !state.draftsError && !state.draftsSkipped && (
                   <p className="navigation-help">
-                    {state.status === "indexing"
+                    {firstListing
                       ? "Looking for drafts…"
                       : "No drafts yet."}
                   </p>
@@ -250,7 +269,7 @@ function SidebarComponent(props: SidebarProps) {
               <>
                 {!root && (
                   <p className="navigation-help">
-                    Add a folder to browse the documents in it. Nothing is moved or copied.
+                    Choose a folder to see its documents here. Your files stay where they are.
                   </p>
                 )}
                 {!root && <button
@@ -261,8 +280,8 @@ function SidebarComponent(props: SidebarProps) {
                 </button>}
                 {removed && (
                   <div role="status" className="navigation-help">
-                    Removed ‘{fileName(removed)}’ from the sidebar. Its files and
-                    your notes are unchanged.{" "}
+                    Removed ‘{fileName(removed)}’ from the sidebar. Nothing was
+                    deleted.{" "}
                     <button
                       onClick={() => {
                         foldersTabRef.current?.focus();
@@ -276,7 +295,7 @@ function SidebarComponent(props: SidebarProps) {
                 )}
                 {root && (
                   <>
-                    {state.error && (
+                    {!directory && state.error && (
                       <p role="status" className="navigation-help">
                         {state.error}{" "}
                         <button onClick={props.onReindexWorkspace}>Retry</button>
@@ -299,7 +318,7 @@ function SidebarComponent(props: SidebarProps) {
                         className="navigation-action"
                         onClick={() => setFolderLimit((n) => n + 100)}
                       >
-                        More folders
+                        Show more folders
                       </button>
                     )}
                     <DocumentList
@@ -312,46 +331,34 @@ function SidebarComponent(props: SidebarProps) {
                     />
                     {!files.length && !subfolders.length && !state.error && (
                       <p className="navigation-help">
-                        {state.status === "indexing"
+                        {firstListing
                           ? "Looking for documents…"
-                          : "No supported documents in this folder."}
+                          : state.limitHit || state.issues?.length
+                            ? "No documents could be listed here."
+                            : "No Markdown or Fountain documents in this folder."}
                       </p>
                     )}
                   </>
                 )}
-                <details className="navigation-help">
-                  <summary>What appears here</summary>
-                  <p>
-                    Markdown (.md, .markdown) and Fountain files. Hidden folders,
-                    node_modules, target, vendor, and symbolic links are skipped.
-                    Discovery stops at 5,000 documents, 100,000 entries or 32
-                    levels.
-                  </p>
-                </details>
               </>
             )}
           </div>
-          {state.limitHit && (
+          {view === "Folders" && root && !directory && state.limitHit && (
             <p role="status" className="navigation-help">
-              Only part of this folder is listed. Choose a smaller folder to reach
-              documents beyond the discovery limits.
+              Only part of this folder is listed. Use Folder options to choose a folder inside it.
             </p>
           )}
-          {!!state.issues?.length && (
+          {view === "Folders" && root && !directory && !!state.issues?.length && (
             <details className="navigation-help">
-              <summary>Some locations could not be checked</summary>
+              <summary>Some places in this folder couldn't be opened</summary>
               {state.issues.map((issue) => (
                 <p key={issue}>{issue}</p>
               ))}
             </details>
           )}
-          {/* Background rechecks run on every window focus; keep them out of live regions. */}
+          {/* Only the first listing shows progress. Rechecks stay quiet. */}
           <p className="navigation-help">
-            {state.status === "indexing"
-              ? "Checking documents…"
-              : state.readFailedCount + state.complexitySkippedCount > 0
-                ? "Some documents have limited search coverage. Their names remain searchable."
-                : ""}
+            {firstListing ? "Checking documents…" : ""}
           </p>
         </div>
       </div>

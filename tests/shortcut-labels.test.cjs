@@ -23,8 +23,6 @@ const workspaceState = {
   status: "ready",
   indexedAt: 1,
   error: null,
-  readFailedCount: 0,
-  complexitySkippedCount: 0,
   limitHit: false,
 };
 

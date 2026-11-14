@@ -40,7 +40,7 @@ export function ReconnectNotesDialog({
   ) => Promise<void>;
   onOpen: (path: string) => void;
 }) {
-  const [records, setRecords] = useState<RecordSummary[]>([]);
+  const [records, setRecords] = useState<RecordSummary[] | null>(null);
   const [source, setSource] = useState(sourcePath ?? "");
   const [expected, setExpected] = useState<unknown>(null);
   const [destination, setDestination] = useState<OpenFileResult | null>(null);
@@ -74,6 +74,10 @@ export function ReconnectNotesDialog({
       alive.current = false;
     };
   }, []);
+  // A moved file without notes: choosing its new location simply opens it.
+  // Records stay null until the lookup succeeds, so unknown never reads as none.
+  const sourceHasNoNotes =
+    !!records && !!source && !records.some((record) => record.path === source);
   const prepared = useMemo(
     () =>
       destination
@@ -206,17 +210,20 @@ export function ReconnectNotesDialog({
   return (
     <DialogFrame
       visible
-      title="Reconnect notes"
+      title={sourceHasNoNotes ? "Locate File" : "Reconnect notes"}
       initialFocusRef={selectRef}
       onDismiss={() => {
         if (!busy) onClose();
       }}
       className="w-full max-w-xl mx-3 rounded-xl border border-border bg-bg-secondary p-5 max-h-[90vh] overflow-y-auto"
     >
-      <p className="text-sm my-3">
-        Choose the old document and its new location. Reconnecting moves its
-        saved highlights, notes and bookmarks; it never changes either document.
-      </p>
+      {!sourceHasNoNotes && (
+        <p className="text-sm my-3">
+          Choose the old document and its new location. Reconnecting moves its
+          saved highlights, notes and bookmarks; it never changes either
+          document.
+        </p>
+      )}
       <label className="text-sm block">
         Original document
         <select
@@ -232,12 +239,13 @@ export function ReconnectNotesDialog({
         >
           <option value="">Choose saved notes…</option>
           {sourcePath &&
-            !records.some((record) => record.path === sourcePath) && (
+            !records?.some((record) => record.path === sourcePath) && (
               <option value={sourcePath}>
-                {sourcePath} · no saved notes found
+                {fileName(sourcePath)}
+                {records ? " · no saved notes" : ""}
               </option>
             )}
-          {records.map((record) => (
+          {records?.map((record) => (
             <option key={record.path} value={record.path}>
               {fileName(record.path)} · {record.highlights ?? "?"} highlights,{" "}
               {record.notes ?? "?"} notes, {record.bookmarks ?? "?"} bookmarks
@@ -246,13 +254,19 @@ export function ReconnectNotesDialog({
         </select>
       </label>
       {source && <PathDetails key={source} path={source} />}
+      {sourceHasNoNotes && !complete && (
+        <p className="text-sm my-2">
+          {fileName(source)} has no saved notes. Choose where it is now to open
+          it.
+        </p>
+      )}
       {!complete && (
         <button
           className="navigation-action"
           onClick={() => void choose()}
           disabled={!source || busy}
         >
-          Choose destination document…
+          {sourceHasNoNotes ? "Choose File…" : "Choose destination document…"}
         </button>
       )}
       {destination && (
