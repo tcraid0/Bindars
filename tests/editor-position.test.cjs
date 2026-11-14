@@ -121,6 +121,19 @@ test("Markdown reader anchors keep a heading that Contents scrolled to the top",
   });
 });
 
+test("a quote and its first paragraph share a stamp, and an untouched trip returns exactly", async () => {
+  // The quote starts inside the bar's band and its padded paragraph just below it. The restore
+  // finds the quote, so the anchor must carry the quote's height, not the paragraph's.
+  const { root, scrollRoot } = await markdownAnchorFixture([
+    ["blockquote", "quote", 4, 3, 62, 300],
+    ["p", "quoted", 4, 3, 72, 290],
+  ]);
+  const anchor = captureReaderAnchor(root, scrollRoot, null, "ignored");
+  assert.deepEqual(anchor, { source: { line: 4, column: 3 }, viewportOffsetPx: 62 });
+  assert.equal(restoreReaderAnchor(root, scrollRoot, anchor.source, anchor.viewportOffsetPx), true);
+  assert.equal(scrollRoot.scrollTop, 500);
+});
+
 test("Markdown reader anchors hold a block taller than the screen", async () => {
   const { root, scrollRoot } = await markdownAnchorFixture([
     ["p", "tall", 2, 1, -300, 900],

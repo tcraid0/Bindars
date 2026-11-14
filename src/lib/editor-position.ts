@@ -257,9 +257,11 @@ export function captureReaderAnchor(
     const source = readSourcePoint(element);
     if (!source) return null;
 
+    // A quote and its first paragraph share a stamp. Measure the block the restore will find.
+    const restored = findSourceElement(root, source) ?? element;
     return {
       source,
-      viewportOffsetPx: element.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top,
+      viewportOffsetPx: restored.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top,
     };
   }
 
