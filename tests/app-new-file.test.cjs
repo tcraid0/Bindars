@@ -8485,3 +8485,30 @@ for (const route of ['saved Read', 'quit']) {
     } finally { await reopened.cleanup(); }
   });
 }
+
+
+test("Contents omits link sections with no matching documents", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const contents = rendered.host.querySelector('[data-reader-panel="toc"]');
+    assert.ok(contents);
+    assert.doesNotMatch(contents.textContent, /Linked from|Unlinked mentions|No incoming links/);
+  } finally { await rendered.cleanup(); }
+});
+
+
+for (const [content, shown, hidden] of [
+  ["# First\n\n[Read this](continuity.md)", "Linked from (1)", "Unlinked mentions"],
+  ["# First\n\nAn unlinked mention of First.", "Unlinked mentions (1)", "Linked from"],
+]) {
+  test(`Contents keeps ${shown} when there is a matching document`, async () => {
+    const rendered = await renderContinuityApp({ workspaceFiles: [
+      { path: "/tmp/continuity.md", name: "continuity.md", relPath: "continuity.md", size: content.length, mtimeMs: 1 },
+      { path: "/tmp/other.md", name: "other.md", relPath: "other.md", size: content.length, mtimeMs: 1 },
+    ], workspaceContent: content });
+    try {
+      await waitFor(() => assert.ok(rendered.host.querySelector('[data-reader-panel="toc"]').textContent.includes(shown)));
+      assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]').textContent.includes(hidden));
+    } finally { await rendered.cleanup(); }
+  });
+}

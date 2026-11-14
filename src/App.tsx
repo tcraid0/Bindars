@@ -2649,14 +2649,13 @@ function App() {
   // Memoised so the Contents panel does not re-render on every App render.
   const connections = useMemo(() => (
     <div className="navigation-help">
-      <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
+      {!!workspaceInsights.backlinks.length && <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
         {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}
-        {!workspaceInsights.backlinks.length && <p>No incoming links in searchable documents.</p>}
-      </details>
-      <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
+      </details>}
+      {!!workspaceInsights.mentions.length && <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
         <p>Documents that mention this document’s title without a link.</p>
         {workspaceInsights.mentions.map(link => <button className="block py-2 break-all" key={link.path} onClick={() => openWorkspacePath(link.path)}>{link.relPath}</button>)}
-      </details>
+      </details>}
     </div>
   ), [workspaceInsights.backlinks, workspaceInsights.mentions, openWorkspacePath]);
 
