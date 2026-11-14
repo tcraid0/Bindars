@@ -322,14 +322,19 @@ export function restoreReaderAnchor(
   scrollRoot: HTMLElement,
   source: SourcePoint,
   viewportOffsetPx: number | null,
+  /** Used instead of `viewportOffsetPx` only when the found block starts on the source line. */
+  sameLineOffsetPx?: number,
 ): boolean {
   const target = findSourceElement(root, source);
   if (!target) return false;
 
   const viewportTop = scrollRoot.getBoundingClientRect().top;
   const targetTop = target.getBoundingClientRect().top - viewportTop + scrollRoot.scrollTop;
-  const requestedOffset = viewportOffsetPx !== null && Number.isFinite(viewportOffsetPx)
-    ? viewportOffsetPx
+  const offset = sameLineOffsetPx !== undefined && readSourcePoint(target)?.line === source.line
+    ? sameLineOffsetPx
+    : viewportOffsetPx;
+  const requestedOffset = offset !== null && Number.isFinite(offset)
+    ? offset
     : 0;
   const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
   scrollRoot.scrollTop = Math.max(0, Math.min(targetTop - requestedOffset, maxScrollTop));

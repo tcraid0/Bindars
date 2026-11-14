@@ -57,6 +57,9 @@ export interface EditorSurfacePosition {
   cursor: SourcePoint;
   viewport: SourcePoint | null;
   viewportMoved: boolean;
+  /** Screen tops of the cursor's and the viewport's lines; null when the line does not start on screen. */
+  cursorTopPx: number | null;
+  viewportTopPx: number | null;
 }
 
 interface CodeMirrorEditorProps {
@@ -296,6 +299,17 @@ function stickyControlsInset(controls: HTMLElement | null | undefined, scrollRoo
   return Math.max(0, bar.getBoundingClientRect().bottom - Math.max(0, scrollRoot?.getBoundingClientRect().top ?? 0));
 }
 
+/** Screen top of the drawn line holding `point`; null when it is not drawn or starts off screen. */
+function lineScreenTop(view: EditorView, scrollRoot: HTMLElement | null, point: SourcePoint | null): number | null {
+  if (!scrollRoot || !point) return null;
+  const { node } = view.domAtPos(view.state.doc.line(point.line).from);
+  const line = (node instanceof HTMLElement ? node : node.parentElement)?.closest(".cm-line");
+  if (!line) return null;
+  const top = line.getBoundingClientRect().top;
+  const viewport = scrollRoot.getBoundingClientRect();
+  return top >= viewport.top && top < viewport.bottom ? top : null;
+}
+
 function firstVisibleSourcePoint(view: EditorView, scrollRoot: HTMLElement, topInset: number): SourcePoint | null {
   const viewport = scrollRoot.getBoundingClientRect();
   const top = viewport.top + topInset;
@@ -382,10 +396,13 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         if (!view) return null;
         const cursor = sourcePointAt(view.state.doc, view.state.selection.main.head);
         const scrollRoot = scrollRootRef?.current ?? null;
+        const viewport = scrollRoot ? firstVisibleSourcePoint(view, scrollRoot, stickyTopInset()) : null;
         return {
           cursor,
-          viewport: scrollRoot ? firstVisibleSourcePoint(view, scrollRoot, stickyTopInset()) : null,
+          viewport,
           viewportMoved: viewportMovedByUserRef.current,
+          cursorTopPx: lineScreenTop(view, scrollRoot, cursor),
+          viewportTopPx: lineScreenTop(view, scrollRoot, viewport),
         };
       },
     }), []);

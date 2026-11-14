@@ -4046,7 +4046,8 @@ test("clean exit restores cursor movement and scroll-only movement", async () =>
     const unchangedSelection = view.state.selection.main.head;
     dispatchShortcut("e");
     assert.equal(unchangedSelection, view.state.doc.line(1).from);
-    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500));
+    // Edit drew line 5 at 100 on screen, 50 below main's top; Read puts its heading there too.
+    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500 - 50));
   } finally {
     await rendered.cleanup();
   }

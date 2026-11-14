@@ -135,6 +135,8 @@ type PendingReaderTarget =
       kind: "source";
       source: SourcePoint;
       viewportOffsetPx: number | null;
+      /** After moving in Edit: where Edit showed the line on screen, applied if Read has a block on it. */
+      screenTopPx: number | null;
       documentKey: string | null;
       editorSessionKey: number;
     };
@@ -148,6 +150,7 @@ interface EditTransition {
 interface PendingExitReconciliation {
   path: string;
   readerTarget: ReaderAnchor | null;
+  screenTopPx: number | null;
   editorSessionKey: number;
 }
 
@@ -807,6 +810,7 @@ function App() {
           kind: "source",
           source: pendingExit.readerTarget.source,
           viewportOffsetPx: pendingExit.readerTarget.viewportOffsetPx,
+          screenTopPx: pendingExit.screenTopPx,
           documentKey: documentId,
           editorSessionKey: pendingExit.editorSessionKey,
         });
@@ -1161,6 +1165,7 @@ function App() {
 
   const publishSourceReaderTarget = useCallback((
     readerTarget: ReaderAnchor | null,
+    screenTopPx: number | null,
     documentKey: string | null,
     editorSessionKey: number,
   ) => {
@@ -1169,6 +1174,7 @@ function App() {
       kind: "source",
       source: readerTarget.source,
       viewportOffsetPx: readerTarget.viewportOffsetPx,
+      screenTopPx,
       documentKey,
       editorSessionKey,
     });
@@ -1192,16 +1198,19 @@ function App() {
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
     let readerTarget: ReaderAnchor | null = null;
+    let movedScreenTopPx: number | null = null;
     if (transition && positionOutcome !== "none") {
       readerTarget = transition.originalReaderAnchor;
       if (surfacePosition && (surfacePosition.viewportMoved
         || !sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget))) {
+        const viewport = surfacePosition.viewportMoved ? surfacePosition.viewport : null;
         readerTarget = {
-          source: surfacePosition.viewportMoved && surfacePosition.viewport
-            ? surfacePosition.viewport : surfacePosition.cursor,
-          // Moved positions restore by block because editor and reader wrapping differ.
+          source: viewport ?? surfacePosition.cursor,
+          // Moved positions restore by block because editor and reader wrapping differ: at the
+          // line's height in Edit when Read's block starts on that line, else at the top.
           viewportOffsetPx: 0,
         };
+        movedScreenTopPx = viewport ? surfacePosition.viewportTopPx : surfacePosition.cursorTopPx;
       }
     }
 
@@ -1211,7 +1220,7 @@ function App() {
     resetEditSession();
     pendingContinuityRef.current = continuity;
 
-    publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
+    publishSourceReaderTarget(readerTarget, movedScreenTopPx, documentKey, sessionKey);
     if (positionOutcome !== "none") requestReaderFocus();
 
     // Reconciliation starts only after the watcher attempt settles. That closes
@@ -1220,6 +1229,7 @@ function App() {
       pendingExitReconciliationRef.current = {
         path: exitPath,
         readerTarget,
+        screenTopPx: movedScreenTopPx,
         editorSessionKey: sessionKey,
       };
     }
@@ -2051,11 +2061,14 @@ function App() {
 
     if (pendingReaderTarget.kind === "source") {
       if (pendingReaderTarget.editorSessionKey !== editorSessionKeyRef.current) return;
+      const { screenTopPx } = pendingReaderTarget;
       restoreReaderAnchor(
         root,
         scrollRoot,
         pendingReaderTarget.source,
         pendingReaderTarget.viewportOffsetPx,
+        // Through the screen, so the hint strip returning above Read does not lower the block.
+        screenTopPx === null ? undefined : Math.max(0, screenTopPx - scrollRoot.getBoundingClientRect().top),
       );
       updateReadingProgressNow();
       setPendingReaderTarget(null);

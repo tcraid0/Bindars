@@ -900,6 +900,8 @@ test("scroll-only movement captures the first visible editor line without moving
       cursor: { line: 1, column: 1 },
       viewport: { line: 3, column: 1 },
       viewportMoved: true,
+      cursorTopPx: null,
+      viewportTopPx: 100,
     });
     assert.deepEqual(view.state.selection.main.toJSON(), beforeSelection);
   } finally {
@@ -1042,6 +1044,8 @@ for (const [label, initialDocument, line] of [
       cursor: { line: 1, column: 1 },
       viewport: { line, column: 1 },
       viewportMoved: true,
+      cursorTopPx: 40,
+      viewportTopPx: tops[line - 1],
     });
   } finally {
     rendered.cleanup();

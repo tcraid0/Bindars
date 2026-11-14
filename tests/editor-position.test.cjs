@@ -310,6 +310,33 @@ test("reader restoration chooses the nearest preceding source block and restores
   assert.match(root.querySelector("#two").outerHTML, /data-bindars-source-line="8"/);
 });
 
+test("reader restoration uses the editor's height only for a block starting on the target line", async () => {
+  await installDom();
+  const scrollRoot = document.createElement("main");
+  const root = document.createElement("article");
+  root.innerHTML = [
+    '<p id="one" data-bindars-source-line="3" data-bindars-source-column="1">One</p>',
+    '<pre id="code" data-bindars-source-line="8" data-bindars-source-column="1">Code</pre>',
+  ].join("");
+  scrollRoot.appendChild(root);
+  document.body.appendChild(scrollRoot);
+  Object.defineProperties(scrollRoot, {
+    scrollTop: { value: 300, writable: true },
+    clientHeight: { value: 200 },
+    scrollHeight: { value: 1000 },
+  });
+  setRect(scrollRoot, 50, 250);
+  setRect(root.querySelector("#code"), 200, 400);
+
+  // The code block starts on line 8: its top goes to the editor's height.
+  assert.equal(restoreReaderAnchor(root, scrollRoot, { line: 8, column: 1 }, 0, 120), true);
+  assert.equal(scrollRoot.scrollTop, 450 - 120);
+  // Line 10 is inside it: the block keeps today's top-edge placement.
+  scrollRoot.scrollTop = 300;
+  assert.equal(restoreReaderAnchor(root, scrollRoot, { line: 10, column: 1 }, 0, 120), true);
+  assert.equal(scrollRoot.scrollTop, 450);
+});
+
 test("reader restoration keeps a line-start editor target on that line's rendered block", async () => {
   await installDom();
   const root = document.createElement("article");
