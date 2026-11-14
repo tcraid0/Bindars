@@ -212,7 +212,7 @@ for (const session of [null, { kind: "home", savedAt: 1 }]) {
 
 test("Alt+Home and Alt+arrows pass through a focused sidebar tab", async t => {
   const app = await mount(t);
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  click(app.host().querySelector('button[aria-label="Sidebar"]'));
   const drafts = await until(() => {
     const tab = app.host().querySelector("#navigation-tab-Drafts");
     assert.ok(tab);
@@ -490,9 +490,9 @@ test("Back to Home returns to the row Home was left from, or to the heading when
   row("B").focus();
   click(row("B"));
   await arriveAt(app, "B.md");
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
-  await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from recent files"]')));
-  click(app.host().querySelector('[aria-label="Remove B.md from recent files"]'));
+  click(app.host().querySelector('button[aria-label="Sidebar"]'));
+  await until(() => assert.ok(app.host().querySelector('[aria-label="Remove B.md from Recent"]')));
+  click(app.host().querySelector('[aria-label="Remove B.md from Recent"]'));
   await press(app, "Go back");
   await arriveAt(app, "Home");
   await until(() => assert.ok(document.activeElement === pageHeading(app), "without its row, focus lands on the heading"));
@@ -506,8 +506,8 @@ for (const focusedControl of ["Open File…", "New", "sidebar"]) {
     const app = await mount(t, { platform: "MacIntel", initialPath: null,
       session: { kind: "home", savedAt: 1 }, recentFiles });
     await arriveAt(app, "Home");
-    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
-    const remove = app.host().querySelector('aside [aria-label="Remove C.md from recent files"]');
+    click(app.host().querySelector('button[aria-label="Sidebar"]'));
+    const remove = app.host().querySelector('aside [aria-label="Remove C.md from Recent"]');
     assert.ok(remove);
     const control = focusedControl === "sidebar" ? remove
       : [...app.host().querySelectorAll(".empty-state button")].find(button => button.textContent.trim() === focusedControl);
@@ -533,7 +533,7 @@ test("removing the last recent file on Home keeps compact Home through Quit and 
   const app = await mount(t);
   click(app.home());
   await arriveAt(app, "Home");
-  click(app.host().querySelector('.empty-state [aria-label="Remove A.md from recent files"]'));
+  click(app.host().querySelector('.empty-state [aria-label="Remove A.md from Recent"]'));
   await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   assert.ok(atHome(app), "removing the last row does not change the page");
   const startsHome = () => {
@@ -624,7 +624,7 @@ for (const category of ["notFound", "permissionDenied"]) {
     await app.requestOpen(alias);
     await act(async () => failedAgain.reject({ category, operation: "readDocument", message: "Unavailable", detail: "fixture" }));
     await until(() => assert.ok(message()));
-    click(app.host().querySelector('[aria-label="Remove Returned.md from recent files"]'));
+    click(app.host().querySelector('[aria-label="Remove Returned.md from Recent"]'));
     await until(() => assert.equal(message(), null, "removing the equivalent row dismisses recovery"));
     await until(() => assert.deepEqual(app.settings["recent-files"].files, []));
   });
@@ -643,9 +643,9 @@ test("a missing file named at launch is reported on Home instead of reopening th
 test('Home and sidebar share explicit removal, restore Search membership, and preserve newer sidebar ordering', async t => {
   const files = ['A', 'B', 'C'].map((name, i) => ({ path: `/fixture/${name}.md`, name: `${name}.md`, openedAt: 10-i, lastHeadingId: i === 1 ? 'second' : null }));
   const app = await mount(t, { initialPath: null, recentFiles: files, session: { kind: 'home', savedAt: 1 } });
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+  click(app.host().querySelector('[aria-label="Sidebar"]'));
   const sidebar = await until(() => { const s = app.host().querySelector('.document-sidebar'); assert.ok(s); return s; });
-  const remove = path => app.host().querySelector(`.empty-state [data-path="${path}"] [aria-label$="from recent files"]`);
+  const remove = path => app.host().querySelector(`.empty-state [data-path="${path}"] [aria-label$="from Recent"]`);
   remove(files[1].path).focus();
   click(remove(files[1].path));
   await until(() => assert.equal(app.host().querySelectorAll('.recent-removal-notice').length, 2));
@@ -674,7 +674,7 @@ test('restoring an unavailable Recent entry clears its error recovery and does n
   const app = await mount(t, { initialPath: null, recentFiles: [missing], session: { kind: 'home', savedAt: 1 } });
   click(app.host().querySelector('[data-path] button'));
   await until(() => assert.ok(app.host().querySelector('[aria-label="Retry opening missing.md"]')));
-  click(app.host().querySelector('[aria-label$="from recent files"]'));
+  click(app.host().querySelector('[aria-label$="from Recent"]'));
   assert.ok(app.host().querySelector('.recent-removal-notice'));
   const before = app.opened.length;
   click([...app.host().querySelectorAll('.recent-removal-notice button')].find(b => b.textContent === 'Add Back'));
@@ -686,8 +686,8 @@ test('restoring an unavailable Recent entry clears its error recovery and does n
 
 test('reopening the still-current document clears its explicit removal and records a fresh open', async t => {
   const app = await mount(t);
-  click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
-  const remove = await until(() => { const b = app.host().querySelector('.document-sidebar [aria-label$="from recent files"]'); assert.ok(b); return b; });
+  click(app.host().querySelector('[aria-label="Sidebar"]'));
+  const remove = await until(() => { const b = app.host().querySelector('.document-sidebar [aria-label$="from Recent"]'); assert.ok(b); return b; });
   click(remove);
   assert.ok(app.host().querySelector('.recent-removal-notice'));
   await until(() => assert.deepEqual(app.settings['recent-files'].files, []));
@@ -701,13 +701,13 @@ for (const timing of ['before the scroll-save delay', 'after the scroll-save del
   test(`Add Back keeps the latest reading section ${timing}`, async t => {
     const leaveBeforeRestore = timing === 'after immediately leaving the removed document';
     const app = await mount(t, { recentFiles: [{ path: '/fixture/A.md', name: 'A.md', openedAt: 1, lastHeadingId: 'amd' }] });
-    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    click(app.host().querySelector('[aria-label="Sidebar"]'));
     const sidebar = app.host().querySelector('.document-sidebar');
     const original = structuredClone(app.settings['recent-files'].files[0]);
     assert.equal(app.host().querySelector('article h1').id, original.lastHeadingId);
-    await act(async () => click(sidebar.querySelector('[aria-label$="from recent files"]')));
+    await act(async () => click(sidebar.querySelector('[aria-label$="from Recent"]')));
     const second = await until(() => {
-      const button = [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === 'Second');
+      const button = [...app.host().querySelectorAll('[aria-label="Contents"] button')].find(b => b.textContent === 'Second');
       assert.ok(button); return button;
     });
     await act(async () => click(second));
@@ -734,11 +734,11 @@ for (const action of ['remove', 'Dismiss', 'Add Back']) {
       { path: currentPath, name: 'A.md', openedAt: 2, lastHeadingId: 'amd' },
       { path: otherPath, name: 'B.md', openedAt: 1, lastHeadingId: 'bmd' },
     ] });
-    click(app.host().querySelector('[aria-label="Toggle sidebar"]'));
+    click(app.host().querySelector('[aria-label="Sidebar"]'));
     const sidebar = app.host().querySelector('.document-sidebar');
-    const removeOther = () => click(sidebar.querySelector(`[data-path="${otherPath}"] [aria-label$="from recent files"]`));
+    const removeOther = () => click(sidebar.querySelector(`[data-path="${otherPath}"] [aria-label$="from Recent"]`));
     const second = await until(() => {
-      const button = [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === 'Second');
+      const button = [...app.host().querySelectorAll('[aria-label="Contents"] button')].find(b => b.textContent === 'Second');
       assert.ok(button); return button;
     });
     if (action !== 'remove') await act(async () => removeOther());
@@ -765,7 +765,7 @@ test('a different active heading replaces the pending section and its save deadl
   t.after(() => t.mock.timers.reset());
   const path = '/fixture/A.md';
   const app = await mount(t, { recentFiles: [{ path, name: 'A.md', openedAt: 1, lastHeadingId: 'second' }] });
-  const heading = label => [...app.host().querySelectorAll('[aria-label="Table of contents"] button')].find(b => b.textContent === label);
+  const heading = label => [...app.host().querySelectorAll('[aria-label="Contents"] button')].find(b => b.textContent === label);
   const second = await until(() => { const button = heading('Second'); assert.ok(button); return button; });
   const current = () => app.settings['recent-files'].files.find(f => f.path === path);
   const original = structuredClone(current());

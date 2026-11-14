@@ -60,7 +60,7 @@ async function setup(props = {}) {
   return {
     ...view,
     cleanup() { view.cleanup(); globalThis.localStorage = previousLocalStorage; },
-    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Toggle reader settings" : "Export options"}"]`); },
+    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Reader settings" : "Export options"}"]`); },
     panel(kind) { return view.host.querySelector(kind === "reader" ? '[role="dialog"]:not([aria-modal])' : '[role="group"][aria-label="Export options"]'); },
     open(kind) { const trigger = this.trigger(kind); focus(trigger); click(trigger); return this.panel(kind); },
   };
@@ -229,7 +229,8 @@ for (const kind of ["reader", "export"]) {
         assert.equal(view.trigger(kind).getAttribute("aria-expanded"), "true");
         assert.equal(view.trigger(kind).getAttribute("aria-controls"), panel.id);
         if (kind === "reader") {
-          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader Settings");
+          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader settings");
+          assert.equal(view.trigger(kind).title, "Hide Reader settings");
           assert.equal(document.activeElement.getAttribute("aria-label"), "Close reader settings");
         } else {
           assert.ok(document.activeElement === view.trigger(kind));

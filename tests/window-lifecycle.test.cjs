@@ -98,7 +98,7 @@ async function requestQuit() {
   });
 }
 
-async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null, sidebarInitiallyOpen = false } = {}) {
+async function renderLifecycleApp({ platform = "mac", openName = null, content = DOC_CONTENT, highlights = [], annotationWrite = async () => {}, initialSessionOperation = null, draftCreationError = null, sidebarInitiallyOpen = false } = {}) {
   await installDom();
   ({ flushSync } = require("./_helpers/react.cjs"));
   window.localStorage.clear();
@@ -201,7 +201,7 @@ async function renderLifecycleApp({ platform = "mac", content = DOC_CONTENT, hig
         }
         return {
           canonicalPath: args.path,
-          name: args.path.split("/").at(-1),
+          name: openName ?? args.path.split("/").at(-1),
           content: diskContent,
           revision: { mtimeMs: revisionNumber, size: diskContent.length, contentHash: `r${revisionNumber}` },
         };
@@ -347,7 +347,7 @@ test("Save As reconfirms typing during the file write before leaving the documen
         else if (action === "close") await rendered.requestClose();
         else await rendered.requestQuit();
         const dialog = await waitFor(() => confirmDialog(rendered.host));
-        assert.match(dialog.textContent, /Unsaved changes/);
+        assert.equal(dialog.querySelector("h2").textContent, "Save changes to “Untitled.md”?");
         rendered.deferNextWrite(save);
         clickButton(rendered.host, "Save", dialog);
         await waitFor(() => assert.ok(save.args));
@@ -368,7 +368,7 @@ test("Save As reconfirms typing during the file write before leaving the documen
         });
 
         const reconfirm = await waitFor(() => confirmDialog(rendered.host));
-        assert.match(reconfirm.textContent, /Unsaved changes/);
+        assert.equal(reconfirm.querySelector("h2").textContent, "Save changes to “Save As.md”?");
         assert.equal(findEditorView(rendered.host).state.sliceDoc(), newerWords);
         assert.equal(rendered.fileWrites().length, 1);
         assert.equal(rendered.hideCount(), 0);
@@ -431,7 +431,7 @@ test("a New request during a pending Save As write waits for the write, then run
     const newerDialog = await waitFor(() => confirmDialog(rendered.host));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), "Keep this newer draft.");
     assert.equal(rendered.exitCalls().length, 0);
-    clickButton(rendered.host, "Discard", newerDialog);
+    clickButton(rendered.host, "Don't save", newerDialog);
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
     assert.equal(rendered.fileWrites().length, 1);
   } finally {
@@ -454,16 +454,16 @@ for (const boundary of ["edit-exit", "quit"]) {
         if (boundary === "quit") await rendered.requestQuit();
         else dispatchShortcut("e");
         const conflict = await waitFor(() => confirmDialog(rendered.host));
-        assert.match(conflict.textContent, /File changed/);
+        assert.match(conflict.textContent, /changed outside Bindars/);
         rendered.deferNextWrite(overwrite);
-        clickButton(rendered.host, "Overwrite", conflict);
+        clickButton(rendered.host, "Keep my changes", conflict);
         await waitFor(() => assert.equal(overwrite.args?.force, true));
-        assert.match(conflict.querySelector('[role="status"]').textContent, /Overwriting/);
+        assert.match(conflict.querySelector('[role="status"]').textContent, /Saving your changes/);
         for (const button of conflict.querySelectorAll("button")) assert.equal(button.disabled, true);
 
         // Neither buttons nor Escape may end the session or replace the
         // continuation while a native write that cannot be cancelled is running.
-        for (const label of ["Reload", "Cancel", "Overwrite"]) clickButton(rendered.host, label, conflict);
+        for (const label of ["Use other version", "Cancel", "Keep my changes"]) clickButton(rendered.host, label, conflict);
         dispatchWindowKey("Escape");
         await rendered.requestQuit();
         assert.equal(confirmDialog(rendered.host), conflict);
@@ -566,9 +566,10 @@ test("macOS dirty close Save resolves the dialog and then hides once", async () 
 
     await rendered.requestClose();
     const dialog = confirmDialog(rendered.host);
+    assert.equal(dialog.querySelector("h2").textContent, `Save changes to “${DOC_NAME}”?`);
     assert.equal(
       dialog.querySelector("p").textContent,
-      `You have unsaved changes to ${DOC_NAME}. If you discard them, they can't be recovered.`,
+      "If you don't save, your changes can't be recovered.",
     );
     clickButton(rendered.host, "Save", dialog);
 
@@ -591,7 +592,7 @@ test("macOS dirty close Discard dismisses the dialog and hides exactly once", as
     rendered.failNextWrite();
 
     await rendered.requestClose();
-    clickButton(rendered.host, "Discard", confirmDialog(rendered.host));
+    clickButton(rendered.host, "Don't save", confirmDialog(rendered.host));
 
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     assert.equal(rendered.closeCount(), 0);
@@ -673,12 +674,12 @@ test("macOS dirty close conflict resolves through Overwrite and then hides once"
 
     await rendered.requestClose();
     const dialog = confirmDialog(rendered.host);
-    assert.match(dialog.textContent, /File changed on disk/);
+    assert.equal(dialog.querySelector("h2").textContent, `“${DOC_NAME}” changed outside Bindars`);
     assert.equal(
       dialog.querySelector("p").textContent,
-      `"${DOC_NAME}" was modified outside Bindars while you were editing. Reload replaces your changes here with the version on disk; they can't be recovered. Overwrite keeps your changes and replaces the file on disk.`,
+      "It changed while you were editing. If you use the other version, your changes here can't be recovered. If you keep your changes, they replace the other version.",
     );
-    clickButton(rendered.host, "Overwrite", dialog);
+    clickButton(rendered.host, "Keep my changes", dialog);
 
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     assert.equal(rendered.fileWrites().length, 2, "the retried overwrite write must complete");
@@ -689,6 +690,35 @@ test("macOS dirty close conflict resolves through Overwrite and then hides once"
     await rendered.cleanup();
   }
 });
+
+for (const { name, saveTitle, conflictTitle } of [
+  { name: 'The “last” draft — 🌙.md', saveTitle: 'Save changes to “The “last” draft — 🌙.md”?', conflictTitle: '“The “last” draft — 🌙.md” changed outside Bindars' },
+  { name: '', saveTitle: 'Save changes to this document?', conflictTitle: 'This document changed outside Bindars' },
+]) {
+  test(`save and conflict titles handle ${name ? "literal quotes and emoji" : "a missing name"}`, async () => {
+    const rendered = await renderLifecycleApp({ openName: name });
+    try {
+      await rendered.requestNativeOpen(`/tmp/${name || "fallback.md"}`);
+      await waitFor(() => assert.ok(rendered.host.querySelector("article")));
+      await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nUnsaved words.`);
+      rendered.failNextWrite();
+      await rendered.requestClose();
+      let dialog = confirmDialog(rendered.host);
+      assert.equal(dialog.querySelector("h2").textContent, saveTitle);
+      rendered.conflictNextWrite();
+      clickButton(rendered.host, "Save", dialog);
+      await waitFor(() => {
+        dialog = confirmDialog(rendered.host);
+        assert.equal(dialog.querySelector("h2").textContent, conflictTitle);
+      });
+      await cancelDialog(rendered.host);
+      assert.equal(rendered.hideCount(), 0);
+      assert.equal(findEditorView(rendered.host).state.sliceDoc(), `${DOC_CONTENT}\n\nUnsaved words.`);
+    } finally {
+      await rendered.cleanup();
+    }
+  });
+}
 
 test("repeated macOS close requests during the guard resolve to a single hide", async () => {
   const rendered = await renderLifecycleApp({ platform: "mac" });
@@ -1072,8 +1102,8 @@ test("macOS quit conflict resolves through Overwrite and then exits", async () =
 
     await rendered.requestQuit();
     const dialog = confirmDialog(rendered.host);
-    assert.match(dialog.textContent, /File changed on disk/);
-    clickButton(rendered.host, "Overwrite", dialog);
+    assert.match(dialog.textContent, /changed outside Bindars/);
+    clickButton(rendered.host, "Keep my changes", dialog);
 
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
     assert.equal(rendered.fileWrites()[1].force, true);
@@ -1176,7 +1206,7 @@ test("non-macOS dirty close Discard completes the programmatic close handshake",
     rendered.failNextWrite();
 
     await rendered.requestClose();
-    clickButton(rendered.host, "Discard", confirmDialog(rendered.host));
+    clickButton(rendered.host, "Don't save", confirmDialog(rendered.host));
 
     await waitFor(() => assert.equal(rendered.closeCount(), 1));
     assert.equal(rendered.destroyCount(), 0);
@@ -1505,13 +1535,13 @@ test("failed annotation quit can keep the app open and retry the latest record",
   try {
     await removeFixtureAnnotation(rendered);
     await rendered.requestQuit();
-    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
     assert.equal(rendered.exitCalls().length, 0);
     clickButton(rendered.host, "Keep open");
     await act(async () => { await Promise.resolve(); });
     assert.equal(rendered.exitCalls().length, 0);
     await rendered.requestQuit();
-    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
     fail = false;
     clickButton(rendered.host, "Retry saving");
     await waitFor(() => assert.equal(rendered.exitCalls().length, 1));
@@ -1543,7 +1573,7 @@ test("macOS hide keeps pending annotations without asking to discard them", asyn
     await rendered.requestClose();
     await waitFor(() => assert.equal(rendered.hideCount(), 1));
     assert.equal(rendered.exitCalls().length, 0);
-    assert.doesNotMatch(document.body.textContent, /Annotations haven't been saved/);
+    assert.doesNotMatch(document.body.textContent, /Highlights and notes haven't been saved/);
   } finally { write.resolve(); await rendered.cleanup(); }
 });
 
@@ -1572,7 +1602,7 @@ for (const platform of ["windows", "linux"]) {
     try {
       await removeFixtureAnnotation(rendered);
       await rendered.requestClose();
-      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
       clickButton(rendered.host, "Quit without saving");
       await waitFor(() => assert.equal(rendered.closeCount(), 1));
       assert.equal(rendered.destroyCount(), 0);
@@ -1582,7 +1612,7 @@ for (const platform of ["windows", "linux"]) {
       assert.equal(rendered.closeCount(), 1);
       // The harness keeps the view mounted after destroy. Consent must be spent.
       await rendered.requestClose();
-      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
       assert.equal(rendered.destroyCount(), 1);
       clickButton(rendered.host, "Keep open");
     } finally { await rendered.cleanup(); }
@@ -1594,7 +1624,7 @@ for (const platform of ["windows", "linux"]) {
     try {
       await removeFixtureAnnotation(rendered);
       await rendered.requestClose();
-      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
       clickButton(rendered.host, "Quit without saving");
       await waitFor(() => assert.equal(rendered.closeCount(), 1));
       const bookmark = rendered.host.querySelector('[aria-label="Add bookmark"]');
@@ -1604,7 +1634,7 @@ for (const platform of ["windows", "linux"]) {
       await rendered.requestClose();
       assert.equal(rendered.destroyCount(), 0, "the old decision must not discard the newer bookmark");
       await rendered.requestClose();
-      await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+      await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
       clickButton(rendered.host, "Keep open");
       assert.ok(rendered.host.querySelector('[aria-label="Remove bookmark"]'));
     } finally { await rendered.cleanup(); }
@@ -1619,7 +1649,7 @@ test("a note draft entered after close acknowledgement cancels the old discard d
   try {
     await removeFixtureAnnotation(rendered);
     await rendered.requestClose();
-    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
     clickButton(rendered.host, "Quit without saving");
     await waitFor(() => assert.equal(rendered.closeCount(), 1));
     flushSync(() => rendered.host.querySelector('[aria-label="Edit note"]').click());
@@ -1642,11 +1672,11 @@ test("a failed native close cannot leave discard consent for the next close requ
     await removeFixtureAnnotation(rendered);
     rendered.failNextClose();
     await rendered.requestClose();
-    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
     clickButton(rendered.host, "Quit without saving");
     await waitFor(() => assert.match(rendered.host.textContent, /Couldn't close the window/));
     await rendered.requestClose();
-    await waitFor(() => assert.match(document.body.textContent, /Annotations haven't been saved/));
+    await waitFor(() => assert.match(document.body.textContent, /Highlights and notes haven't been saved/));
     assert.equal(rendered.destroyCount(), 0);
     clickButton(rendered.host, "Keep open");
   } finally { await rendered.cleanup(); }
@@ -1715,11 +1745,11 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
       const main = r.host.querySelector("main");
       if (route === "notes-button") dispatchShortcut("m", { shiftKey: true });
       if (route === "settings-button") {
-        flushSync(() => r.host.querySelector('[aria-label="Toggle reader settings"]').click());
+        flushSync(() => r.host.querySelector('[aria-label="Reader settings"]').click());
       }
       const target = {
-        "toc-button": () => r.host.querySelector('nav[aria-label="Table of contents"] button'),
-        "header-button": () => r.host.querySelector('header [aria-label="Toggle sidebar"]'),
+        "toc-button": () => r.host.querySelector('nav[aria-label="Contents"] button'),
+        "header-button": () => r.host.querySelector('header button[aria-label="Sidebar"]'),
         "notes-button": () => r.host.querySelector('[data-reader-panel="notes"] button:not([disabled])'),
         "settings-button": () => r.host.querySelector('[aria-label="Close reader settings"]'),
         "reader-link": () => main.querySelector("article a"),
@@ -1746,7 +1776,7 @@ for (const route of ["toc-button", "header-button", "notes-button", "settings-bu
         assert.ok(r.host.querySelector("header"), "Focus mode has ended");
         assert.ok(!r.host.querySelector('[aria-label="Close reader settings"]'), "settings must stay closed on exit");
         assert.ok(document.activeElement === main, "settings must not take focus back on exit");
-        const trigger = r.host.querySelector('[aria-label="Toggle reader settings"]');
+        const trigger = r.host.querySelector('[aria-label="Reader settings"]');
         assert.equal(trigger.getAttribute("aria-expanded"), "false");
         flushSync(() => trigger.click());
         await waitFor(() => assert.ok(r.host.querySelector('[aria-label="Close reader settings"]')));
@@ -1760,7 +1790,7 @@ test("entering Focus mode from the Fountain character-focus Exit button", async 
   try {
     await r.requestNativeOpen("/tmp/focus.fountain");
     await waitFor(() => assert.ok(r.host.querySelector(".fountain-body")));
-    const character = await waitFor(() => [...r.host.querySelectorAll('nav[aria-label="Table of contents"] button[aria-pressed]')]
+    const character = await waitFor(() => [...r.host.querySelectorAll('nav[aria-label="Contents"] button[aria-pressed]')]
       .find(button => button.textContent.includes("NORA")) || assert.fail("character control missing"));
     flushSync(() => character.click());
     const exit = await waitFor(() => r.host.querySelector('[aria-label="Exit character focus"]') || assert.fail("character chip missing"));

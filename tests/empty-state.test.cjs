@@ -89,7 +89,8 @@ test("with history, launch shows Home: a small heading, quiet Open File and New,
     assert.match(view.host.textContent, /Drop a Markdown or Fountain file anywhere to open it\./);
     assert.ok(![...view.host.querySelectorAll("button")].some(button => button.textContent === "Keyboard Shortcuts"),
       "the toolbar's ? button lists shortcuts");
-    assert.doesNotMatch(view.host.textContent, /Recent files|Resume:|Try an Example|Read, highlight/);
+    assert.ok(![...view.host.querySelectorAll("h2")].some(heading => heading.textContent === "Recent"));
+    assert.doesNotMatch(view.host.textContent, /Resume:|Try an Example|Read, highlight/);
     assert.ok(view.host.querySelector(".empty-state").classList.contains("empty-state-home"), "Home never plays the welcome entrance");
     assert.ok(view.host.querySelector(".empty-state-content.home-column"), "the reading-width column");
   } finally {
@@ -142,7 +143,7 @@ test("Home names a document by its title, keeps the filename and folder, and rev
     assert.equal(plain.querySelector("button").getAttribute("aria-label"), "Open plan.md, reader › Notes");
     assert.match(plain.textContent, /^plan\.mdjust nowreader › Notes$/, "an untitled row keeps today's name and location");
     for (const row of [titled, plain]) {
-      const remove = row.querySelector('[aria-label$="from recent files"]');
+      const remove = row.querySelector('[aria-label$="from Recent"]');
       assert.match(remove.className, /\bopacity-0\b/);
       assert.match(remove.className, /\bgroup-hover:opacity-100\b/);
       assert.match(remove.className, /\bgroup-has-focus-visible:opacity-100\b/, "keyboard focus, not a click's focus");
@@ -153,7 +154,7 @@ test("Home names a document by its title, keeps the filename and folder, and rev
     view.render({ recovery: { path: files[1].path, error: { category: "not-found", message: "" }, retryDisabled: false } });
     const unavailable = view.host.querySelector('[data-path="/Users/reader/Notes/plan.md"]');
     assert.match(unavailable.textContent, /reader › Notes · Unavailable/);
-    assert.doesNotMatch(unavailable.querySelector('[aria-label$="from recent files"]').className, /opacity-0|absolute/,
+    assert.doesNotMatch(unavailable.querySelector('[aria-label$="from Recent"]').className, /opacity-0|absolute/,
       "an unavailable row keeps Retry and Remove visible and inline");
   } finally { view.cleanup(); }
 });
@@ -227,7 +228,7 @@ test("removing the last row keeps Home: the ways to start replace the list and k
   const view = renderEmptyState({ recentFiles: recentFiles.slice(0, 1),
     onRemoveRecent() { view.render({ recentFiles: [] }); } });
   try {
-    const remove = view.host.querySelector('[aria-label="Remove draft.md from recent files"]');
+    const remove = view.host.querySelector('[aria-label="Remove draft.md from Recent"]');
     remove.focus();
     click(remove);
     assert.equal(view.host.querySelector("h1").textContent, "Home", "removing the last row keeps Home");
@@ -242,7 +243,7 @@ test("removing the last row keeps Home: the ways to start replace the list and k
   document.body.append(elsewhere);
   try {
     elsewhere.focus();
-    click(pointer.host.querySelector('[aria-label="Remove draft.md from recent files"]'));
+    click(pointer.host.querySelector('[aria-label="Remove draft.md from Recent"]'));
     assert.ok(document.activeElement === elsewhere, "a pointer removal leaves focus where it was");
   } finally { pointer.cleanup(); elsewhere.remove(); }
 });
@@ -390,7 +391,7 @@ test("recovery Retry, Dismiss and removal are explicit, and the next recent file
     assert.equal(dismissals, 1);
     assert.ok(document.activeElement === buttonWithText(view.host, "Open a file…"),
       "Dismiss hands focus to the primary action, Home's Open row below two documents");
-    const remove = view.host.querySelector('[aria-label="Remove draft.md from recent files"]');
+    const remove = view.host.querySelector('[aria-label="Remove draft.md from Recent"]');
     remove.focus();
     click(remove);
     assert.deepEqual(removed, [recentFiles[0].path]);

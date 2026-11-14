@@ -143,7 +143,7 @@ test("annotation export sends the chosen destination and formatted Markdown", as
     click(exportButton(view.host));
     await flushExport();
     assert.deepEqual(dialogs, [{
-      defaultPath: "notes-annotations.md",
+      defaultPath: "notes-highlights-and-notes.md",
       filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
     }]);
     assert.equal(writes.length, 1);

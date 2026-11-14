@@ -10,7 +10,7 @@ test('recognizable future records ask for a newer app without changing the recor
 
 test('malformed version values are not described as coming from a newer app', () => {
   for (const version of ['4', -1, 4.5, Infinity, {}]) {
-    assert.throws(() => readAnnotationRecord({ version, highlights: [], bookmarks: [] }), /damaged or unsupported/);
+    assert.throws(() => readAnnotationRecord({ version, highlights: [], bookmarks: [] }), /damaged or in a format Bindars can't read/);
   }
 });
 

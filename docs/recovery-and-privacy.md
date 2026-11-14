@@ -42,8 +42,9 @@ finishes its save decisions. After Bindars quits, you may need to request logout
 or shutdown again. Force Quit cannot wait for unsaved work.
 
 Changes since the last successful save can be lost after an unexpected
-shutdown. Discarding changes or reloading from disk also loses the unsaved text;
-there is no recovery copy of it. Autosave does not replace backups or a version
+shutdown. Choosing **Don't save**, or **Use other version** after a document
+changes outside Bindars, also loses the unsaved text; there is no recovery copy
+of it. Autosave does not replace backups or a version
 history you manage yourself.
 
 ## Making a copy before editing

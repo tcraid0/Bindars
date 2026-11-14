@@ -25,6 +25,29 @@ external saves and atomic file replacements, with a bounded wait for events.
 Use the full `cargo test --locked` command: `--lib` skips the native opener
 permission guard in `src-tauri/tests/`.
 
+## Words in the Interface
+
+Use everyday words, and one name for each thing. Code can keep its internal
+names (`useWorkspaceIndex`, `annotations.json`, the `workspace:root` setting);
+text people see follows this list.
+
+| Say | Not |
+|---|---|
+| sidebar (with Recent, Drafts, Folders) | workspace |
+| Search documents | quick switcher, index |
+| folder | root, workspace folder |
+| Contents | table of contents |
+| Reader settings | Reader Settings |
+| Recent | Recent files |
+| Highlights & notes (the panel); highlights and notes (in a sentence) | annotations |
+| Show / Hide | Toggle |
+| changed outside Bindars | changed on disk, modified |
+| Don't save | Discard |
+| Use other version / Keep my changes (document conflict choices) | Reload / Overwrite |
+
+Dialog titles ask the question or say what happened ("Save changes to
+“Notes.md”?"). Buttons say what will happen ("Keep my changes", not "OK").
+
 ## Release Verification
 
 For a Developer ID Mac candidate, follow

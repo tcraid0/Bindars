@@ -216,17 +216,17 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     setRestoring(true);
     let confirming = false;
     try {
-      const path = await open({ multiple: false, filters: [{ name: "Annotation recovery", extensions: ["json"] }] });
+      const path = await open({ multiple: false, filters: [{ name: "Highlights & notes recovery", extensions: ["json"] }] });
       if (!alive.current || !path || typeof path !== "string") return;
       const recovery = await invoke<{ documents: Record<string, unknown> }>("read_annotation_recovery", { path });
       if (!alive.current) return;
       const record = recovery.documents[filePath];
-      if (!record) { toast("This recovery copy has no annotations for this document path.", "error"); return; }
+      if (!record) { toast("This recovery copy has no highlights or notes for this document.", "error"); return; }
       readAnnotationRecord(record);
       saveNote();
       setRecoveryRecord(record);
       confirming = true;
-    } catch { if (alive.current) toast("Couldn't read annotation recovery data. Existing annotations were not changed.", "error"); }
+    } catch { if (alive.current) toast("Couldn't read the recovery copy. Your highlights and notes were not changed.", "error"); }
     finally { if (!confirming) finishRecovery(); }
   };
 
@@ -242,7 +242,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     const baseName = fileName.replace(/\.[^.]+$/, "");
     try {
       const savePath = await save({
-        defaultPath: `${baseName}-annotations.md`,
+        defaultPath: `${baseName}-highlights-and-notes.md`,
         filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
       });
       if (!savePath) return;
@@ -355,7 +355,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
 
       {annotationsReady && !hasContent && (
         <p className="px-4 text-sm text-text-muted">
-          No highlights or notes yet. Select text and choose a color or Note. You can also bookmark a heading in the table of contents.
+          No highlights or notes yet. Select text and choose a color or Note. You can also bookmark a heading in Contents.
         </p>
       )}
 

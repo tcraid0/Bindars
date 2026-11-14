@@ -161,7 +161,7 @@ function TableOfContentsComponent({
   return (
     <nav
       ref={navRef}
-      aria-label="Table of contents"
+      aria-label="Contents"
       className="print-hide shrink-0 border-l border-border overflow-y-auto py-4"
       data-reader-panel="toc"
       style={{ width: READER_PANEL_WIDTHS.toc, animation: "tocIn 250ms cubic-bezier(0.2, 0, 0, 1)" }}

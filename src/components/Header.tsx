@@ -22,6 +22,9 @@ interface HeaderProps {
   onShowShortcuts: () => void;
   onToggleSidebar: () => void;
   onToggleToc: () => void;
+  sidebarVisible: boolean;
+  tocVisible: boolean;
+  notesVisible: boolean;
   onToggleReaderControls: () => void;
   readerControlsVisible: boolean;
   readerControlsId: string;
@@ -71,6 +74,9 @@ function HeaderComponent({
   onShowShortcuts,
   onToggleSidebar,
   onToggleToc,
+  sidebarVisible,
+  tocVisible,
+  notesVisible,
   onToggleReaderControls,
   readerControlsVisible,
   readerControlsId,
@@ -152,9 +158,10 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onToggleSidebar}
-          aria-label="Toggle sidebar"
+          aria-label="Sidebar"
+          aria-expanded={sidebarVisible}
           className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
-          title={`Toggle sidebar (${formatShortcutLabel("toggleSidebar")})`}
+          title={`${sidebarVisible ? "Hide" : "Show"} Sidebar (${formatShortcutLabel("toggleSidebar")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -383,11 +390,12 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onToggleAnnotations}
-                aria-label="Toggle Highlights & notes"
+                aria-label="Highlights & notes"
+                aria-expanded={notesVisible}
                 className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                   hasAnnotations ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                 }`}
-                title={`Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
+                title={`${notesVisible ? "Hide" : "Show"} Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -396,9 +404,10 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onToggleToc}
-                aria-label="Toggle table of contents"
+                aria-label="Contents"
+                aria-expanded={tocVisible}
                 className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-                title={`Toggle table of contents (${formatShortcutLabel("toggleTableOfContents")})`}
+                title={`${tocVisible ? "Hide" : "Show"} Contents (${formatShortcutLabel("toggleTableOfContents")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />
@@ -431,12 +440,12 @@ function HeaderComponent({
           type="button"
           onClick={onToggleReaderControls}
           ref={readerControlsTriggerRef}
-          aria-label="Toggle reader settings"
+          aria-label="Reader settings"
           aria-haspopup="dialog"
           aria-expanded={readerControlsVisible}
           aria-controls={readerControlsVisible ? readerControlsId : undefined}
           className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title="Reader settings"
+          title={`${readerControlsVisible ? "Hide" : "Show"} Reader settings`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 7V4h16v3" />

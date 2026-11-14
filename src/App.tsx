@@ -314,7 +314,7 @@ function App() {
     void initializeAnnotationStorage().then((status) => {
       if (active && !status.settingsReady) toast("Settings storage is unavailable. Existing data was preserved; preference changes cannot be saved.", "error");
     }).catch(() => {
-      if (active) toast("Annotation storage could not be initialized. Existing data was preserved. Retry from Highlights & notes.", "error");
+      if (active) toast("Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept. Open a document, then choose Retry in Highlights & notes.", "error");
     });
     return () => { active = false; };
   }, [toast]);
@@ -2540,11 +2540,13 @@ function App() {
   const toggleSidebar = useCallback(() => {
     changeSidebarVisibility(!visiblePanels.sidebar);
   }, [visiblePanels.sidebar, changeSidebarVisibility]);
+  // Suppressed panels retain the menu's existing preference behavior.
+  const sidebarMenuVisible = focusMode || presentationMode ? sidebarVisible : visiblePanels.sidebar;
   useEffect(() => {
-    void emit("bindars://sidebar-visible", sidebarVisible).catch(error => {
+    void emit("bindars://sidebar-visible", sidebarMenuVisible).catch(error => {
       console.warn("[sidebar] Failed to update the menu title:", error);
     });
-  }, [sidebarVisible]);
+  }, [sidebarMenuVisible]);
 
   const toggleToc = useCallback(() => {
     if (!documentOpen) return;
@@ -2925,7 +2927,7 @@ function App() {
         else search.previous();
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
-      case "toggle-sidebar": changeSidebarVisibility(!sidebarVisible); break;
+      case "toggle-sidebar": changeSidebarVisibility(!sidebarMenuVisible); break;
     }
   };
   const menuActionRef = useRef(dispatchMenuAction);
@@ -3342,6 +3344,9 @@ function App() {
           onShowShortcuts={showShortcuts}
           onToggleSidebar={toggleSidebar}
           onToggleToc={toggleToc}
+          sidebarVisible={visiblePanels.sidebar}
+          tocVisible={visiblePanels.toc}
+          notesVisible={visiblePanels.notes}
           onToggleReaderControls={toggleReaderControls}
           readerControlsVisible={readerControlsVisible}
           readerControlsId={readerControlsId}
@@ -3726,10 +3731,10 @@ function App() {
         onQuit={annotationExit.quitWithoutSaving} pendingRecords={pendingAnnotationRecords} />
       <ConfirmDialog
         visible={showConfirmDialog}
-        title="Unsaved changes"
-        message={`You have unsaved changes to ${fileName || "this file"}. If you discard them, they can't be recovered.`}
+        title={fileName ? `Save changes to “${fileName}”?` : "Save changes to this document?"}
+        message="If you don't save, your changes can't be recovered."
         confirmLabel="Save"
-        cancelLabel="Discard"
+        cancelLabel="Don't save"
         onConfirm={handleConfirmSave}
         onCancel={handleConfirmDiscard}
         onDismiss={handleConfirmCancel}
@@ -3737,11 +3742,11 @@ function App() {
       <ConfirmDialog
         visible={showConflictDialog}
         busy={conflictOverwritePending}
-        title="File changed on disk"
-        message={`"${fileName || "This file"}" was modified outside Bindars while you were editing. Reload replaces your changes here with the version on disk; they can't be recovered. Overwrite keeps your changes and replaces the file on disk.`}
-        confirmLabel="Reload"
+        title={fileName ? `“${fileName}” changed outside Bindars` : "This document changed outside Bindars"}
+        message="It changed while you were editing. If you use the other version, your changes here can't be recovered. If you keep your changes, they replace the other version."
+        confirmLabel="Use other version"
         initialFocus="cancel"
-        secondaryLabel="Overwrite"
+        secondaryLabel="Keep my changes"
         secondaryTone="danger"
         cancelLabel="Cancel"
         onConfirm={handleConflictReload}

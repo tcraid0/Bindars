@@ -17,9 +17,9 @@ confirming replacement writes the example text over the file you choose.
 - Mermaid diagrams and KaTeX math rendering (`$$x^2$$` inline, `$$` blocks for display math; single `$` is reserved for plain text so dollar amounts in prose render as written)
 - Syntax-highlighted code blocks (highlight.js)
 - Four themes: light, sepia, dark, midnight
-- Table of contents with scroll tracking; it starts open and remembers if you close it
+- Contents with scroll tracking; it starts open and remembers if you close it
 - Highlights & notes, plus bookmarks for returning to headings
-  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux toggles Notes)
+  (Shift+Cmd+M on macOS or Ctrl+Shift+M on Linux shows or hides them)
 - Recent, Drafts, and an optional folder browser, with Search documents and passage navigation
 - Persistent whole-interface zoom, separate from reading typography
 - Fountain screenplay rendering with character focus and scene navigation
@@ -117,14 +117,14 @@ Edit with Cmd+E. The formatting bar stays available. See **Help → Keyboard
 Shortcuts** for the full list of keys on your platform.
 
 After revising an annotated document, use Read to check your highlights.
-[Annotation location and passage recovery](annotations.md#edits-made-in-bindars)
+[Highlight location and passage recovery](annotations.md#edits-made-in-bindars)
 explain which edits keep a passage located and how to place an uncertain one.
 
 ## Spelling on macOS
 
 In Edit mode, macOS can underline misspelled words and offer corrections when
 you right-click them. Notes also retain native spelling assistance. Automatic
-spelling correction is off in both fields; document search, the quick switcher,
+spelling correction is off in both fields; Find in Document, Search documents,
 and Edit-mode Find/Replace disable autocorrection and spelling underlines to keep
 search and replacement text literal.
 Checking follows native timing, so existing text may not be marked until you
@@ -162,7 +162,8 @@ context when filenames collide. Hover over a row or focus it with the keyboard
 for its full location and **Last opened** details. Page Up / Page Down scroll long
 details while the row is focused; Escape dismisses them.
 Home and Search keep their richer context visible. **Back** returns to documents
-opened from Recent.
+opened from Recent. Locations leave out your own home folder; documents directly
+in it say “Home folder”. Other accounts and Shared keep their names.
 
 Removing a document from Recent leaves an untimed **Add Back** notice, shared
 with Home. Add Back preserves its previous last-opened time and restores the latest
@@ -173,7 +174,7 @@ another entry, or end the session. Files and notes are unchanged.
 The sidebar starts hidden and remembers your choice. A one-time note offers
 **Show Sidebar** when you open a second distinct document; if the reading hint
 is showing, it waits for a later document open. Use the toolbar button or
-Cmd+B / Ctrl+B outside the Markdown editor to toggle it;
+Cmd+B / Ctrl+B outside the Markdown editor to show or hide it;
 on macOS, **View › Show Sidebar / Hide Sidebar** is also available.
 
 **Drafts** lists existing files in Documents › Bindars Drafts, including drafts
@@ -183,12 +184,12 @@ Drafts location is disclosed once above the list, with full file paths retained
 for recovery notices. The header and folder browser keep filenames.
 
 On macOS, Drafts isn't listed at first, so a first launch doesn't ask for access
-to your Documents folder. Choose **Show existing drafts** to list it; once
-Bindars has saved a draft or found existing ones, later launches list Drafts
-automatically.
+to your Documents folder. Choose **Show earlier drafts** to list it; your Mac
+may ask first. Once Bindars has saved a draft or found existing ones, later
+launches list Drafts automatically.
 
 In **Folders**, choose **Add Folder…** to browse one folder's supported files and
-subfolders. Nothing is moved or copied. The picker starts in the folder of the
+subfolders that contain documents. Your files stay where they are. The picker starts in the folder of the
 document you are reading. Opening another file does not add or scan its parent
 folder, and saving a document keeps its place in the folder list. Browsing does
 not change where new documents autosave. Choose an ancestor in the breadcrumb
@@ -201,7 +202,7 @@ folder context stay visible while browsing; at short window heights or high
 interface zoom, the whole sidebar scrolls so every control remains reachable.
 
 **Search documents** (Cmd+K / Ctrl+K) searches Recent, Drafts, and the added folder.
-Its Scope menu can narrow results to that folder. Unquoted words may occur in
+Its **Search in** menu can narrow results to that folder. Unquoted words may occur in
 any order; double quotes request a phrase within a text block. Results group by
 document, with separate passage counts. Filename/title matches rank first, then
 exact phrases, nearby terms, and scattered terms. Up to 50 documents and five
@@ -222,8 +223,8 @@ They equate straight/curly quotes, `--`/en dash, `---`/em dash, and `...`/ellips
 Other punctuation stays literal. Find includes displayed code and rendered
 math, retaining their literal punctuation and whitespace. Document Search excludes code, math,
 diagrams and images, and covers the first 30,000 extracted body characters plus
-headings and names. These forgiving search rules do not change annotation
-identity or location rules.
+headings and names. These forgiving search rules do not change how highlights
+and notes find their place.
 
 Files appear before text preparation finishes and remain findable by filename
 when reading or parsing fails. Status and recovery actions distinguish missing,
@@ -231,7 +232,9 @@ unreadable, invalid-encoding, oversized and overly complex documents. There is
 no promise that every discovered file can be displayed. The folder browser skips
 hidden folders, `node_modules`, `target`, `vendor`, and symbolic links. Discovery
 is bounded to 5,000 documents per folder/Drafts source, 100,000 visited entries,
-20,000 subfolders and 32 levels; a partial-list notice identifies these limits.
+20,000 subfolders and 32 levels. Folders and Drafts each say when only part of
+their list could be shown. Folder problems name the affected place with a short
+reason, such as “not allowed”.
 Lists initially render 100 entries and provide buttons for more.
 
 Successful saves update Search immediately. Returning to the app reconciles
@@ -239,14 +242,15 @@ external changes; unchanged file size and modification time avoid reparsing.
 Discovery and text work publish incrementally and discard obsolete results when
 the configured folder changes. Continuous folder watching is not enabled.
 Actual incoming links live in the collapsed **Linked from** section in Contents;
-**Unlinked mentions** remains a separate collapsed section.
+**Unlinked mentions** remains a separate collapsed section. Each section appears
+only when it has entries.
 
 ## Interface zoom
 
 Use **View** or Cmd+plus/minus (Ctrl equivalents on Linux) to zoom the entire
 interface from 75% to 300%. Cmd+0 / Ctrl+0 chooses **Actual Size** and changes only
-interface zoom. Zoom is saved between launches. Reader Settings still provides
-independent text size, fonts, spacing, Reduce effects, and its explicit Reset.
+interface zoom. Zoom is saved between launches. Reader settings still provides
+independent text size, fonts, spacing, Reduced effects, and its explicit Reset.
 
 ## Rendering rules
 

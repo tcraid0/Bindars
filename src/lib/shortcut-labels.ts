@@ -88,11 +88,11 @@ export const SHORTCUT_SECTIONS = [
   {
     title: "View",
     shortcuts: [
-      { id: "toggleSidebar", label: "Toggle sidebar" },
-      { id: "toggleTableOfContents", label: "Toggle table of contents" },
-      { id: "toggleBothPanels", label: "Toggle both panels" },
+      { id: "toggleSidebar", label: "Show or hide sidebar" },
+      { id: "toggleTableOfContents", label: "Show or hide contents" },
+      { id: "toggleBothPanels", label: "Show or hide sidebar and contents" },
       { id: "focusMode", label: "Focus mode" },
-      { id: "cycleTheme", label: "Cycle theme" },
+      { id: "cycleTheme", label: "Next theme" },
     ],
   },
   {
@@ -102,7 +102,7 @@ export const SHORTCUT_SECTIONS = [
       { id: "findNext", label: "Find next" },
       { id: "findPrevious", label: "Find previous" },
       { id: "bookmarkHeading", label: "Bookmark current heading" },
-      { id: "toggleAnnotations", label: "Toggle Highlights & notes" },
+      { id: "toggleAnnotations", label: "Show or hide Highlights & notes" },
       { id: "print", label: "Print / export PDF" },
       { id: "increaseFontSize", label: "Zoom interface in" },
       { id: "decreaseFontSize", label: "Zoom interface out" },

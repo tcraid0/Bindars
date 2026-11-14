@@ -23,10 +23,10 @@ export function AnnotationExitDialog({ paths, waiting, onKeepOpen, onRetry, onQu
     setMessage(null);
     const documents = pendingRecords();
     try {
-      const path = await save({ defaultPath: "annotation-recovery.json", filters: [{ name: "Annotation recovery", extensions: ["json"] }] });
+      const path = await save({ defaultPath: "highlights-and-notes-recovery.json", filters: [{ name: "Highlights & notes recovery", extensions: ["json"] }] });
       if (path) {
         await invoke("export_annotation_recovery", { path, documents });
-        setMessage("Recovery copy saved and verified. To restore, open each original document and choose Restore recovery copy in Annotations.");
+        setMessage("Recovery copy saved and verified. To restore, open each original document and choose Restore recovery copy in Highlights & notes.");
       }
     } catch (error) {
       const fallback = "Couldn't save the recovery copy.";
@@ -34,7 +34,7 @@ export function AnnotationExitDialog({ paths, waiting, onKeepOpen, onRetry, onQu
       setMessage(`${native?.message || fallback} Your changes remain available while Bindars stays open.`);
     } finally { setExporting(false); }
   }
-  return <DialogFrame visible={paths !== null} title="Annotations haven't been saved"
+  return <DialogFrame visible={paths !== null} title="Highlights and notes haven't been saved"
     initialFocusRef={keepOpen} onDismiss={onKeepOpen} dismissible={!exporting}>
     <p className="text-sm text-text-secondary">Keep Bindars open to retain these changes, retry saving, or save a recovery copy. Quitting without a saved copy can lose changes.</p>
     <ul className="my-3 text-xs break-all">{paths?.map((path) => <li key={path}>{path}</li>)}</ul>

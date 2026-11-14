@@ -110,7 +110,7 @@ async function requestDepartureAfterFailedBoundarySave(rendered, words, depart) 
   return waitFor(() => {
     const dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog);
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     return dialog;
   });
 }
@@ -127,7 +127,7 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
     assert.ok(candidate);
     return candidate;
   });
-  if (dialog) clickButton(rendered.host, "Discard", dialog);
+  if (dialog) clickButton(rendered.host, "Don't save", dialog);
   await waitFor(() => assert.ok(rendered.openedPaths().includes(targetPath)));
   const fileName = targetPath.split("/").at(-1);
   await waitFor(() => assert.ok(rendered.host.textContent.includes(fileName)));
@@ -437,7 +437,7 @@ for (const [cause, error] of [
   ["annotation lookup failed", {
     category: "unknown",
     operation: "accessRecoveryData",
-    message: "Couldn't access annotation storage. Existing data was preserved.",
+    message: "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.",
     detail: "Couldn't read annotations.json: Permission denied",
   }],
 ]) {
@@ -1146,7 +1146,7 @@ test("a stored theme arriving after a settings swatch selection keeps the user's
   const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
 
   try {
-    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    const toggle = rendered.host.querySelector('button[aria-label="Reader settings"]');
     assert.ok(toggle, "expected the reader settings toggle");
     flushSync(() => {
       toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -1174,7 +1174,7 @@ test("a stored theme arriving after settings swatch arrow navigation keeps the u
   const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
 
   try {
-    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    const toggle = rendered.host.querySelector('button[aria-label="Reader settings"]');
     assert.ok(toggle, "expected the reader settings toggle");
     flushSync(() => {
       toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -1641,7 +1641,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       assert.ok(dialog);
       return dialog;
     });
-    assert.match(cancelDialog.textContent, /Unsaved changes/);
+    assert.match(cancelDialog.textContent, /Save changes to/);
 
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
@@ -1654,7 +1654,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       assert.ok(dialog);
       return dialog;
     });
-    clickButton(host, "Discard", discardDialog);
+    clickButton(host, "Don't save", discardDialog);
     await waitFor(() => assert.equal(findEditorView(host).state.sliceDoc(), ""));
     assert.ok(document.activeElement === findEditorView(host).contentDOM);
 
@@ -2341,12 +2341,12 @@ test("Read mode retains the save guard after reader settings close", async () =>
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     const words = "These current unsaved edits must survive.";
     updateEditor(rendered.host, words);
-    const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+    const trigger = rendered.host.querySelector('[aria-label="Reader settings"]');
     flushSync(() => trigger.click());
     flushSync(() => rendered.host.querySelector('[aria-label="Close reader settings"]').click());
     rendered.failNextFileWrite(new Error("Synthetic save failure"));
     clickButton(rendered.host, "Read");
-    await waitFor(() => assert.match(document.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
+    await waitFor(() => assert.match(document.querySelector('[aria-modal="true"]').textContent, /Save changes to/));
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[aria-modal="true"]')));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
@@ -2892,7 +2892,7 @@ test("an idle autosave conflict warns quietly and waits for manual save to open 
     const dialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed on disk/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     assert.ok(dialog);
@@ -2916,7 +2916,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     const firstDialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     clickButton(rendered.host, "Cancel", firstDialog);
@@ -2936,7 +2936,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     const secondDialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     assert.equal(rendered.fileWrites().length, writeCount);
@@ -2948,7 +2948,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       assert.ok(rendered.host.querySelector(".cm-editor"));
     });
   } finally {
@@ -3129,7 +3129,7 @@ async function finishDepartureWithRestoredText(rendered, expectedDisk) {
   });
   if (route === "dialog") {
     const dialog = document.querySelector('[role="dialog"]');
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     clickButton(rendered.host, "Save", dialog);
   }
   await waitFor(() => assert.equal(rendered.diskContent(), expectedDisk));
@@ -3285,7 +3285,7 @@ async function saveFromUnsavedChangesDialog(rendered, write) {
   const dialog = await waitFor(() => {
     const candidate = document.querySelector('[role="dialog"]');
     assert.ok(candidate);
-    assert.match(candidate.textContent, /Unsaved changes/);
+    assert.match(candidate.textContent, /Save changes to/);
     return candidate;
   });
   rendered.deferNextWrite(write);
@@ -3314,7 +3314,7 @@ for (const second of ["new", "quit"]) {
         assert.ok(candidate);
         return candidate;
       });
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       assert.match(dialog.textContent, /continuity\.md/);
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), newer);
       const writesBefore = rendered.fileWrites().length;
@@ -3377,7 +3377,7 @@ test("a pending save that lands as a conflict stops the departure at the conflic
       assert.ok(candidate);
       return candidate;
     });
-    assert.match(dialog.textContent, /File changed/);
+    assert.match(dialog.textContent, /changed outside Bindars/);
     assert.ok(rendered.host.querySelector(".cm-editor"));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
     assert.equal(rendered.fileWrites().length, 1, "a conflict is not retried behind the person's back");
@@ -3408,7 +3408,7 @@ test("a pending save that retained a competing version stops the departure at th
       assert.ok(candidate);
       return candidate;
     });
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     assert.equal(rendered.guardedExitCount(), 0, "quit must not proceed over a recovery-required outcome");
     assert.equal(rendered.fileWrites().length, 1, "autosave stays paused after a retained version");
     dispatchWindowKey("Escape");
@@ -3439,7 +3439,7 @@ test("cancelling the decision that follows a settled autosave keeps the editor, 
       assert.ok(candidate, "the restored text must be put to the person, not dropped");
       return candidate;
     });
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     assert.equal(rendered.diskContent(), PENDING_DELETION);
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
@@ -3623,8 +3623,14 @@ test("a same-path native request takes over a live session restore without a sec
   }
 });
 
+const UNSAVED_CHOICES = [
+  { choice: "Save", label: "Save" },
+  { choice: "Discard", label: "Don't save" },
+  { choice: "Cancel", label: null },
+];
+
 test("native file switching honors Save, Discard, and Cancel for dirty documents", async (context) => {
-  for (const choice of ["Save", "Discard", "Cancel"]) {
+  for (const { choice, label } of UNSAVED_CHOICES) {
     await context.test(choice, async () => {
       const rendered = await renderContinuityApp();
       const targetPath = `/tmp/native-${choice.toLowerCase()}.md`;
@@ -3643,7 +3649,7 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
           assert.match(rendered.host.textContent, /continuity\.md/);
           assert.doesNotMatch(rendered.host.textContent, /native-cancel\.md/);
         } else {
-          clickButton(rendered.host, choice, dialog);
+          clickButton(rendered.host, label, dialog);
           await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
           await waitFor(() => assert.match(rendered.host.textContent, new RegExp(`native-${choice.toLowerCase()}\\.md`)));
           if (choice === "Save") {
@@ -3661,7 +3667,7 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
 });
 
 test("Home from the editor honors Save, Discard, and Cancel for dirty documents", async (context) => {
-  for (const choice of ["Save", "Discard", "Cancel"]) {
+  for (const { choice, label } of UNSAVED_CHOICES) {
     await context.test(choice, async () => {
       const restoreLocalStorage = bindAppLocalStorage();
       const storage = { value: { version: 1, files: [] }, writes: [] };
@@ -3692,7 +3698,7 @@ test("Home from the editor honors Save, Discard, and Cancel for dirty documents"
             assert.equal(write.value.filePath, savedPlace.filePath, "Cancel never saves Home natively");
           }
         } else {
-          clickButton(rendered.host, choice, dialog);
+          clickButton(rendered.host, label, dialog);
           await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state")));
           assert.ok(!rendered.host.querySelector(".cm-editor"));
           assert.equal(home().getAttribute("aria-current"), "page");
@@ -3718,7 +3724,7 @@ test("a failed open after Discard keeps disk content without restoring discarded
       discardedWords,
     );
     rendered.deferNextOpen(failedOpen);
-    clickButton(rendered.host, "Discard", dialog);
+    clickButton(rendered.host, "Don't save", dialog);
     await waitFor(() => assert.equal(
       failedOpen.args?.path,
       "/tmp/unavailable-after-discard.md",
@@ -3873,7 +3879,7 @@ for (const [welcome, destination] of [[false, "toolbar"], [true, "toolbar"], [tr
           .find(button => button.textContent.trim() === "Cancel");
         assert.ok(cancel);
         const chosen = destination === "toolbar"
-          ? rendered.host.querySelector('[aria-label="Toggle sidebar"]')
+          ? rendered.host.querySelector('button[aria-label="Sidebar"]')
           : [...rendered.host.querySelectorAll(".empty-state button")]
             .find(button => button.textContent.trim() === "Open File…");
         chosen.focus();
@@ -4940,7 +4946,7 @@ test("discard and conflict reload restore the original reader anchor", async () 
       assert.ok(dialog);
       return dialog;
     });
-    clickButton(rendered.host, "Discard", discardDialog);
+    clickButton(rendered.host, "Don't save", discardDialog);
     await waitFor(() => assert.ok(rendered.host.querySelector("#first")));
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 0));
     assert.ok(!rendered.host.querySelector("#discarded"));
@@ -4957,10 +4963,10 @@ test("discard and conflict reload restore the original reader anchor", async () 
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
-    clickButton(rendered.host, "Reload", conflictDialog);
+    clickButton(rendered.host, "Use other version", conflictDialog);
     await waitFor(() => assert.ok(rendered.host.querySelector("#first")));
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 0));
     assert.ok(!rendered.host.querySelector("#conflicting"));
@@ -4981,13 +4987,13 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
 
     const overwrite = deferred();
     rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflictDialog);
+    clickButton(rendered.host, "Keep my changes", conflictDialog);
     await waitFor(() => assert.equal(overwrite.args?.force, true));
     updateEditor(rendered.host, "# Manual overwrite\n\nNewer words typed during overwrite.");
 
@@ -5003,7 +5009,7 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
 
     const reconfirmDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       return dialog;
     });
     clickButton(rendered.host, "Save", reconfirmDialog);
@@ -5035,12 +5041,12 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
     dispatchShortcut("e");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
     const overwrite = deferred();
     rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflictDialog);
+    clickButton(rendered.host, "Keep my changes", conflictDialog);
     await waitFor(() => assert.equal(overwrite.args?.force, true));
     updateEditor(rendered.host, "# Exit overwrite\n\nNewer words typed during overwrite.");
 
@@ -5056,7 +5062,7 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
 
     const reconfirmDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       return dialog;
     });
     clickButton(rendered.host, "Save", reconfirmDialog);
@@ -5986,7 +5992,7 @@ for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'c
         if (route === 'cancel') dispatchElementKey(dialog, 'Escape');
         else {
           if (route === 'failed-exit') rendered.failNextFileWrite(new Error('R4 repeated failure'));
-          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Reload', 'conflict-overwrite': 'Overwrite', discard: 'Discard' }[route];
+          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Use other version', 'conflict-overwrite': 'Keep my changes', discard: "Don't save" }[route];
           clickButton(rendered.host, choice, dialog);
         }
       }
@@ -7010,7 +7016,7 @@ test("discard after a retained version leaves the written text and drops newer t
       assert.ok(candidate);
       return candidate;
     });
-    clickButton(rendered.host, "Discard", dialog);
+    clickButton(rendered.host, "Don't save", dialog);
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.match(rendered.host.textContent, /Local words/));
     assert.doesNotMatch(rendered.host.textContent, /Newer words/);
@@ -7021,7 +7027,7 @@ test("a retained version does not offer Reload until a later conflict, and Reloa
   const rendered = await renderContinuityApp();
   try {
     await retainCompetingVersion(rendered);
-    assert.ok(!Array.from(rendered.host.querySelectorAll("button")).some((button) => button.textContent.trim() === "Reload"));
+    assert.ok(!Array.from(rendered.host.querySelectorAll("button")).some((button) => button.textContent.trim() === "Use other version"));
     rendered.setDiskContent("Outside reload words");
     rendered.conflictNextWrite();
     dispatchShortcut("s");
@@ -7030,7 +7036,7 @@ test("a retained version does not offer Reload until a later conflict, and Reloa
       assert.ok(candidate);
       return candidate;
     });
-    clickButton(rendered.host, "Reload", dialog);
+    clickButton(rendered.host, "Use other version", dialog);
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.match(rendered.host.textContent, /Outside reload words/));
     assert.doesNotMatch(rendered.host.textContent, /Local words/);
@@ -7127,7 +7133,7 @@ for (const stored of [false, "true", { unexpected: true }]) {
     const storage = { value: { version: 1, files: [] }, writes: [] };
     const rendered = await renderContinuityApp({ sidebarRead: held.promise, recentStorage: storage, freshStorage: true });
     try {
-      const toggle = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      const toggle = rendered.host.querySelector('button[aria-label="Sidebar"]');
       assert.ok(!rendered.host.querySelector("aside"));
       if (stored === false) flushSync(() => toggle.click());
       await act(async () => held.resolve(stored));
@@ -7172,7 +7178,7 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
         };
         if (outcome === 'storage-failed') throw {
           category: 'unknown', operation: 'accessRecoveryData',
-          message: "Couldn't access annotation storage. Existing data was preserved.", detail: 'synthetic storage failure',
+          message: "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.", detail: 'synthetic storage failure',
         };
         return path;
       },
@@ -7202,9 +7208,9 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
         if (outcome === 'notes-exist') assert.match(document.body.textContent, /saved notes/);
         if (outcome === 'missing-folder') {
           assert.match(document.body.textContent, /destination folder is no longer available/);
-          assert.doesNotMatch(document.body.textContent, /Couldn't access annotation storage/);
+          assert.doesNotMatch(document.body.textContent, /Couldn't open your saved highlights and notes/);
         }
-        if (outcome === 'storage-failed') assert.match(document.body.textContent, /Couldn't access annotation storage/);
+        if (outcome === 'storage-failed') assert.match(document.body.textContent, /Couldn't open your saved highlights and notes/);
         assert.doesNotMatch(document.body.textContent, /synthetic missing parent|synthetic storage failure/);
       }
       assert.ok(view.fileWrites().every(write => write.path !== '/tmp/continuity.md'));
@@ -7234,7 +7240,7 @@ for (const format of ["markdown", "fountain"]) {
           else context.mock.timers.tick(3000);
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("article h1[id], article h2[id], article h3[id]")));
-        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Table of contents"] button'))
+        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Contents"] button'))
           .some(button => button.textContent.trim() === heading), "Contents must include the rendered heading"));
         assert.doesNotMatch(rendered.host.textContent, /No headings/);
       } finally {
@@ -7258,7 +7264,7 @@ test("Recent saves a section selected before history finished loading", async (c
     await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
     await act(async () => context.mock.timers.tick(3000));
     const second = await waitFor(() => {
-      const button = [...rendered.host.querySelectorAll('[aria-label="Table of contents"] button')]
+      const button = [...rendered.host.querySelectorAll('[aria-label="Contents"] button')]
         .find(button => button.textContent.trim() === "Second");
       assert.ok(button); return button;
     });
@@ -7364,8 +7370,8 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
   try {
     assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
     assert.ok(!rendered.host.querySelector('[data-reader-panel="notes"]'));
-    assert.ok(!rendered.host.querySelector('[aria-label="Toggle table of contents"]'));
-    assert.ok(!rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Contents"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Highlights & notes"]'));
     assert.equal(dispatchWindowKey("?").defaultPrevented, false);
     assert.ok(!document.querySelector('[role="dialog"]'));
     dispatchShortcut("j");
@@ -7387,7 +7393,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
     rendered.setOpenDialogPath("/tmp/ready.md");
     clickButton(rendered.host, "Open File…");
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
-    assert.ok(rendered.host.querySelector('nav[aria-label="Table of contents"]'),
+    assert.ok(rendered.host.querySelector('nav[aria-label="Contents"]'),
       "hidden panel shortcuts must not change the preference");
     assert.ok(!rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
   } finally { await rendered.cleanup(); }
@@ -7542,7 +7548,7 @@ for (const control of ["Dismiss", "Remove"]) {
     const rendered = await renderContinuityApp(fixture);
     try {
       const button = control === "Remove"
-        ? rendered.host.querySelector('[aria-label="Remove missing.md from recent files"]')
+        ? rendered.host.querySelector('[aria-label="Remove missing.md from Recent"]')
         : [...rendered.host.querySelector(".empty-state-recovery-message").querySelectorAll("button")]
           .find(candidate => candidate.textContent === "Dismiss");
       button.focus();
@@ -7792,7 +7798,7 @@ test("sidebar keeps display order through opens and fitting while welcome and st
   const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
   const names = scope => [...scope.querySelectorAll('button[aria-label^="Open "]')]
     .map(button => button.getAttribute("aria-label").slice(5).split(",")[0]);
-  const sidebar = () => rendered.host.querySelector('[aria-label="Document navigation"]');
+  const sidebar = () => rendered.host.querySelector('aside[aria-label="Sidebar"]');
   const oldWidth = window.innerWidth;
   try {
     assert.deepEqual(names(rendered.host.querySelector(".empty-state-recents")), ["A.md", "B.md", "C.md", "D.md", "E.md"]);
@@ -7811,7 +7817,7 @@ test("sidebar keeps display order through opens and fitting while welcome and st
     flushSync(() => window.dispatchEvent(new Event("resize")));
     assert.deepEqual(names(sidebar()), files.map(file => file.name));
     dispatchShortcut("b");
-    flushSync(() => rendered.host.querySelector('[aria-label="Toggle sidebar"]').click());
+    flushSync(() => rendered.host.querySelector('button[aria-label="Sidebar"]').click());
     assert.deepEqual(names(sidebar()), ["C.md", "A.md", "B.md", "D.md", "E.md", "F.md"]);
   } finally {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth });
@@ -7870,7 +7876,7 @@ for (const [route, moveFocus] of [
       // Another Home control than the row: the last way to start.
       const other = moveFocus === "welcome"
         ? [...rendered.host.querySelectorAll(".empty-state-content button")].at(-1)
-        : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+        : rendered.host.querySelector('button[aria-label="Sidebar"]');
       if (moveFocus === "welcome" || moveFocus === "toolbar") {
         other.focus();
         assert.ok(document.activeElement === other);
@@ -7890,7 +7896,7 @@ for (const outcome of ["cancel", "failure"]) {
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state" });
     const pending = deferred();
     try {
-      const toolbar = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      const toolbar = rendered.host.querySelector('button[aria-label="Sidebar"]');
       if (outcome === "cancel") rendered.deferNextOpenDialog(pending);
       else {
         rendered.setOpenDialogPath("/tmp/failed-welcome.md");
@@ -7985,7 +7991,7 @@ test('App Choose passage cancels back to its row and confirms the second duplica
     });
     const confirm = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Use this passage');
     assert.ok(confirm && !confirm.disabled); flushSync(() => confirm.click());
-    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save annotations/));
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save highlights and notes/));
     const changed = rendered.annotationWrites.at(-1).annotations.highlights[0];
     assert.equal(changed.id, old.id); assert.equal(changed.note, old.note); assert.equal(changed.color, old.color);
     assert.equal(changed.createdAt, old.createdAt); assert.equal(changed.future, 42);
@@ -8001,7 +8007,7 @@ test('App Choose passage cancels back to its row and confirms the second duplica
     failWrite = false;
     const retry = [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry');
     assert.ok(retry); flushSync(() => retry.click());
-    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save annotations/));
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save highlights and notes/));
     rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
     await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
     rendered.setOpenDialogPath('/tmp/continuity.md'); dispatchShortcut('o');
@@ -8179,7 +8185,7 @@ test('R01 App refresh failure protects close and Retry saves the refreshed origi
   try {
     const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
     await r01Read(rendered); await r01AssertSecond(rendered);
-    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save annotations/));
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save highlights and notes/));
     await act(async () => emit('tauri://close-requested'));
     const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('close must protect refresh'));
     assert.equal(rendered.windowDestroyCount(), 0);
@@ -8188,7 +8194,7 @@ test('R01 App refresh failure protects close and Retry saves the refreshed origi
     dispatchShortcut('m', { shiftKey: true });
     const retry = await waitFor(() => [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry') || assert.fail('retry missing'));
     flushSync(() => retry.click());
-    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save annotations/));
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save highlights and notes/));
     await r01AssertSecond(rendered);
   } finally { await rendered.cleanup(); }
 });
@@ -8255,7 +8261,7 @@ test('R01 App discard never refreshes the rejected editor document', async () =>
     rendered.failNextFileWrite(Error('synthetic source save failure'));
     flushSync(() => rendered.host.querySelector('[aria-label="Read mode"]').click());
     const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('save choice missing'));
-    clickButton(rendered.host, 'Discard', dialog);
+    clickButton(rendered.host, "Don't save", dialog);
     await r01AssertSecond(rendered);
     assert.equal(rendered.diskContent(), source); assert.equal(rendered.annotationWrites.length, 0);
   } finally { await rendered.cleanup(); }

@@ -433,7 +433,9 @@ body {
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible,
-  [role="button"]:focus-visible {
+  [role="button"]:focus-visible,
+  /* WebKit hides the ring when a dialog moves focus by script after a click. */
+  [aria-modal="true"] button:focus {
     outline: 2px solid var(--accent-indicator);
     outline-offset: 1px;
   }

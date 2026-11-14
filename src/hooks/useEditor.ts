@@ -305,7 +305,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         dirty: true,
         saveError: quiet
           ? null
-          : "This file changed outside Bindars. Reload or overwrite to continue.",
+          : "This file changed outside Bindars. Save to choose which version to keep.",
         saveErrorRecovery: null,
       }));
       return "conflict";
@@ -418,7 +418,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         setState((prev) => ({
           ...prev,
           saving: false,
-          saveError: "Couldn't verify file revision before save. Reload and try again.",
+          saveError: "Bindars couldn't check whether this file changed. Your edits are still open.",
           saveErrorRecovery: null,
         }));
         return { status: "error" };

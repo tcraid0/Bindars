@@ -125,7 +125,7 @@ export function useRecentFileDetails(files: RecentFile[], formatTime: (time: num
     const observer = new window.ResizeObserver(place);
     observer.observe(tooltip);
     observer.observe(active.button);
-    const group = active.button.closest('[aria-label="Recent files"]');
+    const group = active.button.closest('[aria-label="Recent"]');
     if (group) observer.observe(group);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
