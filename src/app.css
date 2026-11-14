@@ -2478,11 +2478,12 @@ body[data-printing] .print-hide {
 }
 
 /* Writing controls share the document's existing scrolling surface. */
+.markdown-editor-surface { --markdown-bar-gap: 1.25rem; }
 .markdown-formatting-bar {
   position: sticky;
   top: var(--markdown-toolbar-offset, 0px);
   z-index: 20;
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--markdown-bar-gap);
   padding: .5rem 0;
   background: var(--bg-primary);
   font: 13px/1.4 var(--font-ui);
@@ -2564,6 +2565,12 @@ body[data-printing] .print-hide {
 .markdown-editor-surface .cm-panels-top {
   top: calc(var(--markdown-toolbar-height, 3.5rem) + var(--markdown-toolbar-offset, 0px));
   z-index: 19;
+}
+/* Find sits directly under the bar and takes over its gap, so the text moves no further.
+   Screenplays have no bar, and so no gap to take. */
+.markdown-editor-surface:has(.markdown-formatting-bar) .cm-panels-top {
+  margin-top: calc(-1 * var(--markdown-bar-gap));
+  margin-bottom: var(--markdown-bar-gap);
 }
 .markdown-editor-surface .cm-search { max-height: 45vh; overflow-y: auto; }
 .markdown-link-form { max-height: 55vh; overflow-y: auto; }

@@ -265,3 +265,12 @@ test("the formatting accent excludes the Styled/Plain preference", () => {
   assert.equal(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]').trim(), "");
   assert.match(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]:not([data-styled-toggle])'), /color:\s*var\(--accent-text\)/);
 });
+
+test("Find takes over the formatting bar's gap only where the bar exists", () => {
+  assert.match(declarations(css, ".markdown-formatting-bar"), /margin-bottom:\s*var\(--markdown-bar-gap\);/);
+  const pulled = declarations(css, ".markdown-editor-surface:has(.markdown-formatting-bar) .cm-panels-top");
+  assert.match(pulled, /margin-top:\s*calc\(-1 \* var\(--markdown-bar-gap\)\);/);
+  assert.match(pulled, /margin-bottom:\s*var\(--markdown-bar-gap\);/);
+  // Screenplays share the editor without a bar; their Find keeps today's place.
+  assert.doesNotMatch(declarations(css, ".markdown-editor-surface .cm-panels-top"), /margin/);
+});
