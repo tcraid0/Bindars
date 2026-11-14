@@ -349,7 +349,7 @@ function App() {
   const [editing, setEditing] = useState(false);
   const [currentFileIsDraft, setCurrentFileIsDraft] = useState(false);
   const [editorSessionKey, setEditorSessionKey] = useState(0);
-  const [editorInitialPosition, setEditorInitialPosition] = useState<SourcePoint | null>(null);
+  const [editorInitialPosition, setEditorInitialPosition] = useState<{ source: SourcePoint; screenTopPx: number | null } | null>(null);
   const [pendingReaderTarget, setPendingReaderTarget] = useState<PendingReaderTarget | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -1103,6 +1103,10 @@ function App() {
       path, sessionKey: nextSessionKey, capture, previous: readyCapture ? null : previous?.changes ?? null,
     } : null;
     const initialEditorTarget = readerAnchor?.source ?? { line: 1, column: 1 };
+    // Markdown opens Edit with the anchor at its height on screen in Read. Measuring from the
+    // screen absorbs the hint strip and a header that wraps differently in Edit.
+    const screenTopPx = readerAnchor && fileType === "markdown" && mainScrollRef.current
+      ? mainScrollRef.current.getBoundingClientRect().top + readerAnchor.viewportOffsetPx : null;
     editor.enterEditMode(initialContent, revision);
     editingFilePathRef.current = path;
     editTransitionRef.current = {
@@ -1111,7 +1115,7 @@ function App() {
       originalReaderAnchor: readerAnchor,
     };
     setPendingReaderTarget(null);
-    setEditorInitialPosition(initialEditorTarget);
+    setEditorInitialPosition({ source: initialEditorTarget, screenTopPx });
     setEditing(true);
     setEditorSessionKey(nextSessionKey);
     editingRef.current = true;
@@ -3506,7 +3510,8 @@ function App() {
                   key={`${editorSessionKey}:${fileType}`}
                   ref={editorSurfaceRef}
                   buffer={editor.buffer}
-                  initialPosition={editorInitialPosition}
+                  initialPosition={editorInitialPosition?.source ?? null}
+                  initialScreenTopPx={editorInitialPosition?.screenTopPx ?? null}
                   scrollRootRef={mainScrollRef}
                   fileType={fileType}
                   markdownFormattingEnabled={markdownFormattingEnabled}

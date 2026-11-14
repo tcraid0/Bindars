@@ -4,6 +4,7 @@ const { installDom } = require("./_helpers/dom.cjs");
 
 const {
   captureReaderAnchor,
+  editorEntryOffset,
   findFragmentElement,
   findHeadingElement,
   findSourceElement,
@@ -73,7 +74,74 @@ test("logical source points share LF, CRLF, CR, and mixed-ending semantics", () 
   }
 });
 
-test("reader anchors prefer the synchronously current source-backed heading", async () => {
+/** A Markdown root of source blocks under a 400-px main at screen top 50, scrolled to 500. */
+async function markdownAnchorFixture(blocks) {
+  await installDom();
+  const scrollRoot = document.createElement("main");
+  const root = document.createElement("article");
+  root.innerHTML = blocks.map(([tag, id, line, column]) => (
+    `<${tag} id="${id}" data-bindars-source-line="${line}" data-bindars-source-column="${column}">${id}</${tag}>`
+  )).join("");
+  scrollRoot.appendChild(root);
+  document.body.appendChild(scrollRoot);
+  Object.defineProperties(scrollRoot, {
+    scrollTop: { value: 500, writable: true },
+    clientHeight: { value: 400 },
+    scrollHeight: { value: 2000 },
+  });
+  setRect(scrollRoot, 50, 450);
+  for (const [, id, , , top, bottom] of blocks) setRect(root.querySelector(`#${id}`), 50 + top, 50 + bottom);
+  return { root, scrollRoot };
+}
+
+test("Markdown reader anchors take the first block clear of the bar, not the section heading", async () => {
+  // The heading's section continues on screen, but the heading itself is off screen or would sit
+  // under Edit's bar. The old heading-first rule chose it, and Edit lost the paragraph being read.
+  for (const headingTop of [-450, 30]) {
+    const { root, scrollRoot } = await markdownAnchorFixture([
+      ["h2", "section", 2, 4, headingTop, headingTop + 30],
+      ["p", "reading", 6, 1, 150, 220],
+    ]);
+    assert.deepEqual(captureReaderAnchor(root, scrollRoot, "section", "ignored"), {
+      source: { line: 6, column: 1 },
+      viewportOffsetPx: 150,
+    });
+  }
+});
+
+test("Markdown reader anchors keep a heading that Contents scrolled to the top", async () => {
+  const { root, scrollRoot } = await markdownAnchorFixture([
+    ["p", "before", 2, 1, -80, 40],
+    ["h2", "section", 6, 4, 71.6, 101.6],
+    ["p", "after", 8, 1, 120, 200],
+  ]);
+  assert.deepEqual(captureReaderAnchor(root, scrollRoot, "section", "ignored"), {
+    source: { line: 6, column: 4 },
+    viewportOffsetPx: 71.6,
+  });
+});
+
+test("Markdown reader anchors hold a block taller than the screen", async () => {
+  const { root, scrollRoot } = await markdownAnchorFixture([
+    ["p", "tall", 2, 1, -300, 900],
+    ["p", "below", 9, 1, 900, 950],
+  ]);
+  assert.deepEqual(captureReaderAnchor(root, scrollRoot, null, "ignored"), {
+    source: { line: 2, column: 1 },
+    viewportOffsetPx: -300,
+  });
+});
+
+test("Edit places the reader's anchor at its screen height, below the stuck bar", () => {
+  assert.equal(editorEntryOffset(250, 54, 58), 196);
+  // The hint strip above Read's main is gone in Edit: the same screen height is 63 further down main.
+  assert.equal(editorEntryOffset(250, 54 - 63, 58), 259);
+  assert.equal(editorEntryOffset(114, 54, 114), 114, "Focus mode: a block under the bar is lowered to it");
+  assert.equal(editorEntryOffset(80, 54, 94), 94, "a wrapped bar is the floor");
+  assert.equal(editorEntryOffset(-246, 54, 58), -300, "a block that began above the screen is not lifted");
+});
+
+test("Markdown reader anchors use the first block starting inside the bar's band when none starts below it", async () => {
   await installDom();
   const scrollRoot = document.createElement("main");
   const root = document.createElement("article");

@@ -16,6 +16,7 @@ export type { EditorSurfacePosition };
 interface MarkdownEditorProps {
   buffer: string;
   initialPosition?: SourcePoint | null;
+  initialScreenTopPx?: number | null;
   scrollRootRef: RefObject<HTMLElement | null>;
   fileType: FileType;
   markdownFormattingEnabled: boolean;
@@ -36,6 +37,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   function MarkdownEditor({
     buffer,
     initialPosition,
+    initialScreenTopPx,
     scrollRootRef,
     fileType,
     markdownFormattingEnabled,
@@ -147,6 +149,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           onFocusToolbar={() => toolbarRef.current?.querySelector<HTMLButtonElement>('[tabindex="0"]')?.focus()}
           initialDocument={buffer}
           initialPosition={initialPosition}
+          initialScreenTopPx={initialScreenTopPx}
           scrollRootRef={scrollRootRef}
           fileType={fileType}
           markdownFormattingEnabled={markdownFormattingEnabled}

@@ -11,6 +11,7 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
+import { editorEntryOffset } from "../lib/editor-position";
 import type { SourcePoint } from "../lib/editor-position";
 import type { ObservedEditorChanges } from "../lib/highlight-continuity";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -62,6 +63,9 @@ interface CodeMirrorEditorProps {
   /** Initialization-only. Change the React key to start a different document session. */
   initialDocument: string;
   initialPosition?: SourcePoint | null;
+  /** Initialization-only. Where Read showed `initialPosition` on screen; without it (or without
+   *  a formatting bar) the editor centres the initial position. */
+  initialScreenTopPx?: number | null;
   scrollRootRef?: RefObject<HTMLElement | null>;
   /** Initialization-only. File-type transitions require a keyed remount. */
   fileType: FileType;
@@ -321,6 +325,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
   function CodeMirrorEditor({
     initialDocument,
     initialPosition,
+    initialScreenTopPx,
     scrollRootRef,
     fileType,
     markdownFormattingEnabled,
@@ -452,7 +457,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       };
       viewportMovedByUserRef.current = false;
       const scrollRoot = scrollRootRef?.current ?? null;
-      // CodeMirror scrolls the shared root itself: the initial centering and
+      // CodeMirror scrolls the shared root itself: the initial placement and
       // its scroll anchoring when measured heights change (late parsing,
       // fonts, wrapping). Remember where its measure cycles leave the root;
       // any other scroll (wheel, scrollbar, keyboard) is the user's.
@@ -579,13 +584,21 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         markdownFormattingEnabled,
       );
 
-      const createdView = new EditorView({
-        state,
-        parent: host,
-        scrollTo: initialOffset === null
-          ? undefined
-          : EditorView.scrollIntoView(initialOffset, { y: "center" }),
-      });
+      const createdView = new EditorView({ state, parent: host });
+      if (initialOffset !== null) {
+        // Read the bar only now: before the editor has content, a Focus-mode bar cannot take its
+        // sticky offset yet. The scroll margins (stickyTopInset) are added back by CodeMirror.
+        const bar = formattingControlsRef?.current?.parentElement;
+        if (initialScreenTopPx == null || !bar || !scrollRoot) {
+          createdView.dispatch({ effects: EditorView.scrollIntoView(initialOffset, { y: "center" }) });
+        } else {
+          const stuckBarBottom = bar.offsetHeight + (Number.parseFloat(window.getComputedStyle(bar).top) || 0);
+          const wanted = editorEntryOffset(initialScreenTopPx, scrollRoot.getBoundingClientRect().top, stuckBarBottom);
+          createdView.dispatch({
+            effects: EditorView.scrollIntoView(initialOffset, { y: "start", yMargin: wanted - stickyTopInset() }),
+          });
+        }
+      }
       view = createdView;
       viewRef.current = createdView;
       observedChanges = fileType === "markdown" ? ChangeSet.empty(state.doc.length) : null;
