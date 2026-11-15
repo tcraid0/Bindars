@@ -2649,7 +2649,7 @@ function App() {
   );
 
   // Memoised so the Contents panel does not re-render on every App render.
-  const connections = useMemo(() => (
+  const connections = useMemo(() => !workspaceInsights.backlinks.length && !workspaceInsights.mentions.length ? null : (
     <div className="navigation-help">
       {!!workspaceInsights.backlinks.length && <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
         {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}

@@ -295,7 +295,7 @@ function SidebarComponent(props: SidebarProps) {
                 )}
                 {root && (
                   <>
-                    {!directory && state.error && (
+                    {state.error && (
                       <p role="status" className="navigation-help">
                         {state.error}{" "}
                         <button onClick={props.onReindexWorkspace}>Retry</button>

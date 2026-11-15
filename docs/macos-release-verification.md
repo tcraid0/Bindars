@@ -192,7 +192,7 @@ a current supported macOS; do not label an unavailable environment as passed.
 | Area | Required checks |
 | --- | --- |
 | Install and launch | Browser-download the exact artifact, retain quarantine, install, and launch normally. Test offline launch after ticket validation. Do not remove quarantine or use an Open Anyway override to establish success. |
-| Save and departure | Dirty save, conflict Reload/Overwrite/Cancel, delayed and failed writes, later edits, recovery messages, normal Quit, and Dock Quit. Confirm preserved bytes and buffers, not just dismissed dialogs. |
+| Save and departure | Dirty save, conflict Use other version/Keep my changes/Cancel, delayed and failed writes, later edits, recovery messages, normal Quit, and Dock Quit. Confirm preserved bytes and buffers, not just dismissed dialogs. |
 | Native lifecycle | Quit with the window hidden, reopen from the Dock, Finder open/double-click and Dock file drop. Test logout/shutdown with disposable work; the cancel-first quit guard can require repeating the OS request. |
 | Existing data and permissions | Upgrade from the supported earlier app using its production identity; verify synthetic documents, notes, preferences, session/recovery data, Drafts creation, and Documents/Desktop/Downloads permission grant and denial. |
 | Rendering and input | Packaged CSP, local fonts, ordinary math and default Mermaid diagrams, Find navigation/cleanup, dark selects, spellcheck, native printing, cancellation, and PDF output. |

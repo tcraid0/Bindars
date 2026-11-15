@@ -307,6 +307,9 @@ test('Folders hides empty descendants and keeps folder warnings only at the top'
   click(buttonWithText(view.host, '▸ Interviews'));
   assert.ok(buttonWithText(view.host, '▸ November'), 'a document at any depth keeps its ancestors');
   assert.doesNotMatch(view.host.textContent, /couldn't be opened|Only part of this folder/);
+  view.render({ workspaceState: { status: 'error', indexedAt: 1, directories: [], error: "Can't find this folder." } });
+  assert.match(view.host.textContent, /Can't find this folder\./, 'a folder error is not hidden inside a subfolder');
+  assert.ok(buttonWithText(view.host, 'Retry'));
   view.render({ workspaceState: { status: 'indexing', indexedAt: 1, directories: [] } });
   assert.doesNotMatch(view.host.textContent, /Checking documents|Looking for/);
 });

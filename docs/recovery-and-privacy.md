@@ -88,7 +88,7 @@ replace existing documents. On macOS, Bindars also requires the volume to report
 swap support; missing or unverifiable support is refused before replacement.
 This includes exFAT and FAT32 and can affect network shares. The editor keeps
 your text, pauses autosave for that path, and offers **Save As**. Choose a new
-filename or a different drive. Confirming Overwrite does not bypass this check.
+filename or a different drive. Choosing **Keep my changes** does not bypass this check.
 Creating a new file remains supported; choosing an existing destination on an
 unsupported volume is refused. A file already changed before the revision check
 still produces the normal conflict decision.

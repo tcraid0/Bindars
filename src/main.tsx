@@ -113,12 +113,11 @@ function dismissLoadingScreen(): void {
 
 async function bootstrap() {
   // Resolve before the first list, but never hold startup for a slow native call.
-  let acceptingHome = true;
+  // A late answer still counts: labels drop the home folder on their next render.
   await Promise.race([
-    homeDir().then(path => { if (acceptingHome) setHomeDirectory(path); }, () => {}),
+    homeDir().then(setHomeDirectory, () => {}),
     new Promise<void>(resolve => setTimeout(resolve, 250)),
   ]);
-  acceptingHome = false;
   renderApp();
 
   // Wait for fonts + app state, with a safety timeout

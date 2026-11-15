@@ -8499,6 +8499,7 @@ test("Contents omits link sections with no matching documents", async () => {
     const contents = rendered.host.querySelector('[data-reader-panel="toc"]');
     assert.ok(contents);
     assert.doesNotMatch(contents.textContent, /Linked from|Unlinked mentions|No incoming links/);
+    assert.ok(!contents.querySelector(".navigation-help"), "no empty block is left behind");
   } finally { await rendered.cleanup(); }
 });
 
