@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, type MouseEvent } from "react";
 import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
 import { fileName, locationLabel } from "../lib/paths";
@@ -36,9 +36,19 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
     onHoverIndex,
   } = props;
   const inputRef = useRef<HTMLInputElement>(null);
+  const pointerAt = useRef<string | null>(null);
   useEffect(() => {
     if (visible) inputRef.current?.select();
+    pointerAt.current = null;
   }, [visible]);
+  // WebKit also sends "mousemove" when the list scrolls under a resting pointer.
+  // Only a changed position is the person moving it; the first event just records where it rests.
+  const pointerMoved = (event: MouseEvent) => {
+    const at = `${event.screenX},${event.screenY}`;
+    const moved = pointerAt.current !== null && pointerAt.current !== at;
+    pointerAt.current = at;
+    return moved;
+  };
   useEffect(() => {
     if (visible)
       document
@@ -139,7 +149,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
               id={`document-result-${index}`}
               role="option"
               aria-selected={index === selectedIndex}
-              onMouseMove={() => index !== selectedIndex && onHoverIndex(index)}
+              onMouseMove={event => pointerMoved(event) && index !== selectedIndex && onHoverIndex(index)}
               onClick={() => onOpenHit(hit)}
               className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
             >

@@ -290,11 +290,13 @@ test("Search documents: selects the query only on opening and preserves result a
     flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })));
     assert.deepEqual(queries, ["new query"]);
     const second = view.host.querySelectorAll('[role="option"]')[1];
-    flushSync(() =>
-      second.dispatchEvent(
-        new window.MouseEvent("mousemove", { bubbles: true }),
-      ),
-    );
+    for (const screenY of [10, 12]) {
+      flushSync(() =>
+        second.dispatchEvent(
+          new window.MouseEvent("mousemove", { bubbles: true, screenX: 10, screenY }),
+        ),
+      );
+    }
     flushSync(() => second.click());
     assert.deepEqual(hovered, [1]);
     assert.deepEqual(opened, [hits[1]]);
@@ -662,22 +664,33 @@ test("Search waits for typing to show details and keeps its descriptions and sta
   } finally { view.cleanup(); }
 });
 
-test("Search ignores pointer entry and redraw until the pointer moves over a different row", async () => {
+test("Search selects a row only when the pointer itself moves, not when the list moves under it", async () => {
   await installDom();
   const selected = [];
   const view = renderDialog(dialogs[1], { onHoverIndex: index => selected.push(index) });
   try {
     view.open();
     const rows = view.host.querySelectorAll('[role="option"]');
+    const move = (row, screenY) => flushSync(() => row.dispatchEvent(
+      new window.MouseEvent("mousemove", { bubbles: true, screenX: 10, screenY }),
+    ));
     for (const type of ["mouseover", "mouseenter", "scroll"]) {
       flushSync(() => rows[1].dispatchEvent(new window.MouseEvent(type, { bubbles: true })));
     }
     view.render({ results: [...hits] });
     assert.deepEqual(selected, []);
-    flushSync(() => rows[1].dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true })));
+    move(rows[1], 10);
+    assert.deepEqual(selected, [], "the first event only records where the pointer rests");
+    move(rows[1], 10);
+    assert.deepEqual(selected, [], "WebKit repeats mousemove at the same place when the list scrolls");
+    move(rows[1], 12);
     assert.deepEqual(selected, [1]);
     view.render({ selectedIndex: 1 });
-    flushSync(() => rows[1].dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true })));
+    move(rows[1], 14);
     assert.deepEqual(selected, [1], "movement on the selected row does not publish again");
+    view.render({ visible: false });
+    view.render({ visible: true, selectedIndex: 0 });
+    move(view.host.querySelectorAll('[role="option"]')[1], 40);
+    assert.deepEqual(selected, [1], "after reopening, a pointer resting somewhere new is recorded first");
   } finally { view.cleanup(); }
 });
