@@ -835,5 +835,5 @@ test("reader preparation rejects a deep-container document before any Markdown p
 test("catalog complexity failures preserve filename and explain the reader limit", () => {
   const doc = prepareCatalogDocument(makeMeta("complex.md"), `${"> ".repeat(MARKDOWN_MAX_CONTAINER_DEPTH + 1)}deep`);
   assert.equal(doc.name, "complex.md"); assert.equal(doc.coverage, "complexity");
-  assert.match(doc.problem, /Too complex to display/); assert.doesNotMatch(doc.problem, /failed to read/);
+  assert.match(doc.problem, /Too complex to show as a page/); assert.doesNotMatch(doc.problem, /failed to read/);
 });

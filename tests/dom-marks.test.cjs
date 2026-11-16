@@ -8,8 +8,6 @@ const {
 } = require("../.tmp/workspace-tests/src/hooks/useSearch.js");
 const {
   clearAnnotationHighlights,
-  createAnchor,
-  findAnchor,
   wrapRange,
 } = require("../.tmp/workspace-tests/src/lib/text-anchoring.js");
 
@@ -23,7 +21,7 @@ function annotate(container, exact, id = "hl-1") {
   const { text, spans } = collectText(container);
   const offset = text.indexOf(exact);
   const selection = rangeForOffsets(spans, offset, offset + exact.length);
-  const range = findAnchor(createAnchor(selection, container), container);
+  const range = selection; // Mark-layer tests use the explicitly selected passage.
   assert.ok(range, `expected range for ${exact}`);
   wrapRange(range, "annotation-highlight-yellow", id);
 }

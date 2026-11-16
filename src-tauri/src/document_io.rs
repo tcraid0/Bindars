@@ -529,7 +529,7 @@ pub(crate) fn read_bounded_file(
         return Err(NativeFileError::invalid(
             NativeFileOperation::ValidateDocument,
             format!(
-                "File is too large. Maximum supported size is {} MiB.",
+                "This file is too large to open (more than {} MB).",
                 MAX_MARKDOWN_SIZE_MIB
             ),
         ));
@@ -542,7 +542,7 @@ fn decode_markdown_contents(buffer: Vec<u8>) -> Result<String, NativeFileError> 
     String::from_utf8(buffer).map_err(|_| {
         NativeFileError::invalid(
             NativeFileOperation::DecodeDocument,
-            "File must be valid UTF-8 text.",
+            "Bindars can't read this file's text format. Try opening it in another text editor.",
         )
     })
 }
@@ -802,7 +802,7 @@ mod tests {
         let error = read_markdown_file_impl(path.to_string_lossy().into_owned())
             .expect_err("oversized file should error");
         assert!(
-            error.contains("File is too large"),
+            error.contains("too large to open (more than 10 MB)"),
             "unexpected error for {}: {error}",
             path.display()
         );
@@ -818,7 +818,7 @@ mod tests {
         let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
         assert!(result
             .expect_err("non-utf8 markdown should error")
-            .contains("valid UTF-8"));
+            .contains("can't read this file's text format"));
 
         cleanup(&path);
     }

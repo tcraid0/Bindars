@@ -60,7 +60,7 @@ async function setup(props = {}) {
   return {
     ...view,
     cleanup() { view.cleanup(); globalThis.localStorage = previousLocalStorage; },
-    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Toggle reader settings" : "Export options"}"]`); },
+    trigger(kind) { return view.host.querySelector(`[aria-label="${kind === "reader" ? "Reader settings" : "Export options"}"]`); },
     panel(kind) { return view.host.querySelector(kind === "reader" ? '[role="dialog"]:not([aria-modal])' : '[role="group"][aria-label="Export options"]'); },
     open(kind) { const trigger = this.trigger(kind); focus(trigger); click(trigger); return this.panel(kind); },
   };
@@ -229,7 +229,8 @@ for (const kind of ["reader", "export"]) {
         assert.equal(view.trigger(kind).getAttribute("aria-expanded"), "true");
         assert.equal(view.trigger(kind).getAttribute("aria-controls"), panel.id);
         if (kind === "reader") {
-          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader Settings");
+          assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Reader settings");
+          assert.equal(view.trigger(kind).title, "Hide Reader settings");
           assert.equal(document.activeElement.getAttribute("aria-label"), "Close reader settings");
         } else {
           assert.ok(document.activeElement === view.trigger(kind));
@@ -552,5 +553,40 @@ test('View zoom controls share toolbar Escape dismissal and restore their trigge
     pressKey('Escape');
     assert.ok(document.activeElement === trigger);
     assert.ok(view.host.querySelector('[aria-label="Interface zoom"]') === null);
+  } finally { view.cleanup(); }
+});
+
+test("Find in Document keeps its place in Edit without being reachable there", async () => {
+  let found = 0;
+  const view = await setup({isEditing:false,onFind:() => found++});
+  try {
+    let button = buttonWithText(view.host, "Find in Document");
+    assert.ok(button);
+    assert.equal(button.disabled, false);
+    assert.equal(button.classList.contains("invisible"), false);
+    click(button); assert.equal(found, 1);
+    view.render({isEditing:true,onFind:() => found++});
+    button = buttonWithText(view.host, "Find in Document");
+    assert.ok(button);
+    assert.equal(button.disabled, true);
+    assert.equal(button.classList.contains("invisible"), true);
+    click(button); assert.equal(found, 1);
+  } finally { view.cleanup(); }
+});
+
+
+test("document search actions keep Find, Search, View order in Read and Edit", async () => {
+  const view = await setup();
+  try {
+    for (const isEditing of [false, true]) {
+      view.render({ isEditing });
+      const buttons = [...view.host.querySelectorAll("header button")];
+      const find = buttonWithText(view.host, "Find in Document");
+      assert.deepEqual(buttons.slice(buttons.indexOf(find), buttons.indexOf(find) + 3)
+        .map(button => button.textContent), ["Find in Document", "Search", "View"]);
+      assert.equal(find.disabled, isEditing);
+      assert.equal(find.classList.contains("invisible"), isEditing);
+      assert.equal(buttonWithText(view.host, "View").title, "Interface zoom");
+    }
   } finally { view.cleanup(); }
 });

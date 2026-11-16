@@ -10,6 +10,15 @@ test('invalid empty or whitespace stored quotes finish without attaching',()=>{
   const c=fixture('<p>abc</p>');
   for(const exact of ['', ' ', '\n']) assert.equal(resolveAnchor({exact,prefix:'',suffix:''},c).status,'missing');
 });
+test('legacy second duplicate cannot become a verified attachment to the surviving first paragraph', async () => {
+  const paragraph = 'A'.repeat(40) + 'quote' + 'B'.repeat(40);
+  const c = fixture(`<p>${paragraph}</p><p>${paragraph}</p>`);
+  const legacy = createAnchor(selection(c, 'quote', true), c);
+  c.children[1].remove();
+  const result = resolveAnchor(legacy, c, await prepareAnnotationDocument(c, 'surviving paragraph'));
+  assert.equal(result.status, 'uncertain');
+  assert.equal(result.range, null, 'never paint the first occurrence as the deleted second occurrence');
+});
 test('second identical passage stays attached on creation and unchanged reopen; legacy duplicates remain uncertain',async()=>{
   const paragraph='A'.repeat(40)+'quote'+'B'.repeat(40);
   const c=fixture(`<p>${paragraph}</p><p>${paragraph}</p>`);
@@ -30,7 +39,7 @@ test('exact context survives a distant insertion; edited/deleted contexts never 
   assert.equal(resolveAnchor(anchor,c,await prepareAnnotationDocument(c,'new')).status,'uncertain');
   c.innerHTML='<p>prefix changed suffix</p>'; assert.equal(resolveAnchor(anchor,c).status,'missing');
   const long=fixture('<p>'+ 'A'.repeat(80)+'quote'+'B'.repeat(80)+'</p>');
-  const stable=createAnchor(selection(long,'quote'),long);
+  const stable=await createPositionedAnchor(selection(long,'quote'),long,'old long');
   long.firstChild.prepend('New beginning ');
   assert.equal(resolveAnchor(stable,long).status,'located');
 });

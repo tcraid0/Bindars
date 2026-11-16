@@ -143,7 +143,7 @@ test("annotation export sends the chosen destination and formatted Markdown", as
     click(exportButton(view.host));
     await flushExport();
     assert.deepEqual(dialogs, [{
-      defaultPath: "notes-annotations.md",
+      defaultPath: "notes-highlights-and-notes.md",
       filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
     }]);
     assert.equal(writes.length, 1);
@@ -262,4 +262,10 @@ test("unknown color names export literally without introducing Markdown or HTML"
   assert.equal(host.querySelectorAll("h1").length, 1);
   assert.equal(host.querySelectorAll("tag").length, 0);
   assert.ok(host.textContent.includes("purple* <tag> # heading highlight"));
+});
+
+test('export explicitly labels and escapes the preserved original excerpt', () => {
+  const text = buildAnnotationMarkdown('note.md', [{ ...highlights[0], originalExcerpt: 'old **quote** <script>' }], [], []);
+  assert.match(text, /\*\*Original excerpt:\*\* old \\\*\\\*quote\\\*\\\* &lt;script&gt;/);
+  assert.ok(text.includes('First quote'));
 });

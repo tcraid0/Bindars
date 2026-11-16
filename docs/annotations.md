@@ -1,4 +1,4 @@
-# Annotations
+# Highlights, notes, and bookmarks
 
 Select text in the reader and choose a color to highlight it. Choose **Note**
 instead to create a yellow highlight and open a note ready for typing. Note
@@ -38,8 +38,49 @@ does not choose the first match or use fuzzy similarity to guess. Nearby edits c
 with **Location uncertain**. Deleted or empty quotations show **Location
 unavailable**. Both states keep the note available for editing, removal, and
 export. Legacy annotations lack the original occurrence evidence; full-context
-matching cannot reconstruct evidence that was never saved. A legacy highlight
-can therefore attach to a sole remaining identical passage after deletion.
+matching cannot reconstruct evidence that was never saved. Their locations
+remain uncertain until you confirm a passage with **Choose passage**.
+
+### Edits made in Bindars
+
+Bindars sees every change made in its own editor. For Markdown documents it
+uses that to keep a highlight in place through more edits than the matching
+rules above allow. It never searches for similar text. This applies to
+highlights whose exact location was known when you entered Edit, and it works
+in two ways.
+
+- **The highlight's block still reads the same.** When the paragraph, heading,
+  list item or other block that holds the highlight shows exactly the same
+  text, the highlight stays on it. Edits elsewhere, formatting applied to that
+  block and identical passages elsewhere are all fine.
+- **The block was reworded, but the highlighted characters were not touched.**
+  Bindars follows the characters you highlighted. You can change, add or remove
+  words before or after them, split the paragraph, or join it to another.
+  Typing directly against either end keeps the highlight on the original
+  characters only: add an "s" and the highlight covers "ledger" inside
+  "ledgers".
+
+The second way needs plain text. From the start of the block to the end of the
+highlight, the Markdown source must be exactly what the reader shows, apart
+from curled quotes and apostrophes. In these cases it does not apply:
+
+- that stretch contains any of `` * _ ` ~ [ ] < > & \ $ | ``, which covers bold,
+  italic, code, links, HTML, entities, escapes, math and table cells after the
+  first;
+- that stretch contains a `--` or `...` that the reader replaces;
+- the highlight is on a later line of a block quote, in a code block, or
+  continues across a line break in the source;
+- any highlighted character was changed, deleted or replaced. This includes
+  retyping the same words while the rest of the block changes, and cutting and
+  pasting the highlighted text or its whole block. Deleting highlighted text
+  and using Undo is followed only by the first way: the block must read the
+  same afterwards, and its first character must not have been deleted.
+
+When neither way applies, the matching rules above decide. A one-of-a-kind
+passage may still be found by its surrounding text; otherwise the note shows
+**Location uncertain** and **Choose passage** places it again. Changes made
+outside Bindars, Fountain documents, and highlights that were not exactly
+located when you entered Edit always use the matching rules.
 
 Annotations belong to the canonical path returned when opening a document.
 Renaming or moving a file does not automatically migrate its annotations. Replacing a file at
@@ -63,11 +104,21 @@ where the platform permits selecting that text; a selection spanning excluded
 text is rejected instead of silently clipped. Search can cross annotation marks.
 Diagrams reapply saved highlights after their asynchronous rendering finishes.
 
+### Choosing a passage again
+
+If a highlight shows **Location uncertain**, its note is still in
+**Highlights & notes**. Choose **Choose passage**, select the intended text in
+Read, then choose **Use this passage**. Check the occurrence carefully when
+the same words appear more than once. The note stays with the highlight.
+If you choose different words, the panel also keeps the original excerpt.
+Cancel leaves the attachment unchanged.
+
 ## Reconnecting notes after a rename or move
 
 Choose **Reconnect notes…** in Highlights & notes or beside a missing document
-in document navigation. Select the original
-document; its full path and counts distinguish collections with the same name.
+in the sidebar. Select the original document; its location and counts distinguish
+collections with the same name. If it has no saved notes, Locate File lets you
+choose its new location and open it.
 Choose the destination file to preview how many highlighted passages are located,
 uncertain, or missing using the existing conservative annotation rules. The
 preview also counts matching bookmark headings. Images and diagram content that
@@ -135,7 +186,7 @@ other annotations are edited. Unrecognized color names are displayed as yellow,
 but their stored values survive note edits, unrelated saves, and recovery-copy
 restoration. Choosing a supported color explicitly replaces the stored value.
 
-## If annotations cannot be loaded
+## If highlights, notes, or bookmarks cannot be loaded
 
 A record with a recognizable newer version needs that version of Bindars or
 later. It is not evidence that the notes are damaged. Do not reset or rewrite it
@@ -155,6 +206,48 @@ replacing the affected file. Do not delete the migration marker to force
 reimport of stale settings, or clear the whole collection to repair one document.
 
 A damaged collection can also prevent settings and recent files from loading.
-Restart after external repair, then use **Retry loading** if the annotations
-panel still reports an error. The recovery-copy UI requires a readable
+Restart after external repair, open a document, then choose **Retry** if
+**Highlights & notes** still reports an error. The recovery-copy UI requires a readable
 destination collection; it does not reset damaged primary storage.
+
+### Departure continuity
+
+Leaving Edit by quitting, closing the window or opening another document must
+not lose what "Edits made in Bindars" established. For that, version 3
+highlights may carry optional `continuity` evidence, called a claim. Its format
+is `{format: 1, sourceHash, block?, run?, basis}`. At least one of `block` and
+`run` is present.
+
+- `block` is `{line, column, blockHash, start, end}`: the position of the
+  block's first text character, the hash of the block's rendered text, and the
+  highlight's zero-based offsets within that text. It is accepted only for a
+  block whose rendered text has the same hash.
+- `run` is `{line, column}`: the position of the highlight's own first
+  character. It is recorded only when the plain-text rule held on entering
+  Edit and no highlighted character was touched. It is accepted only when the
+  plain-text rule holds again in the saved source.
+
+Lines and columns are one-based positions in the saved source. Hashes are
+lowercase SHA-256, using the same UTF-8 string convention as positioned
+anchors. No document text is stored in the claim. `basis` contains the
+superseded position's `sourceHash`, `textHash`, `start`, and `end` values.
+
+Claims are queued once at admitted departure, while the originating file still
+owns the annotation hook, only when the observed final editor source equals the
+published saved source. Plain Edit→Read continues to use memory without this
+write, and applies the same two checks. A settled reader verifies a claim only
+against its exact source hash and unchanged basis. Each part is checked
+separately and the highlighted text must be found at the claimed place; if the
+two parts point to different places, neither is used. The normal position
+refresh removes the claim. A claim in any other shape, or with a malformed
+part, is ignored as a whole without discarding the highlight; different-source
+claims stay inert and cause no write. Note/color edits retain claims; passage
+replacement removes them. A newer claim replaces an older one. Older 1.6.4
+record serialization preserves this optional field without a version bump.
+
+Entering Edit before a persisted claim has been verified remains conservative:
+that claim does not establish observed identity for a new edit session. A
+reworded block is followed only under the plain-text rule; otherwise word
+changes inside the block, splits, merges and deleted original characters still
+may leave a location uncertain. No matching or legacy fallback policy is
+relaxed.

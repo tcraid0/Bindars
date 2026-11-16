@@ -42,13 +42,14 @@ function ConfirmDialogComponent({
       visible={visible}
       title={title}
       descriptionId={messageId}
+      maxWidthClassName="max-w-[420px]"
       initialFocusRef={initialFocusRef}
       onDismiss={onDismiss}
       dismissible={!busy}
     >
       <p id={messageId} className="text-sm text-text-secondary mb-5">{message}</p>
-      {busy && <p role="status" className="text-sm text-text-secondary mb-3">Overwriting…</p>}
-      <div className="flex items-center justify-end gap-2">
+      {busy && <p role="status" className="text-sm text-text-secondary mb-3">Saving your changes…</p>}
+      <div className="flex flex-wrap items-center justify-end gap-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
         <button
           ref={cancelRef}
           type="button"

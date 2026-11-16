@@ -327,10 +327,10 @@ const MarkdownContent = memo(function MarkdownContent({
   }, [toast]);
 
   // Extract frontmatter before rendering
-  const { frontmatter, body, bodyStartLine } = useMemo(() => extractFrontmatter(content), [content]);
+  const { frontmatter, body, bodyStartLine, bodyStartColumn } = useMemo(() => extractFrontmatter(content), [content]);
   const positionedRehypePlugins = useMemo(
-    () => createRehypePlugins(bodyStartLine - 1),
-    [bodyStartLine],
+    () => createRehypePlugins(bodyStartLine - 1, bodyStartColumn),
+    [bodyStartLine, bodyStartColumn],
   );
 
   const context = useMemo(() => ({

@@ -4,7 +4,7 @@ const React = require("react");
 const { act } = React;
 const { flushSync } = require("./_helpers/react.cjs");
 const { createRoot } = require("react-dom/client");
-const { undo } = require("@codemirror/commands");
+const { undo, redo } = require("@codemirror/commands");
 const { forceParsing, syntaxTree } = require("@codemirror/language");
 const { EditorView } = require("@codemirror/view");
 const {
@@ -869,14 +869,7 @@ test("initial source positioning is clamped, applied once, and captured without 
 
 test("scroll-only movement captures the first visible editor line without moving selection", async () => {
   await installDom();
-  const scrollRootRef = { current: document.body };
-  Object.defineProperties(document.body, {
-    scrollTop: { value: 0, writable: true, configurable: true },
-  });
-  document.body.getBoundingClientRect = () => ({
-    x: 0, y: 0, top: 0, bottom: 400, left: 0, right: 800,
-    width: 800, height: 400, toJSON() {},
-  });
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
   const rendered = await renderEditor({
     initialDocument: "First\nSecond\nThird",
     initialPosition: { line: 1, column: 1 },
@@ -886,9 +879,7 @@ test("scroll-only movement captures the first visible editor line without moving
 
   try {
     const view = findEditorView(rendered.host);
-    await act(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    });
+    await settleFrames();
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, false);
 
     const lines = view.contentDOM.querySelectorAll(".cm-line");
@@ -901,7 +892,7 @@ test("scroll-only movement captures the first visible editor line without moving
     });
     view.posAtCoords = () => null;
     document.body.scrollTop = 500;
-    document.body.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 500 }));
+    document.body.dispatchEvent(new window.Event("scroll"));
 
     const beforeSelection = view.state.selection.main.toJSON();
     const captured = rendered.ref.current.capturePosition();
@@ -909,6 +900,8 @@ test("scroll-only movement captures the first visible editor line without moving
       cursor: { line: 1, column: 1 },
       viewport: { line: 3, column: 1 },
       viewportMoved: true,
+      cursorTopPx: null,
+      viewportTopPx: 100,
     });
     assert.deepEqual(view.state.selection.main.toJSON(), beforeSelection);
   } finally {
@@ -916,14 +909,23 @@ test("scroll-only movement captures the first visible editor line without moving
   }
 });
 
-test("the first position read treats unsettled constructor scrolling as the baseline", async () => {
-  await installDom();
-  const scrollRootRef = { current: document.body };
-  Object.defineProperty(document.body, "scrollTop", {
-    value: 0,
-    writable: true,
-    configurable: true,
+function settleFrames() {
+  return act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+}
+
+function setScrollRoot(rect) {
+  Object.defineProperty(document.body, "scrollTop", { value: 0, writable: true, configurable: true });
+  document.body.getBoundingClientRect = () => ({
+    x: 0, y: rect.top, left: 0, right: 800, width: 800, height: rect.bottom - rect.top, toJSON() {}, ...rect,
+  });
+  return { current: document.body };
+}
+
+test("the view counts as moved only after the user scrolls it", async () => {
+  await installDom();
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
   const rendered = await renderEditor({
     initialDocument: "First\nSecond",
     initialPosition: { line: 2, column: 1 },
@@ -932,12 +934,133 @@ test("the first position read treats unsettled constructor scrolling as the base
   });
 
   try {
-    document.body.scrollTop = 500;
+    // The editor positions the shared scroll root during its own layout pass.
+    // Its scroll event is not the user's.
+    findEditorView(rendered.host).requestMeasure({
+      read() {},
+      write() { document.body.scrollTop = 300; },
+    });
+    await settleFrames();
+    document.body.dispatchEvent(new window.Event("scroll"));
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, false);
+
     document.body.scrollTop = 700;
+    document.body.dispatchEvent(new window.Event("scroll"));
     assert.equal(rendered.ref.current.capturePosition().viewportMoved, true);
   } finally {
     rendered.cleanup();
+  }
+});
+
+test("the editor opens on Read's screen height below the bar, and centres without one", async () => {
+  const original = EditorView.scrollIntoView;
+  const scrolls = [];
+  EditorView.scrollIntoView = (position, options) => {
+    scrolls.push({ position, ...options });
+    return original(position, options);
+  };
+  try {
+    // CodeMirror's own scroll leaves the line at screen 300 here. Where Read's height applies,
+    // the editor then moves the line the rest of the way; a centred opening is left alone.
+    for (const [label, initialScreenTopPx, withBar, expected, correctedScrollTop] of [
+      ["Read's height", 250, true, { y: "start", yMargin: 250 - 50 - 58 }, 300 - 250],
+      ["floored at the stuck bar", 80, true, { y: "start", yMargin: 0 }, 300 - (50 + 58)],
+      ["no Read height", null, true, { y: "center" }, 0],
+      ["no formatting bar", 250, false, { y: "center" }, 0],
+    ]) {
+      await installDom();
+      scrolls.length = 0;
+      // Main's top is 50 on screen; the 58-px bar sits at rest at its top.
+      const scrollRootRef = setScrollRoot({ top: 50, bottom: 450 });
+      const bar = document.createElement("div");
+      const controls = document.createElement("div");
+      bar.appendChild(controls);
+      document.body.appendChild(bar);
+      bar.style.top = "0px";
+      Object.defineProperty(bar, "offsetHeight", { value: 58 });
+      bar.getBoundingClientRect = () => ({
+        x: 0, y: 50, top: 50, bottom: 108, left: 0, right: 800, width: 800, height: 58, toJSON() {},
+      });
+      const rendered = await renderEditor({
+        initialDocument: "# Title\n\nFirst\n\nReading here",
+        initialPosition: { line: 5, column: 1 },
+        initialScreenTopPx,
+        scrollRootRef,
+        formattingControlsRef: withBar ? { current: controls } : undefined,
+        onBufferChange() { return false; },
+      });
+      try {
+        const view = findEditorView(rendered.host);
+        // With a height and the Window global, CodeMirror's first measure completes as in the app.
+        Object.defineProperty(view.scrollDOM, "clientHeight", { value: 400 });
+        globalThis.Window = window.constructor;
+        view.contentDOM.querySelectorAll(".cm-line")[4].getBoundingClientRect = () => ({
+          x: 0, y: 300, top: 300, bottom: 330, left: 0, right: 300, width: 300, height: 30, toJSON() {},
+        });
+        await settleFrames();
+        const anchor = view.state.doc.line(5).from;
+        assert.deepEqual(scrolls, [{ position: anchor, ...expected }], label);
+        assert.equal(document.body.scrollTop, correctedScrollTop, label);
+        assert.equal(view.state.selection.main.head, anchor, label);
+        document.body.dispatchEvent(new window.Event("scroll"));
+        assert.equal(rendered.ref.current.capturePosition().viewportMoved, false, label);
+        assert.equal(undo(view), false, `${label}: the initial scroll adds no history`);
+      } finally {
+        rendered.cleanup();
+        bar.remove();
+      }
+    }
+  } finally {
+    EditorView.scrollIntoView = original;
+    delete globalThis.Window;
+  }
+});
+
+for (const [label, initialDocument, line] of [
+  ["the visible editor line is read below the sticky formatting controls", "Covered\nVisible\nBelow", 2],
+  ["a blank line just below the sticky controls yields the next visible text", "Covered\n\nVisible", 3],
+]) test(label, async () => {
+  await installDom();
+  const scrollRootRef = setScrollRoot({ top: 0, bottom: 400 });
+  const bar = document.createElement("div");
+  const controls = document.createElement("div");
+  bar.appendChild(controls);
+  document.body.appendChild(bar);
+  bar.getBoundingClientRect = () => ({
+    x: 0, y: 0, top: 0, bottom: 100, left: 0, right: 800, width: 800, height: 100, toJSON() {},
+  });
+  const rendered = await renderEditor({
+    initialDocument,
+    initialPosition: { line: 1, column: 1 },
+    scrollRootRef,
+    formattingControlsRef: { current: controls },
+    onBufferChange() { return false; },
+  });
+
+  try {
+    const view = findEditorView(rendered.host);
+    await settleFrames();
+    const tops = [40, 110, 140];
+    view.contentDOM.querySelectorAll(".cm-line").forEach((line, index) => {
+      const top = tops[index];
+      line.getBoundingClientRect = () => ({
+        x: 0, y: top, top, bottom: top + 30, left: 0, right: 300, width: 300, height: 30, toJSON() {},
+      });
+    });
+    view.posAtCoords = () => null;
+    document.body.scrollTop = 500;
+    document.body.dispatchEvent(new window.Event("scroll"));
+
+    assert.deepEqual(rendered.ref.current.capturePosition(), {
+      cursor: { line: 1, column: 1 },
+      viewport: { line, column: 1 },
+      viewportMoved: true,
+      cursorTopPx: 40,
+      viewportTopPx: tops[line - 1],
+    });
+  } finally {
+    rendered.cleanup();
+    bar.remove();
   }
 });
 
@@ -977,7 +1100,13 @@ for (const formatting of [true, false]) {
         assert.equal(view.state.doc.toString(), initialDocument);
         dispatchKey(view.contentDOM, 'Enter');
         dispatchKey(view.contentDOM, 'Enter');
-        assert.equal(view.state.doc.toString(), `${initialDocument}\n`);
+        assert.equal(view.state.doc.toString(), `${initialDocument}\n\n`);
+        view.dispatch(view.state.replaceSelection("foo"));
+        const { markdownArticle } = require("./_helpers/markdown-reader.cjs");
+        const article = markdownArticle(view.state.sliceDoc());
+        const paragraph = [...article.querySelectorAll("p")].find((node) => node.textContent === "foo");
+        assert.ok(paragraph, article.innerHTML);
+        assert.equal(paragraph.closest("li"), null, article.innerHTML);
       } finally { rendered.cleanup(); }
     });
   }
@@ -987,5 +1116,216 @@ test('Fountain Enter does not apply Markdown list continuation', async () => {
   try {
     const view = findEditorView(rendered.host); view.dispatch({ selection: { anchor: view.state.doc.length } });
     dispatchKey(view.contentDOM, 'Enter'); assert.equal(view.state.doc.toString(), '- action\n');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`empty nested item outdents before exit; publication and Undo, styled=${formatting}`, async () => {
+    const publications = [];
+    const rendered = await renderEditor({ initialDocument: '- a\n  - ', markdownFormattingEnabled: formatting,
+      onBufferChange(content) { publications.push(content); return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '- a\n- ');
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '- a\n\n');
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), '- a\n- ');
+      dispatchKey(view.contentDOM, 'Enter');
+      view.dispatch({ ...view.state.replaceSelection('foo'), userEvent: 'input.type' });
+      assert.equal(rendered.ref.current.flushPendingChanges(), true);
+      assert.deepEqual(publications, ['- a\n\nfoo']);
+      await waitForPublication();
+      assert.equal(publications.length, 1);
+      view.dispatch({ ...view.state.replaceSelection(' bar'), userEvent: 'input.type' });
+      await waitForPublication();
+      assert.equal(publications.at(-1), '- a\n\nfoo bar');
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('numbered Enter continues intentional starts and renumbers the following run', async () => {
+  const rendered = await renderEditor({ initialDocument: '10) a\n11) b\n12) c', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: 5 } });
+    dispatchKey(view.contentDOM, 'Enter');
+    assert.equal(view.state.sliceDoc(), '10) a\n11) \n12) b\n13) c');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`existing indentation shortcuts are list-aware; generic and focus keys remain intact, styled=${formatting}`, async () => {
+    const publications = [];
+    const rendered = await renderEditor({ initialDocument: '10. parent\n11. [x] child', markdownFormattingEnabled: formatting,
+      onBufferChange(content) { publications.push(content); return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      assert.equal(dispatchKey(view.contentDOM, ']', { ctrlKey: true }).defaultPrevented, true);
+      assert.equal(view.state.sliceDoc(), '10. parent\n    1. [x] child');
+      assert.equal(rendered.ref.current.flushPendingChanges(), true);
+      assert.deepEqual(publications, ['10. parent\n    1. [x] child']);
+      dispatchKey(view.contentDOM, '[', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '10. parent\n11. [x] child');
+      view.dispatch({ selection: { anchor: 5 } });
+      dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '10. parent\n11. [x] child', 'first item must not fall through to fixed indent');
+      assert.equal(dispatchKey(view.contentDOM, 'Tab').defaultPrevented, false);
+      assert.equal(dispatchKey(view.contentDOM, 'Tab', { shiftKey: true }).defaultPrevented, false);
+      assert.equal(dispatchKey(view.contentDOM, 'Escape').defaultPrevented, false);
+      replaceEditorDocument(view, 'ordinary');
+      view.dispatch({ selection: { anchor: 3 } });
+      dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), '  ordinary');
+      dispatchKey(view.contentDOM, '[', { ctrlKey: true });
+      assert.equal(view.state.sliceDoc(), 'ordinary');
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('Fountain keeps generic indentation even for Markdown-looking text', async () => {
+  const rendered = await renderEditor({ initialDocument: '10. parent\n11. child', fileType: 'fountain', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state.sliceDoc(), '10. parent\n  11. child');
+  } finally { rendered.cleanup(); }
+});
+
+for (const formatting of [true, false]) {
+  test(`ordered tasks continue unchecked and exit into a paragraph, styled=${formatting}`, async () => {
+    const rendered = await renderEditor({ initialDocument: '10) [x] a', markdownFormattingEnabled: formatting, onBufferChange() { return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), '10) [x] a\n11) [ ] ');
+      dispatchKey(view.contentDOM, 'Enter');
+      view.dispatch(view.state.replaceSelection('foo'));
+      assert.equal(view.state.sliceDoc(), '10) [x] a\n\nfoo');
+      const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+      const article = markdownArticle(view.state.sliceDoc());
+      assert.equal(article.lastElementChild.tagName, 'P');
+      assert.equal(article.lastElementChild.textContent, 'foo');
+      assert.equal(article.querySelectorAll('input[checked]').length, 1);
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test('ordered empty nested tasks outdent once and list exit retains CRLF and CR serialization', async () => {
+  for (const separator of ['\r\n', '\r']) {
+    const rendered = await renderEditor({ initialDocument: `10. [x] parent${separator}    1. [ ] `, onBufferChange() { return true; } });
+    try {
+      const view = findEditorView(rendered.host);
+      view.dispatch({ selection: { anchor: view.state.doc.length } });
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}11. [ ] `);
+      dispatchKey(view.contentDOM, 'Enter');
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}${separator}`);
+      assert.equal(undo(view), true);
+      assert.equal(view.state.sliceDoc(), `10. [x] parent${separator}11. [ ] `);
+    } finally { rendered.cleanup(); }
+  }
+});
+
+for (const formatting of [true, false]) {
+  test(`middle list exit keeps both surrounding lists separate, styled=${formatting}`, async () => {
+    for (const [initialDocument, expected] of [
+      ['3. a\n4. \n5. c', '3. a\n\nfoo\n\n4. c'],
+      ['10) [x] a\n11) [ ] \n12) [x] b', '10) [x] a\n\nfoo\n\n11) [x] b'],
+      ['3. a\n\n4. \n5. c', '3. a\n\nfoo\n\n4. c'],
+    ]) {
+      const rendered = await renderEditor({ initialDocument, markdownFormattingEnabled: formatting,
+        onBufferChange() { return true; } });
+      try {
+        const view = findEditorView(rendered.host);
+        view.dispatch({ selection: { anchor: view.state.doc.line(view.state.doc.lines - 1).to } });
+        assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+        const exited = view.state.sliceDoc();
+        const caret = view.state.selection.main.head;
+        assert.equal(undo(view), true);
+        assert.equal(view.state.sliceDoc(), initialDocument);
+        assert.equal(redo(view), true);
+        assert.equal(view.state.sliceDoc(), exited);
+        assert.equal(view.state.selection.main.head, caret);
+        view.dispatch(view.state.replaceSelection('foo'));
+        assert.equal(view.state.sliceDoc(), expected);
+        const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+        const article = markdownArticle(view.state.sliceDoc());
+        assert.deepEqual([...article.children].map((node) => node.tagName), ['OL', 'P', 'OL']);
+        assert.equal(article.children[1].textContent, 'foo');
+        assert.equal(article.querySelectorAll('input[checked]').length, initialDocument.includes('[x]') ? 2 : 0);
+      } finally { rendered.cleanup(); }
+    }
+  });
+
+  test(`command-created empty nested tasks outdent with checked state intact, styled=${formatting}`, async () => {
+    const { applyListCommand } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
+    for (const [parent, child, expected] of [
+      ['- [x] parent', '  - child', '- [x] parent\n\n1. [ ] '],
+      ['- parent', '  - child', '- parent\n\n1. [ ] '],
+      ['10. [x] parent', '    1. [x] child', '10. [x] parent\n11. [x] '],
+      ['10. [x] parent', '    1. [X] child', '10. [x] parent\n11. [X] '],
+      ['- parent', '  - [X] child', '- parent\n- [X] '],
+    ]) {
+      const publications = [];
+      const rendered = await renderEditor({ initialDocument: `${parent}\n${child}`, markdownFormattingEnabled: formatting,
+        onBufferChange(content) { publications.push(content); return true; } });
+      try {
+        const view = findEditorView(rendered.host);
+        view.dispatch({ selection: { anchor: view.state.doc.length } });
+        if (child.includes('- child')) {
+          assert.equal(applyListCommand(view, 'numbered').applied, true);
+          assert.equal(applyListCommand(view, 'checklist').applied, true);
+        }
+        view.dispatch({ changes: { from: view.state.doc.length - 'child'.length, to: view.state.doc.length } });
+        const before = view.state.sliceDoc();
+        assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+        assert.equal(view.state.sliceDoc(), expected);
+        assert.equal(undo(view), true);
+        assert.equal(view.state.sliceDoc(), before);
+        assert.equal(redo(view), true);
+        view.dispatch(view.state.replaceSelection('foo'));
+        assert.equal(view.state.sliceDoc(), `${expected}foo`);
+        const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+        const article = markdownArticle(view.state.sliceDoc());
+        assert.equal(article.querySelectorAll('li li').length, 0, article.innerHTML);
+        assert.equal(article.querySelectorAll('input[type="checkbox"]').length, parent.includes('[x]') ? 2 : 1);
+        assert.equal(rendered.ref.current.flushPendingChanges(), true);
+        assert.equal(publications.at(-1), `${expected}foo`);
+      } finally { rendered.cleanup(); }
+    }
+  });
+}
+
+test('indent shortcut routing honors half-open selections and inspects every selection range', async () => {
+  const { EditorSelection } = require('@codemirror/state');
+  const rendered = await renderEditor({ initialDocument: 'plain\n- parent\n- child', onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: EditorSelection.single(0, 6) });
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state.sliceDoc(), '  plain\n- parent\n- child');
+    assert.equal(undo(view), true);
+    view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(view.state.doc.length)], 0) });
+    const before = view.state;
+    dispatchKey(view.contentDOM, ']', { ctrlKey: true });
+    assert.equal(view.state, before, 'a second range in a list must refuse without generic fallback');
+  } finally { rendered.cleanup(); }
+});
+
+test('empty task Enter consumes refused outdent without falling through to generic newline', async () => {
+  const initialDocument = '- parent\n  1. [ ] \n  2. sibling';
+  const rendered = await renderEditor({ initialDocument, onBufferChange() { return true; } });
+  try {
+    const view = findEditorView(rendered.host);
+    view.dispatch({ selection: { anchor: view.state.doc.line(2).to } });
+    assert.equal(dispatchKey(view.contentDOM, 'Enter').defaultPrevented, true);
+    assert.equal(view.state.sliceDoc(), initialDocument);
+    assert.equal(undo(view), false);
   } finally { rendered.cleanup(); }
 });

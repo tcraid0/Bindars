@@ -20,7 +20,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/reading-dark.webp">
-  <img src="assets/readme/reading-light.webp" alt="Francis Bacon's Of Studies open in Bindars, with highlighted passages, a table of contents, and notes alongside the text." width="1920">
+  <img src="assets/readme/reading-light.webp" alt="Francis Bacon's Of Studies open in Bindars, with highlighted passages, Contents, and notes alongside the text." width="1920">
 </picture>
 
 *Bindars 1.6.1 on Linux.*
@@ -113,7 +113,7 @@ package distribution are paused. Other Linux distributions can
 
 - [Using Bindars](docs/usage.md): navigation, search, keyboard shortcuts,
   interface zoom, macOS spelling, and rendering rules.
-- [Highlights and notes](docs/annotations.md): annotation storage, file moves,
+- [Highlights and notes](docs/annotations.md): saving highlights and notes, file moves,
   exports, and recovery.
 - [Saving your work](docs/recovery-and-privacy.md): autosave, Drafts, backups,
   and files left behind by interrupted saves.

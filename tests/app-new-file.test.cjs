@@ -110,7 +110,7 @@ async function requestDepartureAfterFailedBoundarySave(rendered, words, depart) 
   return waitFor(() => {
     const dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog);
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     return dialog;
   });
 }
@@ -127,7 +127,7 @@ async function requestNativeOpenAndDiscardIfPrompted(rendered, targetPath) {
     assert.ok(candidate);
     return candidate;
   });
-  if (dialog) clickButton(rendered.host, "Discard", dialog);
+  if (dialog) clickButton(rendered.host, "Don't save", dialog);
   await waitFor(() => assert.ok(rendered.openedPaths().includes(targetPath)));
   const fileName = targetPath.split("/").at(-1);
   await waitFor(() => assert.ok(rendered.host.textContent.includes(fileName)));
@@ -437,7 +437,7 @@ for (const [cause, error] of [
   ["annotation lookup failed", {
     category: "unknown",
     operation: "accessRecoveryData",
-    message: "Couldn't access annotation storage. Existing data was preserved.",
+    message: "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.",
     detail: "Couldn't read annotations.json: Permission denied",
   }],
 ]) {
@@ -1146,7 +1146,7 @@ test("a stored theme arriving after a settings swatch selection keeps the user's
   const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
 
   try {
-    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    const toggle = rendered.host.querySelector('button[aria-label="Reader settings"]');
     assert.ok(toggle, "expected the reader settings toggle");
     flushSync(() => {
       toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -1174,7 +1174,7 @@ test("a stored theme arriving after settings swatch arrow navigation keeps the u
   const rendered = await renderEditorApp({ themeGet: storedTheme.promise });
 
   try {
-    const toggle = rendered.host.querySelector('button[aria-label="Toggle reader settings"]');
+    const toggle = rendered.host.querySelector('button[aria-label="Reader settings"]');
     assert.ok(toggle, "expected the reader settings toggle");
     flushSync(() => {
       toggle.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -1327,6 +1327,14 @@ test("Markdown formatting shortcut toggles only in the editor and respects panel
     const metaToggle = withShortcutPlatform("MacIntel", () =>
       dispatchEditorKey(rendered.host, "m", { metaKey: true, altKey: true }));
     assert.equal(metaToggle.defaultPrevented, true);
+    assert.equal(view.state.field(markdownFormattingEnabled), false);
+
+    const optionProducedKey = withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "µ", { code: "KeyM", metaKey: true, altKey: true }));
+    assert.equal(optionProducedKey.defaultPrevented, true);
+    assert.equal(view.state.field(markdownFormattingEnabled), true);
+    withShortcutPlatform("MacIntel", () =>
+      dispatchEditorKey(rendered.host, "µ", { code: "KeyM", metaKey: true, altKey: true }));
     assert.equal(view.state.field(markdownFormattingEnabled), false);
 
     const altGraphToggle = dispatchEditorKey(rendered.host, "m", {
@@ -1633,7 +1641,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       assert.ok(dialog);
       return dialog;
     });
-    assert.match(cancelDialog.textContent, /Unsaved changes/);
+    assert.match(cancelDialog.textContent, /Save changes to/);
 
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
@@ -1646,7 +1654,7 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
       assert.ok(dialog);
       return dialog;
     });
-    clickButton(host, "Discard", discardDialog);
+    clickButton(host, "Don't save", discardDialog);
     await waitFor(() => assert.equal(findEditorView(host).state.sliceDoc(), ""));
     assert.ok(document.activeElement === findEditorView(host).contentDOM);
 
@@ -1952,6 +1960,7 @@ async function renderContinuityApp({
   ].join("\n");
   let conflictNextWrite = false;
   let deferredOpen = initialOpenOperation;
+  let deferredAnnotationLoad = null;
   let deferredOpenDialog = null;
   let deferredWrite = null;
   let deferredWatch = null;
@@ -1981,6 +1990,12 @@ async function renderContinuityApp({
       case "initialize_annotation_storage":
         return bootstrapRead ?? { settingsReady: true, settingsError: null };
       case "load_annotations":
+        if (deferredAnnotationLoad) {
+          const operation = deferredAnnotationLoad;
+          deferredAnnotationLoad = null;
+          operation.args = args;
+          return operation.promise;
+        }
         return annotationWrites.findLast(write => write.path === args.path)?.annotations
           ?? (args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null);
       case "save_annotations":
@@ -2231,6 +2246,7 @@ async function renderContinuityApp({
     diskContent: () => diskContent,
     conflictNextWrite() { conflictNextWrite = true; },
     deferNextOpen(operation) { deferredOpen = operation; },
+    deferNextAnnotationLoad(operation) { deferredAnnotationLoad = operation; },
     deferNextOpenDialog(operation) { deferredOpenDialog = operation; },
     deferNextWrite(operation) { deferredWrite = operation; },
     deferNextWatch(operation) { deferredWatch = operation; },
@@ -2333,12 +2349,12 @@ test("Read mode retains the save guard after reader settings close", async () =>
     await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
     const words = "These current unsaved edits must survive.";
     updateEditor(rendered.host, words);
-    const trigger = rendered.host.querySelector('[aria-label="Toggle reader settings"]');
+    const trigger = rendered.host.querySelector('[aria-label="Reader settings"]');
     flushSync(() => trigger.click());
     flushSync(() => rendered.host.querySelector('[aria-label="Close reader settings"]').click());
     rendered.failNextFileWrite(new Error("Synthetic save failure"));
     clickButton(rendered.host, "Read");
-    await waitFor(() => assert.match(document.querySelector('[aria-modal="true"]').textContent, /Unsaved changes/));
+    await waitFor(() => assert.match(document.querySelector('[aria-modal="true"]').textContent, /Save changes to/));
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[aria-modal="true"]')));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), words);
@@ -2884,7 +2900,7 @@ test("an idle autosave conflict warns quietly and waits for manual save to open 
     const dialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed on disk/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     assert.ok(dialog);
@@ -2908,7 +2924,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     const firstDialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     clickButton(rendered.host, "Cancel", firstDialog);
@@ -2928,7 +2944,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     const secondDialog = await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       return candidate;
     });
     assert.equal(rendered.fileWrites().length, writeCount);
@@ -2940,7 +2956,7 @@ test("an unresolved conflict stays dirty after Undo and cannot report a false sa
     await waitFor(() => {
       const candidate = document.querySelector('[role="dialog"]');
       assert.ok(candidate);
-      assert.match(candidate.textContent, /File changed/);
+      assert.match(candidate.textContent, /changed outside Bindars/);
       assert.ok(rendered.host.querySelector(".cm-editor"));
     });
   } finally {
@@ -3121,7 +3137,7 @@ async function finishDepartureWithRestoredText(rendered, expectedDisk) {
   });
   if (route === "dialog") {
     const dialog = document.querySelector('[role="dialog"]');
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     clickButton(rendered.host, "Save", dialog);
   }
   await waitFor(() => assert.equal(rendered.diskContent(), expectedDisk));
@@ -3277,7 +3293,7 @@ async function saveFromUnsavedChangesDialog(rendered, write) {
   const dialog = await waitFor(() => {
     const candidate = document.querySelector('[role="dialog"]');
     assert.ok(candidate);
-    assert.match(candidate.textContent, /Unsaved changes/);
+    assert.match(candidate.textContent, /Save changes to/);
     return candidate;
   });
   rendered.deferNextWrite(write);
@@ -3306,7 +3322,7 @@ for (const second of ["new", "quit"]) {
         assert.ok(candidate);
         return candidate;
       });
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       assert.match(dialog.textContent, /continuity\.md/);
       assert.equal(findEditorView(rendered.host).state.sliceDoc(), newer);
       const writesBefore = rendered.fileWrites().length;
@@ -3369,7 +3385,7 @@ test("a pending save that lands as a conflict stops the departure at the conflic
       assert.ok(candidate);
       return candidate;
     });
-    assert.match(dialog.textContent, /File changed/);
+    assert.match(dialog.textContent, /changed outside Bindars/);
     assert.ok(rendered.host.querySelector(".cm-editor"));
     assert.equal(findEditorView(rendered.host).state.sliceDoc(), RESTORED_TEXT);
     assert.equal(rendered.fileWrites().length, 1, "a conflict is not retried behind the person's back");
@@ -3400,7 +3416,7 @@ test("a pending save that retained a competing version stops the departure at th
       assert.ok(candidate);
       return candidate;
     });
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     assert.equal(rendered.guardedExitCount(), 0, "quit must not proceed over a recovery-required outcome");
     assert.equal(rendered.fileWrites().length, 1, "autosave stays paused after a retained version");
     dispatchWindowKey("Escape");
@@ -3431,7 +3447,7 @@ test("cancelling the decision that follows a settled autosave keeps the editor, 
       assert.ok(candidate, "the restored text must be put to the person, not dropped");
       return candidate;
     });
-    assert.match(dialog.textContent, /Unsaved changes/);
+    assert.match(dialog.textContent, /Save changes to/);
     assert.equal(rendered.diskContent(), PENDING_DELETION);
     dispatchWindowKey("Escape");
     await waitFor(() => assert.ok(!document.querySelector('[role="dialog"]')));
@@ -3615,8 +3631,14 @@ test("a same-path native request takes over a live session restore without a sec
   }
 });
 
+const UNSAVED_CHOICES = [
+  { choice: "Save", label: "Save" },
+  { choice: "Discard", label: "Don't save" },
+  { choice: "Cancel", label: null },
+];
+
 test("native file switching honors Save, Discard, and Cancel for dirty documents", async (context) => {
-  for (const choice of ["Save", "Discard", "Cancel"]) {
+  for (const { choice, label } of UNSAVED_CHOICES) {
     await context.test(choice, async () => {
       const rendered = await renderContinuityApp();
       const targetPath = `/tmp/native-${choice.toLowerCase()}.md`;
@@ -3635,7 +3657,7 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
           assert.match(rendered.host.textContent, /continuity\.md/);
           assert.doesNotMatch(rendered.host.textContent, /native-cancel\.md/);
         } else {
-          clickButton(rendered.host, choice, dialog);
+          clickButton(rendered.host, label, dialog);
           await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
           await waitFor(() => assert.match(rendered.host.textContent, new RegExp(`native-${choice.toLowerCase()}\\.md`)));
           if (choice === "Save") {
@@ -3653,7 +3675,7 @@ test("native file switching honors Save, Discard, and Cancel for dirty documents
 });
 
 test("Home from the editor honors Save, Discard, and Cancel for dirty documents", async (context) => {
-  for (const choice of ["Save", "Discard", "Cancel"]) {
+  for (const { choice, label } of UNSAVED_CHOICES) {
     await context.test(choice, async () => {
       const restoreLocalStorage = bindAppLocalStorage();
       const storage = { value: { version: 1, files: [] }, writes: [] };
@@ -3684,7 +3706,7 @@ test("Home from the editor honors Save, Discard, and Cancel for dirty documents"
             assert.equal(write.value.filePath, savedPlace.filePath, "Cancel never saves Home natively");
           }
         } else {
-          clickButton(rendered.host, choice, dialog);
+          clickButton(rendered.host, label, dialog);
           await waitFor(() => assert.ok(rendered.host.querySelector(".empty-state")));
           assert.ok(!rendered.host.querySelector(".cm-editor"));
           assert.equal(home().getAttribute("aria-current"), "page");
@@ -3710,7 +3732,7 @@ test("a failed open after Discard keeps disk content without restoring discarded
       discardedWords,
     );
     rendered.deferNextOpen(failedOpen);
-    clickButton(rendered.host, "Discard", dialog);
+    clickButton(rendered.host, "Don't save", dialog);
     await waitFor(() => assert.equal(
       failedOpen.args?.path,
       "/tmp/unavailable-after-discard.md",
@@ -3865,7 +3887,7 @@ for (const [welcome, destination] of [[false, "toolbar"], [true, "toolbar"], [tr
           .find(button => button.textContent.trim() === "Cancel");
         assert.ok(cancel);
         const chosen = destination === "toolbar"
-          ? rendered.host.querySelector('[aria-label="Toggle sidebar"]')
+          ? rendered.host.querySelector('button[aria-label="Sidebar"]')
           : [...rendered.host.querySelectorAll(".empty-state button")]
             .find(button => button.textContent.trim() === "Open File…");
         chosen.focus();
@@ -4034,11 +4056,12 @@ test("clean exit restores cursor movement and scroll-only movement", async () =>
     assert.ok(visibleLine.getBoundingClientRect().bottom > main.getBoundingClientRect().top);
     view.dispatch({ selection: { anchor: view.state.doc.line(1).from } });
     main.scrollTop = 500;
-    main.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 500 }));
+    main.dispatchEvent(new window.Event("scroll"));
     const unchangedSelection = view.state.selection.main.head;
     dispatchShortcut("e");
     assert.equal(unchangedSelection, view.state.doc.line(1).from);
-    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500));
+    // Edit drew line 5 at 100 on screen, 50 below main's top; Read puts its heading there too.
+    await waitFor(() => assert.equal(rendered.readerScrollTop(), 500 - 50));
   } finally {
     await rendered.cleanup();
   }
@@ -4783,12 +4806,18 @@ test("changed reconciliation updates reader content and performs one corrective 
 });
 
 test("annotation highlights are reapplied after an unchanged reader remount", async () => {
+  await installDom();
+  const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+  const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const { createPositionedAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const source = '# First\n\nOpening words.\n\n## Second\n\nClosing words.';
+  const article = markdownArticle(source); const index = collectText(article);
+  const start = index.text.indexOf('Opening words');
+  const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 'Opening words'.length), article, source);
   const rendered = await renderContinuityApp({
     storedHighlights: [{
+      ...anchor,
       id: "opening-highlight",
-      prefix: "",
-      exact: "Opening words",
-      suffix: ".",
       color: "yellow",
       createdAt: 1,
       nearestHeadingId: "first",
@@ -4925,7 +4954,7 @@ test("discard and conflict reload restore the original reader anchor", async () 
       assert.ok(dialog);
       return dialog;
     });
-    clickButton(rendered.host, "Discard", discardDialog);
+    clickButton(rendered.host, "Don't save", discardDialog);
     await waitFor(() => assert.ok(rendered.host.querySelector("#first")));
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 0));
     assert.ok(!rendered.host.querySelector("#discarded"));
@@ -4942,10 +4971,10 @@ test("discard and conflict reload restore the original reader anchor", async () 
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
-    clickButton(rendered.host, "Reload", conflictDialog);
+    clickButton(rendered.host, "Use other version", conflictDialog);
     await waitFor(() => assert.ok(rendered.host.querySelector("#first")));
     await waitFor(() => assert.equal(rendered.readerScrollTop(), 0));
     assert.ok(!rendered.host.querySelector("#conflicting"));
@@ -4966,13 +4995,13 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
     dispatchShortcut("s");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
 
     const overwrite = deferred();
     rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflictDialog);
+    clickButton(rendered.host, "Keep my changes", conflictDialog);
     await waitFor(() => assert.equal(overwrite.args?.force, true));
     updateEditor(rendered.host, "# Manual overwrite\n\nNewer words typed during overwrite.");
 
@@ -4988,7 +5017,7 @@ test("manual conflict overwrite reconfirms newer typing without exiting edit mod
 
     const reconfirmDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       return dialog;
     });
     clickButton(rendered.host, "Save", reconfirmDialog);
@@ -5020,12 +5049,12 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
     dispatchShortcut("e");
     const conflictDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /File changed/);
+      assert.match(dialog.textContent, /changed outside Bindars/);
       return dialog;
     });
     const overwrite = deferred();
     rendered.deferNextWrite(overwrite);
-    clickButton(rendered.host, "Overwrite", conflictDialog);
+    clickButton(rendered.host, "Keep my changes", conflictDialog);
     await waitFor(() => assert.equal(overwrite.args?.force, true));
     updateEditor(rendered.host, "# Exit overwrite\n\nNewer words typed during overwrite.");
 
@@ -5041,7 +5070,7 @@ test("exit conflict overwrite reconfirms newer typing before completing the exit
 
     const reconfirmDialog = await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
-      assert.match(dialog.textContent, /Unsaved changes/);
+      assert.match(dialog.textContent, /Save changes to/);
       return dialog;
     });
     clickButton(rendered.host, "Save", reconfirmDialog);
@@ -5971,7 +6000,7 @@ for (const route of ['saved', 'confirmed-save', 'discard', 'conflict-reload', 'c
         if (route === 'cancel') dispatchElementKey(dialog, 'Escape');
         else {
           if (route === 'failed-exit') rendered.failNextFileWrite(new Error('R4 repeated failure'));
-          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Reload', 'conflict-overwrite': 'Overwrite', discard: 'Discard' }[route];
+          const choice = { 'confirmed-save': 'Save', 'failed-exit': 'Save', 'conflict-reload': 'Use other version', 'conflict-overwrite': 'Keep my changes', discard: "Don't save" }[route];
           clickButton(rendered.host, choice, dialog);
         }
       }
@@ -6995,7 +7024,7 @@ test("discard after a retained version leaves the written text and drops newer t
       assert.ok(candidate);
       return candidate;
     });
-    clickButton(rendered.host, "Discard", dialog);
+    clickButton(rendered.host, "Don't save", dialog);
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.match(rendered.host.textContent, /Local words/));
     assert.doesNotMatch(rendered.host.textContent, /Newer words/);
@@ -7006,7 +7035,7 @@ test("a retained version does not offer Reload until a later conflict, and Reloa
   const rendered = await renderContinuityApp();
   try {
     await retainCompetingVersion(rendered);
-    assert.ok(!Array.from(rendered.host.querySelectorAll("button")).some((button) => button.textContent.trim() === "Reload"));
+    assert.ok(!Array.from(rendered.host.querySelectorAll("button")).some((button) => button.textContent.trim() === "Use other version"));
     rendered.setDiskContent("Outside reload words");
     rendered.conflictNextWrite();
     dispatchShortcut("s");
@@ -7015,7 +7044,7 @@ test("a retained version does not offer Reload until a later conflict, and Reloa
       assert.ok(candidate);
       return candidate;
     });
-    clickButton(rendered.host, "Reload", dialog);
+    clickButton(rendered.host, "Use other version", dialog);
     await waitFor(() => assert.ok(!rendered.host.querySelector(".cm-editor")));
     await waitFor(() => assert.match(rendered.host.textContent, /Outside reload words/));
     assert.doesNotMatch(rendered.host.textContent, /Local words/);
@@ -7112,7 +7141,7 @@ for (const stored of [false, "true", { unexpected: true }]) {
     const storage = { value: { version: 1, files: [] }, writes: [] };
     const rendered = await renderContinuityApp({ sidebarRead: held.promise, recentStorage: storage, freshStorage: true });
     try {
-      const toggle = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      const toggle = rendered.host.querySelector('button[aria-label="Sidebar"]');
       assert.ok(!rendered.host.querySelector("aside"));
       if (stored === false) flushSync(() => toggle.click());
       await act(async () => held.resolve(stored));
@@ -7157,7 +7186,7 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
         };
         if (outcome === 'storage-failed') throw {
           category: 'unknown', operation: 'accessRecoveryData',
-          message: "Couldn't access annotation storage. Existing data was preserved.", detail: 'synthetic storage failure',
+          message: "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.", detail: 'synthetic storage failure',
         };
         return path;
       },
@@ -7187,9 +7216,9 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
         if (outcome === 'notes-exist') assert.match(document.body.textContent, /saved notes/);
         if (outcome === 'missing-folder') {
           assert.match(document.body.textContent, /destination folder is no longer available/);
-          assert.doesNotMatch(document.body.textContent, /Couldn't access annotation storage/);
+          assert.doesNotMatch(document.body.textContent, /Couldn't open your saved highlights and notes/);
         }
-        if (outcome === 'storage-failed') assert.match(document.body.textContent, /Couldn't access annotation storage/);
+        if (outcome === 'storage-failed') assert.match(document.body.textContent, /Couldn't open your saved highlights and notes/);
         assert.doesNotMatch(document.body.textContent, /synthetic missing parent|synthetic storage failure/);
       }
       assert.ok(view.fileWrites().every(write => write.path !== '/tmp/continuity.md'));
@@ -7219,7 +7248,7 @@ for (const format of ["markdown", "fountain"]) {
           else context.mock.timers.tick(3000);
         });
         await waitFor(() => assert.ok(rendered.host.querySelector("article h1[id], article h2[id], article h3[id]")));
-        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Table of contents"] button'))
+        await waitFor(() => assert.ok(Array.from(rendered.host.querySelectorAll('nav[aria-label="Contents"] button'))
           .some(button => button.textContent.trim() === heading), "Contents must include the rendered heading"));
         assert.doesNotMatch(rendered.host.textContent, /No headings/);
       } finally {
@@ -7243,7 +7272,7 @@ test("Recent saves a section selected before history finished loading", async (c
     await waitFor(() => assert.equal(rendered.openedPaths().length, 1));
     await act(async () => context.mock.timers.tick(3000));
     const second = await waitFor(() => {
-      const button = [...rendered.host.querySelectorAll('[aria-label="Table of contents"] button')]
+      const button = [...rendered.host.querySelectorAll('[aria-label="Contents"] button')]
         .find(button => button.textContent.trim() === "Second");
       assert.ok(button); return button;
     });
@@ -7349,8 +7378,8 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
   try {
     assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]'));
     assert.ok(!rendered.host.querySelector('[data-reader-panel="notes"]'));
-    assert.ok(!rendered.host.querySelector('[aria-label="Toggle table of contents"]'));
-    assert.ok(!rendered.host.querySelector('[aria-label="Toggle Highlights & notes"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Contents"]'));
+    assert.ok(!rendered.host.querySelector('button[aria-label="Highlights & notes"]'));
     assert.equal(dispatchWindowKey("?").defaultPrevented, false);
     assert.ok(!document.querySelector('[role="dialog"]'));
     dispatchShortcut("j");
@@ -7372,7 +7401,7 @@ test("welcome keeps reader controls dormant until a document opens and offers ac
     rendered.setOpenDialogPath("/tmp/ready.md");
     clickButton(rendered.host, "Open File…");
     await waitFor(() => assert.ok(rendered.host.querySelector("article")));
-    assert.ok(rendered.host.querySelector('nav[aria-label="Table of contents"]'),
+    assert.ok(rendered.host.querySelector('nav[aria-label="Contents"]'),
       "hidden panel shortcuts must not change the preference");
     assert.ok(!rendered.host.querySelector('[aria-label="Close highlights & notes"]'));
   } finally { await rendered.cleanup(); }
@@ -7527,7 +7556,7 @@ for (const control of ["Dismiss", "Remove"]) {
     const rendered = await renderContinuityApp(fixture);
     try {
       const button = control === "Remove"
-        ? rendered.host.querySelector('[aria-label="Remove missing.md from recent files"]')
+        ? rendered.host.querySelector('[aria-label="Remove missing.md from Recent"]')
         : [...rendered.host.querySelector(".empty-state-recovery-message").querySelectorAll("button")]
           .find(candidate => candidate.textContent === "Dismiss");
       button.focus();
@@ -7647,6 +7676,62 @@ test("the first accepted highlight retires the reading hint", async () => {
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });
 
+test("the reading hint holds its place while the next document's highlights load", async () => {
+  const rendered = await renderContinuityApp();
+  const readingHint = () => rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
+  const openWithHeldHighlights = async path => {
+    const load = deferred();
+    rendered.deferNextAnnotationLoad(load);
+    rendered.setOpenDialogPath(path);
+    clickButton(rendered.host, "Open");
+    await waitFor(() => assert.equal(load.args?.path, path));
+    return load;
+  };
+  try {
+    await waitFor(() => assert.ok(readingHint()));
+    const plain = await openWithHeldHighlights("/tmp/plain.md");
+    assert.match(rendered.host.querySelector(".document-header-filename").textContent, /plain\.md/);
+    assert.ok(readingHint(), "the strip stays while this document's highlights load");
+    await act(async () => plain.resolve(null));
+    assert.ok(readingHint());
+
+    const marked = await openWithHeldHighlights("/tmp/marked.md");
+    assert.ok(readingHint());
+    await act(async () => marked.resolve({ version: 3, bookmarks: [],
+      highlights: [{ id: "kept", exact: "Closing words", prefix: "", suffix: "", color: "yellow" }] }));
+    await waitFor(() => assert.ok(!readingHint(), "it goes once the document turns out to have highlights"));
+
+    const broken = await openWithHeldHighlights("/tmp/broken.md");
+    await act(async () => broken.reject(new Error("Synthetic annotation read failure")));
+    await waitFor(() => assert.ok(!readingHint(), "a failed load keeps it hidden"));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const shown of [true, false]) {
+  test(`opening ${shown ? "over a shown document keeps its status off the page until it is slow" : "from Home shows its status at once"}`, async () => {
+    const rendered = await renderContinuityApp(shown ? {} : { initialNativePath: null, readySelector: ".empty-state" });
+    const pending = deferred();
+    try {
+      rendered.deferNextOpen(pending);
+      rendered.setPendingNativeOpenPath("/tmp/next.md");
+      await act(async () => { await emit("bindars://native-open-available"); });
+      await waitFor(() => assert.equal(pending.args?.path, "/tmp/next.md"));
+      const status = [...rendered.host.querySelectorAll('main [role="status"]')]
+        .find(node => /Opening file/.test(node.textContent));
+      assert.ok(status, "assistive technology still hears the open");
+      assert.equal(Boolean(status.closest(".sr-only")), shown);
+      if (shown) {
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+        assert.match(status.textContent, /Still opening/);
+        assert.equal(status.closest(".sr-only"), null, "a slow open shows on the page with Cancel");
+        assert.ok([...status.parentElement.querySelectorAll("button")].some(button => button.textContent.trim() === "Cancel"));
+      }
+      await act(async () => pending.resolve({ ...rendered.openResult("# Next"), canonicalPath: "/tmp/next.md", name: "next.md" }));
+      await waitFor(() => assert.match(rendered.host.querySelector("article")?.textContent ?? "", /Next/));
+    } finally { pending.resolve(null); await rendered.cleanup(); }
+  });
+}
+
 test('Dismiss on a words-only passage notice also clears its highlights', async () => {
   const content = '# Alpha\n\nRefund policy applies here.';
   const view = await renderContinuityApp({
@@ -7717,6 +7802,36 @@ test("menu New, Open, Save and Make a Copy use the existing document operations"
   } finally { await view.cleanup(); }
 });
 
+test("saving a new document in Edit keeps the editor where it is", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    await menuAction("new");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "# Kept in place");
+    await waitForEditorPublication();
+    const main = rendered.host.querySelector("main");
+    main.scrollTop = 300;
+    rendered.setSaveDialogPath("/tmp/kept.md");
+    await menuAction("save");
+    await waitFor(() => assert.match(rendered.host.querySelector(".document-header-filename").textContent, /kept\.md/));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(main.scrollTop, 300, "the adopted path is the same document");
+  } finally { await rendered.cleanup(); }
+});
+
+test("reloading the same file after an outside change keeps the reader where it is", async () => {
+  const rendered = await renderContinuityApp({ initialContent: "Plain words without a heading.", readySelector: "article" });
+  try {
+    await waitFor(() => assert.ok(rendered.operationLog().includes("watch")));
+    const main = rendered.host.querySelector("main");
+    main.scrollTop = 400;
+    rendered.setDiskContent("Plain words without a heading, changed outside.");
+    await act(async () => { await emit("file-changed", { path: "/tmp/continuity.md" }); });
+    await waitFor(() => assert.match(rendered.host.querySelector("article").textContent, /changed outside/));
+    assert.equal(main.scrollTop, 400);
+  } finally { await rendered.cleanup(); }
+});
+
 for (const boundary of ["dialog", "transition", "print"]) {
   test(`menu document actions are blocked during a held ${boundary}`, async t => {
     const view = boundary === "print" ? await renderNativePrintApp(t) : await renderContinuityApp();
@@ -7777,7 +7892,7 @@ test("sidebar keeps display order through opens and fitting while welcome and st
   const rendered = await renderContinuityApp({ initialNativePath: null, recentStorage: history, readySelector: ".empty-state" });
   const names = scope => [...scope.querySelectorAll('button[aria-label^="Open "]')]
     .map(button => button.getAttribute("aria-label").slice(5).split(",")[0]);
-  const sidebar = () => rendered.host.querySelector('[aria-label="Document navigation"]');
+  const sidebar = () => rendered.host.querySelector('aside[aria-label="Sidebar"]');
   const oldWidth = window.innerWidth;
   try {
     assert.deepEqual(names(rendered.host.querySelector(".empty-state-recents")), ["A.md", "B.md", "C.md", "D.md", "E.md"]);
@@ -7796,7 +7911,7 @@ test("sidebar keeps display order through opens and fitting while welcome and st
     flushSync(() => window.dispatchEvent(new Event("resize")));
     assert.deepEqual(names(sidebar()), files.map(file => file.name));
     dispatchShortcut("b");
-    flushSync(() => rendered.host.querySelector('[aria-label="Toggle sidebar"]').click());
+    flushSync(() => rendered.host.querySelector('button[aria-label="Sidebar"]').click());
     assert.deepEqual(names(sidebar()), ["C.md", "A.md", "B.md", "D.md", "E.md", "F.md"]);
   } finally {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth });
@@ -7855,7 +7970,7 @@ for (const [route, moveFocus] of [
       // Another Home control than the row: the last way to start.
       const other = moveFocus === "welcome"
         ? [...rendered.host.querySelectorAll(".empty-state-content button")].at(-1)
-        : rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+        : rendered.host.querySelector('button[aria-label="Sidebar"]');
       if (moveFocus === "welcome" || moveFocus === "toolbar") {
         other.focus();
         assert.ok(document.activeElement === other);
@@ -7875,7 +7990,7 @@ for (const outcome of ["cancel", "failure"]) {
     const rendered = await renderContinuityApp({ initialNativePath: null, readySelector: ".empty-state" });
     const pending = deferred();
     try {
-      const toolbar = rendered.host.querySelector('[aria-label="Toggle sidebar"]');
+      const toolbar = rendered.host.querySelector('button[aria-label="Sidebar"]');
       if (outcome === "cancel") rendered.deferNextOpenDialog(pending);
       else {
         rendered.setOpenDialogPath("/tmp/failed-welcome.md");
@@ -7945,3 +8060,556 @@ test("Recent records Back at the prior heading, clears Forward, and ignores same
     assert.equal(back().disabled, true, "only successful document changes were recorded");
   } finally { await rendered.cleanup(); }
 });
+
+test('App Choose passage cancels back to its row and confirms the second duplicate through the existing save/close guards', async () => {
+  let failWrite = true;
+  const paragraph = 'A'.repeat(40) + 'quote' + 'B'.repeat(40);
+  const old = { id: 'recover-me', exact: 'old excerpt', prefix: '', suffix: '', note: 'keep my note', color: 'pink', createdAt: 1, nearestHeadingId: null, future: 42 };
+  const rendered = await renderContinuityApp({ initialContent: `# First\n\n${paragraph}\n\n${paragraph}`,
+    readySelector: '#first', storedHighlights: [old], annotationWrite: () => { if (failWrite) throw Error('synthetic disk failure'); } });
+  try {
+    dispatchShortcut('m', { shiftKey: true });
+    const trigger = await waitFor(() => rendered.host.querySelector('[data-passage-action="recover-me"]') || assert.fail('Choose passage missing'));
+    trigger.focus(); flushSync(() => trigger.click());
+    assert.match(rendered.host.textContent, /Select a passage in Read/);
+    assert.ok(document.activeElement === rendered.host.querySelector('main'));
+    dispatchElementKey(document.activeElement, 'Escape');
+    await waitFor(() => assert.ok(document.activeElement === trigger));
+    assert.equal(rendered.annotationWrites.length, 0);
+    flushSync(() => trigger.click());
+    const p = rendered.host.querySelectorAll('article p')[1];
+    const range = document.createRange(); range.setStart(p.firstChild, 40); range.setEnd(p.firstChild, 45);
+    await act(async () => {
+      window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+      document.dispatchEvent(new window.Event('selectionchange'));
+    });
+    const confirm = [...rendered.host.querySelectorAll('button')].find(b => b.textContent === 'Use this passage');
+    assert.ok(confirm && !confirm.disabled); flushSync(() => confirm.click());
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save highlights and notes/));
+    const changed = rendered.annotationWrites.at(-1).annotations.highlights[0];
+    assert.equal(changed.id, old.id); assert.equal(changed.note, old.note); assert.equal(changed.color, old.color);
+    assert.equal(changed.createdAt, old.createdAt); assert.equal(changed.future, 42);
+    assert.equal(changed.originalExcerpt, old.exact); assert.equal(changed.exact, 'quote');
+    assert.match(rendered.host.textContent, /Original excerpt: old excerpt/);
+    await waitFor(() => assert.ok(rendered.host.querySelectorAll('article p')[1].querySelector('mark[data-highlight-id="recover-me"]')));
+    assert.ok(rendered.host.querySelectorAll('article p')[0].querySelector('mark') === null);
+    await act(async () => emit('tauri://close-requested'));
+    await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    const keep = [...document.querySelectorAll('[role="dialog"] button')].find(b => /Keep open/i.test(b.textContent));
+    assert.ok(keep); flushSync(() => keep.click());
+    failWrite = false;
+    const retry = [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry');
+    assert.ok(retry); flushSync(() => retry.click());
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save highlights and notes/));
+    rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+    rendered.setOpenDialogPath('/tmp/continuity.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="recover-me"]')));
+    assert.ok(rendered.host.querySelectorAll('article p')[1].querySelector('mark[data-highlight-id="recover-me"]'));
+  } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
+});
+
+async function r01App(options = {}) {
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const source = options.initialContent ?? BASE;
+  const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
+  const { collectText, rangeForOffsets } = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const { createPositionedAnchor } = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const reader = markdownArticle(source), index = collectText(reader), start = index.text.lastIndexOf('amber');
+  const anchor = await createPositionedAnchor(rangeForOffsets(index.spans, start, start + 5), reader, source);
+  const highlight = { ...anchor, id: 'r01-second', color: 'blue', note: 'SECOND original amber', createdAt: 17,
+    nearestHeadingId: null, originalExcerpt: 'old amber', future: { keep: true } };
+  const rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes', storedHighlights: [highlight], ...options });
+  await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]')));
+  return { rendered, highlight, source };
+}
+
+async function r01Enter(rendered) {
+  dispatchShortcut('e');
+  await waitFor(() => assert.ok(rendered.host.querySelector('.cm-editor')));
+  return findEditorView(rendered.host);
+}
+
+function r01Format(rendered, view, key) {
+  const at = view.state.doc.toString().lastIndexOf('amber');
+  flushSync(() => view.dispatch({ selection: { anchor: at + 2 } }));
+  dispatchEditorKey(rendered.host, key, { ctrlKey: true });
+}
+
+async function r01Read(rendered) {
+  flushSync(() => rendered.host.querySelector('[aria-label="Read mode"]').click());
+  await waitFor(() => assert.ok(rendered.host.querySelector('article')));
+}
+
+async function r01AssertSecond(rendered) {
+  await waitFor(() => assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]')));
+  const paragraphs = [...rendered.host.querySelectorAll('article p')].filter(p => /observatory/.test(p.textContent));
+  assert.equal(paragraphs.length, 2);
+  assert.ok(paragraphs[0].querySelector('mark') === null);
+  assert.equal(paragraphs[1].querySelector('mark').textContent, 'amber');
+}
+
+test('R01 unannotated readers skip evidence work and empty continuity capture', async t => {
+  const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const continuity = require('../.tmp/workspace-tests/src/lib/highlight-continuity.js');
+  const prepare = t.mock.method(anchoring, 'prepareAnnotationDocument');
+  const capture = t.mock.method(continuity, 'captureHighlightBlocks');
+  const rendered = await renderContinuityApp();
+  try {
+    await act(async () => {
+      rendered.host.querySelector('article').dispatchEvent(new window.Event('bindars:diagram-rendered'));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    });
+    assert.equal(prepare.mock.callCount(), 0, 'no annotation evidence needed');
+    await r01Enter(rendered);
+    assert.equal(capture.mock.callCount(), 0, 'no highlights to track');
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 refresh waits for every Mermaid diagram to settle before saving reader evidence', async t => {
+  const Module = require('node:module');
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const dom = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const source = BASE + '\n```mermaid\ngraph TD; A-->B;\n```\n\n```mermaid\ngraph TD; C-->D;\n```\n';
+  const svg = '<svg><g><foreignObject><div>Start</div></foreignObject><text>End</text></g></svg>';
+  let holds = null;
+  const fake = { __esModule: true, default: { initialize() {}, async render(_id, chart) {
+    if (globalThis.r01ControlledHolds) await globalThis.r01ControlledHolds[chart.includes('A-->B') ? 0 : 1].promise;
+    return { svg };
+  } } };
+  const originalLoad = Module._load;
+  t.mock.method(Module, '_load', function(request, ...rest) {
+    return request === 'mermaid' ? fake : originalLoad.call(this, request, ...rest);
+  });
+  const hadComputedStyle = 'getComputedStyle' in globalThis;
+  if (!hadComputedStyle) globalThis.getComputedStyle = (...args) => window.getComputedStyle(...args);
+  const prepared = [], originalPrepare = anchoring.prepareAnnotationDocument;
+  const prepare = t.mock.method(anchoring, 'prepareAnnotationDocument', (...args) => {
+    const promise = originalPrepare(...args); prepared.push(promise); return promise;
+  });
+  const settled = host => waitFor(() => assert.equal(host.querySelectorAll('.mermaid-diagram:not(.mermaid-loading) svg').length, 2));
+  let rendered;
+  try {
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes' });
+    await settled(rendered.host);
+    const article = rendered.host.querySelector('article'), index = dom.collectText(article), start = index.text.lastIndexOf('amber');
+    const anchor = await anchoring.createPositionedAnchor(dom.rangeForOffsets(index.spans, start, start + 5), article, source);
+    await rendered.cleanup(); rendered = null;
+    const highlight = { ...anchor, id: 'r01-second', color: 'blue', note: 'SECOND original amber', createdAt: 17, nearestHeadingId: null };
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes', storedHighlights: [highlight] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    holds = globalThis.r01ControlledHolds = [deferred(), deferred()];
+    const before = prepare.mock.callCount();
+    await r01Read(rendered);
+    await waitFor(() => assert.ok(prepare.mock.callCount() > before));
+    await act(async () => Promise.all(prepared));
+    assert.equal(rendered.host.querySelectorAll('.mermaid-loading').length, 2);
+    assert.equal(rendered.annotationWrites.length, 0, 'placeholder text must not become saved evidence');
+    const firstPaint = prepare.mock.callCount();
+    await act(async () => holds[0].resolve());
+    await waitFor(() => assert.equal(rendered.host.querySelectorAll('.mermaid-loading').length, 1));
+    await waitFor(() => assert.ok(prepare.mock.callCount() > firstPaint));
+    await act(async () => Promise.all(prepared));
+    assert.equal(rendered.annotationWrites.length, 0, 'one remaining diagram still prevents refresh');
+    await act(async () => holds[1].resolve());
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 1));
+    const saved = rendered.annotationWrites[0].annotations.highlights[0];
+    const finalEvidence = await originalPrepare(rendered.host.querySelector('article'), rendered.diskContent());
+    assert.equal(saved.position.textHash, finalEvidence.textHash);
+    assert.equal(saved.position.sourceHash, finalEvidence.sourceHash);
+    assert.equal(saved.note, highlight.note);
+    const finalSource = rendered.diskContent();
+    await rendered.cleanup(); rendered = null;
+    holds = globalThis.r01ControlledHolds = null;
+    rendered = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    assert.equal(rendered.annotationWrites.length, 0, 'reopen uses the saved exact evidence');
+  } finally {
+    globalThis.r01ControlledHolds = null;
+    holds?.forEach(hold => hold.resolve());
+    if (rendered) await rendered.cleanup();
+    if (!hadComputedStyle) delete globalThis.getComputedStyle;
+  }
+});
+
+test('R01 App mixed commands → clean/saved Read → second edit → reopen refreshes the original duplicate with exact CRLF', async () => {
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const { rendered, highlight } = await r01App({ initialContent: BASE.replaceAll('\n', '\r\n') });
+  try {
+    const view = await r01Enter(rendered);
+    r01Format(rendered, view, 'i');
+    assert.match(view.state.sliceDoc(), /the \*amber\* signal/);
+    const italic = view.state.sliceDoc();
+    flushSync(() => view.dispatch({ changes: { from: view.state.doc.length, insert: 'Elsewhere.\r\n' }, userEvent: 'input.type' }));
+    const typed = view.state.sliceDoc();
+    const at = view.state.doc.toString().lastIndexOf('amber');
+    flushSync(() => view.dispatch({ selection: { anchor: at + 2 } }));
+    flushSync(() => rendered.host.querySelector('[aria-label="Bold"]').click());
+    const final = view.state.sliceDoc(); assert.match(final, /the \*\*\*amber\*\*\* signal/);
+    flushSync(() => assert.equal(undo(view), true)); assert.equal(view.state.sliceDoc(), typed, 'Bold is one action');
+    const { redo } = require('@codemirror/commands');
+    flushSync(() => assert.equal(redo(view), true)); assert.equal(view.state.sliceDoc(), final);
+    assert.notEqual(italic, typed);
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    assert.equal(rendered.diskContent(), final); assert.equal(final.replaceAll('\r\n', '').includes('\n'), false);
+    const saved = rendered.annotationWrites.at(-1).annotations.highlights[0];
+    assert.notEqual(saved.position.sourceHash, highlight.position.sourceHash);
+    assert.deepEqual({ ...saved, prefix: highlight.prefix, suffix: highlight.suffix, position: highlight.position }, highlight);
+    const second = await r01Enter(rendered);
+    flushSync(() => second.dispatch({ changes: { from: 0, insert: 'New paragraph.\r\n\r\n' }, userEvent: 'input.type' }));
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+    await waitFor(() => assert.match(rendered.host.querySelector('header').textContent, /other\.md/));
+    rendered.clearOpenedPaths();
+    rendered.setOpenDialogPath('/tmp/continuity.md'); dispatchShortcut('o');
+    await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/continuity.md')));
+    await r01AssertSecond(rendered);
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 App refresh failure protects close and Retry saves the refreshed original occurrence', async () => {
+  let fail = true;
+  const { rendered } = await r01App({ annotationWrite: () => { if (fail) throw Error('synthetic annotation failure'); } });
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    await waitFor(() => assert.match(rendered.host.textContent, /Couldn't save highlights and notes/));
+    await act(async () => emit('tauri://close-requested'));
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('close must protect refresh'));
+    assert.equal(rendered.windowDestroyCount(), 0);
+    clickButton(rendered.host, 'Keep open', dialog);
+    fail = false;
+    dispatchShortcut('m', { shiftKey: true });
+    const retry = await waitFor(() => [...rendered.host.querySelectorAll('[data-reader-panel="notes"] button')].find(b => b.textContent.trim() === 'Retry') || assert.fail('retry missing'));
+    flushSync(() => retry.click());
+    await waitFor(() => assert.doesNotMatch(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Couldn't save highlights and notes/));
+    await r01AssertSecond(rendered);
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 App words changed inside the highlighted paragraph keep the second duplicate and its refreshed location', async () => {
+  const { rendered, highlight } = await r01App();
+  const type = (view, at, insert) => flushSync(() => view.dispatch({ changes: { from: at, insert }, userEvent: 'input.type' }));
+  try {
+    const view = await r01Enter(rendered);
+    type(view, view.state.doc.toString().lastIndexOf('records the amber'), 'now ');
+    type(view, view.state.doc.toString().lastIndexOf('amber') + 5, 's');   // against the passage's edge: "ambers"
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    assert.match(rendered.diskContent(), /team now records the ambers signal/);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 1));
+    const saved = rendered.annotationWrites[0].annotations.highlights[0];
+    assert.equal(saved.continuity, undefined);
+    assert.notEqual(saved.position.sourceHash, highlight.position.sourceHash);
+    assert.deepEqual({ ...saved, prefix: highlight.prefix, suffix: highlight.suffix, position: highlight.position }, highlight);
+    // The refreshed location keeps the highlight followed through a second in-block edit.
+    const second = await r01Enter(rendered);
+    type(second, second.state.doc.toString().lastIndexOf('recovery check.') + 15, ' One more sentence.');
+    await r01Read(rendered); await r01AssertSecond(rendered);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 2));
+    assert.notEqual(rendered.annotationWrites[1].annotations.highlights[0].position.sourceHash, saved.position.sourceHash);
+  } finally { await rendered.cleanup(); }
+});
+
+for (const route of ['rapid edit', 'file switch']) {
+  test(`R01 App stale reader completion cannot overwrite ${route}; rapid edit chains only observed documents`, async t => {
+    const { rendered } = await r01App();
+    const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+    const prepare = anchoring.prepareAnnotationDocument, held = deferred(); let waiting = false, once = true;
+    t.mock.method(anchoring, 'prepareAnnotationDocument', async (...args) => {
+      const evidence = await prepare(...args);
+      if (once && args[1].includes('*amber*')) { once = false; waiting = true; await held.promise; }
+      return evidence;
+    });
+    try {
+      const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+      await r01Read(rendered); await waitFor(() => assert.equal(waiting, true));
+      assert.equal(rendered.annotationWrites.length, 0, 'reader evidence still pending');
+      if (route === 'rapid edit') {
+        const next = await r01Enter(rendered);
+        flushSync(() => next.dispatch({ changes: { from: next.state.doc.length, insert: 'Second session.\n' }, userEvent: 'input.type' }));
+        await r01Read(rendered); await r01AssertSecond(rendered);
+        assert.equal(rendered.annotationWrites.length, 1);
+      } else {
+        rendered.setOpenDialogPath('/tmp/other.md'); dispatchShortcut('o');
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+      }
+      const writes = rendered.annotationWrites.length;
+      await act(async () => held.resolve());
+      assert.equal(rendered.annotationWrites.length, writes, 'retired async reader has no mutation authority');
+      if (route === 'rapid edit') await r01AssertSecond(rendered);
+      else assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]') === null);
+    } finally { held.resolve(); await rendered.cleanup(); }
+  });
+}
+
+test('R01 App discard never refreshes the rejected editor document', async () => {
+  const { rendered, source } = await r01App();
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    rendered.failNextFileWrite(Error('synthetic source save failure'));
+    flushSync(() => rendered.host.querySelector('[aria-label="Read mode"]').click());
+    const dialog = await waitFor(() => document.querySelector('[role="dialog"]') || assert.fail('save choice missing'));
+    clickButton(rendered.host, "Don't save", dialog);
+    await r01AssertSecond(rendered);
+    assert.equal(rendered.diskContent(), source); assert.equal(rendered.annotationWrites.length, 0);
+  } finally { await rendered.cleanup(); }
+});
+
+test('R01 App external adoption ends the observed chain without promoting contextual evidence', async () => {
+  const { rendered } = await r01App();
+  try {
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    dispatchShortcut('s');
+    await waitFor(() => assert.equal(rendered.diskContent(), view.state.sliceDoc()));
+    rendered.setDiskContent(rendered.diskContent() + '\nExternal revision.\n');
+    await act(async () => { await emit('tauri://blur'); await emit('tauri://focus'); await waitForReconciliationWindow(); });
+    await waitFor(() => assert.match(view.state.sliceDoc(), /External revision/));
+    flushSync(() => view.dispatch({ changes: { from: view.state.doc.length, insert: 'More typing.\n' }, userEvent: 'input.type' }));
+    await r01Read(rendered);
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); await new Promise(setImmediate); });
+    assert.equal(rendered.annotationWrites.length, 0);
+    assert.ok(rendered.host.querySelector('mark[data-highlight-id="r01-second"]') === null);
+    dispatchShortcut('m', { shiftKey: true });
+    await waitFor(() => assert.match(rendered.host.querySelector('[data-reader-panel="notes"]').textContent, /Location uncertain/));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const [route, clean, inBlock] of [["quit", false], ["quit", true], ["close", false], ["recent", false], ["quit", false, true]]) {
+  test(`R01 departure claim precedes ${route} from ${clean ? 'clean' : 'dirty'} Edit${inBlock ? ' after an in-block edit' : ''} and restores second occurrence`, async () => {
+    let held = null;
+    const history = { version: 3, value: { version: 1, files: ['continuity', 'other'].map(name => ({ path: `/tmp/${name}.md`, name: `${name}.md`, openedAt: 1 })) }, writes: [] };
+    const { rendered, highlight } = await r01App({ recentStorage: history, sidebarRead: Promise.resolve(true), annotationWrite: async () => { if (held) await held.promise; } });
+    let saved, finalSource;
+    try {
+      const view = await r01Enter(rendered);
+      if (inBlock) {
+        // The highlighted paragraph's first word is replaced: only the passage's own characters identify it now.
+        const at = view.state.doc.toString().lastIndexOf('The observatory');
+        flushSync(() => view.dispatch({ changes: { from: at, to: at + 3, insert: 'An' }, userEvent: 'input.type' }));
+      } else {
+        r01Format(rendered, view, 'i');
+        flushSync(() => view.dispatch({ changes: { from: 0, insert: 'Elsewhere.\n\n' }, userEvent: 'input.type' }));
+      }
+      if (clean) { dispatchShortcut('s'); await waitFor(() => assert.equal(rendered.diskContent(), view.state.sliceDoc())); }
+      held = deferred();
+      await act(async () => {
+        if (route === 'recent') rendered.host.querySelector('[aria-label^="Open other.md"]').click();
+        else await emit(route === 'quit' ? 'bindars://quit-requested' : 'tauri://close-requested');
+      });
+      await waitFor(() => assert.ok(rendered.annotationWrites.at(-1)?.annotations.highlights[0].continuity));
+      assert.equal(rendered.guardedExitCount(), 0);
+      assert.equal(rendered.windowDestroyCount(), 0, 'requestExit waits for claim persistence');
+      saved = structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+      assert.deepEqual(Object.keys(saved.continuity).filter(key => key === 'block' || key === 'run'), inBlock ? ['run'] : ['block', 'run']);
+      finalSource = rendered.diskContent();
+      await act(async () => held.resolve());
+      if (route === 'quit') await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+      if (route === 'close') await waitFor(() => assert.equal(rendered.windowCloseCount(), 1));
+      if (route === 'recent') {
+        await waitFor(() => assert.ok(rendered.openedPaths().includes('/tmp/other.md')));
+        await act(async () => rendered.host.querySelector('[aria-label="Go back"]').click());
+        await r01AssertSecond(rendered);
+      }
+    } finally { held?.resolve(); await rendered.cleanup(); }
+    if (route === 'quit' && !clean) {
+      const external = await renderContinuityApp({ initialContent: 'External paragraph.\n\n' + finalSource, readySelector: '#notes', storedHighlights: [saved] });
+      try {
+        await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); await new Promise(resolve => requestAnimationFrame(resolve)); });
+        assert.equal(external.host.querySelectorAll('mark[data-highlight-id="r01-second"]').length, 0);
+        assert.equal(external.annotationWrites.length, 0, 'different source leaves claim inert without writes');
+      } finally { await external.cleanup(); }
+    }
+    const reopened = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    try {
+      await r01AssertSecond(reopened);
+      await waitFor(() => assert.ok(reopened.annotationWrites.length));
+      const refreshed = reopened.annotationWrites.at(-1).annotations.highlights[0];
+      assert.equal(refreshed.continuity, undefined);
+      assert.notEqual(refreshed.position.sourceHash, highlight.position.sourceHash);
+      assert.deepEqual({ ...refreshed, prefix: highlight.prefix, suffix: highlight.suffix, position: highlight.position }, highlight);
+    } finally { await reopened.cleanup(); }
+  });
+}
+
+test('R01 departure during pending Mermaid Read persists claim through storage reload', async t => {
+  const Module = require('node:module');
+  const { BASE } = require('./_fixtures/highlight-continuity.cjs');
+  const dom = require('../.tmp/workspace-tests/src/lib/dom-text.js');
+  const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+  const source = BASE + '\n```mermaid\ngraph TD; A-->B;\n```\n\n```mermaid\ngraph TD; C-->D;\n```\n';
+  const svg = '<svg><g><foreignObject><div>Start</div></foreignObject><text>End</text></g></svg>';
+  let holds = null;
+  const fake = { __esModule: true, default: { initialize() {}, async render(_id, chart) {
+    if (globalThis.r01ControlledHolds) await globalThis.r01ControlledHolds[chart.includes('A-->B') ? 0 : 1].promise;
+    return { svg };
+  } } };
+  const originalLoad = Module._load;
+  t.mock.method(Module, '_load', function(request, ...rest) {
+    return request === 'mermaid' ? fake : originalLoad.call(this, request, ...rest);
+  });
+  const hadComputedStyle = 'getComputedStyle' in globalThis;
+  if (!hadComputedStyle) globalThis.getComputedStyle = (...args) => window.getComputedStyle(...args);
+  const prepared = [], originalPrepare = anchoring.prepareAnnotationDocument;
+  const prepare = t.mock.method(anchoring, 'prepareAnnotationDocument', (...args) => {
+    const promise = originalPrepare(...args); prepared.push(promise); return promise;
+  });
+  const settled = host => waitFor(() => assert.equal(host.querySelectorAll('.mermaid-diagram:not(.mermaid-loading) svg').length, 2));
+  let rendered;
+  try {
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes' });
+    await settled(rendered.host);
+    const article = rendered.host.querySelector('article'), index = dom.collectText(article), start = index.text.lastIndexOf('amber');
+    const anchor = await anchoring.createPositionedAnchor(dom.rangeForOffsets(index.spans, start, start + 5), article, source);
+    await rendered.cleanup(); rendered = null;
+    const highlight = { ...anchor, id: 'r01-second', color: 'blue', note: 'SECOND original amber', createdAt: 17, nearestHeadingId: null };
+    rendered = await renderContinuityApp({ initialContent: source, readySelector: '#notes', storedHighlights: [highlight] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    const view = await r01Enter(rendered); r01Format(rendered, view, 'i');
+    holds = globalThis.r01ControlledHolds = [deferred(), deferred()];
+    const before = prepare.mock.callCount();
+    await r01Read(rendered);
+    await waitFor(() => assert.ok(prepare.mock.callCount() > before));
+    await act(async () => Promise.all(prepared));
+    assert.equal(rendered.host.querySelectorAll('.mermaid-loading').length, 2);
+    assert.equal(rendered.annotationWrites.length, 0, 'placeholder text must not become saved evidence');
+    await act(async () => emit('bindars://quit-requested'));
+    await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+    assert.ok(rendered.annotationWrites[0].annotations.highlights[0].continuity);
+    const claimed = structuredClone(rendered.annotationWrites[0].annotations.highlights[0]);
+    const output = rendered.diskContent();
+    holds.forEach(hold => hold.resolve());
+    await rendered.cleanup(); rendered = null;
+    holds = globalThis.r01ControlledHolds = null;
+    rendered = await renderContinuityApp({ initialContent: output, readySelector: '#notes', storedHighlights: [claimed] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    await waitFor(() => assert.equal(rendered.annotationWrites.length, 1));
+    const saved = rendered.annotationWrites[0].annotations.highlights[0];
+    const finalEvidence = await originalPrepare(rendered.host.querySelector('article'), rendered.diskContent());
+    assert.equal(saved.position.textHash, finalEvidence.textHash);
+    assert.equal(saved.position.sourceHash, finalEvidence.sourceHash);
+    assert.equal(saved.note, highlight.note);
+    assert.equal(saved.continuity, undefined);
+    const finalSource = rendered.diskContent();
+    await rendered.cleanup(); rendered = null;
+    holds = globalThis.r01ControlledHolds = null;
+    rendered = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    await settled(rendered.host); await r01AssertSecond(rendered);
+    assert.equal(rendered.annotationWrites.length, 0, 'reopen uses the saved exact evidence');
+  } finally {
+    globalThis.r01ControlledHolds = null;
+    holds?.forEach(hold => hold.resolve());
+    if (rendered) await rendered.cleanup();
+    if (!hadComputedStyle) delete globalThis.getComputedStyle;
+  }
+});
+
+for (const failure of ['digest', 'write', 'unannotated']) {
+  test(`R01 departure ${failure} preserves existing exit protection`, async t => {
+    const anchoring = require('../.tmp/workspace-tests/src/lib/text-anchoring.js');
+    let failWrite = failure === 'write';
+    const rendered = failure === 'unannotated' ? await renderContinuityApp() : (await r01App({ annotationWrite: () => { if (failWrite) throw Error('claim write failure'); } })).rendered;
+    try {
+      const view = await r01Enter(rendered);
+      flushSync(() => view.dispatch({ changes: { from: 0, insert: 'Elsewhere.\n\n' }, userEvent: 'input.type' }));
+      const digest = t.mock.method(anchoring, 'digest', () => { throw Error('digest unavailable'); });
+      if (failure === 'write') digest.mock.restore();
+      await act(async () => emit('bindars://quit-requested'));
+      if (failure === 'write') {
+        await waitFor(() => assert.ok(document.querySelector('[role="dialog"]')));
+        assert.equal(rendered.guardedExitCount(), 0);
+        failWrite = false;
+        clickButton(rendered.host, 'Retry saving', document.querySelector('[role="dialog"]'));
+      }
+      await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+      if (failure === 'unannotated') assert.equal(digest.mock.callCount(), 0);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+for (const route of ['saved Read', 'quit']) {
+  test(`task completion through More retains the highlighted original task after ${route} and reopening`, async () => {
+    const { P: phrase } = require('./_fixtures/highlight-continuity.cjs');
+    const source = '# Notes\n\n' + phrase + '\n\n- [ ] ' + phrase + '\n';
+    let held = null;
+    const { rendered, highlight } = await r01App({ initialContent: source, annotationWrite: async () => { if (held) await held.promise; } });
+    assert.equal(highlight.position.contextUnique, false, 'repeated context requires observed Edit evidence');
+    let finalSource, saved;
+    const assertTaskOccurrence = async surface => {
+      await waitFor(() => assert.ok(surface.host.querySelector('mark[data-highlight-id="r01-second"]')));
+      const mark = surface.host.querySelector('mark[data-highlight-id="r01-second"]');
+      assert.ok(mark.closest('li'), 'the mark must stay inside the original task');
+      assert.equal(mark.textContent, 'amber');
+      assert.ok(surface.host.querySelector('article p mark') === null, 'the other occurrence must stay unmarked');
+      assert.equal(surface.host.querySelector('article input').checked, true);
+    };
+    try {
+      await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); await new Promise(resolve => requestAnimationFrame(resolve)); });
+      const view = await r01Enter(rendered);
+      flushSync(() => view.dispatch({ selection: { anchor: view.state.doc.toString().lastIndexOf('amber') } }));
+      const more = [...rendered.host.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.startsWith('More'));
+      flushSync(() => more.click());
+      const complete = [...rendered.host.querySelectorAll('[role="menu"] button')].find(b => b.textContent.startsWith('Mark done'));
+      assert.ok(complete); flushSync(() => complete.click());
+      finalSource = source.replace('[ ]', '[x]'); assert.equal(view.state.sliceDoc(), finalSource);
+      if (route === 'saved Read') {
+        dispatchShortcut('s'); await waitFor(() => assert.equal(rendered.diskContent(), finalSource));
+        await r01Read(rendered); await assertTaskOccurrence(rendered);
+      } else {
+        held = deferred();
+        await act(async () => emit('bindars://quit-requested'));
+        await waitFor(() => assert.ok(rendered.annotationWrites.at(-1)?.annotations.highlights[0].continuity));
+        saved = structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+        assert.equal(rendered.guardedExitCount(), 0, 'quit waits for the claim to be saved');
+        await act(async () => held.resolve());
+        await waitFor(() => assert.equal(rendered.guardedExitCount(), 1));
+        assert.equal(rendered.diskContent(), finalSource);
+      }
+      await waitFor(() => assert.ok(rendered.annotationWrites.length));
+      saved ??= structuredClone(rendered.annotationWrites.at(-1).annotations.highlights[0]);
+      assert.equal(saved.note, highlight.note); assert.equal(saved.color, highlight.color);
+      if (route === 'quit') assert.ok(saved.continuity, 'quit must persist the observed Edit evidence');
+    } finally { held?.resolve(); await rendered.cleanup(); }
+    const reopened = await renderContinuityApp({ initialContent: finalSource, readySelector: '#notes', storedHighlights: [saved] });
+    try {
+      await assertTaskOccurrence(reopened);
+      if (route === 'quit') await waitFor(() => assert.ok(reopened.annotationWrites.length));
+      const current = reopened.annotationWrites.at(-1)?.annotations.highlights[0] ?? saved;
+      assert.equal(current.note, highlight.note); assert.equal(current.color, highlight.color);
+      assert.equal(current.continuity, undefined);
+    } finally { await reopened.cleanup(); }
+  });
+}
+
+
+test("Contents omits link sections with no matching documents", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    const contents = rendered.host.querySelector('[data-reader-panel="toc"]');
+    assert.ok(contents);
+    assert.doesNotMatch(contents.textContent, /Linked from|Unlinked mentions|No incoming links/);
+    assert.ok(!contents.querySelector(".navigation-help"), "no empty block is left behind");
+  } finally { await rendered.cleanup(); }
+});
+
+
+for (const [content, shown, hidden] of [
+  ["# First\n\n[Read this](continuity.md)", "Linked from (1)", "Unlinked mentions"],
+  ["# First\n\nAn unlinked mention of First.", "Unlinked mentions (1)", "Linked from"],
+]) {
+  test(`Contents keeps ${shown} when there is a matching document`, async () => {
+    const rendered = await renderContinuityApp({ workspaceFiles: [
+      { path: "/tmp/continuity.md", name: "continuity.md", relPath: "continuity.md", size: content.length, mtimeMs: 1 },
+      { path: "/tmp/other.md", name: "other.md", relPath: "other.md", size: content.length, mtimeMs: 1 },
+    ], workspaceContent: content });
+    try {
+      await waitFor(() => assert.ok(rendered.host.querySelector('[data-reader-panel="toc"]').textContent.includes(shown)));
+      assert.ok(!rendered.host.querySelector('[data-reader-panel="toc"]').textContent.includes(hidden));
+    } finally { await rendered.cleanup(); }
+  });
+}

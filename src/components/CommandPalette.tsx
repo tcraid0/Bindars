@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, type MouseEvent } from "react";
 import { DialogFrame } from "./DialogFrame";
 import type { WorkspaceSearchHit, WorkspaceStatus } from "../types";
 import { fileName, locationLabel } from "../lib/paths";
@@ -36,9 +36,19 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
     onHoverIndex,
   } = props;
   const inputRef = useRef<HTMLInputElement>(null);
+  const pointerAt = useRef<string | null>(null);
   useEffect(() => {
     if (visible) inputRef.current?.select();
+    pointerAt.current = null;
   }, [visible]);
+  // WebKit also sends "mousemove" when the list scrolls under a resting pointer.
+  // Only a changed position is the person moving it; the first event just records where it rests.
+  const pointerMoved = (event: MouseEvent) => {
+    const at = `${event.screenX},${event.screenY}`;
+    const moved = pointerAt.current !== null && pointerAt.current !== at;
+    pointerAt.current = at;
+    return moved;
+  };
   useEffect(() => {
     if (visible)
       document
@@ -46,6 +56,10 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
         ?.scrollIntoView({ block: "nearest" });
   }, [visible, selectedIndex]);
   const selected = results[selectedIndex];
+  const typed = query.trim() !== "";
+  const places = props.folderOnly && props.folderName
+    ? props.folderName
+    : props.folderName ? `Recent, Drafts and ${props.folderName}` : "Recent and Drafts";
   return (
     <DialogFrame
       appShortcuts
@@ -57,30 +71,28 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
       className="command-palette-shell mt-[5vh] w-full max-w-[720px] mx-3 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-y-auto max-h-[90vh]"
       renderHeader={(title) => (
         <div className="p-4 border-b border-border">
-          {title}
-          <button className="navigation-action float-right" onClick={onClose}>
-            Close Search
-          </button>
-          <p
-            id="document-search-scope"
-            className="text-xs text-text-secondary my-2"
-          >
-            {props.folderOnly && props.folderName
-              ? `Searching only ${props.folderName}.`
-              : `Searching recent documents, drafts${props.folderName ? ` and ${props.folderName}` : ""}.`}{" "}
-            Other locations on your computer are not searched.
+          <div className="flex items-baseline justify-between gap-3">
+            {title}
+            <button className="navigation-action shrink-0" onClick={onClose}>
+              Close
+            </button>
+          </div>
+          {/* Screen readers hear the scope and the help; the placeholder shows the scope. */}
+          <p id="document-search-scope" className="sr-only">
+            Searching {places}. Other locations on your computer are not searched.
           </p>
           {props.folderName && (
-            <label className="text-sm block my-2">
-              Scope{" "}
+            <label className="text-xs text-text-secondary block my-2">
+              Search in{" "}
               <select
+                className="max-w-full"
                 value={props.folderOnly ? "folder" : "all"}
                 onChange={(event) =>
                   props.onFolderOnly?.(event.target.value === "folder")
                 }
               >
-                <option value="all">All places</option>
-                <option value="folder">{props.folderName}</option>
+                <option value="all">Recent, Drafts and {props.folderName}</option>
+                <option value="folder">{props.folderName} only</option>
               </select>
             </label>
           )}
@@ -98,27 +110,25 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
             }
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Find by name or words"
+            placeholder={`Search ${places} by name or words`}
             autoCorrect="off"
             spellCheck={false}
-            className="w-full p-2 border border-border rounded text-sm bg-bg-primary"
+            className="w-full p-2 border border-border rounded text-sm bg-bg-primary placeholder:text-text-muted placeholder:opacity-100"
           />
-          <p
-            id="document-search-help"
-            className="text-xs text-text-secondary mt-2"
-          >
+          <p id="document-search-help" className="sr-only">
             Words match in any order. Use "double quotes" around a phrase. Arrow
             keys select a document; Enter opens it.
           </p>
           <p
             role="status"
             aria-live={status === "indexing" ? "off" : "polite"}
-            className="text-sm mt-2"
+            className={typed || (props.totalDocuments ?? 0) > results.length ? "text-sm mt-2" : "sr-only"}
           >
             {pending
               ? "Updating results…"
               : `${props.totalDocuments ?? results.length} document${(props.totalDocuments ?? results.length) === 1 ? "" : "s"}${(props.totalDocuments ?? 0) > results.length ? ` · showing first ${results.length}` : ""}`}
             {status === "indexing" ? " · Checking content…" : ""}
+            {/\S\s+\S/.test(query) && !query.includes('"') ? ' · Tip: put "quotes" around an exact phrase.' : ""}
           </p>
         </div>
       )}
@@ -139,7 +149,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
               id={`document-result-${index}`}
               role="option"
               aria-selected={index === selectedIndex}
-              onMouseEnter={() => onHoverIndex(index)}
+              onMouseMove={event => pointerMoved(event) && index !== selectedIndex && onHoverIndex(index)}
               onClick={() => onOpenHit(hit)}
               className={`cursor-pointer px-4 py-3 border-b border-border text-sm ${index === selectedIndex ? "bg-bg-tertiary" : ""}`}
             >
@@ -147,7 +157,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
                 {label}
               </strong>
               <p className="text-xs text-text-secondary break-all">
-                {title && `${name} · `}{locationLabel(hit.path)}
+                {title && `${name} in `}{locationLabel(hit.path)}
               </p>
               {hit.snippet && hit.snippet !== label && <p className="my-1 break-words">{hit.snippet}</p>}
               {!!hit.passageCount && (
@@ -165,12 +175,12 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
         <p className="p-4 text-sm">
           {pending
             ? "Updating results…"
-            : query
-              ? "No matching documents."
-              : "Open a document, create a draft, or add a folder to start."}
+            : typed
+              ? `No matching documents in ${places}. Try fewer or different words. The rest of your computer is not searched.`
+              : "Nothing to search yet. Open a document or choose a folder first."}
         </p>
       )}
-      {selected && (
+      {typed && selected && (
         <div className="px-4 py-2">
           <PathDetails
             key={selected.path}
@@ -201,25 +211,22 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
           ))}
         </div>
       )}
-      <details className="p-3 text-xs text-text-secondary">
-        <summary tabIndex={0}>
-          Search coverage
-          {props.incompleteCount
-            ? ` · ${props.incompleteCount} documents have incomplete content`
-            : ""}
-        </summary>
-        <p>
-          Search reads the first {MAX_WORKSPACE_BODY_CHARS.toLocaleString()}{" "}
-          characters of prose per document. Code, math, diagrams and images are
-          excluded. Find in Document searches the displayed document, including
-          code and rendered math. Files that cannot be read remain searchable by filename.
-        </p>
-        <p>
-          Both searches ignore case and ordinary prose whitespace. Straight and
-          curly quotes, --/–, ---/— and .../… are equivalent in prose. Code
-          keeps literal punctuation and whitespace.
-        </p>
-      </details>
+      {typed && (
+        <details className="p-3 text-xs text-text-secondary">
+          <summary tabIndex={0}>
+            What Search looks at
+            {props.incompleteCount
+              ? ` · ${props.incompleteCount} ${props.incompleteCount === 1 ? "document is" : "documents are"} only partly searchable`
+              : ""}
+          </summary>
+          <p>
+            The first {MAX_WORKSPACE_BODY_CHARS.toLocaleString()} characters of
+            each document's text. Code, math and diagrams are left out; Find in
+            Document searches those in the open document. Documents Bindars can't
+            read are found by name only.
+          </p>
+        </details>
+      )}
     </DialogFrame>
   );
 }

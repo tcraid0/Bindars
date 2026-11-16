@@ -46,6 +46,7 @@ export interface SessionData {
 export type HighlightColor = "yellow" | "green" | "blue" | "pink";
 
 export interface Highlight {
+  continuity?: import("../lib/highlight-continuity").DepartureClaim;
   position?: import("../lib/text-anchoring").AnchorPosition;
   id: string;
   prefix: string;
@@ -56,6 +57,8 @@ export interface Highlight {
   createdAt: number;
   nearestHeadingId: string | null;
   note?: string;
+  /** First excerpt before a user-confirmed passage replacement changed it. */
+  originalExcerpt?: string;
 }
 
 export interface Bookmark {
@@ -168,9 +171,8 @@ export interface WorkspaceState {
   status: WorkspaceStatus;
   indexedAt: number | null;
   error: string | null;
-  readFailedCount: number;
-  complexitySkippedCount: number;
   limitHit: boolean;
+  draftsLimitHit?: boolean;
   directories?: string[];
   issues?: string[];
   draftsError?: string | null;

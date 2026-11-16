@@ -10,12 +10,24 @@ export function parentPath(path: string): string {
   return /^[A-Za-z]:$/.test(parent) ? `${parent}/` : parent;
 }
 
+let homeDirectory: string | null = null;
+
+/** Only the person's own home folder is omitted from location labels. */
+export function setHomeDirectory(path: string | null): void {
+  homeDirectory = path ? toPosixPath(path).replace(/\/+$/, "") : null;
+}
+
 /** Compact context for document lists; disclosures expose the complete path. */
 export function locationLabel(path: string, ancestors = 2): string {
   const parent = parentPath(path);
-  const parts = parent.split("/").filter(Boolean);
+  const home = homeDirectory;
+  const parentKey = toPathIdentityKey(parent);
+  const homeKey = home ? toPathIdentityKey(home) : null;
+  if (homeKey && parentKey === homeKey) return "Home folder";
+  const place = home && homeKey && parentKey.startsWith(`${homeKey}/`) ? parent.slice(home.length + 1) : parent;
+  const parts = place.split("/").filter(Boolean);
   // Expanded Recent context can need the root as well as every parent.
-  if (ancestors > 2 && ancestors > parts.length) return parent;
+  if (ancestors > 2 && ancestors > parts.length) return place !== parent ? parts.join(" › ") : parent;
   return parts.slice(-ancestors).join(" › ") || parent;
 }
 
@@ -164,6 +176,31 @@ export function resolveMarkdownLink(
   const resolved = normalizePath(`${baseDir}/${toPosixPath(decodedPath)}`);
 
   return { path: resolved, anchor };
+}
+
+export const MARKDOWN_LINK_PROTOCOLS = ["http", "https", "mailto"];
+
+/** Validate command input against the reader's schemes and local-file resolver. */
+export function markdownLinkDestination(input: string, currentFilePath: string | null): string | null {
+  if (/[\u0000-\u001f\u007f]/.test(input)) return null;
+  const href = input.trim().replace(/^(?:https?|mailto):/i, (scheme) => scheme.toLowerCase());
+  const decoded = decodeUriComponentSafe(href);
+  if (!href || /[\u0000-\u001f\u007f]/.test(decoded)) return null;
+  if (href.startsWith("#")) return href.slice(1).trim() ? href : null;
+  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(href)?.[1];
+  if (scheme) {
+    if (!MARKDOWN_LINK_PROTOCOLS.includes(scheme)) return null;
+    if (scheme !== "mailto" && !/^https?:\/\//.test(href)) return null;
+    try {
+      const url = new URL(href);
+      if (scheme === "mailto" ? !url.pathname.trim() : !url.hostname) return null;
+    } catch { return null; }
+    return href;
+  }
+  // Validate decoded absolute paths as well as the literal form. The existing
+  // resolver remains responsible for extensions, relative paths and fragments.
+  if (/^[\\/]|^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
+  return currentFilePath && resolveMarkdownLink(href, currentFilePath) ? href : null;
 }
 
 export function decodeUriComponentSafe(value: string): string {

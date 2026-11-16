@@ -33,8 +33,6 @@ test("folder list and global Recent are distinct; removal keeps an untimed Add B
           workspaceState: {
             status: "ready",
             directories: ["child"],
-            readFailedCount: 0,
-            complexitySkippedCount: 0,
           },
           docs: [
             {
@@ -86,7 +84,7 @@ test("folder list and global Recent are distinct; removal keeps an untimed Add B
   await act(async () => button("Remove from Sidebar").click());
   assert.equal(document.activeElement.id, "navigation-tab-Folders");
   assert.equal(removed, 1);
-  assert.match(host.textContent, /Its files and your notes are unchanged/);
+  assert.match(host.textContent, /Nothing was deleted/);
   assert.ok(button("Add Folder…"));
   assert.ok(button("Add Back"));
   await act(async () => button("Add Folder…").click());
@@ -115,7 +113,7 @@ test("folder list and global Recent are distinct; removal keeps an untimed Add B
   );
 });
 
-test("background rechecks are visible but never announced through a live region", async (t) => {
+test("first listings show quiet progress and later checks stay out of the way", async (t) => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -130,7 +128,7 @@ test("background rechecks are visible but never announced through a live region"
           currentFilePath: null,
           openingPath: null,
           workspaceRootPath: "/project",
-          workspaceState: { status, directories: [], readFailedCount: 1, complexitySkippedCount: 0 },
+          workspaceState: { status, directories: [], indexedAt: status === "ready" ? 1 : null },
           docs: [],
           onChooseWorkspaceRoot() {},
           onClearWorkspaceRoot() {},
@@ -152,7 +150,7 @@ test("background rechecks are visible but never announced through a live region"
   assert.match(host.textContent, /Checking documents…/);
   assert.doesNotMatch(live(), /Checking documents/);
   await act(async () => render("ready"));
-  assert.match(host.textContent, /limited search coverage/);
+  assert.doesNotMatch(host.textContent, /Checking documents|limited search coverage/);
   assert.doesNotMatch(live(), /limited search coverage/);
 });
 
@@ -161,7 +159,7 @@ const { pointerClick } = require('./_helpers/pointer.cjs');
 const defaults = {
   visible: true, recentFiles: [], currentFilePath: null, openingPath: null,
   workspaceRootPath: 'C:\\Research',
-  workspaceState: { status: 'ready', directories: ['Interviews', 'Interviews\\November', 'Other'], readFailedCount: 0, complexitySkippedCount: 0 },
+  workspaceState: { status: 'ready', directories: ['Interviews', 'Interviews\\November', 'Other'], },
   docs: [{ path: 'C:\\Research\\Interviews\\November\\one.md', relPath: 'Interviews\\November\\one.md', name: 'one.md', title: 'Readable title', sources: ['folder'] }],
   onChooseWorkspaceRoot() {}, onClearWorkspaceRoot() {}, onOpenCommandPalette() {},
   onOpenRecent() {}, onRemoveRecent() {}, onReindexWorkspace() {}, onOpenWorkspacePath() {},
@@ -272,13 +270,14 @@ test('folder and document pagination, errors, and discovery limits survive compa
   let retries = 0;
   const docs = Array.from({ length: 103 }, (_, i) => ({ name: `doc-${i}.md`, path: `/project/doc-${i}.md`, relPath: `doc-${i}.md`, sources: ['folder'] }));
   const directories = Array.from({ length: 102 }, (_, i) => `Folder-${i}`);
+  docs.push(...directories.map(directory => ({ name: 'inside.md', path: `/project/${directory}/inside.md`, relPath: `${directory}/inside.md`, sources: ['folder'] })));
   const view = renderComponent(Sidebar, { ...defaults, workspaceRootPath: '/project', docs,
     workspaceState: { ...defaults.workspaceState, directories, limitHit: true, error: 'Permission denied.', issues: ['Unreadable directory'] },
     onReindexWorkspace() { retries++; } });
   t.after(view.cleanup);
   click(view.host.querySelector('#navigation-tab-Folders'));
   assert.equal(view.host.querySelectorAll('.document-open').length, 200);
-  click(buttonWithText(view.host, 'More folders'));
+  click(buttonWithText(view.host, 'Show more folders'));
   click(buttonWithText(view.host, 'Show next 3 documents'));
   assert.equal(view.host.querySelectorAll('.document-open').length, 205);
   assert.match(view.host.textContent, /Only part of this folder is listed/);
@@ -289,5 +288,40 @@ test('folder and document pagination, errors, and discovery limits survive compa
   view.render({ docs: [], workspaceState: { ...defaults.workspaceState, status: 'indexing', directories: [] } });
   assert.match(view.host.textContent, /Looking for documents/);
   view.render({ workspaceState: { ...defaults.workspaceState, directories: [] } });
-  assert.match(view.host.textContent, /No supported documents/);
+  assert.match(view.host.textContent, /No Markdown or Fountain documents in this folder/);
+});
+
+
+test('Folders hides empty descendants and keeps folder warnings only at the top', t => {
+  const view = renderComponent(Sidebar, { ...defaults,
+    workspaceState: { status: 'ready', indexedAt: 1, directories: ['Interviews', 'Interviews/November', 'Empty', 'Other'], limitHit: true, issues: ['Private — not allowed'] },
+  });
+  t.after(view.cleanup);
+  click(view.host.querySelector('#navigation-tab-Folders'));
+  assert.ok(![...view.host.querySelectorAll('button')].some(button => button.textContent === '▸ Empty'));
+  assert.ok(![...view.host.querySelectorAll('button')].some(button => button.textContent === '▸ Other'));
+  assert.ok(buttonWithText(view.host, '▸ Interviews'));
+  assert.match(view.host.textContent, /Some places in this folder couldn't be opened/);
+  assert.match(view.host.textContent, /Use Folder options to choose a folder inside it/);
+  assert.doesNotMatch(view.host.textContent, /What appears here|Preparing text search|characters searchable/);
+  click(buttonWithText(view.host, '▸ Interviews'));
+  assert.ok(buttonWithText(view.host, '▸ November'), 'a document at any depth keeps its ancestors');
+  assert.doesNotMatch(view.host.textContent, /couldn't be opened|Only part of this folder/);
+  view.render({ workspaceState: { status: 'error', indexedAt: 1, directories: [], error: "Can't find this folder." } });
+  assert.match(view.host.textContent, /Can't find this folder\./, 'a folder error is not hidden inside a subfolder');
+  assert.ok(buttonWithText(view.host, 'Retry'));
+  view.render({ workspaceState: { status: 'indexing', indexedAt: 1, directories: [] } });
+  assert.doesNotMatch(view.host.textContent, /Checking documents|Looking for/);
+});
+
+
+test('document rows keep their names without text-search progress lines', t => {
+  const { DocumentList } = require('../.tmp/workspace-tests/src/components/DocumentList.js');
+  const view = renderComponent(DocumentList, { docs: [
+    { path: '/first.md', name: 'first.md', coverage: 'pending' },
+    { path: '/second.md', name: 'second.md', coverage: 'partial' },
+  ], onOpen() {}, onRetry() {} });
+  t.after(view.cleanup);
+  assert.match(view.host.textContent, /first.mdsecond.md/);
+  assert.doesNotMatch(view.host.textContent, /Preparing text search|characters searchable/);
 });

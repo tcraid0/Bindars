@@ -8,9 +8,6 @@ const { renderMarkup } = require("./_helpers/render-markup.cjs");
 const { CommandPalette } = require("../.tmp/workspace-tests/src/components/CommandPalette.js");
 const { EmptyState } = require("../.tmp/workspace-tests/src/components/EmptyState.js");
 const { Header } = require("../.tmp/workspace-tests/src/components/Header.js");
-const {
-  MarkdownFormattingToggle,
-} = require("../.tmp/workspace-tests/src/components/MarkdownFormattingToggle.js");
 const { ShortcutOverlay } = require("../.tmp/workspace-tests/src/components/ShortcutOverlay.js");
 const { ToastProvider } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
 const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js");
@@ -26,8 +23,6 @@ const workspaceState = {
   status: "ready",
   indexedAt: 1,
   error: null,
-  readFailedCount: 0,
-  complexitySkippedCount: 0,
   limitHit: false,
 };
 
@@ -73,10 +68,6 @@ function renderPlatformLabels(navigatorValue) {
         onReindex() {},
         onOpenPath() {},
         onOpenPalette() {},
-      }),
-      React.createElement(MarkdownFormattingToggle, {
-        enabled: true,
-        onToggle() {},
       }),
       React.createElement(CommandPalette, {
         visible: true,
@@ -258,4 +249,10 @@ test("the real Welcome template renders only explicit shortcut tokens", () => {
     () => renderShortcutTemplate("{{shortcut:openFile", "macos"),
     /Unresolved shortcut token/,
   );
+});
+
+test("Mark done labels and help use the primary modifier on both platforms", () => {
+  assert.equal(formatShortcutLabel("markDone", "macos"), "⌘L");
+  assert.equal(formatShortcutLabel("markDone", "windows-linux"), "Ctrl+L");
+  assert.match(renderPlatformLabels({platform:"MacIntel"}), /Mark task done \/ not done/);
 });

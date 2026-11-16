@@ -1,5 +1,6 @@
 import { defaultSchema } from "rehype-sanitize";
 import type { Options as Schema } from "rehype-sanitize";
+import { MARKDOWN_LINK_PROTOCOLS } from "./paths";
 
 const sourcePositionAttributes = ["dataBindarsSourceLine", "dataBindarsSourceColumn"];
 
@@ -46,6 +47,6 @@ export const sanitizeSchema: Schema = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: ["http", "https", "mailto"],
+    href: MARKDOWN_LINK_PROTOCOLS,
   },
 };

@@ -67,7 +67,6 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
   await installDom();
   let newCount = 0;
   let saveCount = 0;
-  let formattingToggleCount = 0;
   const rendered = render(
     React.createElement(
       ToastProvider,
@@ -102,8 +101,6 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
         onPresent() {},
         canPresent: false,
         fileType: "markdown",
-        markdownFormattingEnabled: true,
-        onToggleMarkdownFormatting() { formattingToggleCount += 1; },
       }),
     ),
   );
@@ -114,10 +111,9 @@ test("Header exposes New and permits saving a clean virtual editor", async () =>
     assert.equal(saveButton.classList.contains("text-text-secondary"), true);
     assert.equal(saveButton.classList.contains("text-accent-text"), false);
     click(saveButton);
-    click(buttonWithText(rendered.host, "Styled"));
+    assert.ok(!rendered.host.querySelector('[aria-label="Toggle markup formatting"]'), "formatting belongs to the writing toolbar");
     assert.equal(newCount, 1);
     assert.equal(saveCount, 1);
-    assert.equal(formattingToggleCount, 1);
     assert.ok(rendered.host.querySelector('[aria-label="Earlier versions"]') === null);
   } finally {
     rendered.cleanup();

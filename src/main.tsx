@@ -6,6 +6,8 @@ import { ToastProvider } from "./components/ToastProvider";
 import { getActiveDialog } from "./components/DialogFrame";
 import { appReadyPromise, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import { installContextMenuPolicy } from "./lib/context-menu";
+import { setHomeDirectory } from "./lib/paths";
+import { homeDir } from "@tauri-apps/api/path";
 import "./app.css";
 
 installContextMenuPolicy();
@@ -110,6 +112,12 @@ function dismissLoadingScreen(): void {
 }
 
 async function bootstrap() {
+  // Resolve before the first list, but never hold startup for a slow native call.
+  // A late answer still counts: labels drop the home folder on their next render.
+  await Promise.race([
+    homeDir().then(setHomeDirectory, () => {}),
+    new Promise<void>(resolve => setTimeout(resolve, 250)),
+  ]);
   renderApp();
 
   // Wait for fonts + app state, with a safety timeout

@@ -2,6 +2,8 @@ import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef } from 
 import type { HighlightColor } from "../types";
 import type { TextAnchor } from "../lib/text-anchoring";
 import { createPositionedAnchor } from "../lib/text-anchoring";
+import { collectText } from "../lib/dom-text";
+import type { PassageChoice } from "../hooks/useAnnotations";
 import { isImeCompositionKey } from "../lib/keyboard";
 
 import { useToast } from "./ToastProvider";
@@ -13,6 +15,8 @@ interface HighlightToolbarProps {
   getActiveHeadingId: () => string | null;
   onHighlight: (anchor: TextAnchor, color: HighlightColor, headingId: string | null) => void;
   onNote: (anchor: TextAnchor, headingId: string | null) => void;
+  passageChoice?: PassageChoice | null;
+  onPassageChoiceEnd?: (cancelled: boolean) => void;
 }
 
 const COLORS: { color: HighlightColor; bg: string; label: string }[] = [
@@ -35,7 +39,7 @@ function sameRange(left: Range, right: Range) {
     && left.endContainer === right.endContainer && left.endOffset === right.endOffset;
 }
 
-function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHeadingId, onHighlight, onNote }: HighlightToolbarProps) {
+function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHeadingId, onHighlight, onNote, passageChoice, onPassageChoiceEnd }: HighlightToolbarProps) {
   const [selection, setSelection] = useState<ToolbarSelection | null>(null);
   const selectionRef = useRef<ToolbarSelection | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -45,6 +49,8 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
   const { toast } = useToast();
   const alive = useRef(true);
   const pending = useRef(false);
+  const choiceRef = useRef(passageChoice);
+  choiceRef.current = passageChoice;
   const [saving, setSaving] = useState(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
@@ -53,6 +59,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     if (!next) requestedFocus.current = null;
     setSelection(next);
   }, []);
+  useLayoutEffect(() => { updateSelection(null); }, [passageChoice, updateSelection]);
 
   const ownsSelection = useCallback((value: ToolbarSelection) => {
     const { range, container, text } = value;
@@ -92,6 +99,13 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     updateSelection(null);
   }, [updateSelection]);
 
+  const cancelPassageChoice = useCallback(() => {
+    const current = selectionRef.current;
+    if (current) clearOwnedSelection(current);
+    choiceRef.current?.cancel();
+    onPassageChoiceEnd?.(true);
+  }, [clearOwnedSelection, onPassageChoiceEnd]);
+
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!selection || !toolbar) return;
@@ -121,7 +135,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       window.removeEventListener("resize", placeToolbar);
       document.removeEventListener("scroll", placeToolbar, true);
     };
-  }, [selection]);
+  }, [selection, passageChoice]);
 
   const focusRequestedButton = useCallback(() => {
     if (!requestedFocus.current || !toolbarRef.current) return;
@@ -143,7 +157,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
     // WebKit can collapse the visible selection when a button takes focus. Keep
     // the cloned range only for the active toolbar interaction, never globally.
     if ((!native || native.isCollapsed || native.rangeCount === 0) && current && ownsSelection(current)
-      && (toolbarRef.current?.contains(document.activeElement) || pending.current)) return;
+      && toolbarRef.current?.contains(document.activeElement)) return;
     updateSelection(null);
   }, [ownsSelection, readSelection, updateSelection]);
 
@@ -160,6 +174,11 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
         || (target instanceof HTMLElement && !!container?.contains(target)
           && !target.closest("input, textarea, select, button, [contenteditable='true']"));
       if (event.key === "Escape") {
+        if (choiceRef.current && (inToolbar || inReader)) {
+          event.preventDefault(); event.stopPropagation();
+          cancelPassageChoice();
+          return;
+        }
         const current = selectionRef.current;
         if (current && (inToolbar || inReader)) {
           event.preventDefault();
@@ -194,24 +213,32 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [clearOwnedSelection, contentRef, focusReader, focusRequestedButton, handleSelectionChange, readSelection, updateSelection]);
+  }, [cancelPassageChoice, clearOwnedSelection, contentRef, focusReader, focusRequestedButton, handleSelectionChange, readSelection, updateSelection]);
 
   const handleSelectionAction = useCallback(
-    async (action: HighlightColor | "note") => {
+    async (action: HighlightColor | "note" | "passage") => {
       const current = selectionRef.current;
       if (!current || !ownsSelection(current) || pending.current) return;
+      const choice = choiceRef.current;
+      if (action === "passage" && !choice?.isCurrent()) return;
       const keyboardAction = !!toolbarRef.current?.contains(document.activeElement);
       pending.current = true;
       setSaving(true);
       try {
+        const textBefore = collectText(current.container).text;
         const anchor = await createPositionedAnchor(current.range, current.container, current.source);
-        if (!alive.current || selectionRef.current !== current || !ownsSelection(current)) return;
+        if (!alive.current || selectionRef.current !== current || !ownsSelection(current)
+          || collectText(current.container).text !== textBefore || choiceRef.current !== choice
+          || (action === "passage" && !choice?.isCurrent())) return;
         clearOwnedSelection(current);
         // Note's panel owns its textarea focus. Highlights and failed actions
         // return keyboard users to the document after the buttons disappear.
         if (keyboardAction && (action !== "note" || !anchor)) focusReader(current);
         if (anchor) {
-          if (action === "note") onNote(anchor, current.headingId);
+          if (action === "passage") {
+            if (choice!.usePassage(anchor, current.headingId)) onPassageChoiceEnd?.(false);
+            else toast("This passage choice is no longer current. Choose the passage again.", "error");
+          } else if (action === "note") onNote(anchor, current.headingId);
           else onHighlight(anchor, action, current.headingId);
         } else toast("This selection includes text that cannot be highlighted. Select prose, code, or a visible HTML label.", "error");
       } catch {
@@ -225,16 +252,18 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
         if (alive.current) setSaving(false);
       }
     },
-    [clearOwnedSelection, focusReader, onHighlight, onNote, ownsSelection, toast],
+    [clearOwnedSelection, focusReader, onHighlight, onNote, onPassageChoiceEnd, ownsSelection, toast],
   );
 
-  if (!selection || isEditing || selection.source !== source) return null;
+  if (isEditing || (selection && selection.source !== source) || (!selection && !passageChoice)) return null;
 
   return (
     <div
       ref={toolbarRef}
       role="group"
-      aria-label="Selected text actions"
+      aria-label={passageChoice ? "Choose passage" : "Selected text actions"}
+      style={!selection ? { visibility: "visible", left: "50%", top: "auto", bottom: "1rem", transform: "translateX(-50%)", maxWidth: "calc(100vw - 16px)" }
+        : { bottom: "auto", transform: "none", maxWidth: "calc(100vw - 16px)" }}
       onBlur={(event) => {
         const current = selectionRef.current;
         if (current && !event.currentTarget.contains(event.relatedTarget as Node | null)
@@ -242,7 +271,15 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       }}
       className="print-hide fixed z-50 flex w-max items-center gap-1.5 px-2 py-1.5 rounded-lg bg-bg-secondary border border-border shadow-lg"
     >
-      {COLORS.map(({ color, bg, label }) => (
+      {passageChoice ? <>
+        <span className="text-xs text-text-secondary" role="status">{selection ? "Replace this highlighted passage?" : "Select a passage in Read."}</span>
+        <button type="button" disabled={!selection || saving}
+          className="px-2 py-1 text-xs text-accent-text focus-visible:outline"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => handleSelectionAction("passage")}>Use this passage</button>
+        <button type="button" className="px-2 py-1 text-xs text-text-primary focus-visible:outline"
+          onMouseDown={(event) => event.preventDefault()} onClick={cancelPassageChoice}>Cancel</button>
+      </> : <>{COLORS.map(({ color, bg, label }) => (
         <button
           key={color}
           type="button"
@@ -264,6 +301,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
       >
         Note
       </button>
+      </>}
     </div>
   );
 }

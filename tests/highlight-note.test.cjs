@@ -186,7 +186,7 @@ test('a locked creation starts no note, and canceling an empty new note keeps it
   assert.equal(document.activeElement.textContent.trim(), 'Add note');
 });
 
-async function mountToolbar(t, { keyed = true } = {}) {
+async function mountToolbar(t, { keyed = true, choice = null } = {}) {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   const calls = [];
@@ -197,7 +197,8 @@ async function mountToolbar(t, { keyed = true } = {}) {
         React.createElement('article', { ref: contentRef }, React.createElement('p', null, anchor.exact))),
       React.createElement(HighlightToolbar, {
         key: keyed ? JSON.stringify([path, source]) : undefined, source, contentRef, isEditing,
-        getActiveHeadingId: () => 'intro',
+        getActiveHeadingId: () => 'intro', passageChoice: choice,
+        onPassageChoiceEnd: cancelled => calls.push(['choice-end', cancelled]),
         onHighlight: (...args) => calls.push(['highlight', ...args]),
         onNote: (...args) => calls.push(['note', ...args]),
       }))));
@@ -551,4 +552,87 @@ test('Tab can reveal an unfocused toolbar whose selected passage has scrolled ou
   await act(async () => elsewhere.focus());
   assert.ok(view.host.querySelector('[role="group"]') === null);
   assert.equal(window.getSelection().rangeCount, 0);
+});
+
+function passageChoice() {
+  let active = true;
+  const accepted = [];
+  return { id: 'h', excerpt: 'old passage', accepted, isCurrent: () => active,
+    cancel: () => { active = false; },
+    usePassage: (...args) => { if (!active) return false; accepted.push(args); active = false; return true; } };
+}
+
+test('Choose passage waits for a new selection, reaches confirmation by Tab, and returns focus to Read', async t => {
+  const createAnchor = anchoring.createPositionedAnchor;
+  let hashing;
+  t.mock.method(anchoring, 'createPositionedAnchor', (...args) => hashing = createAnchor(...args));
+  const choice = passageChoice(); const view = await mountToolbar(t, { choice });
+  assert.equal(findButton(view.host, 'Use this passage').disabled, true);
+  assert.match(view.host.textContent, /Select a passage in Read/);
+  await view.select(); const reader = view.host.querySelector('main'); reader.focus();
+  await pressKey(reader, 'Tab');
+  assert.ok(document.activeElement === findButton(view.host, 'Use this passage'));
+  await act(async () => { document.activeElement.click(); await hashing; });
+  assert.equal(choice.accepted.length, 1);
+  assert.equal(choice.accepted[0][0].exact, anchor.exact);
+  assert.ok(choice.accepted[0][0].position);
+  assert.ok(document.activeElement === reader);
+  assert.deepEqual(view.calls, [['choice-end', false]]);
+});
+
+for (const selected of [false, true]) test(`passage Escape cancels with${selected ? '' : 'out'} a selection`, async t => {
+  const choice = passageChoice(); const view = await mountToolbar(t, { choice });
+  if (selected) await view.select();
+  const reader = view.host.querySelector('main'); reader.focus();
+  const ime = await pressKey(reader, 'Escape', { isComposing: true });
+  assert.equal(ime.defaultPrevented, false); assert.equal(choice.isCurrent(), true);
+  assert.equal((await pressKey(reader, 'Escape')).defaultPrevented, true);
+  assert.equal(choice.isCurrent(), false); assert.deepEqual(choice.accepted, []);
+  assert.deepEqual(view.calls, [['choice-end', true]]);
+});
+
+for (const stale of ['cancel during hash', 'target deleted', 'content replaced', 'file replaced', 'selection replaced', 'rendered text changed']) {
+  test(`pending passage confirmation refuses ${stale}`, async t => {
+    const gate = deferred(); const choice = passageChoice();
+    t.mock.method(anchoring, 'createPositionedAnchor', () => gate.promise);
+    const view = await mountToolbar(t, { choice }); await view.select();
+    await act(async () => findButton(view.host, 'Use this passage').click());
+    assert.equal(findButton(view.host, 'Cancel').disabled, false, 'cancel remains possible while hashing');
+    if (stale === 'cancel during hash') await act(async () => findButton(view.host, 'Cancel').click());
+    if (stale === 'target deleted') choice.cancel();
+    if (stale === 'content replaced') await view.render('/a.md', 'new source');
+    if (stale === 'file replaced') await view.render('/b.md');
+    if (stale === 'selection replaced') await act(async () => { window.getSelection().removeAllRanges(); document.dispatchEvent(new window.Event('selectionchange')); });
+    if (stale === 'rendered text changed') view.host.querySelector('article').append('different context');
+    await act(async () => gate.resolve({ ...anchor, position: { start: 0, end: anchor.exact.length } }));
+    assert.deepEqual(choice.accepted, []);
+  });
+}
+
+test('unsupported passage retains the intent and permits a fresh supported selection', async t => {
+  let allowed = false; const choice = passageChoice();
+  t.mock.method(anchoring, 'createPositionedAnchor', async () => allowed ? anchor : null);
+  const view = await mountToolbar(t, { choice }); await view.select();
+  await act(async () => findButton(view.host, 'Use this passage').click());
+  assert.equal(choice.isCurrent(), true); assert.deepEqual(choice.accepted, []);
+  assert.match(view.host.textContent, /cannot be highlighted/);
+  allowed = true; await view.select();
+  await act(async () => findButton(view.host, 'Use this passage').click());
+  assert.equal(choice.accepted.length, 1);
+});
+
+test('clearing an offscreen passage selection restores visible recovery instructions and Cancel', async t => {
+  let rangeTop = 100;
+  t.mock.method(window.Range.prototype, 'getBoundingClientRect', () => ({ left: 100, top: rangeTop, width: 100, bottom: rangeTop + 20 }));
+  const choice = passageChoice(); const view = await mountToolbar(t, { choice }); await view.select();
+  const reader = view.host.querySelector('main'); reader.focus();
+  const toolbar = view.host.querySelector('[role="group"]');
+  rangeTop = -100;
+  await act(async () => reader.dispatchEvent(new Event('scroll')));
+  assert.equal(toolbar.style.visibility, 'hidden');
+  await act(async () => { window.getSelection().removeAllRanges(); document.dispatchEvent(new window.Event('selectionchange')); });
+  assert.equal(toolbar.style.visibility, 'visible');
+  assert.equal(findButton(view.host, 'Use this passage').disabled, true);
+  await act(async () => findButton(view.host, 'Cancel').click());
+  assert.deepEqual(view.calls, [['choice-end', true]]);
 });

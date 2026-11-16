@@ -47,6 +47,7 @@ test('recovery-copy cancellation and write failure leave choices usable; success
   await act(async()=>root.render(React.createElement(AnnotationExitDialog,{paths:['/a.md'],waiting:false,onKeepOpen(){},onRetry(){},onQuit(){},pendingRecords:()=>documents})));
   const click=async()=>{await act(async()=>[...document.querySelectorAll('#dialog-root button')].find(b=>b.textContent==='Save recovery copy').click());};
   try{
+    assert.equal(document.querySelector('#dialog-root h2').textContent, "Highlights and notes haven't been saved");
     await click();assert.equal(writes.length,0);
     chosen='/tmp/recovery.json';fail=true;await click();assert.match(document.getElementById("dialog-root").textContent,/Couldn't save/);
     fail=false;await click();assert.deepEqual(writes[1],{path:chosen,documents});assert.match(document.getElementById("dialog-root").textContent,/saved and verified/);

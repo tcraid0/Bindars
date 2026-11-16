@@ -1,10 +1,13 @@
-import { forwardRef } from "react";
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { FileType, ReaderSettings } from "../types";
 import { retainedVersionNotice } from "../lib/editor-save";
 import { resolveReaderSurfaceStyle } from "../lib/reader-settings";
 import { CodeMirrorEditor } from "./CodeMirrorEditor";
 import type { CodeMirrorEditorHandle, EditorSurfacePosition } from "./CodeMirrorEditor";
+import { MarkdownFormattingToolbar } from "./MarkdownFormattingToolbar";
+import type { FormattingToolbarState } from "./markdown-formatting-commands";
+import type { EditorLinkForm } from "./CodeMirrorEditor";
 import type { SourcePoint } from "../lib/editor-position";
 
 export type MarkdownEditorHandle = CodeMirrorEditorHandle;
@@ -13,6 +16,7 @@ export type { EditorSurfacePosition };
 interface MarkdownEditorProps {
   buffer: string;
   initialPosition?: SourcePoint | null;
+  initialScreenTopPx?: number | null;
   scrollRootRef: RefObject<HTMLElement | null>;
   fileType: FileType;
   markdownFormattingEnabled: boolean;
@@ -21,6 +25,9 @@ interface MarkdownEditorProps {
   canSaveAsAfterError: boolean;
   canDismissSaveError?: boolean;
   recoveryPath?: string | null;
+  filePath?: string | null;
+  onToggleMarkdownFormatting?: () => void;
+  onFormattingRefusal?: (reason: string) => void;
   onBufferChange: (content: string) => boolean;
   onSaveAsAfterError: () => void;
   onDismissSaveError: () => void;
@@ -30,6 +37,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   function MarkdownEditor({
     buffer,
     initialPosition,
+    initialScreenTopPx,
     scrollRootRef,
     fileType,
     markdownFormattingEnabled,
@@ -38,12 +46,47 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     canSaveAsAfterError,
     canDismissSaveError = true,
     recoveryPath = null,
+    filePath, onToggleMarkdownFormatting, onFormattingRefusal,
     onBufferChange,
     onSaveAsAfterError,
     onDismissSaveError,
   }, ref) {
+    const editorRef = useRef<CodeMirrorEditorHandle | null>(null);
+    const toolbarRef = useRef<HTMLDivElement | null>(null);
+    const [adoption, setAdoption] = useState(0);
+    const [state, setState] = useState<FormattingToolbarState | null>(null);
+    const surfaceRef = useRef<HTMLDivElement | null>(null);
+    const [linkForm, setLinkForm] = useState<EditorLinkForm | null>(null);
+    useLayoutEffect(() => {
+      const bar = toolbarRef.current?.parentElement;
+      const surface = surfaceRef.current;
+      if (!bar || !surface) return;
+      // CSS owns wrapping/stickiness. Only the resulting height is shared with
+      // CodeMirror's separately sticky Find panel; no React layout state.
+      const syncHeight = () => surface.style.setProperty("--markdown-toolbar-height", `${bar.offsetHeight}px`);
+      syncHeight();
+      const observer = new window.ResizeObserver(syncHeight);
+      observer.observe(bar);
+      return () => observer.disconnect();
+    }, []);
+    useImperativeHandle(ref, () => ({
+      focus: () => editorRef.current?.focus(),
+      find: () => editorRef.current?.find(),
+      findNext: () => editorRef.current?.findNext(),
+      findPrevious: () => editorRef.current?.findPrevious(),
+      flushPendingChanges: () => editorRef.current?.flushPendingChanges() ?? null,
+      capturePosition: () => editorRef.current?.capturePosition() ?? null,
+      captureChanges: () => editorRef.current?.captureChanges() ?? null,
+      adoptExternalDocument: (captured, external) => editorRef.current?.adoptExternalDocument(captured, external) ?? false,
+      executeFormatting: command => editorRef.current?.executeFormatting(command) ?? null,
+      beginLink: () => editorRef.current?.beginLink(),
+      applyLink: (id, input, composing) => editorRef.current?.applyLink(id, input, composing) ?? null,
+      cancelLink: (id, restoreFocus) => editorRef.current?.cancelLink(id, restoreFocus),
+    }), []);
     return (
       <div
+        ref={surfaceRef}
+        className="markdown-editor-surface"
         style={resolveReaderSurfaceStyle(settings)}
       >
         {recoveryPath && (
@@ -91,10 +134,22 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             )}
           </div>
         )}
+        {fileType === "markdown" && <MarkdownFormattingToolbar editorRef={editorRef} toolbarRef={toolbarRef}
+          adoption={adoption} state={state} linkForm={linkForm} styled={markdownFormattingEnabled} onToggleStyled={() => {
+            onToggleMarkdownFormatting?.();
+          }} />}
         <CodeMirrorEditor
-          ref={ref}
+          ref={editorRef}
+          filePath={filePath}
+          formattingControlsRef={toolbarRef}
+          onFormattingState={setState}
+          onFormattingRefusal={onFormattingRefusal}
+          onLinkFormChange={setLinkForm}
+          onExternalDocumentAdopted={() => setAdoption(value => value + 1)}
+          onFocusToolbar={() => toolbarRef.current?.querySelector<HTMLButtonElement>('[tabindex="0"]')?.focus()}
           initialDocument={buffer}
           initialPosition={initialPosition}
+          initialScreenTopPx={initialScreenTopPx}
           scrollRootRef={scrollRootRef}
           fileType={fileType}
           markdownFormattingEnabled={markdownFormattingEnabled}

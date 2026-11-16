@@ -110,7 +110,7 @@ function ReaderControlsComponent({
       }}
     >
       <div className="flex items-center justify-between mb-3">
-        <h2 id={titleId} className="text-sm font-semibold text-text-primary">Reader Settings</h2>
+        <h2 id={titleId} className="text-sm font-semibold text-text-primary">Reader settings</h2>
         <button
           type="button"
           ref={closeRef}
