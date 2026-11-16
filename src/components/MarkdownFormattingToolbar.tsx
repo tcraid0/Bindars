@@ -138,7 +138,7 @@ export function MarkdownFormattingToolbar({ editorRef, toolbarRef, state, linkFo
           aria-disabled={feedback(command)?.available === false} tabIndex={-1}
           title={tip(command, shown)} aria-describedby={`${id}-${command}-hint`}
           onClick={() => run(command)}>
-          <span>{shown}</span>{shortcuts[command] && <kbd>{formatShortcutLabel(shortcuts[command]!)}</kbd>}
+          <span>{shown}</span>{shortcuts[command] && <kbd className="shortcut-hint">{formatShortcutLabel(shortcuts[command]!)}</kbd>}
           {menu === "more" && toggle && active === true && <span aria-hidden="true" className="markdown-menu-check">✓</span>}
         </button>; })}
       </div>}

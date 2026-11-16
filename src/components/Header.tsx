@@ -360,7 +360,7 @@ function HeaderComponent({
                           <rect x="6" y="14" width="12" height="8" />
                         </svg>
                         Print to PDF
-                        <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("print")}</kbd>
+                        <kbd className="shortcut-hint">{formatShortcutLabel("print")}</kbd>
                       </button>
                       {fileType !== "fountain" && (
                         <button
@@ -375,7 +375,7 @@ function HeaderComponent({
                             <line x1="12" y1="17" x2="12" y2="21" />
                           </svg>
                           Present as Slides
-                          <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("presentation")}</kbd>
+                          <kbd className="shortcut-hint">{formatShortcutLabel("presentation")}</kbd>
                         </button>
                       )}
                       <div className="border-t border-border mt-1 pt-1 px-3 py-1.5">

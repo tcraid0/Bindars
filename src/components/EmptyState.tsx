@@ -202,7 +202,7 @@ function EmptyStateComponent({
             <span className="block text-xs text-text-muted break-words mt-0.5">{row.detail}</span>
           </span>
           {row.hint && (
-            <kbd aria-hidden="true" className="shrink-0 font-ui text-[11px] text-text-muted border border-border border-b-2 rounded-[5px] px-1.5 py-0.5">
+            <kbd aria-hidden="true" className="shortcut-key">
               {row.hint}
             </kbd>
           )}
