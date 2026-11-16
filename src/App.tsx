@@ -2216,9 +2216,12 @@ function App() {
     },
   });
 
-  const canShowDocumentHint = readerDocumentReady && !editing && !!filePath
-    && annotationsReady && !printing && !presentationMode && !focusMode;
-  const showReadingHint = readingHintVisible && canShowDocumentHint && highlights.length === 0;
+  const hintPlace = readerDocumentReady && !editing && !!filePath && !printing && !presentationMode && !focusMode;
+  const canShowDocumentHint = hintPlace && annotationsReady;
+  // Highlights load a moment after the document. Keep the strip meanwhile so the
+  // page does not jump up and back; it goes once this document has some.
+  const showReadingHint = readingHintVisible && hintPlace && highlights.length === 0
+    && (annotationsReady || annotationStatus === "loading");
   useEffect(() => {
     if (filePath) openedDocumentsRef.current.add(toPathIdentityKey(filePath));
   }, [filePath]);
@@ -3461,8 +3464,11 @@ function App() {
               className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
             >
               {loading && (
+                // Over a shown document a quick open stays off the page, so it cannot
+                // push the text down; a slow one appears with Cancel.
                 <div
-                  className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+                  className={documentOpen && !openingSlow ? "sr-only"
+                    : "max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"}
                 >
                   <span role="status" aria-live="polite" aria-atomic="true">
                     {openingSlow

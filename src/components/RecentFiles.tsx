@@ -132,7 +132,9 @@ export function RecentFiles({
                     </div>
                     {title && <div className="recent-file-name text-xs text-text-secondary mt-0.5">{file.name}</div>}
                     {location && <div className="recent-file-name text-xs text-text-muted mt-0.5">{location}</div>}
-                    {status && <div className="text-xs text-text-secondary mt-0.5">{status}</div>}
+                    {/* A brief Opening… line would push the rows below down and back. An
+                        unavailable row keeps its line while Retry opens it. */}
+                    {status && <div className={`text-xs text-text-secondary mt-0.5${isOpening && !isUnavailable ? " sr-only" : ""}`}>{status}</div>}
                   </>
                 )}
               </button>

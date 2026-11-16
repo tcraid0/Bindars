@@ -124,6 +124,22 @@ test("focus describes without opening; Escape dismisses once; opening and unavai
   await wait(170);
 });
 
+test("a sidebar row's Opening… is spoken but takes no room, while Unavailable and Home rows keep their line", t => {
+  const files = [recent("/notes.md"), recent("/missing.md")];
+  const view = mount(t, files, { recovery: { path: files[1].path, retryDisabled: false }, onRetry() {} });
+  const statusLine = row => [...openButton(row).querySelectorAll("div")].find(node => /^(Opening…|Unavailable)$/.test(node.textContent));
+  view.render({ openingPath: files[0].path });
+  assert.ok(statusLine(rows(view.host)[0]).classList.contains("sr-only"));
+  assert.equal(statusLine(rows(view.host)[1]).textContent, "Unavailable");
+  assert.equal(statusLine(rows(view.host)[1]).classList.contains("sr-only"), false);
+  view.render({ openingPath: files[1].path });
+  assert.equal(statusLine(rows(view.host)[1]).textContent, "Opening…");
+  assert.equal(statusLine(rows(view.host)[1]).classList.contains("sr-only"), false, "Retry keeps the unavailable row's line");
+  view.render({ welcome: true, openingPath: files[0].path });
+  assert.match(rows(view.host)[0].textContent, /Opening…/);
+  assert.ok(!rows(view.host)[0].querySelector(".sr-only"), "Home rows are unchanged");
+});
+
 test("hover waits, survives the pointer crossing onto details, and cleans up after leaving/removal", async t => {
   const file = recent("/A long folder/notes.md");
   const view = mount(t, [file]);

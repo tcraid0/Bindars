@@ -1960,6 +1960,7 @@ async function renderContinuityApp({
   ].join("\n");
   let conflictNextWrite = false;
   let deferredOpen = initialOpenOperation;
+  let deferredAnnotationLoad = null;
   let deferredOpenDialog = null;
   let deferredWrite = null;
   let deferredWatch = null;
@@ -1989,6 +1990,12 @@ async function renderContinuityApp({
       case "initialize_annotation_storage":
         return bootstrapRead ?? { settingsReady: true, settingsError: null };
       case "load_annotations":
+        if (deferredAnnotationLoad) {
+          const operation = deferredAnnotationLoad;
+          deferredAnnotationLoad = null;
+          operation.args = args;
+          return operation.promise;
+        }
         return annotationWrites.findLast(write => write.path === args.path)?.annotations
           ?? (args.path === canonicalPath ? { highlights: storedHighlights, bookmarks: [], version: 2 } : null);
       case "save_annotations":
@@ -2239,6 +2246,7 @@ async function renderContinuityApp({
     diskContent: () => diskContent,
     conflictNextWrite() { conflictNextWrite = true; },
     deferNextOpen(operation) { deferredOpen = operation; },
+    deferNextAnnotationLoad(operation) { deferredAnnotationLoad = operation; },
     deferNextOpenDialog(operation) { deferredOpenDialog = operation; },
     deferNextWrite(operation) { deferredWrite = operation; },
     deferNextWatch(operation) { deferredWatch = operation; },
@@ -7667,6 +7675,62 @@ test("the first accepted highlight retires the reading hint", async () => {
     await waitFor(() => assert.ok(history.writes.some(write => write.key === "reading-hint-dismissed" && write.value)));
   } finally { window.getSelection().removeAllRanges(); await rendered.cleanup(); }
 });
+
+test("the reading hint holds its place while the next document's highlights load", async () => {
+  const rendered = await renderContinuityApp();
+  const readingHint = () => rendered.host.querySelector('[aria-label="Dismiss reading hint"]');
+  const openWithHeldHighlights = async path => {
+    const load = deferred();
+    rendered.deferNextAnnotationLoad(load);
+    rendered.setOpenDialogPath(path);
+    clickButton(rendered.host, "Open");
+    await waitFor(() => assert.equal(load.args?.path, path));
+    return load;
+  };
+  try {
+    await waitFor(() => assert.ok(readingHint()));
+    const plain = await openWithHeldHighlights("/tmp/plain.md");
+    assert.match(rendered.host.querySelector(".document-header-filename").textContent, /plain\.md/);
+    assert.ok(readingHint(), "the strip stays while this document's highlights load");
+    await act(async () => plain.resolve(null));
+    assert.ok(readingHint());
+
+    const marked = await openWithHeldHighlights("/tmp/marked.md");
+    assert.ok(readingHint());
+    await act(async () => marked.resolve({ version: 3, bookmarks: [],
+      highlights: [{ id: "kept", exact: "Closing words", prefix: "", suffix: "", color: "yellow" }] }));
+    await waitFor(() => assert.ok(!readingHint(), "it goes once the document turns out to have highlights"));
+
+    const broken = await openWithHeldHighlights("/tmp/broken.md");
+    await act(async () => broken.reject(new Error("Synthetic annotation read failure")));
+    await waitFor(() => assert.ok(!readingHint(), "a failed load keeps it hidden"));
+  } finally { await rendered.cleanup(); }
+});
+
+for (const shown of [true, false]) {
+  test(`opening ${shown ? "over a shown document keeps its status off the page until it is slow" : "from Home shows its status at once"}`, async () => {
+    const rendered = await renderContinuityApp(shown ? {} : { initialNativePath: null, readySelector: ".empty-state" });
+    const pending = deferred();
+    try {
+      rendered.deferNextOpen(pending);
+      rendered.setPendingNativeOpenPath("/tmp/next.md");
+      await act(async () => { await emit("bindars://native-open-available"); });
+      await waitFor(() => assert.equal(pending.args?.path, "/tmp/next.md"));
+      const status = [...rendered.host.querySelectorAll('main [role="status"]')]
+        .find(node => /Opening file/.test(node.textContent));
+      assert.ok(status, "assistive technology still hears the open");
+      assert.equal(Boolean(status.closest(".sr-only")), shown);
+      if (shown) {
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_050)); });
+        assert.match(status.textContent, /Still opening/);
+        assert.equal(status.closest(".sr-only"), null, "a slow open shows on the page with Cancel");
+        assert.ok([...status.parentElement.querySelectorAll("button")].some(button => button.textContent.trim() === "Cancel"));
+      }
+      await act(async () => pending.resolve({ ...rendered.openResult("# Next"), canonicalPath: "/tmp/next.md", name: "next.md" }));
+      await waitFor(() => assert.match(rendered.host.querySelector("article")?.textContent ?? "", /Next/));
+    } finally { pending.resolve(null); await rendered.cleanup(); }
+  });
+}
 
 test('Dismiss on a words-only passage notice also clears its highlights', async () => {
   const content = '# Alpha\n\nRefund policy applies here.';
