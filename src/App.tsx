@@ -1629,15 +1629,20 @@ function App() {
   // the same admission guard as document actions. The process exits only from
   // the quit-app continuation, after document and annotation decisions resolve;
   // the native side never terminates on its own.
+  // A repeated Quit or Close while the first one waits on a write gets told why.
+  const tellQuitWaitsOnSave = useCallback((): boolean => {
+    const waiting = pendingActionRef.current?.action.kind;
+    if (!editor.saveInFlight() || (waiting !== "quit-app" && waiting !== "close-window")) return false;
+    toast("Bindars is still saving this document. It will continue when the save finishes.", "error");
+    return true;
+  }, [editor.saveInFlight, toast]);
+
   const requestGuardedQuit = useCallback(() => {
     const admission = guardActionRef.current({ kind: "quit-app" });
-    if (admission === "busy") {
-      toast(editor.saveInFlight()
-        && (pendingActionRef.current?.action.kind === "quit-app" || pendingActionRef.current?.action.kind === "close-window")
-        ? "Bindars is still saving this document. It will quit when the save finishes."
-        : "Bindars is finishing another file action. Try quitting again in a moment.", "error");
+    if (admission === "busy" && !tellQuitWaitsOnSave()) {
+      toast("Bindars is finishing another file action. Try quitting again in a moment.", "error");
     }
-  }, [editor.saveInFlight, toast]);
+  }, [tellQuitWaitsOnSave, toast]);
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
@@ -1678,10 +1683,7 @@ function App() {
           // An admitted action owns the guard. Repeated native close requests
           // must not bypass its pending save or annotation decision.
           event.preventDefault();
-          if (editor.saveInFlight()
-            && (pendingActionRef.current?.action.kind === "quit-app" || pendingActionRef.current?.action.kind === "close-window")) {
-            toast("Bindars is still saving this document. It will quit when the save finishes.", "error");
-          }
+          tellQuitWaitsOnSave();
           return;
         case "prevent-and-guard":
           // The request never destroys the window directly on any platform.
@@ -1716,7 +1718,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [pendingAnnotationRecords, getAnnotationMutationVersion, editor.saveInFlight, toast]);
+  }, [pendingAnnotationRecords, getAnnotationMutationVersion, tellQuitWaitsOnSave]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -3381,7 +3383,7 @@ function App() {
           onGoHome={guardedGoHome}
           atHome={!documentOpen && !launchOpening}
           isEditing={editing}
-          isSaving={editor.saving}
+          isSaving={editor.saving && !editor.choosingSaveLocation}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           saveChoosesLocation={!filePath || currentFileIsDraft}
@@ -3689,7 +3691,7 @@ function App() {
       {focusMode && (
         <FocusBar
           fileName={fileName}
-          isSaving={editor.saving}
+          isSaving={editor.saving && !editor.choosingSaveLocation}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           isSavedFlash={savedFlash}

@@ -8698,7 +8698,7 @@ for (const event of ["bindars://quit-requested", "tauri://close-requested"]) {
       await act(async () => emit(event));
       await waitFor(() => assert.ok(write.args));
       await act(async () => emit(event));
-      assert.match(rendered.host.textContent, /Bindars is still saving this document\. It will quit when the save finishes\./);
+      assert.match(rendered.host.textContent, /Bindars is still saving this document\. It will continue when the save finishes\./);
       assert.equal(rendered.fileWrites().length, 1);
       await act(async () => write.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md",
         currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "saved" } }));

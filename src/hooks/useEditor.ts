@@ -64,7 +64,13 @@ export type AdoptExternalDocument = (
   externalDocument: string,
 ) => boolean;
 
+// The editor banner has room for the reassurance the header label cannot fit.
+const EXTERNAL_CHANGE_BANNER = `${AUTOSAVE_OUTSIDE_CHANGE_WARNING} Your edits are still open.`;
+
 export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
+  // True only while the Save dialog is open: the save lock is held, but no
+  // write has started, so save progress must not be shown.
+  const [choosingSaveLocation, setChoosingSaveLocation] = useState(false);
   const [state, setState] = useState<EditorState>({
     buffer: null,
     dirty: false,
@@ -208,7 +214,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
           ...prev,
           dirty: true,
           externalChange: "changed",
-          saveError: prev.saveError ?? AUTOSAVE_OUTSIDE_CHANGE_WARNING,
+          saveError: prev.saveError ?? EXTERNAL_CHANGE_BANNER,
         }));
       }
       return false;
@@ -239,7 +245,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
       ...prev,
       dirty: true,
       externalChange: change,
-      saveError: prev.saveError ?? AUTOSAVE_OUTSIDE_CHANGE_WARNING,
+      saveError: prev.saveError ?? EXTERNAL_CHANGE_BANNER,
     }));
     return true;
   }, []);
@@ -491,10 +497,16 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
 
     let attemptedPath: string | undefined;
     try {
-      const selectedPath = await showSaveDialog({
-        defaultPath,
-        filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
-      });
+      setChoosingSaveLocation(true);
+      let selectedPath: string | null;
+      try {
+        selectedPath = await showSaveDialog({
+          defaultPath,
+          filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
+        });
+      } finally {
+        setChoosingSaveLocation(false);
+      }
 
       if (editSessionRef.current !== editSession) return { status: "stale" };
       if (!selectedPath) {
@@ -595,6 +607,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     buffer: state.buffer,
     dirty: state.dirty,
     saving: state.saving,
+    choosingSaveLocation,
     saveError: state.saveError,
     saveErrorRecovery: state.saveErrorRecovery,
     externalChange: state.externalChange,

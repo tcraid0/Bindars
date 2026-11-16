@@ -293,8 +293,10 @@ test("useEditor reports the in-flight save for the current session until its loc
 
     const saveAs = startSaveAs(rendered);
     assert.equal(rendered.api().saveInFlight(), true, "the Save As dialog holds the lock");
+    assert.equal(rendered.api().choosingSaveLocation, true, "an open dialog is not a running write");
     await act(async () => { dialogs[0].resolve(null); await saveAs; });
     assert.equal(rendered.api().saveInFlight(), false, "a cancelled dialog releases it too");
+    assert.equal(rendered.api().choosingSaveLocation, false);
 
     const abandoned = startSave(rendered);
     flushSync(() => { rendered.api().exitEditMode(); });
@@ -586,7 +588,7 @@ test("clean-editor reconciliation retains newer surface typing when atomic adopt
     assert.equal(rendered.api().buffer, "Newer surface typing");
     assert.equal(rendered.api().dirty, true);
     assert.equal(rendered.api().externalChange, "changed");
-    assert.equal(rendered.api().saveError, "Autosave is paused. The file changed outside Bindars.");
+    assert.equal(rendered.api().saveError, "Autosave is paused. The file changed outside Bindars. Your edits are still open.");
     assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
   } finally {
     rendered.cleanup();
