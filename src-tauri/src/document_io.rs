@@ -1575,6 +1575,34 @@ mod tests {
         cleanup_dir(&root);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saving_keeps_the_creation_time_and_the_next_save_is_not_a_conflict() {
+        let path = temp_path("md");
+        fs::write(&path, "# One").expect("write fixture");
+        let created = fs::metadata(&path).unwrap().created().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let first = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "# Two".to_string(),
+            Some(read_file_revision(&path).expect("read revision")),
+            Some(false),
+        )
+        .expect("first save");
+        assert!(!first.conflict);
+        assert_eq!(fs::metadata(&path).unwrap().created().unwrap(), created);
+        let second = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "# Three".to_string(),
+            Some(first.current_revision),
+            Some(false),
+        )
+        .expect("second save");
+        assert!(!second.conflict);
+        assert_eq!(fs::metadata(&path).unwrap().created().unwrap(), created);
+        cleanup(&path);
+    }
+
     fn temp_path(ext: &str) -> PathBuf {
         canonical_temp_parent(unique_temp_path(ext))
     }

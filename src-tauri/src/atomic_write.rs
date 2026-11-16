@@ -42,7 +42,8 @@ pub(crate) fn preserve_access_metadata(
     #[cfg(target_os = "macos")]
     {
         use std::os::fd::AsRawFd;
-        use std::os::macos::fs::MetadataExt;
+        // Before the ACL, which may deny changing attributes afterwards.
+        copy_creation_time(source, staged);
         // SAFETY: both descriptors are open for the whole call. A null state
         // selects copyfile's defaults; the flag limits the copy to xattrs. The
         // ACL is copied separately because COPYFILE_ACL silently skips entries
@@ -59,37 +60,49 @@ pub(crate) fn preserve_access_metadata(
             return Err(io::Error::last_os_error());
         }
         copy_acl(source.as_raw_fd(), staged.as_raw_fd())?;
-        let metadata = source.metadata()?;
-        let mut creation_time = libc::timespec {
-            tv_sec: metadata.st_birthtime(),
-            tv_nsec: metadata.st_birthtime_nsec(),
-        };
-        let mut attributes = libc::attrlist {
-            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
-            reserved: 0,
-            commonattr: libc::ATTR_CMN_CRTIME,
-            volattr: 0,
-            dirattr: 0,
-            fileattr: 0,
-            forkattr: 0,
-        };
-        // Best effort, unlike the access metadata above: a volume that cannot
-        // store a creation time must not block the save.
-        // SAFETY: the descriptor is live, and the single requested attribute
-        // has a timespec buffer of the size required by fsetattrlist.
-        let _ = unsafe {
-            libc::fsetattrlist(
-                staged.as_raw_fd(),
-                (&mut attributes as *mut libc::attrlist).cast(),
-                (&mut creation_time as *mut libc::timespec).cast(),
-                std::mem::size_of::<libc::timespec>(),
-                0,
-            )
-        };
     }
     #[cfg(not(target_os = "macos"))]
     let _ = source;
     Ok(())
+}
+
+/// Gives `staged` the creation time of `source`. Best effort, unlike the
+/// access metadata: a creation date is cosmetic, so a volume that reports none
+/// or cannot store one must not block the save.
+#[cfg(target_os = "macos")]
+fn copy_creation_time(source: &fs::File, staged: &fs::File) {
+    use std::os::fd::AsRawFd;
+    use std::os::macos::fs::MetadataExt;
+    let Ok(metadata) = source.metadata() else {
+        return;
+    };
+    if metadata.st_birthtime() == 0 {
+        return;
+    }
+    let mut creation_time = libc::timespec {
+        tv_sec: metadata.st_birthtime(),
+        tv_nsec: metadata.st_birthtime_nsec(),
+    };
+    let mut attributes = libc::attrlist {
+        bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: libc::ATTR_CMN_CRTIME,
+        volattr: 0,
+        dirattr: 0,
+        fileattr: 0,
+        forkattr: 0,
+    };
+    // SAFETY: the descriptor is live, and the single requested attribute has a
+    // timespec buffer of the size required by fsetattrlist.
+    let _ = unsafe {
+        libc::fsetattrlist(
+            staged.as_raw_fd(),
+            (&mut attributes as *mut libc::attrlist).cast(),
+            (&mut creation_time as *mut libc::timespec).cast(),
+            std::mem::size_of::<libc::timespec>(),
+            0,
+        )
+    };
 }
 
 // sys/acl.h; libc 0.2 has no bindings for these.
