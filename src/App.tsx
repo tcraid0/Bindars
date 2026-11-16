@@ -722,6 +722,9 @@ function App() {
     onAutosave: performAutosave,
   });
   let saveWarning = autosaveIssue?.message ?? null;
+  // The Save dialog holds the save lock without writing, and Make a copy runs
+  // from Read, where the header has no save label.
+  const showSaveProgress = editing && editor.saving && !editor.choosingSaveLocation;
   if (editor.externalChange) {
     saveWarning = AUTOSAVE_OUTSIDE_CHANGE_WARNING;
   }
@@ -1633,7 +1636,7 @@ function App() {
   const tellQuitWaitsOnSave = useCallback((): boolean => {
     const waiting = pendingActionRef.current?.action.kind;
     if (!editor.saveInFlight() || (waiting !== "quit-app" && waiting !== "close-window")) return false;
-    toast("Bindars is still saving this document. It will continue when the save finishes.", "error");
+    toast("Bindars is waiting for this document to finish saving.", "info");
     return true;
   }, [editor.saveInFlight, toast]);
 
@@ -3383,7 +3386,7 @@ function App() {
           onGoHome={guardedGoHome}
           atHome={!documentOpen && !launchOpening}
           isEditing={editing}
-          isSaving={editor.saving && !editor.choosingSaveLocation}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           saveChoosesLocation={!filePath || currentFileIsDraft}
@@ -3691,7 +3694,7 @@ function App() {
       {focusMode && (
         <FocusBar
           fileName={fileName}
-          isSaving={editor.saving && !editor.choosingSaveLocation}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           isSavedFlash={savedFlash}

@@ -112,7 +112,7 @@ function HeaderComponent({
   const { toast } = useToast();
   const isMac = detectShortcutPlatform() === "macos";
   const revealLabel = revealDocumentLabel();
-  const hasSaveFeedback = Boolean(isSaving || saveWarning || isDraft || isDirty || isSavedFlash);
+  const hasSaveFeedback = Boolean(saveWarning || isDraft || isDirty || isSavedFlash);
   const [exportOpen, setExportOpen] = useState(false);
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
   const exportPanelRef = useRef<HTMLDivElement>(null);

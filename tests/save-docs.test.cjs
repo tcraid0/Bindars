@@ -14,7 +14,7 @@ test("saving guide uses the actual earlier-drafts button label", () => {
 test("usage distinguishes ordinary Save from choosing a location", () => {
   assert.doesNotMatch(usage, /guarded Save\/Save As/);
   assert.match(usage, /Save updates an ordinary open file at its current location/);
-  assert.match(usage, /dialog is used for drafts, Make a copy, and errors that offer Save As/);
+  assert.match(usage, /dialog is used for new documents and drafts, Make a copy, and errors that offer Save As/);
 });
 
 for (const [behavior, description] of [
