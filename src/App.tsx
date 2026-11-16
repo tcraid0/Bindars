@@ -662,6 +662,8 @@ function App() {
   const saveCurrentEdits = useCallback(async (
     options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveOutcome> => {
+    // Draft adoption can finish before the next render updates this callback.
+    const filePath = editingFilePathRef.current;
     const result = filePath && !options.saveAs
       ? await editor.save(filePath, {
         force: options.forceOverwrite ?? false,
@@ -688,7 +690,7 @@ function App() {
     }
 
     return result;
-  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
+  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });

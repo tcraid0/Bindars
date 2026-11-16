@@ -8700,3 +8700,35 @@ for (const event of ["bindars://quit-requested", "tauri://close-requested"]) {
     } finally { write.resolve({ conflict: true }); await rendered.cleanup(); }
   });
 }
+
+test("autosave in the draft adoption gap uses the published draft path", async (context) => {
+  const creation = deferred();
+  const rendered = await renderEditorApp({ createDraft: () => creation.promise });
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  try {
+    const initial = "# New draft\n\nFirst words.";
+    updateEditor(rendered.host, initial);
+    await act(async () => context.mock.timers.tick(200));
+    await act(async () => context.mock.timers.tick(2500));
+    assert.equal(rendered.draftCreates.length, 1);
+    const newer = `${initial}\nTyped while the draft write waits.`;
+    updateEditor(rendered.host, newer);
+    await act(async () => context.mock.timers.tick(200));
+
+    // Settle the write without a React render, then fire the existing timer.
+    creation.resolve(successfulDraftWrite(initial));
+    for (let index = 0; index < 200; index += 1) await Promise.resolve();
+    context.mock.timers.tick(2500);
+    for (let index = 0; index < 200; index += 1) await Promise.resolve();
+    await act(async () => {});
+    assert.equal(rendered.draftCreates.length, 1, "only one draft may be created");
+    assert.equal(rendered.fileWrites.length, 1);
+    assert.equal(rendered.fileWrites[0].path, DRAFT_PATH);
+    assert.equal(rendered.fileWrites[0].content, newer);
+    assert.deepEqual(rendered.fileWrites[0].expectedRevision, successfulDraftWrite(initial).currentRevision);
+  } finally {
+    creation.resolve(successfulDraftWrite(""));
+    context.mock.timers.reset();
+    await rendered.cleanup();
+  }
+});
