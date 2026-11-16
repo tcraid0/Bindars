@@ -2019,8 +2019,8 @@ body[data-printing] .print-hide {
   }
 
   /* ── Inline code ── */
+  /* Keeps the reader's code font, so inline code matches code blocks on paper. */
   .markdown-body code:not(pre code) {
-    font-family: "Courier New", monospace !important;
     font-size: 0.9em !important;
     background: transparent !important;
     padding: 0 !important;
