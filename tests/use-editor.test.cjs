@@ -147,6 +147,7 @@ function mockPendingSaveAsTransactions() {
   const dialogs = [];
   const writes = [];
   mockIPC((cmd, args) => {
+    if (cmd === "check_copy_destination") return args.path;
     const operation = deferred();
     if (cmd === "plugin:dialog|save") {
       dialogs.push({ cmd, args, ...operation });
@@ -1711,3 +1712,45 @@ test("outside-change warning leads with the autosave pause and preserves local t
     assert.equal(rendered.api().buffer, "local words");
   } finally { rendered.cleanup(); }
 });
+
+for (const selectedPath of ["/tmp/annotated.md", "/tmp/current.md", "/tmp/current-alias.md"]) {
+  test(`Save As protects stored annotations while allowing the current file (${selectedPath})`, async () => {
+    await installDom();
+    const checks = [];
+    const writes = [];
+    mockIPC((command, args) => {
+      if (command === "plugin:dialog|save") return selectedPath;
+      if (command === "check_copy_destination") {
+        checks.push(args);
+        if (args.path === "/tmp/annotated.md") throw { category: "invalidInput", operation: "inspectWriteTarget",
+          message: "This name already has saved highlights, notes, or bookmarks. Choose a different name.", detail: "saved annotations" };
+        assert.equal(args.currentPath, "/tmp/current.md");
+        return "/tmp/current.md";
+      }
+      if (command === "write_markdown_file_if_unmodified") {
+        writes.push(args);
+        return successfulWrite(originalRevision, "/tmp/current.md");
+      }
+      throw new Error(`Unexpected IPC command: ${command}`);
+    });
+    const rendered = renderUseEditor();
+    try {
+      enterEditMode(rendered, "original");
+      updateBuffer(rendered, "local words");
+      let result;
+      await act(async () => { result = await rendered.api().saveAs("Current.md", "/tmp/current.md"); });
+      if (selectedPath === "/tmp/annotated.md") {
+        assert.equal(result.status, "error");
+        assert.equal(writes.length, 0);
+        assert.equal(rendered.api().buffer, "local words");
+        assert.equal(rendered.api().dirty, true);
+        assert.equal(rendered.api().saveErrorRecovery, "save-as");
+        assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
+      } else {
+        assert.equal(result.status, "saved");
+        assert.equal(writes[0].path, "/tmp/current.md");
+      }
+      assert.equal(checks.length, selectedPath === "/tmp/current.md" ? 0 : 1);
+    } finally { rendered.cleanup(); }
+  });
+}

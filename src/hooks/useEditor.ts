@@ -496,8 +496,9 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
       });
 
-      if (!syncCurrentSession(editSession)) return { status: "stale" };
+      if (editSessionRef.current !== editSession) return { status: "stale" };
       if (!selectedPath) {
+        if (!syncCurrentSession(editSession)) return { status: "stale" };
         setState((prev) => ({
           ...prev,
           saving: false,
@@ -509,6 +510,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
 
       const normalizedPath = normalizeDocumentSavePath(selectedPath, options?.extension);
       if (normalizedPath.status === "error") {
+        if (!syncCurrentSession(editSession)) return { status: "stale" };
         setState((prev) => ({
           ...prev,
           saving: false,
@@ -518,10 +520,13 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         return { status: "error", ...(options?.copy ? { message: normalizedPath.message } : {}) };
       }
 
-      if (options?.copy) {
-        normalizedPath.path = await invoke<string>("check_copy_destination", { path: normalizedPath.path });
-        if (!syncCurrentSession(editSession)) return { status: "stale" };
+      if (options?.copy || normalizedPath.path !== currentPath) {
+        normalizedPath.path = await invoke<string>("check_copy_destination", {
+          path: normalizedPath.path,
+          currentPath: options?.copy ? null : currentPath,
+        });
       }
+      if (!syncCurrentSession(editSession)) return { status: "stale" };
       const currentBuffer = bufferRef.current;
       if (currentBuffer === null) return { status: "stale" };
 

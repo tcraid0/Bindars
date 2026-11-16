@@ -295,6 +295,8 @@ async function renderEditorApp({
         draftDeletes.push(args);
         operationLog.push("delete");
         return deleteDraft(args);
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save":
         saveDialogs.push(args);
         return saveDialog();
@@ -1569,6 +1571,8 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
         return null;
       case "create_draft_document":
         throw new Error("Draft creation unavailable for this manual guard test");
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save":
         return "/tmp/Saved before New.md";
       case "write_markdown_file_if_unmodified": {
@@ -1825,6 +1829,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "set_setting":
       case "plugin:window|set_title":
         return null;
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save": {
         const operation = deferred();
         dialogs.push(operation);

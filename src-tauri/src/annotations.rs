@@ -2,7 +2,9 @@
 //! an atomic file replacement, and the settings cache is seeded only here, after
 //! migration has preserved the legacy bytes.
 use crate::atomic_write::write_contents_atomic_private;
-use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
+use crate::file_errors::{
+    run_blocking_file_io, NativeFileError, NativeFileErrorCategory, NativeFileOperation,
+};
 use crate::settings::Settings;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
@@ -543,18 +545,26 @@ pub(crate) async fn reconnect_annotations(
 pub(crate) async fn check_copy_destination(
     app: tauri::AppHandle,
     path: String,
+    current_path: Option<String>,
 ) -> Result<String, NativeFileError> {
     // Destination failures belong to the file operation, not annotation storage.
     let path = run_blocking_file_io(move || {
-        crate::document_io::resolve_markdown_write_name(Path::new(&path))
+        // Existing destinations may be selected through a file or folder alias.
+        match crate::document_io::canonicalize_markdown_path(Path::new(&path)) {
+            Ok(path) => Ok(path),
+            Err(error) if error.category == NativeFileErrorCategory::NotFound => {
+                crate::document_io::resolve_markdown_write_name(Path::new(&path))
+            }
+            Err(error) => Err(error),
+        }
     })
     .await?
     .to_string_lossy()
     .into_owned();
-    if annotated_paths(app).await?.contains(&path) {
+    if current_path.as_deref() != Some(&path) && annotated_paths(app).await?.contains(&path) {
         return Err(NativeFileError::invalid(
-            NativeFileOperation::ValidateDocument,
-            "This name already has saved highlights, notes, or bookmarks. Choose a different name for the copy.",
+            NativeFileOperation::InspectWriteTarget,
+            "This name already has saved highlights, notes, or bookmarks. Choose a different name.",
         ));
     }
     Ok(path)
