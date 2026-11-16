@@ -168,6 +168,11 @@ extern "C" fn handle_macos_power_message(
                     "Failed to acknowledge a macOS sleep notification: IOKit status {result}"
                 );
             }
+            if message_type == IO_MESSAGE_SYSTEM_WILL_SLEEP {
+                if let Err(error) = context.app.emit("bindars://app-sleeping", ()) {
+                    log::warn!("Failed to notify the frontend of macOS sleep: {error}");
+                }
+            }
         }
         MacPowerMessageAction::NotifyWake => notify_app_resumed(&context.app),
         MacPowerMessageAction::Ignore => {}

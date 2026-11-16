@@ -8613,3 +8613,50 @@ for (const [content, shown, hidden] of [
     } finally { await rendered.cleanup(); }
   });
 }
+
+for (const event of ["tauri://blur", "bindars://app-sleeping"]) {
+  test(`${event} flushes dirty text once and leaves a clean draft alone`, async () => {
+    const rendered = await renderEditorApp();
+    try {
+      updateEditor(rendered.host, "Words before switching away");
+      await act(async () => emit(event));
+      await waitFor(() => assert.equal(rendered.draftCreates.length, 1));
+      assert.equal(rendered.draftCreates[0].content, "Words before switching away");
+      await act(async () => emit(event));
+      assert.equal(rendered.draftCreates.length, 1);
+      assert.equal(rendered.fileWrites.length, 0);
+      assert.equal(rendered.saveDialogs.length, 0);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("blur during the native Save dialog cannot create a competing draft", async () => {
+  const dialog = deferred();
+  const rendered = await renderEditorApp({ saveDialog: () => dialog.promise });
+  try {
+    updateEditor(rendered.host, "Words for the chosen location");
+    dispatchShortcut("s");
+    await waitFor(() => assert.equal(rendered.saveDialogs.length, 1));
+    await act(async () => emit("tauri://blur"));
+    assert.equal(rendered.draftCreates.length, 0);
+    assert.equal(rendered.fileWrites.length, 0);
+    await act(async () => dialog.resolve("/tmp/chosen.md"));
+    await waitFor(() => assert.equal(rendered.fileWrites.length, 1));
+    assert.equal(rendered.fileWrites[0].content, "Words for the chosen location");
+    assert.equal(rendered.draftCreates.length, 0);
+  } finally { dialog.resolve(null); await rendered.cleanup(); }
+});
+
+test("blur flushes an ordinary dirty document and skips it after saving", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Ordinary document before switching away");
+    await act(async () => emit("tauri://blur"));
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 1));
+    assert.equal(rendered.fileWrites()[0].content, "Ordinary document before switching away");
+    await act(async () => emit("tauri://blur"));
+    assert.equal(rendered.fileWrites().length, 1);
+  } finally { await rendered.cleanup(); }
+});

@@ -2213,6 +2213,13 @@ function App() {
   });
 
   useReconciliationLifecycle({
+    onBlur: () => {
+      // Native dialogs and departures retain ownership of their pending save.
+      if (!editingRef.current || manualSaveRef.current || showConfirmDialogRef.current
+        || showConflictDialogRef.current || actionAdmissionOwnerRef.current !== null
+        || isPrintInvoked()) return;
+      void flushAutosave();
+    },
     onSignal: (signal) => {
       workspaceIndex.reconcile();
       fileWatcher.retry();
