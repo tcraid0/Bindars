@@ -4,6 +4,7 @@ import { save as showSaveDialog } from "@tauri-apps/plugin-dialog";
 import {
   actionableSaveError,
   AUTOSAVE_OUTSIDE_CHANGE_WARNING,
+  isAnnotatedDestinationRefusal,
   normalizeDocumentSavePath,
   saveErrorBlocksCurrentPath,
   successfulSaveOutcome,
@@ -533,10 +534,18 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
       }
 
       if (options?.copy || normalizedPath.path !== currentPath) {
-        normalizedPath.path = await invoke<string>("check_copy_destination", {
-          path: normalizedPath.path,
-          currentPath: options?.copy ? null : currentPath,
-        });
+        try {
+          normalizedPath.path = await invoke<string>("check_copy_destination", {
+            path: normalizedPath.path,
+            currentPath: options?.copy ? null : currentPath,
+          });
+        } catch (error) {
+          // An ordinary Save As is refused only for a destination with saved
+          // annotations. Any other failure of this check, such as unreadable
+          // annotation storage, must not stand between the text and a file;
+          // the write below reports its own errors.
+          if (options?.copy || isAnnotatedDestinationRefusal(error)) throw error;
+        }
       }
       if (!syncCurrentSession(editSession)) return { status: "stale" };
       const currentBuffer = bufferRef.current;

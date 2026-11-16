@@ -1715,6 +1715,34 @@ test("outside-change warning leads with the autosave pause and preserves local t
   } finally { rendered.cleanup(); }
 });
 
+test("Save As still writes when the destination check itself fails", async () => {
+  await installDom();
+  const writes = [];
+  mockIPC((command, args) => {
+    if (command === "plugin:dialog|save") return "/tmp/elsewhere.md";
+    if (command === "check_copy_destination") {
+      throw { category: "unknown", operation: "accessAnnotations",
+        message: "Couldn't open your saved highlights and notes.", detail: "damaged storage" };
+    }
+    if (command === "write_markdown_file_if_unmodified") {
+      writes.push(args);
+      return successfulWrite({ mtimeMs: 2, size: 11, contentHash: "saved" }, "/tmp/elsewhere.md");
+    }
+    throw new Error(`Unexpected IPC command: ${command}`);
+  });
+  const rendered = renderUseEditor();
+  try {
+    enterEditMode(rendered, "");
+    updateBuffer(rendered, "local words");
+    let result;
+    await act(async () => { result = await rendered.api().saveAs("Untitled.md", null); });
+    assert.equal(result.status, "saved");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].path, "/tmp/elsewhere.md");
+    assert.equal(writes[0].content, "local words");
+  } finally { rendered.cleanup(); }
+});
+
 for (const selectedPath of ["/tmp/annotated.md", "/tmp/current.md", "/tmp/current-alias.md"]) {
   test(`Save As protects stored annotations while allowing the current file (${selectedPath})`, async () => {
     await installDom();

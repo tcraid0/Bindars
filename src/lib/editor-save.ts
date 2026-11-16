@@ -125,6 +125,12 @@ export function normalizeDocumentSavePath(selectedPath: string, defaultExtension
   };
 }
 
+/** The destination check's refusal of a name that still has saved annotations. */
+export function isAnnotatedDestinationRefusal(error: unknown): boolean {
+  const native = normalizeFileError(error, "").native;
+  return native?.category === "invalidInput" && native.operation === "inspectWriteTarget";
+}
+
 export type SaveErrorRecovery = "save-as" | null;
 
 export interface SaveErrorDescription {
