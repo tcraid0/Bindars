@@ -1630,9 +1630,12 @@ function App() {
   const requestGuardedQuit = useCallback(() => {
     const admission = guardActionRef.current({ kind: "quit-app" });
     if (admission === "busy") {
-      toast("Bindars is finishing another file action. Try quitting again in a moment.", "error");
+      toast(editor.saveInFlight()
+        && (pendingActionRef.current?.action.kind === "quit-app" || pendingActionRef.current?.action.kind === "close-window")
+        ? "Bindars is still saving this document. It will quit when the save finishes."
+        : "Bindars is finishing another file action. Try quitting again in a moment.", "error");
     }
-  }, [toast]);
+  }, [editor.saveInFlight, toast]);
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
@@ -1673,6 +1676,10 @@ function App() {
           // An admitted action owns the guard. Repeated native close requests
           // must not bypass its pending save or annotation decision.
           event.preventDefault();
+          if (editor.saveInFlight()
+            && (pendingActionRef.current?.action.kind === "quit-app" || pendingActionRef.current?.action.kind === "close-window")) {
+            toast("Bindars is still saving this document. It will quit when the save finishes.", "error");
+          }
           return;
         case "prevent-and-guard":
           // The request never destroys the window directly on any platform.
@@ -1707,7 +1714,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [pendingAnnotationRecords, getAnnotationMutationVersion]);
+  }, [pendingAnnotationRecords, getAnnotationMutationVersion, editor.saveInFlight, toast]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -3372,6 +3379,7 @@ function App() {
           onGoHome={guardedGoHome}
           atHome={!documentOpen && !launchOpening}
           isEditing={editing}
+          isSaving={editor.saving}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           saveChoosesLocation={!filePath || currentFileIsDraft}
@@ -3679,6 +3687,7 @@ function App() {
       {focusMode && (
         <FocusBar
           fileName={fileName}
+          isSaving={editor.saving}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           isSavedFlash={savedFlash}

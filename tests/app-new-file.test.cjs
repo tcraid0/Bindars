@@ -8660,3 +8660,43 @@ test("blur flushes an ordinary dirty document and skips it after saving", async 
     assert.equal(rendered.fileWrites().length, 1);
   } finally { await rendered.cleanup(); }
 });
+
+test("Quit during a New action's pending save retains the other-action message", async () => {
+  const rendered = await renderContinuityApp();
+  const write = deferred();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Text saved before New");
+    rendered.deferNextWrite(write);
+    dispatchShortcut("n");
+    await waitFor(() => assert.ok(write.args));
+    await act(async () => emit("bindars://quit-requested"));
+    assert.match(rendered.host.textContent, /Bindars is finishing another file action\. Try quitting again in a moment\./);
+    await act(async () => write.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md",
+      currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "saved" } }));
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    assert.equal(rendered.guardedExitCount(), 0);
+  } finally { write.resolve({ conflict: true }); await rendered.cleanup(); }
+});
+
+for (const event of ["bindars://quit-requested", "tauri://close-requested"]) {
+  test(`repeated ${event} explains that a pending save owns departure`, async () => {
+    const rendered = await renderContinuityApp();
+    const write = deferred();
+    try {
+      dispatchShortcut("e");
+      await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+      updateEditor(rendered.host, "Text held while leaving");
+      rendered.deferNextWrite(write);
+      await act(async () => emit(event));
+      await waitFor(() => assert.ok(write.args));
+      await act(async () => emit(event));
+      assert.match(rendered.host.textContent, /Bindars is still saving this document\. It will quit when the save finishes\./);
+      assert.equal(rendered.fileWrites().length, 1);
+      await act(async () => write.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md",
+        currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "saved" } }));
+      await waitFor(() => assert.equal(event === "bindars://quit-requested" ? rendered.guardedExitCount() : rendered.windowCloseCount(), 1));
+    } finally { write.resolve({ conflict: true }); await rendered.cleanup(); }
+  });
+}

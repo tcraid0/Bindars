@@ -157,3 +157,33 @@ for (const [name, Component] of [["Header", Header], ["FocusBar", FocusBar]]) {
   }
  });
 }
+
+for (const [name, Component] of [["SaveWhisper", SaveWhisper], ["Header", Header], ["FocusBar", FocusBar]]) {
+  test(`${name} delays save feedback, warns at thirty seconds, and clears on completion`, async (context) => {
+    await installDom();
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const props = { saving: true, isSaving: true, dirty: true, isDirty: true,
+      saved: false, isSavedFlash: false, warning: null, saveWarning: null,
+      isEditing: true, fileName: "draft.md", filePath: "/tmp/draft.md",
+      progressTextRef: React.createRef(), onExit() {} };
+    const rendered = renderComponent(Component, props);
+    try {
+      assert.doesNotMatch(rendered.host.textContent, /Saving…|Still saving/);
+      flushSync(() => context.mock.timers.tick(1999));
+      assert.doesNotMatch(rendered.host.textContent, /Saving…|Still saving/);
+      flushSync(() => context.mock.timers.tick(1));
+      assert.equal(rendered.host.querySelector('[aria-label="Saving…"]').textContent, "Saving…");
+      flushSync(() => context.mock.timers.tick(28000));
+      const warning = rendered.host.querySelector('[role="status"]');
+      assert.equal(warning.textContent, "Still saving. Your text is safe in this window.");
+      assert.equal(warning.title, warning.textContent);
+      rendered.rerender({ ...props, saving: false, isSaving: false, dirty: false, isDirty: false, saved: true, isSavedFlash: true });
+      assert.ok(rendered.host.querySelector('[aria-label="Saved"]'));
+      rendered.rerender(props);
+      flushSync(() => context.mock.timers.tick(100));
+      rendered.rerender({ ...props, saving: false, isSaving: false });
+      flushSync(() => context.mock.timers.tick(30000));
+      assert.doesNotMatch(rendered.host.textContent, /Saving…|Still saving/);
+    } finally { rendered.cleanup(); context.mock.timers.reset(); }
+  });
+}
