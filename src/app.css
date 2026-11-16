@@ -971,6 +971,7 @@ button:active:not(:disabled),
 
 .shortcut-hint {
   margin-left: auto;
+  align-self: center;
 }
 
 .shortcut-key {
