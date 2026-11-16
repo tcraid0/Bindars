@@ -5,6 +5,8 @@ import {
   OPENABLE_FILE_TYPES_DESCRIPTION,
 } from "./openable-files";
 
+export const AUTOSAVE_OUTSIDE_CHANGE_WARNING = "Autosave is paused. The file changed outside Bindars.";
+
 export type EditorSaveResult =
   | "saved"
   | "saved-with-newer-edits"

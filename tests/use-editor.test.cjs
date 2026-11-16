@@ -585,7 +585,7 @@ test("clean-editor reconciliation retains newer surface typing when atomic adopt
     assert.equal(rendered.api().buffer, "Newer surface typing");
     assert.equal(rendered.api().dirty, true);
     assert.equal(rendered.api().externalChange, "changed");
-    assert.equal(rendered.api().saveError, "The file changed outside Bindars. Your current draft is preserved and autosave is paused.");
+    assert.equal(rendered.api().saveError, "Autosave is paused. The file changed outside Bindars.");
     assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
   } finally {
     rendered.cleanup();
@@ -1698,3 +1698,16 @@ for (const scenario of ['created', 'notes-exist', 'cancelled']) {
     } finally { rendered.cleanup(); }
   });
 }
+
+test("outside-change warning leads with the autosave pause and preserves local text", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+  try {
+    enterEditMode(rendered, "original");
+    updateBuffer(rendered, "local words");
+    const { sessionId } = rendered.api().getReconciliationState();
+    flushSync(() => rendered.api().protectFromExternalChange(sessionId, "changed"));
+    assert.match(rendered.api().saveError, /^Autosave is paused/);
+    assert.equal(rendered.api().buffer, "local words");
+  } finally { rendered.cleanup(); }
+});

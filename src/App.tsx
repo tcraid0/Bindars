@@ -77,7 +77,7 @@ import { usePersistedVisibility } from "./hooks/usePersistedVisibility";
 import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constants";
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
-import { adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
+import { AUTOSAVE_OUTSIDE_CHANGE_WARNING, adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveOutcome, EditorSaveResult, SavedFileSnapshot } from "./lib/editor-save";
 import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
@@ -721,7 +721,7 @@ function App() {
   });
   let saveWarning = autosaveIssue?.message ?? null;
   if (editor.externalChange) {
-    saveWarning = "Autosave is paused because the file changed outside Bindars.";
+    saveWarning = AUTOSAVE_OUTSIDE_CHANGE_WARNING;
   }
 
   const getReconciliationSnapshot = useCallback((): ReconciliationSnapshot | null => {

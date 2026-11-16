@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save as showSaveDialog } from "@tauri-apps/plugin-dialog";
 import {
   actionableSaveError,
+  AUTOSAVE_OUTSIDE_CHANGE_WARNING,
   normalizeDocumentSavePath,
   saveErrorBlocksCurrentPath,
   successfulSaveOutcome,
@@ -62,10 +63,6 @@ export type AdoptExternalDocument = (
   capturedDocument: string,
   externalDocument: string,
 ) => boolean;
-
-function externalChangeMessage(): string {
-  return "The file changed outside Bindars. Your current draft is preserved and autosave is paused.";
-}
 
 export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
   const [state, setState] = useState<EditorState>({
@@ -211,7 +208,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
           ...prev,
           dirty: true,
           externalChange: "changed",
-          saveError: prev.saveError ?? externalChangeMessage(),
+          saveError: prev.saveError ?? AUTOSAVE_OUTSIDE_CHANGE_WARNING,
         }));
       }
       return false;
@@ -242,7 +239,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
       ...prev,
       dirty: true,
       externalChange: change,
-      saveError: prev.saveError ?? externalChangeMessage(),
+      saveError: prev.saveError ?? AUTOSAVE_OUTSIDE_CHANGE_WARNING,
     }));
     return true;
   }, []);
