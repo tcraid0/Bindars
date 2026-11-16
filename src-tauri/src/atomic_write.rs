@@ -31,7 +31,7 @@ pub(crate) fn write_contents_atomic(
 /// Preserved everywhere: the mode bits. Preserved on macOS: the whole ACL,
 /// inherited entries included (and its absence), and every extended attribute
 /// (Finder tags and comments, quarantine, resource fork, custom attributes),
-/// plus the creation time. Not preserved: owner and group, BSD flags such as
+/// plus the creation time where the volume can store one. Not preserved: owner and group, BSD flags such as
 /// locked or hidden, hard links, and other timestamps.
 pub(crate) fn preserve_access_metadata(
     source: &fs::File,
@@ -73,9 +73,11 @@ pub(crate) fn preserve_access_metadata(
             fileattr: 0,
             forkattr: 0,
         };
+        // Best effort, unlike the access metadata above: a volume that cannot
+        // store a creation time must not block the save.
         // SAFETY: the descriptor is live, and the single requested attribute
         // has a timespec buffer of the size required by fsetattrlist.
-        let result = unsafe {
+        let _ = unsafe {
             libc::fsetattrlist(
                 staged.as_raw_fd(),
                 (&mut attributes as *mut libc::attrlist).cast(),
@@ -84,9 +86,6 @@ pub(crate) fn preserve_access_metadata(
                 0,
             )
         };
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
     }
     #[cfg(not(target_os = "macos"))]
     let _ = source;
