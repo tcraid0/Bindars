@@ -359,6 +359,30 @@ test("Home and documents move both ways through Back and Forward", async t => {
   assert.equal(toolbar(app, "Go forward").disabled, true);
 });
 
+test("another document is shown from its top, while a remembered place still wins", async t => {
+  const app = await mount(t, { recentFiles: [{ path: "/fixture/R.md", name: "R.md", openedAt: 2, lastHeadingId: "second" }] });
+  const main = () => app.host().querySelector("main");
+  main().scrollTop = 600;
+  await app.open("/fixture/B.md");
+  assert.equal(main().scrollTop, 0, "a document with no remembered place starts at its top");
+  main().scrollTop = 600;
+  click(app.home());
+  await arriveAt(app, "Home");
+  assert.equal(main().scrollTop, 0, "so does Home");
+
+  // Stand in for the real move to the remembered heading; the reset must come before it.
+  const recordScroll = window.HTMLElement.prototype.scrollIntoView;
+  window.HTMLElement.prototype.scrollIntoView = function scrollIntoView(...args) {
+    recordScroll.apply(this, args);
+    if (this.id === "second") main().scrollTop = 900;
+  };
+  main().scrollTop = 600;
+  click(app.host().querySelector('.empty-state [aria-label^="Open R.md"]'));
+  await arriveAt(app, "R.md");
+  assert.ok(app.scrolled.includes("second"));
+  assert.equal(main().scrollTop, 900);
+});
+
 test("Home → New → Home records nothing, and leaving an untitled document records Home", async t => {
   const app = await mount(t);
   click(app.home());

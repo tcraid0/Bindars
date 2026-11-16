@@ -7802,6 +7802,36 @@ test("menu New, Open, Save and Make a Copy use the existing document operations"
   } finally { await view.cleanup(); }
 });
 
+test("saving a new document in Edit keeps the editor where it is", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    await menuAction("new");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "# Kept in place");
+    await waitForEditorPublication();
+    const main = rendered.host.querySelector("main");
+    main.scrollTop = 300;
+    rendered.setSaveDialogPath("/tmp/kept.md");
+    await menuAction("save");
+    await waitFor(() => assert.match(rendered.host.querySelector(".document-header-filename").textContent, /kept\.md/));
+    assert.ok(rendered.host.querySelector(".cm-editor"));
+    assert.equal(main.scrollTop, 300, "the adopted path is the same document");
+  } finally { await rendered.cleanup(); }
+});
+
+test("reloading the same file after an outside change keeps the reader where it is", async () => {
+  const rendered = await renderContinuityApp({ initialContent: "Plain words without a heading.", readySelector: "article" });
+  try {
+    await waitFor(() => assert.ok(rendered.operationLog().includes("watch")));
+    const main = rendered.host.querySelector("main");
+    main.scrollTop = 400;
+    rendered.setDiskContent("Plain words without a heading, changed outside.");
+    await act(async () => { await emit("file-changed", { path: "/tmp/continuity.md" }); });
+    await waitFor(() => assert.match(rendered.host.querySelector("article").textContent, /changed outside/));
+    assert.equal(main.scrollTop, 400);
+  } finally { await rendered.cleanup(); }
+});
+
 for (const boundary of ["dialog", "transition", "print"]) {
   test(`menu document actions are blocked during a held ${boundary}`, async t => {
     const view = boundary === "print" ? await renderNativePrintApp(t) : await renderContinuityApp();

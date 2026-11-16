@@ -1880,12 +1880,16 @@ function App() {
     return formatReadingStatsSummary(readingStats);
   }, [fileType, readingStats, scriptStats]);
 
-  // Clear focused character when file changes
+  // When the file changes, clear the focused character and show the new
+  // document from its top. A remembered place is applied after this, by the
+  // pending reader target below, in the same frame. Edit keeps its position:
+  // a path adopted there (Save As, a new draft) is still the same document.
   const prevFilePathRef = useRef(filePath);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (filePath !== prevFilePathRef.current) {
       prevFilePathRef.current = filePath;
       setFocusedCharacter(null);
+      if (!editing && mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
     }
   }, [filePath]);
 
