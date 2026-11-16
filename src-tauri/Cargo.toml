@@ -43,6 +43,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSPrintInfo", "NSPrintOperation", "NSWindow", "NSView"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKWebView", "objc2-app-kit"] }
 dispatch2 = "0.3"
+tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["native-tls"] }
 
 [dev-dependencies]
 tauri = { version = "~2.12.5", features = ["test"] }

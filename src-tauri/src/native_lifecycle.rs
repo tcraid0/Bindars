@@ -495,6 +495,15 @@ pub(crate) fn default_menu_with_guarded_quit(
         MenuItem::with_id(app, QUIT_MENU_ITEM_ID, quit_text, true, Some("CmdOrCtrl+Q"))?;
     app_submenu.append(&quit_item)?;
 
+    let check_updates_item = MenuItem::with_id(
+        app,
+        "check-for-updates",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
+    app_submenu.insert(&check_updates_item, 1)?;
+
     menu.remove(&app_submenu)?;
     let action = |id, text| MenuItem::with_id(app, id, text, true, None::<&str>);
     let menu = Menu::with_items(
@@ -604,7 +613,8 @@ pub(crate) fn default_menu_with_guarded_quit(
 fn menu_action(id: &str) -> Option<&str> {
     match id {
         "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
-        | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" => Some(id),
+        | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar"
+        | "check-for-updates" => Some(id),
         _ => None,
     }
 }
@@ -678,6 +688,7 @@ mod tests {
             "find-previous",
             "show-shortcuts",
             "toggle-sidebar",
+            "check-for-updates",
         ] {
             assert_eq!(super::menu_action(action), Some(action));
         }
