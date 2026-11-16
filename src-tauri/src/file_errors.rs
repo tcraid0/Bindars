@@ -9,6 +9,7 @@ pub(crate) enum NativeFileErrorCategory {
     AlreadyExists,
     PermissionDenied,
     ReadOnly,
+    StorageFull,
     ResourceUnavailable,
     InvalidInput,
     IncompleteWrite,
@@ -176,6 +177,9 @@ impl NativeFileError {
             std::io::ErrorKind::AlreadyExists => NativeFileErrorCategory::AlreadyExists,
             std::io::ErrorKind::PermissionDenied => NativeFileErrorCategory::PermissionDenied,
             std::io::ErrorKind::ReadOnlyFilesystem => NativeFileErrorCategory::ReadOnly,
+            std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded => {
+                NativeFileErrorCategory::StorageFull
+            }
             std::io::ErrorKind::TimedOut => NativeFileErrorCategory::ResourceUnavailable,
             _ => NativeFileErrorCategory::Unknown,
         };
@@ -198,6 +202,9 @@ impl NativeFileError {
                     "The destination is read-only, so Bindars could not {}.",
                     operation.description()
                 )
+            }
+            (NativeFileErrorCategory::StorageFull, _) => {
+                "There is not enough free space to save this file.".to_string()
             }
             (NativeFileErrorCategory::ResourceUnavailable, _) => {
                 format!(
@@ -246,6 +253,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_storage_and_quota_errors_share_an_actionable_category() {
+        for kind in [
+            std::io::ErrorKind::StorageFull,
+            std::io::ErrorKind::QuotaExceeded,
+        ] {
+            let error = NativeFileError::from_io(
+                NativeFileOperation::WriteTemporaryFile,
+                Path::new("/tmp/full.md"),
+                std::io::Error::from(kind),
+            );
+            assert_eq!(
+                serde_json::to_value(&error).unwrap()["category"],
+                "storageFull"
+            );
+            assert_eq!(
+                error.message,
+                "There is not enough free space to save this file."
+            );
+        }
+    }
 
     #[test]
     fn native_io_error_categories_are_conservative() {

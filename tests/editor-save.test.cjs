@@ -199,3 +199,10 @@ test("unsafe replacement offers Save As and blocks repeated writes", () => {
   assert.equal(saveErrorBlocksCurrentPath(error), true);
   assert.deepEqual(actionableSaveError(error), { message, recovery: "save-as" });
 });
+
+test("a full disk offers Save As with a plain explanation", () => {
+  assert.deepEqual(actionableSaveError({ category: "storageFull", operation: "writeTemporaryFile",
+    message: "There is not enough free space to save this file.", detail: "/private/path: no space" }), {
+    message: "There is not enough free space to save this file.", recovery: "save-as",
+  });
+});

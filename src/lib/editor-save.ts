@@ -141,6 +141,7 @@ export function actionableSaveError(error: unknown): SaveErrorDescription {
     return { message: normalized.message, recovery: "save-as" };
   }
   switch (normalized.native?.category) {
+    case "storageFull":
     case "alreadyExists":
     case "incompleteWrite":
       return { message: normalized.message, recovery: "save-as" };
