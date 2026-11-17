@@ -77,7 +77,7 @@ import { usePersistedVisibility } from "./hooks/usePersistedVisibility";
 import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constants";
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
-import { adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
+import { AUTOSAVE_OUTSIDE_CHANGE_WARNING, adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveOutcome, EditorSaveResult, SavedFileSnapshot } from "./lib/editor-save";
 import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
@@ -662,6 +662,8 @@ function App() {
   const saveCurrentEdits = useCallback(async (
     options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveOutcome> => {
+    // Draft adoption can finish before the next render updates this callback.
+    const filePath = editingFilePathRef.current;
     const result = filePath && !options.saveAs
       ? await editor.save(filePath, {
         force: options.forceOverwrite ?? false,
@@ -688,7 +690,7 @@ function App() {
     }
 
     return result;
-  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
+  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
@@ -720,8 +722,11 @@ function App() {
     onAutosave: performAutosave,
   });
   let saveWarning = autosaveIssue?.message ?? null;
+  // The Save dialog holds the save lock without writing, and Make a copy runs
+  // from Read, where the header has no save label.
+  const showSaveProgress = editing && editor.saving && !editor.choosingSaveLocation;
   if (editor.externalChange) {
-    saveWarning = "Autosave is paused because the file changed outside Bindars.";
+    saveWarning = AUTOSAVE_OUTSIDE_CHANGE_WARNING;
   }
 
   const getReconciliationSnapshot = useCallback((): ReconciliationSnapshot | null => {
@@ -1627,12 +1632,20 @@ function App() {
   // the same admission guard as document actions. The process exits only from
   // the quit-app continuation, after document and annotation decisions resolve;
   // the native side never terminates on its own.
+  // A repeated Quit or Close while the first one waits on a write gets told why.
+  const tellQuitWaitsOnSave = useCallback((): boolean => {
+    const waiting = pendingActionRef.current?.action.kind;
+    if (!editor.saveInFlight() || (waiting !== "quit-app" && waiting !== "close-window")) return false;
+    toast("Bindars is waiting for this document to finish saving.", "info");
+    return true;
+  }, [editor.saveInFlight, toast]);
+
   const requestGuardedQuit = useCallback(() => {
     const admission = guardActionRef.current({ kind: "quit-app" });
-    if (admission === "busy") {
+    if (admission === "busy" && !tellQuitWaitsOnSave()) {
       toast("Bindars is finishing another file action. Try quitting again in a moment.", "error");
     }
-  }, [toast]);
+  }, [tellQuitWaitsOnSave, toast]);
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
@@ -1673,6 +1686,7 @@ function App() {
           // An admitted action owns the guard. Repeated native close requests
           // must not bypass its pending save or annotation decision.
           event.preventDefault();
+          tellQuitWaitsOnSave();
           return;
         case "prevent-and-guard":
           // The request never destroys the window directly on any platform.
@@ -1707,7 +1721,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [pendingAnnotationRecords, getAnnotationMutationVersion]);
+  }, [pendingAnnotationRecords, getAnnotationMutationVersion, tellQuitWaitsOnSave]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -2213,6 +2227,13 @@ function App() {
   });
 
   useReconciliationLifecycle({
+    onBlur: () => {
+      // Native dialogs and departures retain ownership of their pending save.
+      if (!editingRef.current || manualSaveRef.current || showConfirmDialogRef.current
+        || showConflictDialogRef.current || actionAdmissionOwnerRef.current !== null
+        || isPrintInvoked()) return;
+      void flushAutosave();
+    },
     onSignal: (signal) => {
       workspaceIndex.reconcile();
       fileWatcher.retry();
@@ -2744,16 +2765,18 @@ function App() {
         return;
       }
       case "copy-document": {
-        if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        // The departing save publishes the document before this render closure updates.
+        const published = getPublishedDocument();
+        if (editingRef.current || !published.filePath || published.content === null || !published.fileRevision) return;
         const recordLeft = leaveCurrentPlace();
         // Prepare Save As's buffer without mounting an editor or enabling autosave.
         // The admitted action owns the picker; cancellation leaves the reader intact.
-        const sourcePath = filePath;
-        const sourceName = fileName ?? "Untitled.md";
+        const sourcePath = published.filePath;
+        const sourceName = published.fileName ?? "Untitled.md";
         const dot = sourceName.lastIndexOf(".");
         const extension = dot > 0 ? sourceName.slice(dot + 1).toLowerCase() : "md";
         const name = `${dot > 0 ? sourceName.slice(0, dot) : sourceName} copy.${extension}`;
-        editor.enterEditMode(content, fileRevision);
+        editor.enterEditMode(published.content, published.fileRevision);
         let adopted = false;
         try {
           const result = await editor.saveAs(name, sourcePath, { copy: true, extension });
@@ -3365,6 +3388,7 @@ function App() {
           onGoHome={guardedGoHome}
           atHome={!documentOpen && !launchOpening}
           isEditing={editing}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           saveChoosesLocation={!filePath || currentFileIsDraft}
@@ -3672,6 +3696,7 @@ function App() {
       {focusMode && (
         <FocusBar
           fileName={fileName}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           isSavedFlash={savedFlash}

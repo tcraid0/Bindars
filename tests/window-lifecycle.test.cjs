@@ -251,6 +251,8 @@ async function renderLifecycleApp({ platform = "mac", openName = null, content =
       case "watch_file":
       case "unwatch_file":
         return null;
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save":
         return "/tmp/Save As.md";
       case "plugin:dialog|open":

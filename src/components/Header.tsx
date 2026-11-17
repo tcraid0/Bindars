@@ -38,6 +38,7 @@ interface HeaderProps {
   isEditing: boolean;
   isDraft?: boolean;
   saveChoosesLocation?: boolean;
+  isSaving?: boolean;
   isDirty: boolean;
   isSavedFlash: boolean;
   saveWarning: string | null;
@@ -90,6 +91,7 @@ function HeaderComponent({
   isEditing,
   isDraft = false,
   saveChoosesLocation = isDraft,
+  isSaving = false,
   isDirty,
   isSavedFlash,
   saveWarning,
@@ -218,6 +220,7 @@ function HeaderComponent({
               <div className="document-header-detail h-4 flex items-center overflow-hidden text-[11px] text-text-muted whitespace-nowrap" data-tauri-drag-region>
                 <SaveWhisper
                   isDraft={isDraft}
+                  saving={isSaving}
                   dirty={isDirty}
                   saved={isSavedFlash}
                   warning={saveWarning}

@@ -94,6 +94,7 @@ export type NativeFileErrorCategory =
   | "alreadyExists"
   | "permissionDenied"
   | "readOnly"
+  | "storageFull"
   | "resourceUnavailable"
   | "invalidInput"
   | "incompleteWrite"

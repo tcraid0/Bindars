@@ -17,6 +17,11 @@ use crate::workspace::WorkspaceListResult;
 
 const DRAFTS_DIR_NAME: &str = "Bindars Drafts";
 
+#[cfg(test)]
+thread_local! {
+    static BEFORE_DRAFT_UNLINK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn drafts_dir(app: &AppHandle) -> Result<PathBuf, NativeFileError> {
     app.path()
         .document_dir()
@@ -217,6 +222,10 @@ fn delete_draft_in(
         return Err(outside_drafts());
     }
 
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Ok(DraftRetirement::Kept);
+    }
+
     let canonical_saved_path = canonicalize_markdown_path(saved_path)?;
     if canonical_path == canonical_saved_path {
         return Ok(DraftRetirement::NothingToRemove);
@@ -243,8 +252,7 @@ fn delete_draft_in(
     // changed by another program, or a destination that no longer holds the
     // acknowledged text, may be the only copy of that text, so keep the draft.
     // Newer typing in the destination is expected and compared only against
-    // the acknowledged save. A replacement between this read and the unlink is
-    // not detected.
+    // the acknowledged save.
     let (draft_bytes, _) = read_bounded_file(
         &canonical_path,
         &draft_file,
@@ -259,6 +267,29 @@ fn delete_draft_in(
         NativeFileOperation::InspectSavedDocument,
     )?;
     if !saved_revision.matches_contents(&saved_bytes) {
+        return Ok(DraftRetirement::Kept);
+    }
+
+    #[cfg(test)]
+    BEFORE_DRAFT_UNLINK.with(|hook| {
+        if let Some(before_unlink) = hook.borrow_mut().take() {
+            before_unlink();
+        }
+    });
+
+    // Recheck identity without following the final link. This narrows the race;
+    // a replacement after this check and before unlink can still escape it.
+    let current_metadata =
+        cap_std::fs::Dir::open_ambient_dir(&canonical_dir, cap_std::ambient_authority()).and_then(
+            |dir| dir.symlink_metadata(canonical_path.file_name().expect("validated draft name")),
+        );
+    let Ok(current_metadata) = current_metadata else {
+        return Ok(DraftRetirement::Kept);
+    };
+    if current_metadata.file_type().is_symlink()
+        || current_metadata.dev() != draft_metadata.dev()
+        || current_metadata.ino() != draft_metadata.ino()
+    {
         return Ok(DraftRetirement::Kept);
     }
 
@@ -798,6 +829,55 @@ mod tests {
         assert!(!draft.exists());
         cleanup_temp_path(&saved);
         cleanup(&dir);
+    }
+
+    #[test]
+    fn delete_keeps_a_draft_replaced_after_its_bytes_were_checked() {
+        let dir = temp_drafts_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let draft = dir.join("Untitled.md");
+        let saved = dir.join("saved.md");
+        fs::write(&draft, "old draft").unwrap();
+        fs::write(&saved, "saved local edits").unwrap();
+        let replaced_draft = draft.clone();
+        BEFORE_DRAFT_UNLINK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let replacement = replaced_draft.with_file_name("replacement.md");
+                fs::write(&replacement, "unique outside edits").unwrap();
+                fs::rename(replacement, replaced_draft).unwrap();
+            }));
+        });
+        let result = retire(&dir, &draft, &saved).unwrap();
+        let remaining = fs::read_to_string(&draft);
+        cleanup(&dir);
+        assert_eq!(result, DraftRetirement::Kept);
+        assert_eq!(remaining.unwrap(), "unique outside edits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_keeps_a_final_symlink_and_its_target() {
+        let dir = temp_drafts_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let draft = dir.join("Untitled.md");
+        let target = dir.join("other.md");
+        let saved = dir.join("saved.md");
+        fs::write(&draft, "same text").unwrap();
+        fs::write(&target, "same text").unwrap();
+        fs::write(&saved, "saved local edits").unwrap();
+        let known = revision_of(&draft);
+        fs::remove_file(&draft).unwrap();
+        symlink(&target, &draft).unwrap();
+        let result = delete_draft_in(&dir, &draft, &saved, &known, &revision_of(&saved)).unwrap();
+        let remaining = fs::read_to_string(&target);
+        let is_symlink = fs::symlink_metadata(&draft)
+            .unwrap()
+            .file_type()
+            .is_symlink();
+        cleanup(&dir);
+        assert_eq!(result, DraftRetirement::Kept);
+        assert_eq!(remaining.unwrap(), "same text");
+        assert!(is_symlink);
     }
 
     #[test]

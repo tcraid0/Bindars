@@ -654,3 +654,15 @@ for (const result of ["conflict", "error"]) {
     }
   });
 }
+
+for (const result of ["conflict", "error", "saved-with-recovery"]) {
+  test(`${result} warning leads with the autosave pause`, async () => {
+    await installDom();
+    const rendered = renderCoordinator({ autosaveActive: true, dirty: true, sessionKey: 1,
+      documentIdentity: "/tmp/paused.md", captureBuffer: () => ({ content: "words", dirty: true }) });
+    try {
+      flushSync(() => rendered.api().recordSaveResult(result));
+      assert.match(rendered.api().autosaveIssue.message, /^Autosave is paused/);
+    } finally { rendered.cleanup(); }
+  });
+}

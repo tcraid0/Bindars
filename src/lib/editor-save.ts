@@ -5,6 +5,8 @@ import {
   OPENABLE_FILE_TYPES_DESCRIPTION,
 } from "./openable-files";
 
+export const AUTOSAVE_OUTSIDE_CHANGE_WARNING = "Autosave is paused. The file changed outside Bindars.";
+
 export type EditorSaveResult =
   | "saved"
   | "saved-with-newer-edits"
@@ -123,6 +125,12 @@ export function normalizeDocumentSavePath(selectedPath: string, defaultExtension
   };
 }
 
+/** The destination check's refusal of a name that still has saved annotations. */
+export function isAnnotatedDestinationRefusal(error: unknown): boolean {
+  const native = normalizeFileError(error, "").native;
+  return native?.category === "invalidInput" && native.operation === "inspectWriteTarget";
+}
+
 export type SaveErrorRecovery = "save-as" | null;
 
 export interface SaveErrorDescription {
@@ -139,6 +147,7 @@ export function actionableSaveError(error: unknown): SaveErrorDescription {
     return { message: normalized.message, recovery: "save-as" };
   }
   switch (normalized.native?.category) {
+    case "storageFull":
     case "alreadyExists":
     case "incompleteWrite":
       return { message: normalized.message, recovery: "save-as" };

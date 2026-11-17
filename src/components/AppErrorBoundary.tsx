@@ -1,4 +1,8 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { NATIVE_QUIT_REQUESTED_EVENT } from "../hooks/useNativeQuit";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -19,6 +23,44 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error("[app-error-boundary] Render crash:", error, info);
+  }
+
+  private stopCrashListeners: (() => void) | null = null;
+
+  componentDidMount(): void {
+    if (this.state.error) this.listenForCrashExit();
+  }
+
+  componentDidUpdate(_previousProps: AppErrorBoundaryProps, previousState: AppErrorBoundaryState): void {
+    if (this.state.error && !previousState.error) this.listenForCrashExit();
+  }
+
+  componentWillUnmount(): void {
+    this.stopCrashListeners?.();
+  }
+
+  private listenForCrashExit(): void {
+    let active = true;
+    const detachers: (() => void)[] = [];
+    // The crashed child tree no longer owns a save decision or quit listener.
+    const quit = () => {
+      if (active) void invoke("exit_after_guarded_quit").catch((error) => {
+        console.error("[app-error-boundary] Failed to quit:", error);
+      });
+    };
+    for (const registration of [
+      listen(NATIVE_QUIT_REQUESTED_EVENT, quit),
+      Promise.resolve().then(() => getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault();
+        quit();
+      })),
+    ]) {
+      void registration.then((detach) => {
+        if (active) detachers.push(detach);
+        else detach();
+      }).catch((error) => console.error("[app-error-boundary] Failed to attach quit listener:", error));
+    }
+    this.stopCrashListeners = () => { active = false; for (const detach of detachers) detach(); };
   }
 
   private handleReload = () => {

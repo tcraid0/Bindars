@@ -295,6 +295,8 @@ async function renderEditorApp({
         draftDeletes.push(args);
         operationLog.push("delete");
         return deleteDraft(args);
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save":
         saveDialogs.push(args);
         return saveDialog();
@@ -1569,6 +1571,8 @@ test("App routes Ctrl+N through guarded New behavior without welcome publication
         return null;
       case "create_draft_document":
         throw new Error("Draft creation unavailable for this manual guard test");
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save":
         return "/tmp/Saved before New.md";
       case "write_markdown_file_if_unmodified": {
@@ -1825,6 +1829,8 @@ test("App save-as preserves typing and adopts the canonical path before the next
       case "set_setting":
       case "plugin:window|set_title":
         return null;
+      case "check_copy_destination":
+        return args.path;
       case "plugin:dialog|save": {
         const operation = deferred();
         dialogs.push(operation);
@@ -7226,6 +7232,50 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
   });
 }
 
+test('Make a Copy while an edit is still unsaved writes the edited text', async () => {
+  const view = await renderContinuityApp();
+  const departingSave = deferred();
+  const savedRevision = {
+    conflict: false,
+    canonicalPath: '/tmp/continuity.md',
+    name: 'continuity.md',
+    currentRevision: { mtimeMs: 2, size: 1, contentHash: 'r2' },
+  };
+  try {
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(view.host.querySelector('.cm-editor')));
+    const edited = `${view.diskContent()}\n\nJust typed words.`;
+    updateEditor(view.host, edited);
+    view.setSaveDialogPath('/tmp/continuity copy.md');
+    view.deferNextWrite(departingSave);
+    await act(async () => emit('bindars://menu-action', { action: 'copy-document' }));
+    await waitFor(() => assert.ok(departingSave.args));
+    assert.equal(departingSave.args.path, '/tmp/continuity.md');
+    assert.equal(departingSave.args.content, edited);
+    // The departing save publishes the edited text, then Make a Copy runs
+    // before React renders that publication.
+    savedRevision.currentRevision.size = edited.length;
+    const originalError = console.error;
+    console.error = (...args) => {
+      if (args.some(arg => typeof arg === 'string' && arg.includes('not wrapped in act'))) return;
+      originalError(...args);
+    };
+    departingSave.resolve(savedRevision);
+    try {
+      for (let step = 0; step < 200; step += 1) await Promise.resolve();
+    } finally {
+      console.error = originalError;
+    }
+    const copy = view.fileWrites().find(write => write.path === '/tmp/continuity copy.md');
+    assert.ok(copy, 'the copy is written before the next render');
+    assert.equal(copy.content, edited);
+    await act(async () => {});
+  } finally {
+    departingSave.resolve(savedRevision);
+    await view.cleanup();
+  }
+});
+
 for (const format of ["markdown", "fountain"]) {
   for (const readyBy of ["history", "deadline"]) {
     test(`reader headings survive late startup mount: ${format}, ${readyBy}`, async (context) => {
@@ -8613,3 +8663,122 @@ for (const [content, shown, hidden] of [
     } finally { await rendered.cleanup(); }
   });
 }
+
+for (const event of ["tauri://blur", "bindars://app-sleeping"]) {
+  test(`${event} flushes dirty text once and leaves a clean draft alone`, async () => {
+    const rendered = await renderEditorApp();
+    try {
+      updateEditor(rendered.host, "Words before switching away");
+      await act(async () => emit(event));
+      await waitFor(() => assert.equal(rendered.draftCreates.length, 1));
+      assert.equal(rendered.draftCreates[0].content, "Words before switching away");
+      await act(async () => emit(event));
+      assert.equal(rendered.draftCreates.length, 1);
+      assert.equal(rendered.fileWrites.length, 0);
+      assert.equal(rendered.saveDialogs.length, 0);
+    } finally { await rendered.cleanup(); }
+  });
+}
+
+test("blur during the native Save dialog cannot create a competing draft", async () => {
+  const dialog = deferred();
+  const rendered = await renderEditorApp({ saveDialog: () => dialog.promise });
+  try {
+    updateEditor(rendered.host, "Words for the chosen location");
+    dispatchShortcut("s");
+    await waitFor(() => assert.equal(rendered.saveDialogs.length, 1));
+    await act(async () => emit("tauri://blur"));
+    assert.equal(rendered.draftCreates.length, 0);
+    assert.equal(rendered.fileWrites.length, 0);
+    await act(async () => dialog.resolve("/tmp/chosen.md"));
+    await waitFor(() => assert.equal(rendered.fileWrites.length, 1));
+    assert.equal(rendered.fileWrites[0].content, "Words for the chosen location");
+    assert.equal(rendered.draftCreates.length, 0);
+  } finally { dialog.resolve(null); await rendered.cleanup(); }
+});
+
+test("blur flushes an ordinary dirty document and skips it after saving", async () => {
+  const rendered = await renderContinuityApp();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Ordinary document before switching away");
+    await act(async () => emit("tauri://blur"));
+    await waitFor(() => assert.equal(rendered.fileWrites().length, 1));
+    assert.equal(rendered.fileWrites()[0].content, "Ordinary document before switching away");
+    await act(async () => emit("tauri://blur"));
+    assert.equal(rendered.fileWrites().length, 1);
+  } finally { await rendered.cleanup(); }
+});
+
+test("Quit during a New action's pending save retains the other-action message", async () => {
+  const rendered = await renderContinuityApp();
+  const write = deferred();
+  try {
+    dispatchShortcut("e");
+    await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+    updateEditor(rendered.host, "Text saved before New");
+    rendered.deferNextWrite(write);
+    dispatchShortcut("n");
+    await waitFor(() => assert.ok(write.args));
+    await act(async () => emit("bindars://quit-requested"));
+    assert.match(rendered.host.textContent, /Bindars is finishing another file action\. Try quitting again in a moment\./);
+    await act(async () => write.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md",
+      currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "saved" } }));
+    await waitFor(() => assert.equal(findEditorView(rendered.host).state.sliceDoc(), ""));
+    assert.equal(rendered.guardedExitCount(), 0);
+  } finally { write.resolve({ conflict: true }); await rendered.cleanup(); }
+});
+
+for (const event of ["bindars://quit-requested", "tauri://close-requested"]) {
+  test(`repeated ${event} explains that a pending save owns departure`, async () => {
+    const rendered = await renderContinuityApp();
+    const write = deferred();
+    try {
+      dispatchShortcut("e");
+      await waitFor(() => assert.ok(rendered.host.querySelector(".cm-editor")));
+      updateEditor(rendered.host, "Text held while leaving");
+      rendered.deferNextWrite(write);
+      await act(async () => emit(event));
+      await waitFor(() => assert.ok(write.args));
+      await act(async () => emit(event));
+      assert.match(rendered.host.textContent, /Bindars is waiting for this document to finish saving\./);
+      assert.equal(rendered.fileWrites().length, 1);
+      await act(async () => write.resolve({ conflict: false, canonicalPath: "/tmp/continuity.md", name: "continuity.md",
+        currentRevision: { mtimeMs: 2, size: write.args.content.length, contentHash: "saved" } }));
+      await waitFor(() => assert.equal(event === "bindars://quit-requested" ? rendered.guardedExitCount() : rendered.windowCloseCount(), 1));
+    } finally { write.resolve({ conflict: true }); await rendered.cleanup(); }
+  });
+}
+
+test("autosave in the draft adoption gap uses the published draft path", async (context) => {
+  const creation = deferred();
+  const rendered = await renderEditorApp({ createDraft: () => creation.promise });
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  try {
+    const initial = "# New draft\n\nFirst words.";
+    updateEditor(rendered.host, initial);
+    await act(async () => context.mock.timers.tick(200));
+    await act(async () => context.mock.timers.tick(2500));
+    assert.equal(rendered.draftCreates.length, 1);
+    const newer = `${initial}\nTyped while the draft write waits.`;
+    updateEditor(rendered.host, newer);
+    await act(async () => context.mock.timers.tick(200));
+
+    // Settle the write without a React render, then fire the existing timer.
+    creation.resolve(successfulDraftWrite(initial));
+    for (let index = 0; index < 200; index += 1) await Promise.resolve();
+    context.mock.timers.tick(2500);
+    for (let index = 0; index < 200; index += 1) await Promise.resolve();
+    await act(async () => {});
+    assert.equal(rendered.draftCreates.length, 1, "only one draft may be created");
+    assert.equal(rendered.fileWrites.length, 1);
+    assert.equal(rendered.fileWrites[0].path, DRAFT_PATH);
+    assert.equal(rendered.fileWrites[0].content, newer);
+    assert.deepEqual(rendered.fileWrites[0].expectedRevision, successfulDraftWrite(initial).currentRevision);
+  } finally {
+    creation.resolve(successfulDraftWrite(""));
+    context.mock.timers.reset();
+    await rendered.cleanup();
+  }
+});

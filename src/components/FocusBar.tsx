@@ -5,6 +5,7 @@ import { SaveWhisper } from "./SaveWhisper";
 interface FocusBarProps {
   fileName: string | null;
   isDraft?: boolean;
+  isSaving?: boolean;
   isDirty: boolean;
   isSavedFlash: boolean;
   saveWarning: string | null;
@@ -19,6 +20,7 @@ const PROXIMITY_PX = 60;
 function FocusBarComponent({
   fileName,
   isDraft = false,
+  isSaving = false,
   isDirty,
   isSavedFlash,
   saveWarning,
@@ -78,6 +80,7 @@ function FocusBarComponent({
       >
         <SaveWhisper
           isDraft={isDraft}
+          saving={isSaving}
           dirty={isDirty}
           saved={isSavedFlash}
           warning={saveWarning}

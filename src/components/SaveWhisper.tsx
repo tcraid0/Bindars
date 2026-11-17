@@ -1,11 +1,27 @@
+import { useEffect, useState } from "react";
+
 interface SaveWhisperProps {
   isDraft?: boolean;
+  saving?: boolean;
   dirty: boolean;
   saved: boolean;
   warning: string | null;
 }
 
-export function SaveWhisper({ isDraft = false, dirty, saved, warning }: SaveWhisperProps) {
+export function SaveWhisper({ isDraft = false, dirty, saved, warning, saving = false }: SaveWhisperProps) {
+  const [saveProgress, setSaveProgress] = useState<"quiet" | "saving" | "slow">("quiet");
+  useEffect(() => {
+    setSaveProgress("quiet");
+    if (!saving) return;
+    // Fast autosaves stay quiet; these timers only describe the pending write.
+    const savingTimer = setTimeout(() => setSaveProgress("saving"), 2_000);
+    const slowTimer = setTimeout(() => setSaveProgress("slow"), 30_000);
+    return () => { clearTimeout(savingTimer); clearTimeout(slowTimer); };
+  }, [saving]);
+
+  if (saving && saveProgress === "slow") {
+    warning = "Still saving. Your text is safe in this window.";
+  }
   if (warning) {
     return (
       <span
@@ -15,6 +31,10 @@ export function SaveWhisper({ isDraft = false, dirty, saved, warning }: SaveWhis
         className="text-warning text-xs font-medium truncate shrink-0 max-w-[180px]"
       >{warning}</span>
     );
+  }
+
+  if (saving && saveProgress === "saving") {
+    return <span role="status" aria-label="Saving…" className="text-accent-text text-xs whitespace-nowrap shrink-0">Saving…</span>;
   }
 
   if (isDraft) {
