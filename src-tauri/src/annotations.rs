@@ -562,12 +562,17 @@ pub(crate) async fn check_copy_destination(
     .to_string_lossy()
     .into_owned();
     if current_path.as_deref() != Some(&path) && annotated_paths(app).await?.contains(&path) {
-        return Err(NativeFileError::invalid(
-            NativeFileOperation::InspectWriteTarget,
-            "This name already has saved highlights, notes, or bookmarks. Choose a different name.",
-        ));
+        return Err(annotated_destination_refusal());
     }
     Ok(path)
+}
+
+/// Save As treats only this error as a refusal, so its shape is shared with the front end.
+fn annotated_destination_refusal() -> NativeFileError {
+    NativeFileError::invalid(
+        NativeFileOperation::InspectWriteTarget,
+        "This name already has saved highlights, notes, or bookmarks. Choose a different name.",
+    )
 }
 
 fn save_at(root: &Path, path: &str, annotations: Value) -> Result<(), String> {
@@ -618,6 +623,18 @@ mod tests {
             "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept."
         );
         assert_eq!(failure.detail, "Stored JSON is damaged");
+    }
+
+    #[test]
+    fn annotated_destination_refusal_matches_the_sample_the_front_end_is_tested_with() {
+        let sample: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/annotated-destination-refusal.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(annotated_destination_refusal()).unwrap(),
+            sample
+        );
     }
 
     #[test]

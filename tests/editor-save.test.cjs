@@ -7,6 +7,7 @@ const {
   actionableSaveError,
   saveErrorBlocksCurrentPath,
   normalizeDocumentSavePath,
+  isAnnotatedDestinationRefusal,
 } = require("../.tmp/workspace-tests/src/lib/editor-save.js");
 
 test("navigation continues only when the saved snapshot is still current", () => {
@@ -205,4 +206,13 @@ test("a full disk offers Save As with a plain explanation", () => {
     message: "There is not enough free space to save this file.", detail: "/private/path: no space" }), {
     message: "There is not enough free space to save this file.", recovery: "save-as",
   });
+});
+
+test("Save As recognizes the native annotated-destination refusal and nothing else", () => {
+  // The native test compares its real error with this same sample.
+  const refusal = require("./fixtures/annotated-destination-refusal.json");
+  assert.equal(isAnnotatedDestinationRefusal(refusal), true);
+  assert.equal(isAnnotatedDestinationRefusal({ ...refusal, category: "unknown" }), false);
+  assert.equal(isAnnotatedDestinationRefusal({ ...refusal, operation: "accessRecoveryData" }), false);
+  assert.equal(isAnnotatedDestinationRefusal(new Error("storage unavailable")), false);
 });
