@@ -7232,6 +7232,50 @@ for (const outcome of ['created', 'cancelled', 'notes-exist', 'missing-folder', 
   });
 }
 
+test('Make a Copy while an edit is still unsaved writes the edited text', async () => {
+  const view = await renderContinuityApp();
+  const departingSave = deferred();
+  const savedRevision = {
+    conflict: false,
+    canonicalPath: '/tmp/continuity.md',
+    name: 'continuity.md',
+    currentRevision: { mtimeMs: 2, size: 1, contentHash: 'r2' },
+  };
+  try {
+    dispatchShortcut('e');
+    await waitFor(() => assert.ok(view.host.querySelector('.cm-editor')));
+    const edited = `${view.diskContent()}\n\nJust typed words.`;
+    updateEditor(view.host, edited);
+    view.setSaveDialogPath('/tmp/continuity copy.md');
+    view.deferNextWrite(departingSave);
+    await act(async () => emit('bindars://menu-action', { action: 'copy-document' }));
+    await waitFor(() => assert.ok(departingSave.args));
+    assert.equal(departingSave.args.path, '/tmp/continuity.md');
+    assert.equal(departingSave.args.content, edited);
+    // The departing save publishes the edited text, then Make a Copy runs
+    // before React renders that publication.
+    savedRevision.currentRevision.size = edited.length;
+    const originalError = console.error;
+    console.error = (...args) => {
+      if (args.some(arg => typeof arg === 'string' && arg.includes('not wrapped in act'))) return;
+      originalError(...args);
+    };
+    departingSave.resolve(savedRevision);
+    try {
+      for (let step = 0; step < 200; step += 1) await Promise.resolve();
+    } finally {
+      console.error = originalError;
+    }
+    const copy = view.fileWrites().find(write => write.path === '/tmp/continuity copy.md');
+    assert.ok(copy, 'the copy is written before the next render');
+    assert.equal(copy.content, edited);
+    await act(async () => {});
+  } finally {
+    departingSave.resolve(savedRevision);
+    await view.cleanup();
+  }
+});
+
 for (const format of ["markdown", "fountain"]) {
   for (const readyBy of ["history", "deadline"]) {
     test(`reader headings survive late startup mount: ${format}, ${readyBy}`, async (context) => {

@@ -2765,16 +2765,18 @@ function App() {
         return;
       }
       case "copy-document": {
-        if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        // The departing save publishes the document before this render closure updates.
+        const published = getPublishedDocument();
+        if (editingRef.current || !published.filePath || published.content === null || !published.fileRevision) return;
         const recordLeft = leaveCurrentPlace();
         // Prepare Save As's buffer without mounting an editor or enabling autosave.
         // The admitted action owns the picker; cancellation leaves the reader intact.
-        const sourcePath = filePath;
-        const sourceName = fileName ?? "Untitled.md";
+        const sourcePath = published.filePath;
+        const sourceName = published.fileName ?? "Untitled.md";
         const dot = sourceName.lastIndexOf(".");
         const extension = dot > 0 ? sourceName.slice(dot + 1).toLowerCase() : "md";
         const name = `${dot > 0 ? sourceName.slice(0, dot) : sourceName} copy.${extension}`;
-        editor.enterEditMode(content, fileRevision);
+        editor.enterEditMode(published.content, published.fileRevision);
         let adopted = false;
         try {
           const result = await editor.saveAs(name, sourcePath, { copy: true, extension });
