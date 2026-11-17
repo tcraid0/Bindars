@@ -2,7 +2,9 @@
 
 ## Threat Model
 
-Bindars is a **local-only** desktop application. It reads and renders markdown files from the user's filesystem. There are zero outbound network requests — no `fetch`, `XMLHttpRequest`, `WebSocket`, or HTTP client usage anywhere in the codebase. CSP enforces `connect-src 'none'`.
+Bindars is a **local-only** desktop application. It reads and renders markdown files from the user's filesystem. Documents cannot cause network requests: the web view uses no `fetch`, `XMLHttpRequest`, or `WebSocket`, and CSP enforces `connect-src 'none'`.
+
+The only network request Bindars can make is the macOS update check and download. It runs in native code, goes only to this repository's GitHub releases, and happens only when the user asks for a check or has turned on automatic checks, which are off by default. An update is installed only if it is signed for the version it claims.
 
 The primary trust boundary is **untrusted markdown content**: a malicious `.md` file should not be able to execute code, access files outside its directory, or crash the application.
 
@@ -44,6 +46,7 @@ Please include:
 - Application crashes or freezes from crafted input (DoS)
 - Bypass of the sanitize schema (XSS via markdown rendering)
 - Path traversal in image loading or file operations
+- A forged, unsigned, or downgraded update being accepted by the update check
 
 Apple notarization and OS protections do not replace Bindars' responsibility to handle untrusted documents safely.
 
