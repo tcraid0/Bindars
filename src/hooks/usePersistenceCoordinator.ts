@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CapturedEditorBuffer } from "./useEditor";
+import { AUTOSAVE_OUTSIDE_CHANGE_WARNING } from "../lib/editor-save";
 import type { EditorSaveResult } from "../lib/editor-save";
 
 export const AUTOSAVE_IDLE_MS = 2_500;
@@ -84,7 +85,7 @@ export function usePersistenceCoordinator({
       const issue: AutosaveIssue = {
         kind: result === "conflict" ? "conflict" : "error",
         message: result === "conflict"
-          ? "The file changed outside Bindars. Autosave is paused."
+          ? AUTOSAVE_OUTSIDE_CHANGE_WARNING
           : result === "saved-with-recovery"
             ? "Autosave is paused. Another version was kept beside the document."
             : "Autosave is paused. Save manually to continue.",

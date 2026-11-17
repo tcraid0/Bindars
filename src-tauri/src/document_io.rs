@@ -529,7 +529,7 @@ pub(crate) fn read_bounded_file(
         return Err(NativeFileError::invalid(
             NativeFileOperation::ValidateDocument,
             format!(
-                "File is too large. Maximum supported size is {} MiB.",
+                "This file is too large to open (more than {} MB).",
                 MAX_MARKDOWN_SIZE_MIB
             ),
         ));
@@ -542,7 +542,7 @@ fn decode_markdown_contents(buffer: Vec<u8>) -> Result<String, NativeFileError> 
     String::from_utf8(buffer).map_err(|_| {
         NativeFileError::invalid(
             NativeFileOperation::DecodeDocument,
-            "File must be valid UTF-8 text.",
+            "Bindars can't read this file's text format. Try opening it in another text editor.",
         )
     })
 }
@@ -802,7 +802,7 @@ mod tests {
         let error = read_markdown_file_impl(path.to_string_lossy().into_owned())
             .expect_err("oversized file should error");
         assert!(
-            error.contains("File is too large"),
+            error.contains("too large to open (more than 10 MB)"),
             "unexpected error for {}: {error}",
             path.display()
         );
@@ -818,7 +818,7 @@ mod tests {
         let result = read_markdown_file_impl(path.to_string_lossy().into_owned());
         assert!(result
             .expect_err("non-utf8 markdown should error")
-            .contains("valid UTF-8"));
+            .contains("can't read this file's text format"));
 
         cleanup(&path);
     }
@@ -1573,6 +1573,34 @@ mod tests {
         assert_eq!(fs::read_to_string(&fresh).expect("read new file"), "notes");
 
         cleanup_dir(&root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saving_keeps_the_creation_time_and_the_next_save_is_not_a_conflict() {
+        let path = temp_path("md");
+        fs::write(&path, "# One").expect("write fixture");
+        let created = fs::metadata(&path).unwrap().created().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let first = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "# Two".to_string(),
+            Some(read_file_revision(&path).expect("read revision")),
+            Some(false),
+        )
+        .expect("first save");
+        assert!(!first.conflict);
+        assert_eq!(fs::metadata(&path).unwrap().created().unwrap(), created);
+        let second = write_markdown_file_if_unmodified_impl(
+            path.to_string_lossy().into_owned(),
+            "# Three".to_string(),
+            Some(first.current_revision),
+            Some(false),
+        )
+        .expect("second save");
+        assert!(!second.conflict);
+        assert_eq!(fs::metadata(&path).unwrap().created().unwrap(), created);
+        cleanup(&path);
     }
 
     fn temp_path(ext: &str) -> PathBuf {

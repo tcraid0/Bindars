@@ -64,9 +64,9 @@ function refuses(view, reason) {
   assert.ok(view.state === before); assert.equal(undoDepth(view.state), 0);
 }
 for (const [source, reason] of [
-  ['ordinary |words', /Place the cursor on a checklist item/],
-  ['- [ ] first\n  continuation|', /Place the cursor on a checklist item/],
-  ['[[- [ ] first\n- [x] second]]', /Select one checklist item/],
+  ['ordinary |words', /first line of a task/],
+  ['- [ ] first\n  continuation|', /first line of a task/],
+  ['[[- [ ] first\n- [x] second]]', /Select just one task/],
   ['---\n- [ ] meta|data\n---\nbody', /document details/],
   ['$$\n- [ ] ma|th\n$$', /math/],
   ['- [ ] task $$ma|th$$', /math/],
@@ -80,14 +80,14 @@ for (const [source, reason] of [
 test('completion refuses a table and an unparsed BOM-leading marker safely', () => {
   const source = '| task | value |\n| --- | --- |\n| - [ ] task | yes |';
   withView(source, EditorSelection.cursor(source.indexOf('task | yes')), {}, view => refuses(view, /table/));
-  useSpec('\uFEFF- [ ] ta|sk', {}, view => refuses(view, /Place the cursor on a checklist item/));
+  useSpec('\uFEFF- [ ] ta|sk', {}, view => refuses(view, /first line of a task/));
 });
 
 test('completion refuses composition, multiple selections, read-only, missing syntax and excessive complexity', t => {
-  useSpec('- [ ] ta|sk', {}, view => { view.inputState.composing = 1; refuses(view, /composition/); view.inputState.composing = -1; });
-  withView('- [ ] task', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuses(view, /one selection/));
+  useSpec('- [ ] ta|sk', {}, view => { view.inputState.composing = 1; refuses(view, /Finish typing first/); view.inputState.composing = -1; });
+  withView('- [ ] task', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuses(view, /one cursor/));
   useSpec('- [ ] ta|sk', { readOnly: true }, view => refuses(view, /cannot be edited/));
-  useSpec('- [ ] ta|sk', { markdown: false }, view => refuses(view, /loading/));
+  useSpec('- [ ] ta|sk', { markdown: false }, view => refuses(view, /Still reading the document/));
   useSpec('- [ ] ta|sk\n\n' + 'a'.repeat(1048576), { parse: false }, view => refuses(view, /too large or complex/));
 });
 
@@ -109,4 +109,20 @@ test('Enter after completing a task starts an open task for bullet and ordered l
       assert.equal(view.state.sliceDoc(), prefix + '[x] task\n' + (prefix === '- ' ? '- ' : '2' + prefix.slice(1)) + '[ ] ');
     });
   }
+});
+
+test('completion at a clicked position ignores and keeps the selection', () => {
+  const source = '# Heading\n\n- [ ] task';
+  withView(source, EditorSelection.single(8, 2), {}, view => {
+    const selection = view.state.selection;
+    assert.equal(executeFormattingCommand(view, 'toggleTask', source.indexOf('[ ]')).applied, true);
+    assert.equal(view.state.sliceDoc(), source.replace('[ ]','[x]'));
+    assert.ok(view.state.selection.eq(selection));
+    assert.equal(undoDepth(view.state), 1);
+  });
+});
+
+test('a line without a task gives the task reason, even on a heading or quote', () => {
+  for (const spec of ['# Ti|tle', '> quo|te']) useSpec(spec, {}, view => refuses(view, /^Put the cursor on the first line of a task\.$/));
+  useSpec('> - [ ] quo|ted', {}, view => refuses(view, /ordinary lines and lists/));
 });

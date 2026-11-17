@@ -1,0 +1,6 @@
+{
+  "category": "invalidInput",
+  "operation": "inspectWriteTarget",
+  "message": "This name already has saved highlights, notes, or bookmarks. Choose a different name.",
+  "detail": "This name already has saved highlights, notes, or bookmarks. Choose a different name."
+}

@@ -2,7 +2,9 @@
 //! an atomic file replacement, and the settings cache is seeded only here, after
 //! migration has preserved the legacy bytes.
 use crate::atomic_write::write_contents_atomic_private;
-use crate::file_errors::{run_blocking_file_io, NativeFileError, NativeFileOperation};
+use crate::file_errors::{
+    run_blocking_file_io, NativeFileError, NativeFileErrorCategory, NativeFileOperation,
+};
 use crate::settings::Settings;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
@@ -25,7 +27,7 @@ pub(crate) struct StorageStatus {
 fn error(detail: impl Into<String>) -> NativeFileError {
     NativeFileError::unknown(
         NativeFileOperation::AccessRecoveryData,
-        "Couldn't access annotation storage. Existing data was preserved.",
+        "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.",
         detail,
     )
 }
@@ -39,9 +41,10 @@ async fn run<T: Send + 'static>(
         .app_data_dir()
         .map_err(|e| error(e.to_string()))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = STORAGE_LOCK
-            .lock()
-            .map_err(|_| "Annotation storage lock failed".to_string())?;
+        let _guard = STORAGE_LOCK.lock().map_err(|_| {
+            "Bindars couldn't access your saved highlights, notes, and bookmarks. Quit Bindars and open it again."
+                .to_string()
+        })?;
         ensure_directory(&root)?;
         task(&root)
     })
@@ -195,7 +198,7 @@ fn read_recovery_at(path: &Path) -> Result<Value, String> {
     let data = parse_object(&bytes)?;
     validate_collection(&data)?;
     if data.get("kind") != Some(&json!("bindars-annotation-recovery")) {
-        return Err("This is not an annotation recovery copy".into());
+        return Err("This is not a highlights and notes recovery copy.".into());
     }
     Ok(Value::Object(data))
 }
@@ -317,7 +320,10 @@ fn validate_collection(value: &Map<String, Value>) -> Result<(), String> {
     if value.get("version") != Some(&json!(1))
         || !value.get("documents").is_some_and(Value::is_object)
     {
-        return Err("Annotation storage has an unsupported format".into());
+        return Err(
+            "This version of Bindars can't read your saved highlights, notes, and bookmarks."
+                .into(),
+        );
     }
     Ok(())
 }
@@ -347,7 +353,7 @@ fn initialize_with(
     if let Some(bytes) = &receipt {
         let value = parse_object(bytes)?;
         if value.get("version") != Some(&json!(1)) {
-            return Err("Unsupported annotation migration receipt".into());
+            return Err("This version of Bindars can't read the storage update record.".into());
         }
     }
     if let Some(bytes) = read_optional(&root.join(DATA))? {
@@ -361,7 +367,7 @@ fn initialize_with(
         return Ok(Value::Object(data));
     }
     if receipt.is_some() {
-        return Err("Annotation storage is missing after migration; recovery is required".into());
+        return Err("Your saved highlights, notes, and bookmarks are missing. Restore a backup of Bindars' saved data before trying again.".into());
     }
 
     // Preserve every legacy byte before the native settings owner loads the file.
@@ -399,9 +405,11 @@ fn initialize_with(
     }
     let data = json!({"version":1,"documents":documents});
     write(&root.join(DATA), &serialize_json(&data)?)?;
-    let readback = read_optional(&root.join(DATA))?.ok_or("New annotations were not written")?;
+    let readback = read_optional(&root.join(DATA))?.ok_or(
+        "Bindars couldn't save your highlights, notes, and bookmarks in the new location.",
+    )?;
     if Value::Object(parse_object(&readback)?) != data {
-        return Err("Couldn't verify migrated annotation data".into());
+        return Err("Bindars couldn't verify your highlights, notes, and bookmarks after updating their storage.".into());
     }
     write(&root.join(RECEIPT), "{\"version\":1}")?;
     Ok(data)
@@ -498,7 +506,10 @@ fn reconnect_at(
             })
         });
         if !empty {
-            return Err("The destination already has annotations. Reconnecting cannot merge or overwrite them.".into());
+            return Err(
+                "That document already has its own highlights, notes, bookmarks, or other saved data. Choose another document."
+                    .into(),
+            );
         }
     }
     documents.insert(destination.into(), expected.clone());
@@ -534,26 +545,39 @@ pub(crate) async fn reconnect_annotations(
 pub(crate) async fn check_copy_destination(
     app: tauri::AppHandle,
     path: String,
+    current_path: Option<String>,
 ) -> Result<String, NativeFileError> {
     // Destination failures belong to the file operation, not annotation storage.
     let path = run_blocking_file_io(move || {
-        crate::document_io::resolve_markdown_write_name(Path::new(&path))
+        // Existing destinations may be selected through a file or folder alias.
+        match crate::document_io::canonicalize_markdown_path(Path::new(&path)) {
+            Ok(path) => Ok(path),
+            Err(error) if error.category == NativeFileErrorCategory::NotFound => {
+                crate::document_io::resolve_markdown_write_name(Path::new(&path))
+            }
+            Err(error) => Err(error),
+        }
     })
     .await?
     .to_string_lossy()
     .into_owned();
-    if annotated_paths(app).await?.contains(&path) {
-        return Err(NativeFileError::invalid(
-            NativeFileOperation::ValidateDocument,
-            "This name already has saved highlights, notes, or bookmarks. Choose a different name for the copy.",
-        ));
+    if current_path.as_deref() != Some(&path) && annotated_paths(app).await?.contains(&path) {
+        return Err(annotated_destination_refusal());
     }
     Ok(path)
 }
 
+/// Save As treats only this error as a refusal, so its shape is shared with the front end.
+fn annotated_destination_refusal() -> NativeFileError {
+    NativeFileError::invalid(
+        NativeFileOperation::InspectWriteTarget,
+        "This name already has saved highlights, notes, or bookmarks. Choose a different name.",
+    )
+}
+
 fn save_at(root: &Path, path: &str, annotations: Value) -> Result<(), String> {
     if path.is_empty() || !annotations.is_object() {
-        return Err("Invalid annotation record".into());
+        return Err("The highlights, notes, or bookmarks have an unsupported format.".into());
     }
     let mut data = initialize_at(root)?;
     data["documents"][path] = annotations;
@@ -596,9 +620,21 @@ mod tests {
         assert_eq!(failure.operation, NativeFileOperation::AccessRecoveryData);
         assert_eq!(
             failure.message,
-            "Couldn't access annotation storage. Existing data was preserved."
+            "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept."
         );
         assert_eq!(failure.detail, "Stored JSON is damaged");
+    }
+
+    #[test]
+    fn annotated_destination_refusal_matches_the_sample_the_front_end_is_tested_with() {
+        let sample: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/annotated-destination-refusal.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(annotated_destination_refusal()).unwrap(),
+            sample
+        );
     }
 
     #[test]
@@ -625,12 +661,15 @@ mod tests {
         assert_eq!(fs::read(root.join(DATA)).unwrap(), before);
         for target in [
             json!({"highlights":[{"note":"existing"}],"bookmarks":[]}),
+            json!({"highlights":[],"bookmarks":[{"id":"b","headingId":"intro","headingText":"Intro"}]}),
+            json!({"highlights":[],"bookmarks":[{"future":true}]}),
             json!({"version":99,"highlights":[],"bookmarks":[]}),
             json!({"highlights":[],"bookmarks":[],"unknown":"keep"}),
         ] {
             save_at(&root, "/new.md", target).unwrap();
             let before = fs::read(root.join(DATA)).unwrap();
-            assert!(reconnect_at(&root, "/old.md", "/new.md", &record).is_err());
+            assert_eq!(reconnect_at(&root, "/old.md", "/new.md", &record).unwrap_err(),
+                "That document already has its own highlights, notes, bookmarks, or other saved data. Choose another document.");
             assert_eq!(fs::read(root.join(DATA)).unwrap(), before);
         }
         fs::remove_dir_all(root).unwrap();
@@ -928,7 +967,20 @@ mod tests {
                 }
                 write_contents_atomic_private(path, text, ".test")
             });
-            assert!(result.is_err());
+            let failure = error(result.unwrap_err());
+            assert_eq!(failure.message,
+                "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept.");
+            if fail_at == 3 {
+                assert!(root.join(DATA).exists());
+                assert!(root.join(ARCHIVE).exists());
+                assert!(!root.join(RECEIPT).exists());
+                let migrated: Value =
+                    serde_json::from_slice(&fs::read(root.join(DATA)).unwrap()).unwrap();
+                assert_eq!(
+                    migrated["documents"]["/a.md"]["bookmarks"][0]["headingId"],
+                    "intro"
+                );
+            }
             assert_eq!(fs::read(root.join("settings.json")).unwrap(), bytes);
             let data = initialize_at(&root).unwrap();
             assert_eq!(
@@ -951,7 +1003,8 @@ mod tests {
             json!([])
         );
         fs::remove_file(root.join(DATA)).unwrap();
-        assert!(initialize_at(&root).is_err());
+        assert_eq!(initialize_at(&root).unwrap_err(),
+            "Your saved highlights, notes, and bookmarks are missing. Restore a backup of Bindars' saved data before trying again.");
         assert!(!root.join(DATA).exists());
         fs::remove_dir_all(root).unwrap();
     }

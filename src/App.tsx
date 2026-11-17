@@ -77,10 +77,11 @@ import { useWorkspaceSearch } from "./hooks/useWorkspaceSearch";
 import { useWorkspaceInsights } from "./hooks/useWorkspaceInsights";
 import { useMarkdownFormatting } from "./hooks/useMarkdownFormatting";
 import { usePersistenceCoordinator } from "./hooks/usePersistenceCoordinator";
+import { usePersistedVisibility } from "./hooks/usePersistedVisibility";
 import { HEADER_HEIGHT_PX, HEADING_SCROLL_MARGIN_PX } from "./lib/scroll-constants";
 import { toPathIdentityKey } from "./lib/paths";
 import { decideEditNavigation } from "./lib/edit-navigation";
-import { adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
+import { AUTOSAVE_OUTSIDE_CHANGE_WARNING, adoptsWrittenDestination, decideSaveContinuation, isSuccessfulSave } from "./lib/editor-save";
 import type { EditorSaveOutcome, EditorSaveResult, SavedFileSnapshot } from "./lib/editor-save";
 import { normalizeFileError } from "./lib/native-file-error";
 import { isDocumentOpen } from "./lib/document-state";
@@ -101,7 +102,6 @@ import { createPrintCleanupController, preparePrintDocument } from "./lib/print-
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
 import { initializeAnnotationStorage } from "./lib/annotation-storage";
-import { storeGet, storeSet } from "./lib/store";
 import { signalAppReady, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import {
   captureReaderAnchor,
@@ -139,6 +139,8 @@ type PendingReaderTarget =
       kind: "source";
       source: SourcePoint;
       viewportOffsetPx: number | null;
+      /** After moving in Edit: where Edit showed the line on screen, applied if Read has a block on it. */
+      screenTopPx: number | null;
       documentKey: string | null;
       editorSessionKey: number;
     };
@@ -152,6 +154,7 @@ interface EditTransition {
 interface PendingExitReconciliation {
   path: string;
   readerTarget: ReaderAnchor | null;
+  screenTopPx: number | null;
   editorSessionKey: number;
 }
 
@@ -315,19 +318,12 @@ function App() {
     void initializeAnnotationStorage().then((status) => {
       if (active && !status.settingsReady) toast("Settings storage is unavailable. Existing data was preserved; preference changes cannot be saved.", "error");
     }).catch(() => {
-      if (active) toast("Annotation storage could not be initialized. Existing data was preserved. Retry from Highlights & notes.", "error");
+      if (active) toast("Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept. Open a document, then choose Retry in Highlights & notes.", "error");
     });
     return () => { active = false; };
   }, [toast]);
 
-  const [sidebarVisible, setSidebarVisible] = useState(() => {
-    try {
-      return localStorage.getItem("bindars-sidebar-visible") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const sidebarUpdatedRef = useRef(false);
+  const [sidebarVisible, changeStoredSidebarVisibility] = usePersistedVisibility("bindars-sidebar-visible", "sidebar-visible", false);
   const sidebarRecentFiles = useSteadyRecentOrder(recentFiles, sidebarVisible);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [reconnectSource, setReconnectSource] = useState<string | null | undefined>(undefined);
@@ -338,7 +334,7 @@ function App() {
   const [annotationLocations, setAnnotationLocations] = useState<Record<string, string>>({});
   const [passageChoice, setPassageChoice] = useState<PassageChoice | null>(null);
   const passageChoiceTrigger = useRef<HTMLElement | null>(null);
-  const [tocVisible, setTocVisible] = useState(true);
+  const [tocVisible, setTocVisible] = usePersistedVisibility("bindars-toc-visible", "toc-visible", true);
   const [readerControlsVisible, setReaderControlsVisible] = useState(false);
   const readerControlsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const readerControlsId = useId();
@@ -353,7 +349,7 @@ function App() {
   const [editing, setEditing] = useState(false);
   const [currentFileIsDraft, setCurrentFileIsDraft] = useState(false);
   const [editorSessionKey, setEditorSessionKey] = useState(0);
-  const [editorInitialPosition, setEditorInitialPosition] = useState<SourcePoint | null>(null);
+  const [editorInitialPosition, setEditorInitialPosition] = useState<{ source: SourcePoint; screenTopPx: number | null } | null>(null);
   const [pendingReaderTarget, setPendingReaderTarget] = useState<PendingReaderTarget | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -397,19 +393,6 @@ function App() {
     if (!annotationLoadError) return;
     toast(annotationLoadError, "error");
   }, [annotationLoadError, toast]);
-
-  // Restore sidebar state from Tauri store as async backup (if localStorage had no entry)
-  useEffect(() => {
-    let active = true;
-    try {
-      if (localStorage.getItem("bindars-sidebar-visible") !== null) return;
-    } catch { /* noop */ }
-    storeGet<unknown>("sidebar-visible").then((stored) => {
-      if (!active || sidebarUpdatedRef.current || typeof stored !== "boolean") return;
-      setSidebarVisible(stored);
-    });
-    return () => { active = false; };
-  }, []);
 
   // Pending action to run after confirm dialog resolves.
   const pendingActionRef = useRef<AdmittedAction | null>(null);
@@ -683,6 +666,8 @@ function App() {
   const saveCurrentEdits = useCallback(async (
     options: SaveCurrentEditsOptions = {},
   ): Promise<EditorSaveOutcome> => {
+    // Draft adoption can finish before the next render updates this callback.
+    const filePath = editingFilePathRef.current;
     const result = filePath && !options.saveAs
       ? await editor.save(filePath, {
         force: options.forceOverwrite ?? false,
@@ -709,7 +694,7 @@ function App() {
     }
 
     return result;
-  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, filePath, recentFilesStatus, toast]);
+  }, [workspaceIndex.updateSaved, addRecent, adoptSavedFile, editor.createDraft, editor.save, editor.saveAs, fileName, recentFilesStatus, toast]);
 
   const performAutosave = useCallback(async () => {
     const result = await saveCurrentEdits({ quiet: true });
@@ -741,8 +726,11 @@ function App() {
     onAutosave: performAutosave,
   });
   let saveWarning = autosaveIssue?.message ?? null;
+  // The Save dialog holds the save lock without writing, and Make a copy runs
+  // from Read, where the header has no save label.
+  const showSaveProgress = editing && editor.saving && !editor.choosingSaveLocation;
   if (editor.externalChange) {
-    saveWarning = "Autosave is paused because the file changed outside Bindars.";
+    saveWarning = AUTOSAVE_OUTSIDE_CHANGE_WARNING;
   }
 
   const getReconciliationSnapshot = useCallback((): ReconciliationSnapshot | null => {
@@ -811,6 +799,7 @@ function App() {
           kind: "source",
           source: pendingExit.readerTarget.source,
           viewportOffsetPx: pendingExit.readerTarget.viewportOffsetPx,
+          screenTopPx: pendingExit.screenTopPx,
           documentKey: documentId,
           editorSessionKey: pendingExit.editorSessionKey,
         });
@@ -1107,6 +1096,10 @@ function App() {
       path, sessionKey: nextSessionKey, capture, previous: readyCapture ? null : previous?.changes ?? null,
     } : null;
     const initialEditorTarget = readerAnchor?.source ?? { line: 1, column: 1 };
+    // Markdown opens Edit with the anchor at its height on screen in Read. Measuring from the
+    // screen absorbs the hint strip and a header that wraps differently in Edit.
+    const screenTopPx = readerAnchor && fileType === "markdown" && mainScrollRef.current
+      ? mainScrollRef.current.getBoundingClientRect().top + readerAnchor.viewportOffsetPx : null;
     editor.enterEditMode(initialContent, revision);
     editingFilePathRef.current = path;
     editTransitionRef.current = {
@@ -1115,7 +1108,7 @@ function App() {
       originalReaderAnchor: readerAnchor,
     };
     setPendingReaderTarget(null);
-    setEditorInitialPosition(initialEditorTarget);
+    setEditorInitialPosition({ source: initialEditorTarget, screenTopPx });
     setEditing(true);
     setEditorSessionKey(nextSessionKey);
     editingRef.current = true;
@@ -1161,6 +1154,7 @@ function App() {
 
   const publishSourceReaderTarget = useCallback((
     readerTarget: ReaderAnchor | null,
+    screenTopPx: number | null,
     documentKey: string | null,
     editorSessionKey: number,
   ) => {
@@ -1169,6 +1163,7 @@ function App() {
       kind: "source",
       source: readerTarget.source,
       viewportOffsetPx: readerTarget.viewportOffsetPx,
+      screenTopPx,
       documentKey,
       editorSessionKey,
     });
@@ -1192,16 +1187,19 @@ function App() {
       ? editorSurfaceRef.current?.capturePosition() ?? null
       : null;
     let readerTarget: ReaderAnchor | null = null;
+    let movedScreenTopPx: number | null = null;
     if (transition && positionOutcome !== "none") {
       readerTarget = transition.originalReaderAnchor;
       if (surfacePosition && (surfacePosition.viewportMoved
         || !sameSourcePoint(surfacePosition.cursor, transition.initialEditorTarget))) {
+        const viewport = surfacePosition.viewportMoved ? surfacePosition.viewport : null;
         readerTarget = {
-          source: surfacePosition.viewportMoved && surfacePosition.viewport
-            ? surfacePosition.viewport : surfacePosition.cursor,
-          // Moved positions restore by block because editor and reader wrapping differ.
+          source: viewport ?? surfacePosition.cursor,
+          // Moved positions restore by block because editor and reader wrapping differ: at the
+          // line's height in Edit when Read's block starts on that line, else at the top.
           viewportOffsetPx: 0,
         };
+        movedScreenTopPx = viewport ? surfacePosition.viewportTopPx : surfacePosition.cursorTopPx;
       }
     }
 
@@ -1211,7 +1209,7 @@ function App() {
     resetEditSession();
     pendingContinuityRef.current = continuity;
 
-    publishSourceReaderTarget(readerTarget, documentKey, sessionKey);
+    publishSourceReaderTarget(readerTarget, movedScreenTopPx, documentKey, sessionKey);
     if (positionOutcome !== "none") requestReaderFocus();
 
     // Reconciliation starts only after the watcher attempt settles. That closes
@@ -1220,6 +1218,7 @@ function App() {
       pendingExitReconciliationRef.current = {
         path: exitPath,
         readerTarget,
+        screenTopPx: movedScreenTopPx,
         editorSessionKey: sessionKey,
       };
     }
@@ -1637,12 +1636,20 @@ function App() {
   // the same admission guard as document actions. The process exits only from
   // the quit-app continuation, after document and annotation decisions resolve;
   // the native side never terminates on its own.
+  // A repeated Quit or Close while the first one waits on a write gets told why.
+  const tellQuitWaitsOnSave = useCallback((): boolean => {
+    const waiting = pendingActionRef.current?.action.kind;
+    if (!editor.saveInFlight() || (waiting !== "quit-app" && waiting !== "close-window")) return false;
+    toast("Bindars is waiting for this document to finish saving.", "info");
+    return true;
+  }, [editor.saveInFlight, toast]);
+
   const requestGuardedQuit = useCallback(() => {
     const admission = guardActionRef.current({ kind: "quit-app" });
-    if (admission === "busy") {
+    if (admission === "busy" && !tellQuitWaitsOnSave()) {
       toast("Bindars is finishing another file action. Try quitting again in a moment.", "error");
     }
-  }, [toast]);
+  }, [tellQuitWaitsOnSave, toast]);
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
@@ -1692,6 +1699,7 @@ function App() {
           // An admitted action owns the guard. Repeated native close requests
           // must not bypass its pending save or annotation decision.
           event.preventDefault();
+          tellQuitWaitsOnSave();
           return;
         case "prevent-and-guard":
           // The request never destroys the window directly on any platform.
@@ -1726,7 +1734,7 @@ function App() {
         unlisten = null;
       }
     };
-  }, [pendingAnnotationRecords, getAnnotationMutationVersion]);
+  }, [pendingAnnotationRecords, getAnnotationMutationVersion, tellQuitWaitsOnSave]);
 
   // beforeunload: publish any pending editor content before deciding whether to warn.
   useEffect(() => {
@@ -1899,12 +1907,16 @@ function App() {
     return formatReadingStatsSummary(readingStats);
   }, [fileType, readingStats, scriptStats]);
 
-  // Clear focused character when file changes
+  // When the file changes, clear the focused character and show the new
+  // document from its top. A remembered place is applied after this, by the
+  // pending reader target below, in the same frame. Edit keeps its position:
+  // a path adopted there (Save As, a new draft) is still the same document.
   const prevFilePathRef = useRef(filePath);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (filePath !== prevFilePathRef.current) {
       prevFilePathRef.current = filePath;
       setFocusedCharacter(null);
+      if (!editing && mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
     }
   }, [filePath]);
 
@@ -2060,11 +2072,14 @@ function App() {
 
     if (pendingReaderTarget.kind === "source") {
       if (pendingReaderTarget.editorSessionKey !== editorSessionKeyRef.current) return;
+      const { screenTopPx } = pendingReaderTarget;
       restoreReaderAnchor(
         root,
         scrollRoot,
         pendingReaderTarget.source,
         pendingReaderTarget.viewportOffsetPx,
+        // Through the screen, so the hint strip returning above Read does not lower the block.
+        screenTopPx === null ? undefined : Math.max(0, screenTopPx - scrollRoot.getBoundingClientRect().top),
       );
       updateReadingProgressNow();
       setPendingReaderTarget(null);
@@ -2225,6 +2240,13 @@ function App() {
   });
 
   useReconciliationLifecycle({
+    onBlur: () => {
+      // Native dialogs and departures retain ownership of their pending save.
+      if (!editingRef.current || manualSaveRef.current || showConfirmDialogRef.current
+        || showConflictDialogRef.current || actionAdmissionOwnerRef.current !== null
+        || isPrintInvoked()) return;
+      void flushAutosave();
+    },
     onSignal: (signal) => {
       workspaceIndex.reconcile();
       fileWatcher.retry();
@@ -2232,9 +2254,12 @@ function App() {
     },
   });
 
-  const canShowDocumentHint = readerDocumentReady && !editing && !!filePath
-    && annotationsReady && !printing && !presentationMode && !focusMode;
-  const showReadingHint = readingHintVisible && canShowDocumentHint && highlights.length === 0;
+  const hintPlace = readerDocumentReady && !editing && !!filePath && !printing && !presentationMode && !focusMode;
+  const canShowDocumentHint = hintPlace && annotationsReady;
+  // Highlights load a moment after the document. Keep the strip meanwhile so the
+  // page does not jump up and back; it goes once this document has some.
+  const showReadingHint = readingHintVisible && hintPlace && highlights.length === 0
+    && (annotationsReady || annotationStatus === "loading");
   useEffect(() => {
     if (filePath) openedDocumentsRef.current.add(toPathIdentityKey(filePath));
   }, [filePath]);
@@ -2550,27 +2575,26 @@ function App() {
   );
 
   const changeSidebarVisibility = useCallback((next: boolean) => {
-    sidebarUpdatedRef.current = true;
     preparePanelChange("sidebar", next);
-    setSidebarVisible(next);
-    try { localStorage.setItem("bindars-sidebar-visible", String(next)); } catch { /* noop */ }
-    void storeSet("sidebar-visible", next);
-  }, [preparePanelChange]);
+    changeStoredSidebarVisibility(next);
+  }, [preparePanelChange, changeStoredSidebarVisibility]);
   const toggleSidebar = useCallback(() => {
     changeSidebarVisibility(!visiblePanels.sidebar);
   }, [visiblePanels.sidebar, changeSidebarVisibility]);
+  // Suppressed panels retain the menu's existing preference behavior.
+  const sidebarMenuVisible = focusMode || presentationMode ? sidebarVisible : visiblePanels.sidebar;
   useEffect(() => {
-    void emit("bindars://sidebar-visible", sidebarVisible).catch(error => {
+    void emit("bindars://sidebar-visible", sidebarMenuVisible).catch(error => {
       console.warn("[sidebar] Failed to update the menu title:", error);
     });
-  }, [sidebarVisible]);
+  }, [sidebarMenuVisible]);
 
   const toggleToc = useCallback(() => {
     if (!documentOpen) return;
     const next = !visiblePanels.toc;
     preparePanelChange("toc", next);
     setTocVisible(next);
-  }, [documentOpen, visiblePanels.toc, preparePanelChange]);
+  }, [documentOpen, visiblePanels.toc, preparePanelChange, setTocVisible]);
 
   const toggleReaderControls = useCallback(() => {
     setReaderControlsVisible((v) => !v);
@@ -2666,16 +2690,15 @@ function App() {
   );
 
   // Memoised so the Contents panel does not re-render on every App render.
-  const connections = useMemo(() => (
+  const connections = useMemo(() => !workspaceInsights.backlinks.length && !workspaceInsights.mentions.length ? null : (
     <div className="navigation-help">
-      <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
+      {!!workspaceInsights.backlinks.length && <details><summary>Linked from ({workspaceInsights.backlinks.length})</summary>
         {workspaceInsights.backlinks.map(link => <button className="block py-2 break-all" key={link.fromPath} onClick={() => openWorkspacePath(link.fromPath)}>{link.relPath}</button>)}
-        {!workspaceInsights.backlinks.length && <p>No incoming links in searchable documents.</p>}
-      </details>
-      <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
+      </details>}
+      {!!workspaceInsights.mentions.length && <details><summary>Unlinked mentions ({workspaceInsights.mentions.length})</summary>
         <p>Documents that mention this document’s title without a link.</p>
         {workspaceInsights.mentions.map(link => <button className="block py-2 break-all" key={link.path} onClick={() => openWorkspacePath(link.path)}>{link.relPath}</button>)}
-      </details>
+      </details>}
     </div>
   ), [workspaceInsights.backlinks, workspaceInsights.mentions, openWorkspacePath]);
 
@@ -2763,16 +2786,18 @@ function App() {
         return;
       }
       case "copy-document": {
-        if (editingRef.current || !filePath || content === null || !fileRevision) return;
+        // The departing save publishes the document before this render closure updates.
+        const published = getPublishedDocument();
+        if (editingRef.current || !published.filePath || published.content === null || !published.fileRevision) return;
         const recordLeft = leaveCurrentPlace();
         // Prepare Save As's buffer without mounting an editor or enabling autosave.
         // The admitted action owns the picker; cancellation leaves the reader intact.
-        const sourcePath = filePath;
-        const sourceName = fileName ?? "Untitled.md";
+        const sourcePath = published.filePath;
+        const sourceName = published.fileName ?? "Untitled.md";
         const dot = sourceName.lastIndexOf(".");
         const extension = dot > 0 ? sourceName.slice(dot + 1).toLowerCase() : "md";
         const name = `${dot > 0 ? sourceName.slice(0, dot) : sourceName} copy.${extension}`;
-        editor.enterEditMode(content, fileRevision);
+        editor.enterEditMode(published.content, published.fileRevision);
         let adopted = false;
         try {
           const result = await editor.saveAs(name, sourcePath, { copy: true, extension });
@@ -2953,7 +2978,7 @@ function App() {
         else search.previous();
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
-      case "toggle-sidebar": changeSidebarVisibility(!sidebarVisible); break;
+      case "toggle-sidebar": changeSidebarVisibility(!sidebarMenuVisible); break;
       case "check-for-updates": updates.openDialog(); break;
     }
   };
@@ -3371,6 +3396,9 @@ function App() {
           onShowShortcuts={showShortcuts}
           onToggleSidebar={toggleSidebar}
           onToggleToc={toggleToc}
+          sidebarVisible={visiblePanels.sidebar}
+          tocVisible={visiblePanels.toc}
+          notesVisible={visiblePanels.notes}
           onToggleReaderControls={toggleReaderControls}
           readerControlsVisible={readerControlsVisible}
           readerControlsId={readerControlsId}
@@ -3382,6 +3410,7 @@ function App() {
           onGoHome={guardedGoHome}
           atHome={!documentOpen && !launchOpening}
           isEditing={editing}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           saveChoosesLocation={!filePath || currentFileIsDraft}
@@ -3487,8 +3516,11 @@ function App() {
               className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
             >
               {loading && (
+                // Over a shown document a quick open stays off the page, so it cannot
+                // push the text down; a slow one appears with Cancel.
                 <div
-                  className="max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"
+                  className={documentOpen && !openingSlow ? "sr-only"
+                    : "max-w-[65ch] mx-auto px-6 pt-6 text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-2"}
                 >
                   <span role="status" aria-live="polite" aria-atomic="true">
                     {openingSlow
@@ -3530,7 +3562,8 @@ function App() {
                   key={`${editorSessionKey}:${fileType}`}
                   ref={editorSurfaceRef}
                   buffer={editor.buffer}
-                  initialPosition={editorInitialPosition}
+                  initialPosition={editorInitialPosition?.source ?? null}
+                  initialScreenTopPx={editorInitialPosition?.screenTopPx ?? null}
                   scrollRootRef={mainScrollRef}
                   fileType={fileType}
                   markdownFormattingEnabled={markdownFormattingEnabled}
@@ -3687,6 +3720,7 @@ function App() {
       {focusMode && (
         <FocusBar
           fileName={fileName}
+          isSaving={showSaveProgress}
           isDirty={editor.dirty}
           isDraft={documentOpen && editing && !filePath}
           isSavedFlash={savedFlash}
@@ -3771,10 +3805,10 @@ function App() {
       />
       <ConfirmDialog
         visible={showConfirmDialog}
-        title="Unsaved changes"
-        message={`You have unsaved changes to ${fileName || "this file"}. If you discard them, they can't be recovered.`}
+        title={fileName ? `Save changes to “${fileName}”?` : "Save changes to this document?"}
+        message="If you don't save, your changes can't be recovered."
         confirmLabel="Save"
-        cancelLabel="Discard"
+        cancelLabel="Don't save"
         onConfirm={handleConfirmSave}
         onCancel={handleConfirmDiscard}
         onDismiss={handleConfirmCancel}
@@ -3782,11 +3816,11 @@ function App() {
       <ConfirmDialog
         visible={showConflictDialog}
         busy={conflictOverwritePending}
-        title="File changed on disk"
-        message={`"${fileName || "This file"}" was modified outside Bindars while you were editing. Reload replaces your changes here with the version on disk; they can't be recovered. Overwrite keeps your changes and replaces the file on disk.`}
-        confirmLabel="Reload"
+        title={fileName ? `“${fileName}” changed outside Bindars` : "This document changed outside Bindars"}
+        message="It changed while you were editing. If you use the other version, your changes here can't be recovered. If you keep your changes, they replace the other version."
+        confirmLabel="Use other version"
         initialFocus="cancel"
-        secondaryLabel="Overwrite"
+        secondaryLabel="Keep my changes"
         secondaryTone="danger"
         cancelLabel="Cancel"
         onConfirm={handleConflictReload}

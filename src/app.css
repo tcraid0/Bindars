@@ -433,7 +433,9 @@ body {
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible,
-  [role="button"]:focus-visible {
+  [role="button"]:focus-visible,
+  /* WebKit hides the ring when a dialog moves focus by script after a click. */
+  [aria-modal="true"] button:focus {
     outline: 2px solid var(--accent-indicator);
     outline-offset: 1px;
   }
@@ -602,16 +604,19 @@ button:active:not(:disabled),
   padding-left: 0.5em;
 }
 
+/* The box hangs in the item's left padding, so words, links, highlights,
+   sub-items and later paragraphs flow normally and wrap under the first word.
+   This one rule sizes the box for screen, slides and print. */
 .markdown-body li.task-list-item {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  padding-left: 1.25em;
 }
 
 .markdown-body li.task-list-item input[type="checkbox"] {
   accent-color: var(--accent-fill);
-  margin: 0;
-  flex-shrink: 0;
+  width: .75em;
+  height: .75em;
+  margin: 0 .25em 0 -1.25em;
+  vertical-align: middle;
 }
 
 .markdown-body hr {
@@ -952,6 +957,29 @@ button:active:not(:disabled),
   background-image: url("/noise-texture.png");
   background-repeat: repeat;
   background-size: 128px 128px;
+}
+
+/* ── Shortcut labels ── */
+
+/* One face and size for every shortcut. Inside a menu item it is a plain hint
+   at the item's right edge; anywhere else it is drawn as a key. */
+.shortcut-hint,
+.shortcut-key {
+  font: 11px/1.4 var(--font-mono);
+  color: var(--text-muted);
+}
+
+.shortcut-hint {
+  margin-left: auto;
+  align-self: center;
+}
+
+.shortcut-key {
+  flex-shrink: 0;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
 }
 
 /* ── Search bar ── */
@@ -1992,8 +2020,8 @@ body[data-printing] .print-hide {
   }
 
   /* ── Inline code ── */
+  /* Keeps the reader's code font, so inline code matches code blocks on paper. */
   .markdown-body code:not(pre code) {
-    font-family: "Courier New", monospace !important;
     font-size: 0.9em !important;
     background: transparent !important;
     padding: 0 !important;
@@ -2007,24 +2035,20 @@ body[data-printing] .print-hide {
     overflow: visible !important;
   }
 
-  /* ── Task list checkboxes ── */
+  /* ── Task list checkboxes: size and hang come from the screen rule ── */
   .markdown-body input[type="checkbox"] {
     appearance: none !important;
-    width: 10pt !important;
-    height: 10pt !important;
     border: 1.5pt solid #666 !important;
     border-radius: 2pt !important;
-    vertical-align: middle !important;
-    margin-right: 4pt !important;
     position: relative !important;
   }
 
   .markdown-body input[type="checkbox"]:checked::after {
     content: "\2713";
     position: absolute;
-    top: -1pt;
-    left: 1pt;
-    font-size: 8pt;
+    top: -.125em;
+    left: .125em;
+    font-size: .6em;
     color: #333;
   }
 
@@ -2479,11 +2503,12 @@ body[data-printing] .print-hide {
 }
 
 /* Writing controls share the document's existing scrolling surface. */
+.markdown-editor-surface { --markdown-bar-gap: 1.25rem; }
 .markdown-formatting-bar {
   position: sticky;
   top: var(--markdown-toolbar-offset, 0px);
   z-index: 20;
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--markdown-bar-gap);
   padding: .5rem 0;
   background: var(--bg-primary);
   font: 13px/1.4 var(--font-ui);
@@ -2513,7 +2538,7 @@ body[data-printing] .print-hide {
 .markdown-formatting-toolbar button:hover,
 .markdown-formatting-menu button:hover,
 .markdown-link-form button:hover { background: var(--bg-tertiary); }
-.markdown-formatting-toolbar [aria-pressed="true"],
+.markdown-formatting-toolbar [aria-pressed="true"]:not([data-styled-toggle]),
 .markdown-formatting-menu [aria-checked="true"] {
   color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -2525,7 +2550,11 @@ body[data-printing] .print-hide {
   outline: 2px solid var(--accent-indicator);
   outline-offset: 2px;
 }
-.markdown-formatting-toolbar .markdown-styled-toggle { margin-left: auto; border-color: var(--border); }
+/* Wide enough for "Small heading ⌄", so the controls to its right never move. */
+.markdown-formatting-toolbar .markdown-style-button { min-width: 9em; text-align: start; }
+/* Styled/Plain is a viewing preference: an ordinary button at the bar's end.
+   Its word shows the state; aria-pressed tells screen readers. */
+.markdown-formatting-toolbar [data-styled-toggle] { margin-left: auto; }
 .markdown-formatting-menu {
   position: absolute;
   top: 100%;
@@ -2540,9 +2569,7 @@ body[data-printing] .print-hide {
   box-shadow: 0 8px 24px rgb(0 0 0 / .12);
 }
 .markdown-formatting-menu-more { left: auto; right: 0; }
-.markdown-formatting-menu button { display: flex; width: 100%; text-align: left; flex-wrap: wrap; gap: .2rem .5rem; }
-.markdown-formatting-menu kbd { margin-left: auto; color: var(--text-muted); font: inherit; }
-.markdown-formatting-menu small { flex-basis: 100%; color: var(--text-secondary); font-size: 12px; }
+.markdown-formatting-menu button { display: flex; width: 100%; text-align: left; gap: .5rem; }
 .markdown-link-form { padding: .75rem .25rem .25rem; display: flex; flex-wrap: wrap; gap: .5rem .75rem; }
 .markdown-link-form label { flex: 1 1 12rem; min-width: 0; }
 .markdown-link-form input {
@@ -2562,6 +2589,12 @@ body[data-printing] .print-hide {
 .markdown-editor-surface .cm-panels-top {
   top: calc(var(--markdown-toolbar-height, 3.5rem) + var(--markdown-toolbar-offset, 0px));
   z-index: 19;
+}
+/* Find sits directly under the bar and takes over its gap, so the text moves no further.
+   Screenplays have no bar, and so no gap to take. */
+.markdown-editor-surface:has(.markdown-formatting-bar) .cm-panels-top {
+  margin-top: calc(-1 * var(--markdown-bar-gap));
+  margin-bottom: var(--markdown-bar-gap);
 }
 .markdown-editor-surface .cm-search { max-height: 45vh; overflow-y: auto; }
 .markdown-link-form { max-height: 55vh; overflow-y: auto; }

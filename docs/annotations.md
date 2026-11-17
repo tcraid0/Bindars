@@ -1,4 +1,4 @@
-# Annotations
+# Highlights, notes, and bookmarks
 
 Select text in the reader and choose a color to highlight it. Choose **Note**
 instead to create a yellow highlight and open a note ready for typing. Note
@@ -116,8 +116,9 @@ Cancel leaves the attachment unchanged.
 ## Reconnecting notes after a rename or move
 
 Choose **Reconnect notes…** in Highlights & notes or beside a missing document
-in document navigation. Select the original
-document; its full path and counts distinguish collections with the same name.
+in the sidebar. Select the original document; its location and counts distinguish
+collections with the same name. If it has no saved notes, Locate File lets you
+choose its new location and open it.
 Choose the destination file to preview how many highlighted passages are located,
 uncertain, or missing using the existing conservative annotation rules. The
 preview also counts matching bookmark headings. Images and diagram content that
@@ -185,7 +186,7 @@ other annotations are edited. Unrecognized color names are displayed as yellow,
 but their stored values survive note edits, unrelated saves, and recovery-copy
 restoration. Choosing a supported color explicitly replaces the stored value.
 
-## If annotations cannot be loaded
+## If highlights, notes, or bookmarks cannot be loaded
 
 A record with a recognizable newer version needs that version of Bindars or
 later. It is not evidence that the notes are damaged. Do not reset or rewrite it
@@ -205,8 +206,8 @@ replacing the affected file. Do not delete the migration marker to force
 reimport of stale settings, or clear the whole collection to repair one document.
 
 A damaged collection can also prevent settings and recent files from loading.
-Restart after external repair, then use **Retry loading** if the annotations
-panel still reports an error. The recovery-copy UI requires a readable
+Restart after external repair, open a document, then choose **Retry** if
+**Highlights & notes** still reports an error. The recovery-copy UI requires a readable
 destination collection; it does not reset damaged primary storage.
 
 ### Departure continuity

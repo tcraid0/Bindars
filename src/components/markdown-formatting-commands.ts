@@ -4,6 +4,7 @@ import { EditorSelection, EditorState, StateField, type ChangeSet, type ChangeSp
 import { EditorView } from "@codemirror/view";
 import type { SyntaxNode, Tree } from "@lezer/common";
 import type { Nodes, Root } from "mdast";
+import type { ShortcutId } from "../lib/shortcut-labels";
 import { assertDocumentComplexity, checkDocumentComplexity, isDocumentComplexityError } from "../lib/document-complexity";
 import { extractFrontmatter, withoutByteOrderMark } from "../lib/frontmatter";
 import { markdownSyntax } from "../lib/markdown-syntax";
@@ -27,33 +28,34 @@ export interface EmphasisCommandResult extends EmphasisCommandStatus {
   applied: boolean;
 }
 
-const LOADING_REASON = "Formatting context is still loading.";
-const MULTI_SELECTION_REASON = "Use one selection to format text.";
-export const COMPOSITION_REASON = "Finish the current composition before formatting.";
+const LOADING_REASON = "Still reading the document. Try again in a moment.";
+const MULTI_SELECTION_REASON = "Formatting works with one cursor. Click once in the text first.";
+export const COMPOSITION_REASON = "Finish typing first, then try again.";
 const READ_ONLY_REASON = "This document cannot be edited.";
 const METADATA_REASON = "Move out of the document details to format text.";
 const MATH_REASON = "Move out of math to format text.";
-const PARTIAL_SPAN_REASON = "Select the whole formatted span, or place the cursor inside it.";
-const MIXED_SPAN_REASON = "Select one plain phrase or one formatted span.";
-const CROSS_BLOCK_REASON = "Select text in a single paragraph.";
+const PARTIAL_SPAN_REASON = "Select all of the formatted words, or just click inside them.";
+const MIXED_SPAN_REASON = "Select only plain words, or only one formatted phrase.";
+const CROSS_BLOCK_REASON = "Select just the words, within one paragraph or list item.";
 const MULTILINE_REASON = "Select text on one line.";
-const HEADING_MARKER_REASON = "Select the heading text, not its marker.";
-const TASK_MARKER_REASON = "Select the checklist text, not its checkbox.";
+const HEADING_MARKER_REASON = "Select the heading's words, not the # before them.";
+const TASK_MARKER_REASON = "Select the task's words, not its checkbox.";
 const COMPLEXITY_REASON = "This document is too large or complex to format safely. Edit the markers directly.";
-const CHANGED_SYNTAX_REASON = "This would change other Markdown. Edit the markers directly.";
+const BOM_REASON = "Edit the first line's markers directly when it has a byte-order mark.";
+const CHANGED_SYNTAX_REASON = "This would also change nearby formatting, so nothing was changed.";
 
 const STYLE = {
   bold: {
     marker: "**",
     node: "StrongEmphasis",
-    empty: "Select text to make it bold.",
-    literal: "This text would not appear bold. Select different text.",
+    empty: "Select some words, or click inside a word, to make it bold.",
+    literal: "Bold wouldn't show on this text. Try selecting just the words.",
   },
   italic: {
     marker: "*",
     node: "Emphasis",
-    empty: "Select text to make it italic.",
-    literal: "This text would not appear italic. Select different text.",
+    empty: "Select some words, or click inside a word, to make it italic.",
+    literal: "Italic wouldn't show on this text. Try selecting just the words.",
   },
 } as const;
 
@@ -118,7 +120,7 @@ export function applyEmphasisCommand(
 
   const transaction = formattingTransaction(view.state, plan);
   const invalid = readerRefusal(view.state, plan, command, transaction);
-  if (invalid) return { ...refused(invalid).status, handled: true, applied: false };
+  if (invalid) return refusalResult(invalid);
 
   return dispatchFormatting(view, plan, transaction);
 }
@@ -440,6 +442,10 @@ function protectedRangeRefusal(
   return null;
 }
 
+export function refusalResult(reason: string): EmphasisCommandResult {
+  return { ...refused(reason).status, handled: true, applied: false };
+}
+
 function refused(reason: string): EmphasisEdit {
   return {
     status: { available: false, active: false, reason },
@@ -553,7 +559,7 @@ function reasonForSyntax(name: string): string | null {
     || name === "Autolink"
     || name === "URL"
     || name === "LinkMark"
-  ) return "Move out of the link to format text.";
+  ) return "This doesn't work inside a link. Click outside it first.";
   return null;
 }
 
@@ -722,13 +728,14 @@ export type ListCommand = "bullets" | "numbered" | "checklist" | "indent" | "out
 export type ListCommandStatus = EmphasisCommandStatus;
 export type ListCommandResult = EmphasisCommandResult;
 
-const LIST_LEVEL_REASON = "Place the cursor in a list to change its level.";
-const LIST_PARENT_REASON = "An item needs a preceding sibling to indent under.";
-const LIST_TOP_REASON = "This item is already at the top level.";
-const LIST_SELECTION_REASON = "Select ordinary lines or adjacent items in one list.";
-const LIST_STRUCTURE_REASON = "Select a list with ordinary text and supported sub-items.";
-const LIST_REMOVAL_REASON = "Outdent sub-items before removing this list.";
-const LIST_INLINE_REASON = "This would change formatting, a link or a line break across these lines. Edit the Markdown directly.";
+const LIST_LEVEL_REASON = "Indent works on list items. Click in a list first.";
+const LIST_PARENT_REASON = "Indent works from the second item in a list.";
+const LIST_TOP_REASON = "This item is already as far left as it goes.";
+const LIST_SELECTION_REASON = "Select items from one list, or ordinary lines, but not both.";
+const LIST_STRUCTURE_REASON = "This works on ordinary lines and lists only.";
+const LIST_REMOVAL_REASON = "Move the sub-items out first with Indent less, then try again.";
+const LIST_INLINE_REASON = "Formatting, a link or a line break runs across these lines, so nothing was changed.";
+const LIST_BLANK_REASON = "These lines are empty. Click on one line to start a list.";
 const INLINE_SPAN = /^(?:Emphasis|StrongEmphasis|Strikethrough|Link|Image)$/;
 
 interface ListItemInfo {
@@ -773,7 +780,7 @@ function dispatchFormatting(view: EditorView, plan: FormattingEdit, transaction?
   const before = view.state.doc;
   view.dispatch(transaction ?? formattingTransaction(view.state, plan));
   if (view.state.doc.eq(before)) {
-    return { available: false, active: false, reason: READ_ONLY_REASON, handled: true, applied: false };
+    return refusalResult(READ_ONLY_REASON);
   }
   return { ...plan.status, handled: true, applied: true };
 }
@@ -829,21 +836,24 @@ function taskOnLine(state: EditorState, tree: Tree, pos: number) {
   return item && state.doc.lineAt(item.from).number === line.number ? taskMarker(state, item) : null;
 }
 
-const TASK_SELECTION_REASON = "Select one checklist item";
-const TASK_CURSOR_REASON = "Place the cursor on a checklist item";
+const TASK_SELECTION_REASON = "Select just one task.";
+const TASK_CURSOR_REASON = "Put the cursor on the first line of a task.";
 
-function planTaskCompletion(state: EditorState, composing: boolean): FormattingEdit {
+/** `at` is a clicked task box: its line is used and the selection is kept. */
+function planTaskCompletion(state: EditorState, composing: boolean, at?: number): FormattingEdit {
   const unavailable = commandRefusal(state, composing);
   if (unavailable) return refused(unavailable);
   if (!checkDocumentComplexity(state.sliceDoc(), "markdown").ok) return refused(COMPLEXITY_REASON);
-  const range = state.selection.main;
+  const range = at === undefined ? state.selection.main : EditorSelection.cursor(at);
   const line = state.doc.lineAt(range.from);
   if (line.number !== state.doc.lineAt(range.to).number) return refused(TASK_SELECTION_REASON);
   const tree = treeCovering(state, line.from, line.to);
   if (!tree) return refused(LOADING_REASON);
-  const invalid = listRangeRefusal(state, tree, range.from, range.to);
-  if (invalid) return refused(invalid);
   const task = taskOnLine(state, tree, range.from);
+  const invalid = listRangeRefusal(state, tree, range.from, range.to);
+  // Protected contexts give their own reason. A heading or quote line without
+  // a task says so, as the bar does.
+  if (invalid && (task || invalid !== LIST_STRUCTURE_REASON)) return refused(invalid);
   if (!task) return refused(TASK_CURSOR_REASON);
   const checked = task.marker[1] !== " ";
   const changes = state.changes({ from: task.from + 1, to: task.to - 1, insert: checked ? " " : "x" });
@@ -919,7 +929,7 @@ function listContext(state: EditorState): ListContext | string {
   const to = state.doc.line(toLine).to;
   const invalid = listRangeRefusal(state, tree, from, to);
   if (invalid) return invalid;
-  if (from === 0 && state.doc.sliceString(0, 1) === "\uFEFF") return "Edit the first line's list markers directly when it has a byte-order mark.";
+  if (from === 0 && state.doc.sliceString(0, 1) === "\uFEFF") return BOM_REASON;
   return { tree, fromLine, toLine, items };
 }
 
@@ -940,7 +950,7 @@ function listSyntaxRefusal(state: EditorState, tree: Tree, from: number, to: num
       const item = first && listItem(state, first);
       if (item && item.number !== 1 && previous && /^(?:Paragraph|Task)$/.test(previous.name)
         && state.doc.lineAt(previous.to).number + 1 === item.line) {
-        reason = "This numbered run needs a blank line before it.";
+        reason = "Add an empty line before this numbered list first.";
         return false;
       }
     }
@@ -1012,6 +1022,7 @@ function planList(state: EditorState, command: ListCommand, composing: boolean):
       edits.push({ from: line.from, to: line.from + leading + glyph,
         insert: prefix + line.text.slice(0, leading) });
     }
+    if (!edits.length) return refused(LIST_BLANK_REASON);
   }
   const changingContainer = first && command !== "checklist"
     && (command === "numbered") !== (first.number !== null);
@@ -1179,7 +1190,7 @@ function planListIndent(state: EditorState, context: ListContext, command: "inde
     // under the old parent after an earlier sibling moves out, without either
     // reordering words or reparenting untouched items. Ask for that run together.
     if (last.node.nextSibling || !sameNode(parent.node.lastChild, first.list)) {
-      return refused("Select the trailing sibling items together to outdent them.");
+      return refused("To move this item left, select it with the items below it.");
     }
     indent = parent.indent;
     const joining = first.list.name === parent.list.name;
@@ -1222,14 +1233,14 @@ function renumberFollowing(state: EditorState, context: ListContext, after: List
  * list edit is consumed, so fixed-width fallback cannot damage the hierarchy. */
 export function listAwareIndent(view: EditorView, command: "indent" | "outdent", report?: (result: EmphasisCommandResult) => void): boolean {
   if (view.composing || view.state.readOnly) {
-    report?.({ ...refused(commandRefusal(view.state, view.composing)!).status, handled: true, applied: false });
+    report?.(refusalResult(commandRefusal(view.state, view.composing)!));
     return true;
   }
   const { state } = view;
   const ranges = state.selection.ranges;
   const tree = treeCovering(state, ranges[0].from, ranges[ranges.length - 1].to);
   if (!tree) {
-    report?.({ ...refused(LOADING_REASON).status, handled: true, applied: false });
+    report?.(refusalResult(LOADING_REASON));
     return true;
   }
   let inList = false;
@@ -1253,8 +1264,9 @@ export interface BlockCommandStatus extends EmphasisCommandStatus {
   /** Zero is prose; null is mixed/unsupported. Existing H4–H6 stay distinct. */
   headingLevel: number | null;
 }
-const BLOCK_REASON = "Select an ordinary paragraph or a supported heading.";
-const QUOTE_REASON = "Select ordinary text or one complete simple quote.";
+const BLOCK_REASON = "Text styles work on one ordinary line at a time, not in lists or quotes.";
+const DIVIDER_REASON = "Divider works on ordinary text and lists, not in quotes.";
+const QUOTE_REASON = "Quote works on ordinary paragraphs, or on a whole quote to remove it.";
 const SETEXT_REASON = "Edit this Setext heading directly.";
 
 type BlockLines = Exclude<ReturnType<typeof selectedBlockLines>, string>;
@@ -1338,7 +1350,7 @@ function planBlock(state: EditorState, command: BlockCommand, composing: boolean
   const context = selectedBlockLines(state);
   if (typeof context === "string") return refused(context);
   const { first, last, tree } = context;
-  if (first.from === 0 && first.text.startsWith("\uFEFF")) return refused("Edit the first line's markers directly when it has a byte-order mark.");
+  if (first.from === 0 && first.text.startsWith("\uFEFF")) return refused(BOM_REASON);
   const invalid = blockContentRefusal(state, tree, first.from, last.to);
   if (invalid) return refused(invalid);
   const blocks = touchedBlocks(context);
@@ -1379,7 +1391,7 @@ function planBlock(state: EditorState, command: BlockCommand, composing: boolean
 }
 
 function planDivider(state: EditorState, context: BlockLines, blocks: SyntaxNode[]): FormattingEdit {
-  if (blocks.some((node) => !/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12]|BulletList|OrderedList|HorizontalRule)$/.test(node.name))) return refused(BLOCK_REASON);
+  if (blocks.some((node) => !/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12]|BulletList|OrderedList|HorizontalRule)$/.test(node.name))) return refused(DIVIDER_REASON);
   for (const block of blocks) {
     if (block.name === "BulletList" || block.name === "OrderedList") {
       const invalid = listRangeRefusal(state, context.tree, block.from, block.to);
@@ -1458,8 +1470,8 @@ export interface LinkCommandIntent {
   readonly target: object;
   readonly context: LinkCommandContext;
 }
-const LINK_CONTEXT_REASON = "Select plain text in one paragraph, outside existing links or formatting.";
-const LINK_STALE_REASON = "The document or selection changed. Open Link again.";
+const LINK_CONTEXT_REASON = "Select plain words in one paragraph, not bold, italic or linked ones.";
+export const LINK_STALE_REASON = "Something changed while the link box was open. Choose Link again.";
 const activeLinkIntents = new WeakSet<LinkCommandIntent>();
 
 // This derived identity never rewinds with history. It also distinguishes a
@@ -1540,13 +1552,12 @@ export function cancelLinkCommand(view: EditorView, intent: LinkCommandIntent, c
 
 export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, input: LinkCommandInput,
   context: LinkCommandContext): EmphasisCommandResult {
-  const refuse = (reason: string) => ({ ...refused(reason).status, handled: true as const, applied: false });
-  if (!linkCommandIsCurrent(view, intent, context)) return refuse(LINK_STALE_REASON);
+  if (!linkCommandIsCurrent(view, intent, context)) return refusalResult(LINK_STALE_REASON);
   const invalid = linkRefusal(view.state, view.composing);
-  if (invalid) return refuse(invalid);
-  if (!input.label.trim() || /[\u0000-\u001f\u007f]/.test(input.label)) return refuse("Enter a label without line breaks or control characters.");
+  if (invalid) return refusalResult(invalid);
+  if (!input.label.trim() || /[\u0000-\u001f\u007f]/.test(input.label)) return refusalResult("Enter the link text on one line.");
   const destination = markdownLinkDestination(input.destination, context.filePath);
-  if (!destination) return refuse("Enter an http, https, mailto, #section, or relative document link.");
+  if (!destination) return refusalResult("Start a web address with https://, or use one of the kinds listed above.");
   const label = input.label.replace(/[\\`*_[\]<>~&]/g, "\\$&");
   const escapedDestination = destination.replace(/[ <>\\]/g, (char) => encodeURIComponent(char)).replace(/&/g, "&amp;");
   const insert = `[${label}](<${escapedDestination}>)`;
@@ -1567,8 +1578,8 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
         && node.children.map((child) => child.type === "text" ? child.value : "").join("") === input.label
         && node.url === destination.replace(/[ <>\\]/g, (char) => encodeURIComponent(char));
     });
-    if (!valid) return refuse(CHANGED_SYNTAX_REASON);
-  } catch (error) { return refuse(isDocumentComplexityError(error) ? COMPLEXITY_REASON : LOADING_REASON); }
+    if (!valid) return refusalResult(CHANGED_SYNTAX_REASON);
+  } catch (error) { return refusalResult(isDocumentComplexityError(error) ? COMPLEXITY_REASON : LOADING_REASON); }
   const result = dispatchFormatting(view, plan, transaction);
   if (result.applied) activeLinkIntents.delete(intent);
   return result;
@@ -1576,6 +1587,14 @@ export function applyLinkCommand(view: EditorView, intent: LinkCommandIntent, in
 
 
 export type FormattingCommand = EmphasisCommand | ListCommand | BlockCommand | "toggleTask";
+/** Primary-key formatting shortcuts shared by the editor, labels and focused
+ * bar buttons. Key letters also appear in shortcut-labels.ts for display,
+ * following the app's existing convention. */
+export const FORMATTING_SHORTCUTS: readonly { command: FormattingCommand; key: string; shortcut: ShortcutId }[] = [
+  { command: "bold", key: "b", shortcut: "formatBold" },
+  { command: "italic", key: "i", shortcut: "formatItalic" },
+  { command: "toggleTask", key: "l", shortcut: "markDone" },
+];
 export type ToolbarCommand = FormattingCommand | "link";
 export interface FormattingFeedback {
   /** Available means safe to attempt. Apply always validates the live state. */
@@ -1593,8 +1612,9 @@ const TOOLBAR_COMMANDS: readonly ToolbarCommand[] = [
   "divider", "checklist", "quote", "indent", "outdent", "link", "toggleTask",
 ];
 
-export function executeFormattingCommand(view: EditorView, command: FormattingCommand): EmphasisCommandResult {
-  if (command === "toggleTask") return dispatchFormatting(view, planTaskCompletion(view.state, view.composing));
+/** `at` names a clicked task box; other commands ignore it. */
+export function executeFormattingCommand(view: EditorView, command: FormattingCommand, at?: number): EmphasisCommandResult {
+  if (command === "toggleTask") return dispatchFormatting(view, planTaskCompletion(view.state, view.composing, at));
   if (command === "bold" || command === "italic") return applyEmphasisCommand(view, command);
   if (command === "bullets" || command === "numbered" || command === "checklist"
     || command === "indent" || command === "outdent") return applyListCommand(view, command);
@@ -1687,7 +1707,10 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     const name = firstBlock!.name;
     result.headingLevel = name === "Paragraph" ? 0 : /^(?:ATX|Setext)Heading[1-6]$/.test(name) ? Number(name.slice(-1)) : null;
     if (/^SetextHeading/.test(name)) disable(["paragraph", "h1", "h2", "h3"], SETEXT_REASON);
-    if (!/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12])$/.test(name)) disable(["paragraph", "h1", "h2", "h3"], BLOCK_REASON);
+    // Keep a more specific reason already found, and name code, HTML or a table as the command does.
+    if (!/^(?:Paragraph|ATXHeading[1-6]|SetextHeading[12])$/.test(name)) {
+      disable((["paragraph", "h1", "h2", "h3"] as const).filter(id => commands[id].available), reasonForSyntax(name) ?? BLOCK_REASON);
+    }
     if (/^(?:BulletList|OrderedList)$/.test(name)) disable(["quote"], QUOTE_REASON);
     if (name === "Blockquote") commands.quote.active = true;
     else if (name === "Paragraph") commands.quote.active = false;
@@ -1703,8 +1726,16 @@ export function formattingToolbarState(state: EditorState, composing = false): F
     if (task) commands.toggleTask.active = task.marker[1] !== " ";
     else disable(["toggleTask"], TASK_CURSOR_REASON);
   }
-  const firstItem = ancestor(tree.resolveInner(range.from, 1), "ListItem");
-  const lastItem = ancestor(tree.resolveInner(end, 1), "ListItem");
+  // A line belongs to the item found at its first non-space character, the rule
+  // listContext uses, so the bar and the list commands agree. At most 100
+  // characters are read, which keeps feedback bounded (B10).
+  const lineStart = (pos: number) => {
+    const at = state.doc.lineAt(pos);
+    return at.from + /^\s*/.exec(state.doc.sliceString(at.from, Math.min(at.to, at.from + 100)))![0].length;
+  };
+  const start = lineStart(range.from);
+  const firstItem = ancestor(tree.resolveInner(start, 1), "ListItem");
+  const lastItem = ancestor(tree.resolveInner(lineStart(end), 1), "ListItem");
   if (sameNode(firstItem, lastItem)) {
     const item = listItem(state, firstItem!);
     if (item) {
@@ -1715,6 +1746,10 @@ export function formattingToolbarState(state: EditorState, composing = false): F
   } else if (!firstItem && !lastItem && complete && sameNode(firstBlock, lastBlock) && firstBlock?.name === "Paragraph") {
     for (const id of ["bullets", "numbered", "checklist"] as const) if (commands[id].available) commands[id].active = false;
     disable(["indent", "outdent"], LIST_LEVEL_REASON);
+  } else if (!firstItem && !lastItem && range.empty && start === line.to) {
+    // An empty or whitespace-only line outside any item: Indent finds nothing to move.
+    // A tab there is refused first by the command (listRangeRefusal), so say the same.
+    disable(["indent", "outdent"], /^ *\t/.test(line.text) ? LIST_STRUCTURE_REASON : LIST_LEVEL_REASON);
   }
   return result;
 }

@@ -10,6 +10,7 @@ const NATIVE_CATEGORIES = new Set<NativeFileErrorCategory>([
   "alreadyExists",
   "permissionDenied",
   "readOnly",
+  "storageFull",
   "resourceUnavailable",
   "invalidInput",
   "incompleteWrite",
@@ -60,6 +61,7 @@ function appErrorCategory(error: NormalizedFileError): ErrorCategory {
       case "readOnly": return "read-only";
       case "resourceUnavailable": return "resource-unavailable";
       case "invalidInput": return "generic";
+      case "storageFull":
       case "alreadyExists":
       case "incompleteWrite":
       case "unknown": return "generic";

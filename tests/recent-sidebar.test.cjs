@@ -4,7 +4,7 @@ const { act } = require("react");
 const { renderComponent, click, focus, pressKey } = require("./_helpers/component-view.cjs");
 const { RecentFiles } = require("../.tmp/workspace-tests/src/components/RecentFiles.js");
 const { Sidebar } = require("../.tmp/workspace-tests/src/components/Sidebar.js");
-const { recentLocationLabels, toPathIdentityKey } = require("../.tmp/workspace-tests/src/lib/paths.js");
+const { recentLocationLabels, toPathIdentityKey, setHomeDirectory } = require("../.tmp/workspace-tests/src/lib/paths.js");
 const { prepareCatalogDocument } = require("../.tmp/workspace-tests/src/lib/document-catalog.js");
 
 const recent = path => ({ path, name: path.split(/[/\\]/).at(-1), openedAt: 1, lastHeadingId: null });
@@ -122,6 +122,22 @@ test("focus describes without opening; Escape dismisses once; opening and unavai
   assert.equal(retry.disabled, true);
   assert.equal(rows(view.host)[1].querySelector('[aria-label^="Remove"]').disabled, true);
   await wait(170);
+});
+
+test("a sidebar row's Opening… is spoken but takes no room, while Unavailable and Home rows keep their line", t => {
+  const files = [recent("/notes.md"), recent("/missing.md")];
+  const view = mount(t, files, { recovery: { path: files[1].path, retryDisabled: false }, onRetry() {} });
+  const statusLine = row => [...openButton(row).querySelectorAll("div")].find(node => /^(Opening…|Unavailable)$/.test(node.textContent));
+  view.render({ openingPath: files[0].path });
+  assert.ok(statusLine(rows(view.host)[0]).classList.contains("sr-only"));
+  assert.equal(statusLine(rows(view.host)[1]).textContent, "Unavailable");
+  assert.equal(statusLine(rows(view.host)[1]).classList.contains("sr-only"), false);
+  view.render({ openingPath: files[1].path });
+  assert.equal(statusLine(rows(view.host)[1]).textContent, "Opening…");
+  assert.equal(statusLine(rows(view.host)[1]).classList.contains("sr-only"), false, "Retry keeps the unavailable row's line");
+  view.render({ welcome: true, openingPath: files[0].path });
+  assert.match(rows(view.host)[0].textContent, /Opening…/);
+  assert.ok(!rows(view.host)[0].querySelector(".sr-only"), "Home rows are unchanged");
 });
 
 test("hover waits, survives the pointer crossing onto details, and cleans up after leaving/removal", async t => {
@@ -274,4 +290,21 @@ test("Drafts discloses its shared directory once and keeps numbered names and re
   assert.equal(view.host.querySelectorAll("details.document-location").length, 1, "an empty known drafts folder still has its location");
   view.render({ docs, workspaceState: { status: "ready", draftsRootPath: null } });
   assert.equal(view.host.querySelectorAll(".navigation-help > details.document-location").length, 0, "a file's parent is not a substitute for an unknown drafts root");
+});
+
+
+test("Recent still separates colliding names when only the person's home is omitted", () => {
+  for (const [home, paths] of [
+    ["/Users/reader", ["/Users/reader/Work/Notes/file.md", "/Users/another/Work/Notes/file.md", "/Users/Shared/Work/Notes/file.md"]],
+    ["C:/Users/Reader", ["C:/Users/Reader/Work/Notes/file.md", "C:/Users/Other/Work/Notes/file.md"]],
+  ]) {
+    setHomeDirectory(home);
+    try {
+      const labels = recentLocationLabels(paths);
+      assert.equal(new Set(labels.values()).size, paths.length);
+      assert.equal(labels.get(toPathIdentityKey(paths[0])), "Work › Notes");
+      assert.match(labels.get(toPathIdentityKey(paths[1])), /another|Other/);
+      if (paths[2]) assert.match(labels.get(toPathIdentityKey(paths[2])), /Shared/);
+    } finally { setHomeDirectory(null); }
+  }
 });

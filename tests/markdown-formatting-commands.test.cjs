@@ -15,34 +15,34 @@ const {
   emphasisCommandStatus,
 } = require("../.tmp/workspace-tests/src/components/markdown-formatting-commands.js");
 
-const PARTIAL = "Select the whole formatted span, or place the cursor inside it.";
-const MIXED = "Select one plain phrase or one formatted span.";
-const CROSS = "Select text in a single paragraph.";
+const PARTIAL = "Select all of the formatted words, or just click inside them.";
+const MIXED = "Select only plain words, or only one formatted phrase.";
+const CROSS = "Select just the words, within one paragraph or list item.";
 const MULTILINE = "Select text on one line.";
-const MULTI = "Use one selection to format text.";
-const LOADING = "Formatting context is still loading.";
+const MULTI = "Formatting works with one cursor. Click once in the text first.";
+const LOADING = "Still reading the document. Try again in a moment.";
 const METADATA = "Move out of the document details to format text.";
 const MATH = "Move out of math to format text.";
 const CODE = "Move out of code to format text.";
 const HTML = "Move out of HTML to format text.";
 const TABLE = "Move out of the table to format text.";
-const LINK = "Move out of the link to format text.";
-const MARKER = "Select the heading text, not its marker.";
-const COMPOSITION = "Finish the current composition before formatting.";
+const LINK = "This doesn't work inside a link. Click outside it first.";
+const MARKER = "Select the heading's words, not the # before them.";
+const COMPOSITION = "Finish typing first, then try again.";
 const READ_ONLY = "This document cannot be edited.";
-const CHANGED_SYNTAX = "This would change other Markdown. Edit the markers directly.";
-const CHECKBOX = "Select the checklist text, not its checkbox.";
+const CHANGED_SYNTAX = "This would also change nearby formatting, so nothing was changed.";
+const CHECKBOX = "Select the task's words, not its checkbox.";
 
 function emptyReason(command) {
   return command === "bold"
-    ? "Select text to make it bold."
-    : "Select text to make it italic.";
+    ? "Select some words, or click inside a word, to make it bold."
+    : "Select some words, or click inside a word, to make it italic.";
 }
 
 function literalReason(command) {
   return command === "bold"
-    ? "This text would not appear bold. Select different text."
-    : "This text would not appear italic. Select different text.";
+    ? "Bold wouldn't show on this text. Try selecting just the words."
+    : "Italic wouldn't show on this text. Try selecting just the words.";
 }
 
 const { notation, createView, withView, useSpec, selected } = require("./_helpers/markdown-command-view.cjs");

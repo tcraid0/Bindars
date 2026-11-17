@@ -232,7 +232,7 @@ function buildHeadingDecorationSet(view: EditorView): DecorationSet {
         if (start < end) ranges.push(Decoration.mark({ class: node.name === "StrongEmphasis" ? "cm-md-strong" : "cm-md-emphasis" }).range(start, end));
       } else if (node.name === "EmphasisMark" || node.name === "ListMark" || node.name === "TaskMarker") {
         const start = Math.max(from, node.from), end = Math.min(decoratedTo, node.to);
-        if (start < end) ranges.push(Decoration.mark({ class: "cm-md-marker" }).range(start, end));
+        if (start < end) ranges.push(Decoration.mark({ class: node.name === "TaskMarker" ? "cm-md-marker cm-md-task" : "cm-md-marker" }).range(start, end));
       } else if (node.name === "HorizontalRule") {
         const line = view.state.doc.lineAt(node.from);
         ranges.push(Decoration.line({ class: "cm-md-divider" }).range(line.from));

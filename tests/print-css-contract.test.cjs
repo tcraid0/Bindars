@@ -8,13 +8,28 @@ const mermaidBlock = fs.readFileSync(path.join(__dirname, "../src/components/Mer
 
 // These are CSS contracts, not layout/PDF tests. Match declarations attached
 // to the requested selector, rather than accepting a rule elsewhere in the file.
-function printDeclarations(selector) {
-  const printCss = css.slice(css.indexOf("@media print")).replace(/\/\*[\s\S]*?\*\//g, "");
-  return [...printCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+function declarations(cssText, selector) {
+  const withoutComments = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .filter(([, selectors]) => selectors.split(",").some((value) => value.trim() === selector))
     .map(([, , declarations]) => declarations)
     .join("\n");
 }
+
+function printDeclarations(selector) {
+  return declarations(css.slice(css.indexOf("@media print")), selector);
+}
+
+test("task items hang their checkbox instead of using a flex row", () => {
+  assert.doesNotMatch(declarations(css, ".markdown-body li.task-list-item"), /display:\s*flex/);
+});
+
+test("print checkboxes take their size from the screen rule", () => {
+  const rule = printDeclarations('.markdown-body input[type="checkbox"]');
+  assert.doesNotMatch(rule, /(?:width|height|margin(?:-[a-z]+)?):/);
+  assert.match(rule, /appearance:\s*none !important/);
+  assert.match(rule, /border:\s*1.5pt solid #666 !important/);
+});
 
 test("reader surfaces have no delayed entrance animation", () => {
   assert.doesNotMatch(css, /\.file-content-enter/);
@@ -244,4 +259,18 @@ test("native and CSS print margins agree in physical units", () => {
   assert.match(printDeclarations("@page"), /margin:\s*2cm\s*;/);
   const native = fs.readFileSync(path.join(__dirname, "../src-tauri/src/printing.rs"), "utf8");
   assert.match(native, /PRINT_MARGIN_POINTS:\s*f64\s*=\s*2\.0\s*\/\s*2\.54\s*\*\s*72\.0/);
+});
+
+test("the formatting accent excludes the Styled/Plain preference", () => {
+  assert.equal(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]').trim(), "");
+  assert.match(declarations(css, '.markdown-formatting-toolbar [aria-pressed="true"]:not([data-styled-toggle])'), /color:\s*var\(--accent-text\)/);
+});
+
+test("Find takes over the formatting bar's gap only where the bar exists", () => {
+  assert.match(declarations(css, ".markdown-formatting-bar"), /margin-bottom:\s*var\(--markdown-bar-gap\);/);
+  const pulled = declarations(css, ".markdown-editor-surface:has(.markdown-formatting-bar) .cm-panels-top");
+  assert.match(pulled, /margin-top:\s*calc\(-1 \* var\(--markdown-bar-gap\)\);/);
+  assert.match(pulled, /margin-bottom:\s*var\(--markdown-bar-gap\);/);
+  // Screenplays share the editor without a bar; their Find keeps today's place.
+  assert.doesNotMatch(declarations(css, ".markdown-editor-surface .cm-panels-top"), /margin/);
 });

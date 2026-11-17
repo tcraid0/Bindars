@@ -18,7 +18,7 @@ const menu = action => act(async () => emit("bindars://menu-action", { action })
 const hint = view => view.host.querySelector('[aria-label="Dismiss sidebar hint"]');
 
 async function mount(t, { initialPath = "/fixture/A.md", platform = "Linux x86_64", readingDismissed = true,
-  sidebarDismissed = false, localDismissed = false } = {}) {
+  sidebarDismissed = false, localDismissed = false, initialize = () => ({ settingsReady: true }) } = {}) {
   window.localStorage.clear();
   const priorStorage = globalThis.localStorage;
   globalThis.localStorage = window.localStorage;
@@ -32,7 +32,7 @@ async function mount(t, { initialPath = "/fixture/A.md", platform = "Linux x86_6
   const native = createNativeOpenIpc(initialPath);
   const writes = [], dialogs = [], titleStates = [], listings = [];
   const ipc = native.wrap((cmd, args = {}) => {
-    if (cmd === "initialize_annotation_storage") return { settingsReady: true };
+    if (cmd === "initialize_annotation_storage") return initialize();
     if (cmd === "get_setting") {
       if (args.key === "config-version") return 3;
       if (args.key === "recent-files") return { version: 1, files: [] };
@@ -98,7 +98,7 @@ for (const action of ["dismiss", "show", "toolbar", "shortcut", "menu"]) {
     hint(view).focus();
     if (action === "dismiss") click(hint(view));
     if (action === "show") click(buttonWithText(view.host.querySelector(".hint-bar"), "Show Sidebar"));
-    if (action === "toolbar") click(view.host.querySelector('[aria-label="Toggle sidebar"]'));
+    if (action === "toolbar") click(view.host.querySelector('button[aria-label="Sidebar"]'));
     if (action === "shortcut") view.key("b");
     if (action === "menu") await menu("toggle-sidebar");
     await until(() => assert.ok(!hint(view)));
@@ -110,6 +110,40 @@ for (const action of ["dismiss", "show", "toolbar", "shortcut", "menu"]) {
     assert.ok(!hint(view));
   });
 }
+
+test("panel buttons name their panel and say whether it is shown", async t => {
+  const oldWidth = window.innerWidth;
+  t.after(() => Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth }));
+  const view = await mount(t, { platform: "MacIntel" });
+  await act(async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
+    window.dispatchEvent(new Event("resize"));
+  });
+  const panels = [
+    ["Sidebar", '[data-reader-panel="sidebar"]', "Sidebar"],
+    ["Contents", 'nav[aria-label="Contents"]', "Contents"],
+    ["Highlights & notes", '[data-reader-panel="notes"]', "Highlights & notes"],
+  ];
+  const button = name => view.host.querySelector(`header button[aria-label="${name}"]`);
+  const check = () => {
+    for (const [name, selector, titleName] of panels) {
+      const shown = Boolean(view.host.querySelector(selector));
+      assert.equal(button(name).getAttribute("aria-expanded"), String(shown), name);
+      assert.ok(button(name).title.startsWith(`${shown ? "Hide" : "Show"} ${titleName} (`), name);
+    }
+  };
+  check();
+  for (const [name] of panels) {
+    click(button(name)); check();
+    click(button(name)); check();
+  }
+  click(button("Sidebar")); click(button("Highlights & notes"));
+  await act(async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    window.dispatchEvent(new Event("resize"));
+  });
+  check();
+});
 
 test("reading hint has priority; dismissing it waits for a later open before the sidebar hint", async t => {
   const view = await mount(t, { readingDismissed: false });
@@ -146,7 +180,7 @@ test("the local dismissal mirror suppresses the hint even when settings have not
   assert.equal(view.writes.filter(write => write.key === "sidebar-hint-dismissed").length, 0);
 });
 
-test("menu sidebar actions sync intent, respect dialogs, and hide a fit-hidden sidebar", async t => {
+test("menu sidebar actions match visible panels, respect dialogs, and show a fit-hidden sidebar", async t => {
   const view = await mount(t, { platform: "MacIntel" });
   const sidebar = () => view.host.querySelector('[data-reader-panel="sidebar"]');
   assert.equal(view.titleStates.at(-1), false);
@@ -167,17 +201,22 @@ test("menu sidebar actions sync intent, respect dialogs, and hide a fit-hidden s
       window.dispatchEvent(new Event("resize"));
     });
     assert.ok(!sidebar());
-    assert.equal(view.titleStates.at(-1), true, "fit must not change the menu's intent payload");
+    assert.equal(view.titleStates.at(-1), false, "the menu offers Show Sidebar when it is fitted away");
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true", "fitting does not erase the preference");
     await menu("toggle-sidebar");
-    assert.equal(view.titleStates.at(-1), false, "Hide Sidebar clears intent even when fitted away");
+    assert.ok(sidebar());
+    assert.equal(view.titleStates.at(-1), true);
+    assert.ok(!view.host.querySelector('[data-reader-panel="notes"]'));
     await act(async () => {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
       window.dispatchEvent(new Event("resize"));
     });
-    assert.ok(!sidebar());
-    await menu("toggle-sidebar");
+    assert.ok(sidebar());
     assert.deepEqual([...sidebar().querySelectorAll('[data-path]')].map(row => row.dataset.path), ["/fixture/B.md", "/fixture/A.md"]);
     assert.equal(view.titleStates.at(-1), true);
+    await menu("toggle-sidebar");
+    assert.ok(!sidebar());
+    assert.equal(view.titleStates.at(-1), false);
   } finally { Object.defineProperty(window, "innerWidth", { configurable: true, value: oldWidth }); }
 });
 
@@ -188,13 +227,77 @@ for (const initialPath of [null, "/fixture/Project/A.md"]) {
     await menu("toggle-sidebar");
     click(view.host.querySelector('#navigation-tab-Drafts'));
     assert.match(view.host.textContent, /New documents are saved here until you save them somewhere else\./);
-    assert.ok(buttonWithText(view.host, "Show existing drafts"));
+    assert.ok(buttonWithText(view.host, "Show earlier drafts"));
     assert.ok(view.listings.every(args => args.force === false), "the Drafts privacy gate is never forced by discovery");
     click(view.host.querySelector('#navigation-tab-Folders'));
-    assert.match(view.host.textContent, /Add a folder to browse the documents in it\. Nothing is moved or copied\./);
+    assert.match(view.host.textContent, /Choose a folder to see its documents here\. Your files stay where they are\./);
     click(buttonWithText(view.host, "Add Folder…"));
     await until(() => assert.equal(view.dialogs.length, 1));
     assert.equal(view.dialogs[0].directory, true);
     assert.equal(view.dialogs[0].defaultPath, initialPath ? "/fixture/Project" : undefined);
   });
 }
+
+
+test("on macOS, Show earlier drafts says the Mac may ask first", async t => {
+  const view = await mount(t, { platform: "MacIntel" });
+  await menu("toggle-sidebar");
+  click(view.host.querySelector('#navigation-tab-Drafts'));
+  assert.ok(buttonWithText(view.host, "Show earlier drafts"));
+  assert.match(view.host.textContent, /Your Mac may ask to let Bindars open Documents\./);
+});
+
+test("Focus mode keeps the menu toggling the saved sidebar preference", async t => {
+  const view = await mount(t, { platform: "MacIntel" });
+  view.key("f", { shiftKey: true });
+  assert.ok(!view.host.querySelector("header"));
+  for (const shown of [true, false]) {
+    await menu("toggle-sidebar");
+    assert.equal(view.titleStates.at(-1), shown);
+    assert.equal(localStorage.getItem("bindars-sidebar-visible"), String(shown));
+    assert.ok(!view.host.querySelector('[data-reader-panel="sidebar"]'));
+  }
+  view.key("f", { shiftKey: true });
+  assert.ok(view.host.querySelector("header"));
+  assert.ok(!view.host.querySelector('[data-reader-panel="sidebar"]'));
+});
+
+test("presentation ignores menu sidebar actions and retains the preference on exit", async t => {
+  const originalMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = window.matchMedia.bind(window);
+  t.after(() => { globalThis.matchMedia = originalMatchMedia; });
+  const view = await mount(t, { platform: "MacIntel" });
+  await menu("toggle-sidebar");
+  pressKey("F5");
+  await until(() => assert.ok(view.host.querySelector(".presentation-overlay")));
+  assert.ok(!view.host.querySelector("header"));
+  const writesBefore = view.writes.length;
+  await menu("toggle-sidebar");
+  assert.equal(view.writes.length, writesBefore);
+  assert.equal(view.titleStates.at(-1), true);
+  assert.equal(localStorage.getItem("bindars-sidebar-visible"), "true");
+  assert.ok(!view.host.querySelector('[data-reader-panel="sidebar"]'));
+  pressKey("Escape");
+  assert.ok(view.host.querySelector('[data-reader-panel="sidebar"]'));
+});
+
+test("startup storage failure on Home explains how to reach a working Retry", async t => {
+  let fail = true;
+  const view = await mount(t, { initialPath: null, initialize() {
+    if (fail) throw Error("storage unavailable");
+    return { settingsReady: true };
+  } });
+  const advice = "Couldn't open your saved highlights and notes. Your existing highlights, notes, and bookmarks were kept. Open a document, then choose Retry in Highlights & notes.";
+  await until(() => assert.ok(document.body.textContent.includes(advice)));
+  assert.ok(!view.host.querySelector('button[aria-label="Highlights & notes"]'));
+  await view.open("/fixture/B.md");
+  click(view.host.querySelector('button[aria-label="Highlights & notes"]'));
+  const panel = view.host.querySelector('[data-reader-panel="notes"]');
+  await until(() => assert.ok(buttonWithText(panel, "Retry")));
+  fail = false;
+  click(buttonWithText(panel, "Retry"));
+  await until(() => {
+    assert.ok(!panel.querySelector('[role="alert"]'));
+    assert.ok(![...panel.querySelectorAll("button")].some(button => button.textContent === "Retry"));
+  });
+});

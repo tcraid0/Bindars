@@ -10,7 +10,8 @@ what older builds may have left behind.
 ## Autosave and the Drafts folder
 
 While editing, autosave runs after 2.5 seconds of idle time, or within 10 seconds
-of the first unsaved change while you keep typing. Existing documents save to
+of the first unsaved change while you keep typing. Autosave also runs when you
+switch away from Bindars. Existing documents save to
 their own files. New documents become ordinary Markdown files in **Bindars
 Drafts**, inside your system's Documents folder, at their first autosave. Files
 are named `Untitled.md`, `Untitled 2.md`, and so on without replacing existing
@@ -20,7 +21,8 @@ While editing a file in this folder, **Save** opens the filename and location
 dialog. A name with no extension is saved as `.md`. If that added-extension
 filename already exists, Bindars leaves it untouched and asks for another name.
 Selecting an existing file with a supported extension allows replacement through
-the save dialog. After saving successfully elsewhere, Bindars removes the
+the save dialog. Save As refuses a destination with saved highlights, notes, or
+bookmarks; choose another name. After saving successfully elsewhere, Bindars removes the
 original draft only if it can confirm that the draft has no highlights, notes,
 or bookmarks, that the draft still holds the text Bindars last saved to it,
 and that the new file still holds the text just saved. Otherwise it keeps the
@@ -36,14 +38,18 @@ while saving the open file, or a conflict with changes made outside Bindars,
 also pauses autosave and shows a warning. Resolve the warning or save
 elsewhere to protect further edits.
 
+A slow save shows **Saving…** after about two seconds, then **Still saving. Your
+text is safe in this window.** after about thirty seconds.
+
 On macOS, quitting from the Dock uses the same save decisions as **Quit Bindars**.
 Logging out or shutting down first cancels the system request while Bindars
 finishes its save decisions. After Bindars quits, you may need to request logout
 or shutdown again. Force Quit cannot wait for unsaved work.
 
 Changes since the last successful save can be lost after an unexpected
-shutdown. Discarding changes or reloading from disk also loses the unsaved text;
-there is no recovery copy of it. Autosave does not replace backups or a version
+shutdown. Choosing **Don't save**, or **Use other version** after a document
+changes outside Bindars, also loses the unsaved text; there is no recovery copy
+of it. Autosave does not replace backups or a version
 history you manage yourself.
 
 ## Making a copy before editing
@@ -62,7 +68,8 @@ The copy contains the document text; annotations remain with the original path.
 
 Saving an existing file writes the complete new text to a hidden file in the
 same folder first, named `.bindars-save-` followed by a unique suffix, and then
-swaps it with the document. If the volume cannot safely swap files, replacement
+swaps it with the document. On macOS, saving keeps the file's creation date.
+If the volume cannot safely swap files, replacement
 is refused; use Save As with a new name or on a different drive. Exports write a hidden `.bindars-export-md-…` file first and
 rename it over the destination. On Windows the temporary file for saves is
 named `.bindars-tmp-…` and is not hidden. These files are plain, unencrypted
@@ -87,7 +94,7 @@ replace existing documents. On macOS, Bindars also requires the volume to report
 swap support; missing or unverifiable support is refused before replacement.
 This includes exFAT and FAT32 and can affect network shares. The editor keeps
 your text, pauses autosave for that path, and offers **Save As**. Choose a new
-filename or a different drive. Confirming Overwrite does not bypass this check.
+filename or a different drive. Choosing **Keep my changes** does not bypass this check.
 Creating a new file remains supported; choosing an existing destination on an
 unsupported volume is refused. A file already changed before the revision check
 still produces the normal conflict decision.
@@ -161,7 +168,7 @@ Adding or removing the optional browsing folder changes no document, annotation,
 or autosave destination. Existing `workspace:root` preferences and their legacy
 local-storage fallback continue to identify this one folder without conversion.
 
-On macOS, Drafts isn't listed until Bindars has saved a draft or **Show existing
+On macOS, Drafts isn't listed until Bindars has saved a draft or **Show earlier
 drafts** has found one. This prevents Drafts itself from requesting Documents
 access at launch. An empty `drafts-created` file in
 `~/Library/Application Support/io.github.tcraid0.bindars/`

@@ -900,6 +900,8 @@ test("scroll-only movement captures the first visible editor line without moving
       cursor: { line: 1, column: 1 },
       viewport: { line: 3, column: 1 },
       viewportMoved: true,
+      cursorTopPx: null,
+      viewportTopPx: 100,
     });
     assert.deepEqual(view.state.selection.main.toJSON(), beforeSelection);
   } finally {
@@ -950,6 +952,70 @@ test("the view counts as moved only after the user scrolls it", async () => {
   }
 });
 
+test("the editor opens on Read's screen height below the bar, and centres without one", async () => {
+  const original = EditorView.scrollIntoView;
+  const scrolls = [];
+  EditorView.scrollIntoView = (position, options) => {
+    scrolls.push({ position, ...options });
+    return original(position, options);
+  };
+  try {
+    // CodeMirror's own scroll leaves the line at screen 300 here. Where Read's height applies,
+    // the editor then moves the line the rest of the way; a centred opening is left alone.
+    for (const [label, initialScreenTopPx, withBar, expected, correctedScrollTop] of [
+      ["Read's height", 250, true, { y: "start", yMargin: 250 - 50 - 58 }, 300 - 250],
+      ["floored at the stuck bar", 80, true, { y: "start", yMargin: 0 }, 300 - (50 + 58)],
+      ["no Read height", null, true, { y: "center" }, 0],
+      ["no formatting bar", 250, false, { y: "center" }, 0],
+    ]) {
+      await installDom();
+      scrolls.length = 0;
+      // Main's top is 50 on screen; the 58-px bar sits at rest at its top.
+      const scrollRootRef = setScrollRoot({ top: 50, bottom: 450 });
+      const bar = document.createElement("div");
+      const controls = document.createElement("div");
+      bar.appendChild(controls);
+      document.body.appendChild(bar);
+      bar.style.top = "0px";
+      Object.defineProperty(bar, "offsetHeight", { value: 58 });
+      bar.getBoundingClientRect = () => ({
+        x: 0, y: 50, top: 50, bottom: 108, left: 0, right: 800, width: 800, height: 58, toJSON() {},
+      });
+      const rendered = await renderEditor({
+        initialDocument: "# Title\n\nFirst\n\nReading here",
+        initialPosition: { line: 5, column: 1 },
+        initialScreenTopPx,
+        scrollRootRef,
+        formattingControlsRef: withBar ? { current: controls } : undefined,
+        onBufferChange() { return false; },
+      });
+      try {
+        const view = findEditorView(rendered.host);
+        // With a height and the Window global, CodeMirror's first measure completes as in the app.
+        Object.defineProperty(view.scrollDOM, "clientHeight", { value: 400 });
+        globalThis.Window = window.constructor;
+        view.contentDOM.querySelectorAll(".cm-line")[4].getBoundingClientRect = () => ({
+          x: 0, y: 300, top: 300, bottom: 330, left: 0, right: 300, width: 300, height: 30, toJSON() {},
+        });
+        await settleFrames();
+        const anchor = view.state.doc.line(5).from;
+        assert.deepEqual(scrolls, [{ position: anchor, ...expected }], label);
+        assert.equal(document.body.scrollTop, correctedScrollTop, label);
+        assert.equal(view.state.selection.main.head, anchor, label);
+        document.body.dispatchEvent(new window.Event("scroll"));
+        assert.equal(rendered.ref.current.capturePosition().viewportMoved, false, label);
+        assert.equal(undo(view), false, `${label}: the initial scroll adds no history`);
+      } finally {
+        rendered.cleanup();
+        bar.remove();
+      }
+    }
+  } finally {
+    EditorView.scrollIntoView = original;
+    delete globalThis.Window;
+  }
+});
+
 for (const [label, initialDocument, line] of [
   ["the visible editor line is read below the sticky formatting controls", "Covered\nVisible\nBelow", 2],
   ["a blank line just below the sticky controls yields the next visible text", "Covered\n\nVisible", 3],
@@ -989,6 +1055,8 @@ for (const [label, initialDocument, line] of [
       cursor: { line: 1, column: 1 },
       viewport: { line, column: 1 },
       viewportMoved: true,
+      cursorTopPx: 40,
+      viewportTopPx: tops[line - 1],
     });
   } finally {
     rendered.cleanup();

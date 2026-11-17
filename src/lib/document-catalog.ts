@@ -25,7 +25,7 @@ export function prepareCatalogDocument(
       return {
         ...discoveredDocument(meta),
         coverage: "complexity",
-        problem: "Too complex to display. Open to edit the source.",
+        problem: "Too complex to show as a page. Open it to edit the text.",
       };
     return {
       ...meta,
@@ -45,8 +45,8 @@ export function prepareCatalogDocument(
       ...discoveredDocument(meta),
       coverage: "parse-error",
       problem: documentFileType(meta.name) === "fountain"
-        ? "Screenplay parsing failed. Open to inspect the source, or retry."
-        : "Text preparation failed. Open to inspect the source, or retry.",
+        ? "Couldn't lay out this screenplay. Open it to see the text, or try again."
+        : "Couldn't prepare this document. Open it to see the text, or try again.",
     };
   }
 }
@@ -56,7 +56,7 @@ export function failedCatalogDocument(
 ): WorkspaceDocIndex {
   const failure = normalizeFileError(
     error,
-    "Couldn't read this file. Retry or check its location and permissions.",
+    "Couldn't read this file. Try again, or check that it's still there.",
   );
   const coverage =
     failure.native?.category === "notFound"

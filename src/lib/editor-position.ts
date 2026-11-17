@@ -3,6 +3,7 @@ import {
   ACTIVE_HEADING_BOTTOM_THRESHOLD_PX,
   ACTIVE_HEADING_HYSTERESIS_PX,
   ACTIVE_HEADING_TOP_PX,
+  HEADING_SCROLL_MARGIN_PX,
 } from "./scroll-constants";
 import { offsetAtSourcePoint, sourcePointAtOffset } from "./source-lines";
 import { decodeUriComponentSafe } from "./paths";
@@ -97,14 +98,26 @@ function currentHeadingElement(
   return findHeadingElement(root, activeId);
 }
 
-function firstVisibleSourceElement(root: HTMLElement, scrollRoot: HTMLElement): HTMLElement | null {
+/** The first visible source block starting at least `clearPx` below the scroll root's top;
+ *  else the first that starts on screen; else the first visible one (a block taller than the
+ *  screen). With the default, this is simply the first visible block. */
+function firstVisibleSourceElement(
+  root: HTMLElement,
+  scrollRoot: HTMLElement,
+  clearPx = Number.NEGATIVE_INFINITY,
+): HTMLElement | null {
   const viewport = scrollRoot.getBoundingClientRect();
+  let startsOnScreen: HTMLElement | null = null;
+  let visible: HTMLElement | null = null;
   for (const element of root.querySelectorAll<HTMLElement>(SOURCE_SELECTOR)) {
     const rect = element.getBoundingClientRect();
     if (rect.height <= 0 && rect.width <= 0) continue;
-    if (rect.bottom > viewport.top && rect.top < viewport.bottom) return element;
+    if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue;
+    if (rect.top >= viewport.top + clearPx) return element;
+    if (rect.top >= viewport.top) startsOnScreen ??= element;
+    visible ??= element;
   }
-  return null;
+  return startsOnScreen ?? visible;
 }
 
 interface VisibleTextCandidate {
@@ -234,17 +247,21 @@ export function captureReaderAnchor(
   activeHeadingId: string | null,
   content: string,
 ): ReaderAnchor | null {
-  const activeHeading = currentHeadingElement(root, scrollRoot, activeHeadingId);
-  const element = activeHeading ?? (
-    root.classList.contains("fountain-body") ? null : firstVisibleSourceElement(root, scrollRoot)
-  );
+  // Markdown: the first block clear of where Edit's formatting bar will sit. The band is the
+  // Contents jump height, less 1 px for rounding, so a heading Contents scrolled to is still
+  // picked. Fountain keeps its scene-heading rule.
+  const element = root.classList.contains("fountain-body")
+    ? currentHeadingElement(root, scrollRoot, activeHeadingId)
+    : firstVisibleSourceElement(root, scrollRoot, HEADING_SCROLL_MARGIN_PX - 1);
   if (element) {
     const source = readSourcePoint(element);
     if (!source) return null;
 
+    // A quote and its first paragraph share a stamp. Measure the block the restore will find.
+    const restored = findSourceElement(root, source) ?? element;
     return {
       source,
-      viewportOffsetPx: element.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top,
+      viewportOffsetPx: restored.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top,
     };
   }
 
@@ -257,6 +274,13 @@ export function captureReaderAnchor(
     source: fallbackSource,
     viewportOffsetPx: fallback.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top,
   } : null;
+}
+
+/** Where Edit shows the anchor block, from the editor's scroll root top: its height on screen
+ *  in Read, kept below the stuck formatting bar unless the block began above the screen. */
+export function editorEntryOffset(readerScreenTopPx: number, editorRootTopPx: number, stuckBarBottomPx: number): number {
+  const offset = readerScreenTopPx - editorRootTopPx;
+  return offset < 0 ? offset : Math.max(offset, stuckBarBottomPx);
 }
 
 export function findSourceElement(root: HTMLElement, target: SourcePoint): HTMLElement | null {
@@ -300,14 +324,19 @@ export function restoreReaderAnchor(
   scrollRoot: HTMLElement,
   source: SourcePoint,
   viewportOffsetPx: number | null,
+  /** Used instead of `viewportOffsetPx` only when the found block starts on the source line. */
+  sameLineOffsetPx?: number,
 ): boolean {
   const target = findSourceElement(root, source);
   if (!target) return false;
 
   const viewportTop = scrollRoot.getBoundingClientRect().top;
   const targetTop = target.getBoundingClientRect().top - viewportTop + scrollRoot.scrollTop;
-  const requestedOffset = viewportOffsetPx !== null && Number.isFinite(viewportOffsetPx)
-    ? viewportOffsetPx
+  const offset = sameLineOffsetPx !== undefined && readSourcePoint(target)?.line === source.line
+    ? sameLineOffsetPx
+    : viewportOffsetPx;
+  const requestedOffset = offset !== null && Number.isFinite(offset)
+    ? offset
     : 0;
   const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
   scrollRoot.scrollTop = Math.max(0, Math.min(targetTop - requestedOffset, maxScrollTop));

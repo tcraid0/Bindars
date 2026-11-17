@@ -79,7 +79,7 @@ test('link Apply rechecks IME/read-only and keeps uniform CRLF offsets', () => {
   useSpec('[[label]]', {}, view => {
     const { intent } = beginLinkCommand(view, context); Object.defineProperty(view, 'composing', { value: true });
     const before = view.state; const result = applyLinkCommand(view, intent, { label: 'label', destination: '#x' }, context);
-    assert.equal(result.applied, false); assert.match(result.reason, /composition/); assert.equal(view.state, before);
+    assert.equal(result.applied, false); assert.match(result.reason, /Finish typing first/); assert.equal(view.state, before);
   });
   useSpec('label|', { readOnly: true }, view => assert.equal(beginLinkCommand(view, context).intent, null));
   withView('one\r\n\r\nlabel', EditorSelection.single(5, 10), { lineSeparator: '\r\n' }, view => {
@@ -169,5 +169,26 @@ test('ordinary typing after Link requires fresh authoritative reader validation'
     assert.equal(view.state.sliceDoc(), before.replace('word', '**word**'));
     assert.equal(undo(view), true);
     assert.equal(view.state.sliceDoc(), before);
+  });
+});
+
+test('Link explains invalid text and addresses in plain English without an edit', () => {
+  for (const [input, reason] of [
+    [{label:'two\nlines',destination:'https://example.com'}, 'Enter the link text on one line.'],
+    [{label:'label',destination:'www.example.com'}, 'Start a web address with https://, or use one of the kinds listed above.'],
+  ]) useSpec('|', {}, view => {
+    const before = view.state;
+    const result = submit(view, input);
+    assert.equal(result.applied, false); assert.equal(result.reason, reason);
+    assert.ok(view.state === before); assert.equal(undoDepth(view.state), 0);
+  });
+});
+
+test('Link asks for plain words when the selection crosses source lines', () => {
+  useSpec('[[one\ntwo]]', {}, view => {
+    const result = beginLinkCommand(view, context);
+    assert.equal(result.intent, null);
+    assert.equal(result.reason, 'Select plain words in one paragraph, not bold, italic or linked ones.');
+    assert.equal(undoDepth(view.state), 0);
   });
 });

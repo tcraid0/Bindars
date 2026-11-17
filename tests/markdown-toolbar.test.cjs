@@ -128,7 +128,7 @@ test('link form fills selection, supports keyboard cancel and retires replacemen
       flushSync(()=>ref.current.beginLink()); const a = forms.at(-1); const view = findEditorView(host); const state = view.state;
       flushSync(()=>ref.current.beginLink()); const b = forms.at(-1); assert.notEqual(a.id,b.id); assert.equal(view.state,state);
       const stale = ref.current.applyLink(a.id,{label:'beta',destination:'https://example.com'});
-      assert.equal(stale.applied,false); assert.match(stale.reason,/Open Link again/); assert.equal(view.state,state);
+      assert.equal(stale.applied,false); assert.match(stale.reason,/Choose Link again/); assert.equal(view.state,state);
       flushSync(()=>ref.current.cancelLink(b.id)); assert.equal(ref.current.applyLink(b.id,{label:'x',destination:'#x'}).applied,false);
     } finally { flushSync(()=>root.unmount()); host.remove(); }
     flushSync(()=>r.ref.current.beginLink());
@@ -146,7 +146,7 @@ test('link form fills selection, supports keyboard cancel and retires replacemen
     flushSync(()=>field.dispatchEvent(new window.Event('input',{bubbles:true})));
     form.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));
     flushSync(()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-    assert.equal(r.view.state.doc.toString(),'alpha beta');assert.match(form.querySelector('[role="alert"]').textContent,/composition/);assert.deepEqual(r.refusals,[]);
+    assert.equal(r.view.state.doc.toString(),'alpha beta');assert.match(form.querySelector('[role="alert"]').textContent,/Finish typing first/);assert.deepEqual(r.refusals,[]);
     form.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));
     flushSync(()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
     assert.equal(r.view.state.doc.toString(),'alpha [beta](<https://example.com>)');
@@ -178,10 +178,10 @@ test('composition, multi-selection and readonly guards apply to the bridge; Foun
   try {
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));
     const source = r.view.state.doc;
-    r.click('Bold'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/composition/);
+    r.click('Bold'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/Finish typing first/);
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));
     r.view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(1),EditorSelection.cursor(8)])});
-    r.click('Bullets'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/one selection/);
+    r.click('Bullets'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/one cursor/);
     r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
     r.click('More ⌄'); r.click('Divider'); assert.equal(r.view.state.doc,source); assert.match(r.refusals.at(-1),/cannot be edited/);
   } finally { r.cleanup(); }
@@ -291,7 +291,7 @@ test('list shortcut refusal uses the toolbar reporting path and ordinary indenta
     r.view.dispatch({selection:{anchor:3}});
     const original=r.view.state;
     assert.equal(key(r.view.contentDOM,']',{ctrlKey:true}).defaultPrevented,true);
-    assert.equal(r.view.state,original); assert.match(r.refusals.at(-1),/preceding sibling/i);
+    assert.equal(r.view.state,original); assert.match(r.refusals.at(-1),/second item/i);
     const reason=r.refusals.at(-1); r.click('More ⌄');r.click('Indent more');assert.equal(r.refusals.at(-1),reason);
   } finally {r.cleanup();}
   const plain=await render('plain');
@@ -304,9 +304,9 @@ test('feedback invalidates for composition without publishing or changing the do
   try {
     r.view.dispatch({selection:{anchor:2}});await frame();
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));await frame();
-    assert.match(r.button('Bold').getAttribute('title'),/composition/);
+    assert.match(r.button('Bold').getAttribute('title'),/Finish typing first/);
     r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));await frame();await frame();
-    assert.doesNotMatch(r.button('Bold').getAttribute('title'),/composition/);
+    assert.doesNotMatch(r.button('Bold').getAttribute('title'),/Finish typing first/);
     assert.equal(r.view.state.doc.toString(),'alpha');assert.deepEqual(r.publications,[]);
   } finally {r.cleanup();}
 });
@@ -413,13 +413,15 @@ test('a live Link form reports validation once inline and preserves fields durin
   try {
     r.view.dispatch({selection:{anchor:0,head:5}});flushSync(()=>r.ref.current.beginLink());
     const form=r.host.querySelector('form'), destination=form.querySelector('[name="destination"]');
+    assert.equal(document.getElementById(destination.getAttribute('aria-describedby')).textContent,
+      'A web address (https://…), an email (mailto:name@example.com), a heading in this document (#plan), or another document (notes.md).');
     inputField(destination,'javascript:bad');submitForm(form);
-    assert.ok(form.querySelector('[role="alert"]'));assert.match(form.textContent,/Enter an http/);
+    assert.ok(form.querySelector('[role="alert"]'));assert.equal(form.querySelector('[role="alert"]').textContent, 'Start a web address with https://, or use one of the kinds listed above.');
     assert.deepEqual(r.refusals,[],'form validation must not also emit a toast');
     inputField(destination,'https://example.com');
     form.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true}));submitForm(form);
     assert.ok(r.host.querySelector('form') === form);assert.equal(destination.value,'https://example.com');
-    assert.match(form.querySelector('[role="alert"]').textContent,/composition/);assert.deepEqual(r.refusals,[]);
+    assert.match(form.querySelector('[role="alert"]').textContent,/Finish typing first/);assert.deepEqual(r.refusals,[]);
     form.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true}));submitForm(form);
     assert.equal(r.view.state.sliceDoc(),'[label](<https://example.com>)');assert.deepEqual(r.refusals,[]);
   } finally {r.cleanup();}
@@ -575,10 +577,247 @@ test('More explains unavailable completion and uses the existing refusal path', 
   try {
     r.click('More ⌄'); const action = r.button('Mark done');
     assert.equal(action.getAttribute('aria-disabled'), 'true');
-    assert.match(action.textContent, /Place the cursor on a checklist item/);
+    assert.equal(action.querySelector('span').textContent, 'Mark done');
+    const { formatShortcutLabel } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+    assert.equal(action.querySelector('kbd').textContent, formatShortcutLabel('markDone'));
+    assert.match(action.title, /first line of a task/);
+    assert.equal(document.getElementById(action.getAttribute('aria-describedby')).textContent, 'Put the cursor on the first line of a task.');
     r.click('Mark done');
-    assert.equal(r.refusals.at(-1), 'Place the cursor on a checklist item');
+    assert.equal(r.refusals.at(-1), 'Put the cursor on the first line of a task.');
     assert.equal(r.view.state.sliceDoc(), 'ordinary words');
     assert.ok(document.activeElement === r.view.contentDOM); assert.equal(undoDepth(r.view.state), 0);
+  } finally { r.cleanup(); }
+});
+
+test('list feedback at the end of a line matches what the list commands do', () => {
+  const cases = [
+    '- [ ] buy milk|\n- [ ] eggs', '- [ ] buy mi|lk\n- [ ] eggs',
+    '- [ ] buy milk\n- [ ] eggs|', '- [ ] a\n- [ ] b|\n- [ ] c',
+    '- one\n- two|\n- three', '1. one|\n2. two',
+    '- [ ] parent\n  - [ ] child|\n- [ ] next', '- [ ] parent|\n  - [ ] child',
+    '- [ ] first line\n  second line|\n- [ ] next', '- [ ] first line\nlazy|\n- [ ] next',
+    '- [ ] first\n\n  more|\n- [ ] next', '- one\n- |', '- [ ] one\n- [ ] |',
+  ];
+  for (const spec of cases) for (const command of ['indent', 'outdent', 'checklist', 'bullets', 'numbered']) {
+    useSpec(spec, {}, view => {
+      const shown = commands.formattingToolbarState(view.state, false).commands[command];
+      if (['checklist', 'bullets', 'numbered'].includes(command)) {
+        const kind = spec.includes('[ ]') ? 'checklist' : spec.startsWith('1.') ? 'numbered' : 'bullets';
+        assert.equal(shown.active, command === kind, spec + command);
+        const status = commands.listCommandStatus(view.state, command);
+        if (status.available) assert.equal(shown.active, status.active, spec + command);
+      }
+      const before = view.state.doc;
+      const result = commands.executeFormattingCommand(view, command);
+      if (!result.applied) assert.equal(view.state.doc, before, spec + command);
+      if (!shown.available) assert.equal(result.applied, false, spec + command);
+    });
+  }
+  useSpec('- [ ] buy milk|', {}, view => {
+    const shown = commands.formattingToolbarState(view.state, false).commands;
+    assert.equal(shown.checklist.active, true);
+    assert.equal(shown.indent.available, false);
+    assert.match(shown.indent.reason, /second item/);
+    assert.equal(shown.outdent.available, false);
+  });
+  useSpec('- one\n- two|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.indent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'indent').applied, true);
+  });
+  useSpec('- parent\n  - child|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.outdent.available, true);
+  });
+});
+
+test('an empty or blank line after a list greys Indent more and Indent less', () => {
+  for (const spec of ['- one\n- two\n|', '- one\n- two\n  |', '- one\n|\n- two', '- one\n\t|\n- two', '|']) {
+    useSpec(spec, {}, view => {
+      for (const command of ['indent', 'outdent']) {
+        const shown = commands.formattingToolbarState(view.state, false).commands[command];
+        assert.equal(shown.available, false, spec);
+        assert.equal(shown.reason, commands.executeFormattingCommand(view, command).reason);
+      }
+    });
+  }
+  useSpec('- one\n- two\n' + ' '.repeat(101) + '|', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.indent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'indent').applied, false);
+  });
+});
+
+test('the caret before an indented sub-item reads that sub-item', () => {
+  useSpec('- parent\n|  - child', {}, view => {
+    assert.equal(commands.formattingToolbarState(view.state, false).commands.outdent.available, true);
+    assert.equal(commands.executeFormattingCommand(view, 'outdent').applied, true);
+  });
+});
+
+function press(target, options = {}) {
+  assert.ok(target, 'click target exists');
+  const event = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, detail: 1, ...options });
+  flushSync(() => target.dispatchEvent(event));
+  return event;
+}
+
+test('a plain click on a Styled task box ticks it once, keeps selection and focus, and is one Undo step', async () => {
+  for (const task of ['- [ ] open', '- [X] done', '- parent\n  - [ ] nested', '3) [ ] numbered']) {
+    const source = '# Heading\n\n' + task;
+    const r = await render(source);
+    try {
+      forceParsing(r.view, r.view.state.doc.length, 2000);
+      r.view.dispatch({ selection: EditorSelection.single(8, 2) });
+      const selection = r.view.state.selection;
+      assert.equal(press(r.view.contentDOM.querySelector('.cm-md-task')).defaultPrevented, true);
+      assert.equal(r.view.state.sliceDoc(), source.replace(/\[( |X)\]/, (_, done) => done === ' ' ? '[x]' : '[ ]'));
+      assert.ok(r.view.state.selection.eq(selection));
+      assert.ok(document.activeElement === r.view.contentDOM);
+      assert.equal(undoDepth(r.view.state), 1);
+      assert.equal(undo(r.view), true); assert.equal(r.view.state.sliceDoc(), source);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('modified, right-button, composing and multi-cursor clicks on a task box are left to the editor', async () => {
+  for (const options of [{shiftKey:true}, {metaKey:true}, {ctrlKey:true}, {altKey:true}, {button:2}, {button:1}, 'composition', 'cursors']) {
+    const r = await render('- [ ] task');
+    try {
+      forceParsing(r.view, r.view.state.doc.length, 2000);
+      if (options === 'composition') r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles:true }));
+      if (options === 'cursors') r.view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(0),EditorSelection.cursor(8)])});
+      press(r.view.contentDOM.querySelector('.cm-md-task'), typeof options === 'string' ? {} : options);
+      assert.equal(r.view.state.sliceDoc(), '- [ ] task');
+      assert.equal(undoDepth(r.view.state), 0);
+      assert.deepEqual(r.refusals, []);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('a double click on a task box ticks once and selects nothing', async () => {
+  const r = await render('- [ ] task');
+  try {
+    const box = () => r.view.contentDOM.querySelector('.cm-md-task');
+    const selection = r.view.state.selection;
+    press(box());
+    assert.equal(press(box(), {detail:2}).defaultPrevented, true);
+    assert.equal(press(box(), {detail:3}).defaultPrevented, true);
+    assert.equal(r.view.state.sliceDoc(), '- [x] task');
+    assert.ok(r.view.state.selection.eq(selection));
+    assert.equal(undoDepth(r.view.state), 1);
+  } finally { r.cleanup(); }
+});
+
+test('clicks on the dash, on the words, or in Plain view never tick', async () => {
+  for (const styled of [true, false]) {
+    const r = await render('- [ ] task', {markdownFormattingEnabled:styled});
+    try {
+      if (styled) press([...r.view.contentDOM.querySelectorAll('.cm-md-marker')].find(el => el.textContent === '-'));
+      else assert.ok(r.view.contentDOM.querySelector('.cm-md-task') === null);
+      press(r.view.contentDOM.querySelector('.cm-line'));
+      assert.equal(r.view.state.sliceDoc(), '- [ ] task');
+      assert.equal(undoDepth(r.view.state), 0);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('a task box split by a Find match ticks once', async () => {
+  const { SearchQuery, setSearchQuery, openSearchPanel } = require('@codemirror/search');
+  const r = await render('- [ ] task');
+  try {
+    r.view.dispatch({effects:setSearchQuery.of(new SearchQuery({search:'[ ] t'}))});
+    openSearchPanel(r.view); await frame();
+    const match = r.view.contentDOM.querySelector('.cm-md-task .cm-searchMatch, .cm-searchMatch .cm-md-task');
+    assert.ok(match, 'Find intersects the marker');
+    press(match);
+    assert.equal(r.view.state.sliceDoc(), '- [x] task');
+    assert.equal(undoDepth(r.view.state), 1);
+  } finally { r.cleanup(); }
+});
+
+test('Cmd/Ctrl+L marks the cursor task done in Styled and Plain, and from focused bar buttons', async () => {
+  const { isPrimaryModifier } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+  const modifiers = isPrimaryModifier({metaKey:true,ctrlKey:false}) ? {metaKey:true} : {ctrlKey:true};
+  for (const styled of [true, false]) for (const target of ['editor','bar','menu']) {
+    const r = await render('- [ ] task', {markdownFormattingEnabled:styled});
+    try {
+      r.view.dispatch({selection:{anchor:10}});
+      let element = r.view.contentDOM;
+      if (target === 'bar') element = r.button('Bold');
+      if (target === 'menu') { r.click('More ⌄'); element = r.button('Mark done'); }
+      flushSync(() => element.focus());
+      assert.equal(key(element, 'l', modifiers).defaultPrevented, true);
+      assert.equal(r.view.state.sliceDoc(), '- [x] task');
+      assert.equal(r.view.state.selection.main.head, 10);
+      assert.equal(undoDepth(r.view.state), 1);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('More shows the Mark done shortcut; Cmd/Ctrl+L off a task explains through the toast', async () => {
+  const { formatShortcutLabel, isPrimaryModifier } = require('../.tmp/workspace-tests/src/lib/shortcut-labels.js');
+  const r = await render('# Heading');
+  try {
+    r.click('More ⌄');
+    assert.equal(r.button('Mark done').querySelector('kbd').textContent, formatShortcutLabel('markDone'));
+    r.click('Mark done');
+    const reason = r.refusals.at(-1);
+    assert.equal(reason, 'Put the cursor on the first line of a task.');
+    key(r.view.contentDOM, 'l', isPrimaryModifier({metaKey:true,ctrlKey:false}) ? {metaKey:true} : {ctrlKey:true});
+    assert.equal(r.refusals.at(-1), reason); assert.equal(r.refusals.length, 2);
+    assert.equal(r.view.state.sliceDoc(), '# Heading');
+  } finally { r.cleanup(); }
+});
+
+test('clicking a protected or readonly task consumes the click and reports without moving the cursor', async () => {
+  for (const readonly of [false, true]) {
+    const source = readonly ? '- [ ] task' : '> - [ ] task';
+    const r = await render(source);
+    try {
+      if (readonly) r.view.dispatch({effects:StateEffect.appendConfig.of(EditorState.readOnly.of(true))});
+      const selection = r.view.state.selection;
+      assert.equal(press(r.view.contentDOM.querySelector('.cm-md-task')).defaultPrevented, true);
+      assert.match(r.refusals.at(-1), readonly ? /cannot be edited/ : /ordinary lines/);
+      assert.equal(r.view.state.sliceDoc(), source);
+      assert.ok(r.view.state.selection.eq(selection)); assert.equal(undoDepth(r.view.state), 0);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('the style button is named once when its style is unknown', async () => {
+  const r = await render('alpha');
+  try {
+    r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionstart',{bubbles:true})); await frame();
+    const style = r.host.querySelector('[aria-haspopup="menu"]');
+    assert.equal(style.getAttribute('aria-label'), 'Text style');
+    r.view.contentDOM.dispatchEvent(new window.CompositionEvent('compositionend',{bubbles:true})); await frame(); await frame();
+    assert.equal(style.getAttribute('aria-label'), 'Text style: Paragraph');
+  } finally { r.cleanup(); }
+});
+
+test('More keeps seven items with no explanation line wherever the cursor is', async () => {
+  for (const source of ['ordinary words', '# Heading', '- [ ] task', '```\ncode\n```', '| A |\n| - |\n| B |']) {
+    const r = await render(source);
+    try {
+      r.click('More ⌄');
+      const buttons = [...r.host.querySelectorAll('[role="menu"] button')];
+      assert.equal(buttons.length, 7);
+      for (const button of buttons) {
+        assert.ok(button.querySelector('small') === null);
+        const hint = document.getElementById(button.getAttribute('aria-describedby'));
+        assert.ok(hint, 'description resolves');
+        if (hint.textContent) assert.ok(button.title.includes(hint.textContent));
+      }
+    } finally { r.cleanup(); }
+  }
+});
+
+test('Styled/Plain keeps aria-pressed but not the pressed look', async () => {
+  const r = await render();
+  try {
+    const toggle = r.button('Toggle markup formatting');
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle.hasAttribute('data-styled-toggle'), true);
+    r.rerender({markdownFormattingEnabled:false});
+    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle.textContent, 'Plain');
   } finally { r.cleanup(); }
 });

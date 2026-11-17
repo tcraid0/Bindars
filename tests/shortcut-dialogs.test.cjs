@@ -290,11 +290,13 @@ test("Search documents: selects the query only on opening and preserves result a
     flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })));
     assert.deepEqual(queries, ["new query"]);
     const second = view.host.querySelectorAll('[role="option"]')[1];
-    flushSync(() =>
-      second.dispatchEvent(
-        new window.MouseEvent("mouseover", { bubbles: true }),
-      ),
-    );
+    for (const screenY of [10, 12]) {
+      flushSync(() =>
+        second.dispatchEvent(
+          new window.MouseEvent("mousemove", { bubbles: true, screenX: 10, screenY }),
+        ),
+      );
+    }
     flushSync(() => second.click());
     assert.deepEqual(hovered, [1]);
     assert.deepEqual(opened, [hits[1]]);
@@ -315,15 +317,15 @@ test("Search documents: contains focus with no results and after results change"
   try {
     view.open();
     const input = view.host.querySelector("input");
-    assert.match(view.host.textContent, /Open a document, create a draft/);
+    assert.match(view.host.textContent, /Nothing to search yet. Open a document or choose a folder first./);
     assert.equal(
       pressKey("Tab").defaultPrevented,
-      false,
-      "coverage is keyboard reachable after the input",
+      true,
+      "the empty panel wraps from the input to Close",
     );
     view.host.querySelector("button").focus();
     assert.equal(pressKey("Tab", { shiftKey: true }).defaultPrevented, true);
-    assert.ok(document.activeElement === view.host.querySelector("summary"));
+    assert.ok(document.activeElement === input);
     input.focus();
     view.render({ results: hits });
     assert.ok(document.activeElement === input);
@@ -609,9 +611,9 @@ test("Search explains the selected scope and exposes the selected document full 
     view.open();
     const scope = () =>
       view.host.querySelector("#document-search-scope").textContent;
-    assert.match(scope(), /recent documents, drafts and Project notes/);
+    assert.match(scope(), /Recent, Drafts and Project notes/);
     view.render({ folderOnly: true });
-    assert.match(scope(), /Searching only Project notes/);
+    assert.match(scope(), /Searching Project notes/);
     assert.doesNotMatch(scope(), /recent documents|drafts/);
     const details = view.host.querySelector("details.document-location");
     assert.ok(details);
@@ -621,9 +623,74 @@ test("Search explains the selected scope and exposes the selected document full 
     assert.equal(summary.getAttribute("aria-label") ?? summary.textContent, "Location of first.md", "the supplied path label is announced once");
     assert.ok(!details.closest('[role="option"]'));
     view.render({ folderOnly: false, folderName: undefined });
-    assert.match(scope(), /Searching recent documents, drafts\./);
+    assert.match(scope(), /Searching Recent and Drafts\./);
     assert.doesNotMatch(scope(), /Project notes/);
   } finally {
     view.cleanup();
   }
+});
+
+
+test("Search waits for typing to show details and keeps its descriptions and status mounted", async () => {
+  await installDom();
+  const view = renderDialog(dialogs[1], { query: "", totalDocuments: 2 });
+  try {
+    view.open();
+    const status = view.host.querySelector('[role="status"]');
+    const input = view.host.querySelector("input");
+    assert.equal(input.placeholder, "Search Recent and Drafts by name or words");
+    assert.equal(input.getAttribute("aria-describedby"), "document-search-scope document-search-help");
+    for (const id of ["document-search-scope", "document-search-help"]) {
+      assert.ok(view.host.querySelector(`#${id}`).classList.contains("sr-only"));
+      assert.ok(view.host.querySelector(`#${id}`).textContent.trim());
+    }
+    assert.ok(status.classList.contains("sr-only"));
+    assert.ok(view.host.querySelector("details") === null);
+    view.render({ query: "two words" });
+    assert.ok(view.host.querySelector('[role="status"]') === status);
+    assert.equal(status.classList.contains("sr-only"), false);
+    assert.match(status.textContent, /Tip: put "quotes"/);
+    assert.ok(view.host.querySelector("details.document-location"));
+    assert.match(view.host.textContent, /What Search looks at/);
+    view.render({ query: '"two words"' });
+    assert.doesNotMatch(status.textContent, /Tip:/);
+    view.render({ query: "", totalDocuments: 212 });
+    assert.equal(status.classList.contains("sr-only"), false);
+    assert.match(status.textContent, /212 documents · showing first 2/);
+    view.render({ folderName: "Writing" });
+    assert.equal(input.placeholder, "Search Recent, Drafts and Writing by name or words");
+    view.render({ folderOnly: true });
+    assert.equal(input.placeholder, "Search Writing by name or words");
+  } finally { view.cleanup(); }
+});
+
+test("Search selects a row only when the pointer itself moves, not when the list moves under it", async () => {
+  await installDom();
+  const selected = [];
+  const view = renderDialog(dialogs[1], { onHoverIndex: index => selected.push(index) });
+  try {
+    view.open();
+    const rows = view.host.querySelectorAll('[role="option"]');
+    const move = (row, screenY) => flushSync(() => row.dispatchEvent(
+      new window.MouseEvent("mousemove", { bubbles: true, screenX: 10, screenY }),
+    ));
+    for (const type of ["mouseover", "mouseenter", "scroll"]) {
+      flushSync(() => rows[1].dispatchEvent(new window.MouseEvent(type, { bubbles: true })));
+    }
+    view.render({ results: [...hits] });
+    assert.deepEqual(selected, []);
+    move(rows[1], 10);
+    assert.deepEqual(selected, [], "the first event only records where the pointer rests");
+    move(rows[1], 10);
+    assert.deepEqual(selected, [], "WebKit repeats mousemove at the same place when the list scrolls");
+    move(rows[1], 12);
+    assert.deepEqual(selected, [1]);
+    view.render({ selectedIndex: 1 });
+    move(rows[1], 14);
+    assert.deepEqual(selected, [1], "movement on the selected row does not publish again");
+    view.render({ visible: false });
+    view.render({ visible: true, selectedIndex: 0 });
+    move(view.host.querySelectorAll('[role="option"]')[1], 40);
+    assert.deepEqual(selected, [1], "after reopening, a pointer resting somewhere new is recorded first");
+  } finally { view.cleanup(); }
 });

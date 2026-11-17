@@ -9,6 +9,7 @@ pub(crate) enum NativeFileErrorCategory {
     AlreadyExists,
     PermissionDenied,
     ReadOnly,
+    StorageFull,
     ResourceUnavailable,
     InvalidInput,
     IncompleteWrite,
@@ -68,8 +69,8 @@ impl NativeFileOperation {
             Self::SyncTemporaryFile => "sync the temporary file",
             Self::ReplaceFile => "replace the destination file",
             Self::ExportFile => "export the file",
-            Self::ResolveWorkspace => "locate the workspace",
-            Self::InspectWorkspace => "inspect the workspace",
+            Self::ResolveWorkspace => "find this folder",
+            Self::InspectWorkspace => "open this folder",
             Self::WatchDocument => "watch the document",
             Self::RevealInFolder => "show the document in its folder",
             Self::SaveRecoveryData => "save recovery data",
@@ -176,6 +177,9 @@ impl NativeFileError {
             std::io::ErrorKind::AlreadyExists => NativeFileErrorCategory::AlreadyExists,
             std::io::ErrorKind::PermissionDenied => NativeFileErrorCategory::PermissionDenied,
             std::io::ErrorKind::ReadOnlyFilesystem => NativeFileErrorCategory::ReadOnly,
+            std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded => {
+                NativeFileErrorCategory::StorageFull
+            }
             std::io::ErrorKind::TimedOut => NativeFileErrorCategory::ResourceUnavailable,
             _ => NativeFileErrorCategory::Unknown,
         };
@@ -184,7 +188,8 @@ impl NativeFileError {
                 "This file is no longer available.".to_string()
             }
             (NativeFileErrorCategory::NotFound, NativeFileOperation::ResolveWorkspace) => {
-                "The workspace folder is no longer available.".to_string()
+                "Can't find this folder. If it's on an external drive, connect it and try again."
+                    .to_string()
             }
             (NativeFileErrorCategory::PermissionDenied, _) => {
                 format!(
@@ -197,6 +202,9 @@ impl NativeFileError {
                     "The destination is read-only, so Bindars could not {}.",
                     operation.description()
                 )
+            }
+            (NativeFileErrorCategory::StorageFull, _) => {
+                "There is not enough free space to save this file.".to_string()
             }
             (NativeFileErrorCategory::ResourceUnavailable, _) => {
                 format!(
@@ -245,6 +253,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_storage_and_quota_errors_share_an_actionable_category() {
+        for kind in [
+            std::io::ErrorKind::StorageFull,
+            std::io::ErrorKind::QuotaExceeded,
+        ] {
+            let error = NativeFileError::from_io(
+                NativeFileOperation::WriteTemporaryFile,
+                Path::new("/tmp/full.md"),
+                std::io::Error::from(kind),
+            );
+            assert_eq!(
+                serde_json::to_value(&error).unwrap()["category"],
+                "storageFull"
+            );
+            assert_eq!(
+                error.message,
+                "There is not enough free space to save this file."
+            );
+        }
+    }
 
     #[test]
     fn native_io_error_categories_are_conservative() {
@@ -313,7 +343,7 @@ mod tests {
 
         assert_eq!(
             error.message,
-            "The workspace folder is no longer available."
+            "Can't find this folder. If it's on an external drive, connect it and try again."
         );
         assert!(!error.message.contains("/private/workspaces"));
         assert!(error.detail.contains("/private/workspaces/missing"));

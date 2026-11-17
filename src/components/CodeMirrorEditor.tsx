@@ -11,6 +11,7 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
+import { editorEntryOffset } from "../lib/editor-position";
 import type { SourcePoint } from "../lib/editor-position";
 import type { ObservedEditorChanges } from "../lib/highlight-continuity";
 import { isImeCompositionKey } from "../lib/keyboard";
@@ -23,7 +24,7 @@ import {
 } from "./markdown-decorations";
 
 import {
-  COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
+  FORMATTING_SHORTCUTS, LINK_STALE_REASON, refusalResult, COMPOSITION_REASON, executeFormattingCommand, formattingToolbarState, beginLinkCommand, applyLinkCommand, cancelLinkCommand, linkCommandIsCurrent,
   type FormattingCommand, type FormattingToolbarState, type EmphasisCommandResult,
   type LinkCommandIntent, type LinkCommandInput,
 } from "./markdown-formatting-commands";
@@ -56,12 +57,18 @@ export interface EditorSurfacePosition {
   cursor: SourcePoint;
   viewport: SourcePoint | null;
   viewportMoved: boolean;
+  /** Screen tops of the cursor's and the viewport's lines; null when the line does not start on screen. */
+  cursorTopPx: number | null;
+  viewportTopPx: number | null;
 }
 
 interface CodeMirrorEditorProps {
   /** Initialization-only. Change the React key to start a different document session. */
   initialDocument: string;
   initialPosition?: SourcePoint | null;
+  /** Initialization-only. Where Read showed `initialPosition` on screen; without it (or without
+   *  a formatting bar) the editor centres the initial position. */
+  initialScreenTopPx?: number | null;
   scrollRootRef?: RefObject<HTMLElement | null>;
   /** Initialization-only. File-type transitions require a keyed remount. */
   fileType: FileType;
@@ -212,6 +219,7 @@ const editorTheme = EditorView.theme({
     borderBottom: "1px solid var(--border)",
     paddingBlock: ".35em",
   },
+  ".cm-md-task": { cursor: "pointer" },
   ".cm-md-marker": {
     color: "var(--text-muted)",
   },
@@ -291,6 +299,17 @@ function stickyControlsInset(controls: HTMLElement | null | undefined, scrollRoo
   return Math.max(0, bar.getBoundingClientRect().bottom - Math.max(0, scrollRoot?.getBoundingClientRect().top ?? 0));
 }
 
+/** Screen top of the drawn line holding `point`; null when it is not drawn or starts off screen. */
+function lineScreenTop(view: EditorView, scrollRoot: HTMLElement | null, point: SourcePoint | null): number | null {
+  if (!scrollRoot || !point) return null;
+  const { node } = view.domAtPos(view.state.doc.line(point.line).from);
+  const line = (node instanceof HTMLElement ? node : node.parentElement)?.closest(".cm-line");
+  if (!line) return null;
+  const top = line.getBoundingClientRect().top;
+  const viewport = scrollRoot.getBoundingClientRect();
+  return top >= viewport.top && top < viewport.bottom ? top : null;
+}
+
 function firstVisibleSourcePoint(view: EditorView, scrollRoot: HTMLElement, topInset: number): SourcePoint | null {
   const viewport = scrollRoot.getBoundingClientRect();
   const top = viewport.top + topInset;
@@ -320,6 +339,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
   function CodeMirrorEditor({
     initialDocument,
     initialPosition,
+    initialScreenTopPx,
     scrollRootRef,
     fileType,
     markdownFormattingEnabled,
@@ -376,10 +396,13 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         if (!view) return null;
         const cursor = sourcePointAt(view.state.doc, view.state.selection.main.head);
         const scrollRoot = scrollRootRef?.current ?? null;
+        const viewport = scrollRoot ? firstVisibleSourcePoint(view, scrollRoot, stickyTopInset()) : null;
         return {
           cursor,
-          viewport: scrollRoot ? firstVisibleSourcePoint(view, scrollRoot, stickyTopInset()) : null,
+          viewport,
           viewportMoved: viewportMovedByUserRef.current,
+          cursorTopPx: lineScreenTop(view, scrollRoot, cursor),
+          viewportTopPx: lineScreenTop(view, scrollRoot, viewport),
         };
       },
     }), []);
@@ -438,12 +461,12 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         scheduleFeedback();
         setTimeout(scheduleFeedback, 0);
       };
-      const executeFormatting = (command: FormattingCommand) => {
+      const executeFormatting = (command: FormattingCommand, at?: number) => {
         if (!view || fileType !== "markdown") return null;
         cancelLink(undefined, false);
         const result = compositionActive
-          ? { available: false, active: false, reason: COMPOSITION_REASON, handled: true as const, applied: false }
-          : executeFormattingCommand(view, command);
+          ? refusalResult(COMPOSITION_REASON)
+          : executeFormattingCommand(view, command, at);
         report(result);
         view.focus();
         scheduleFeedback();
@@ -451,11 +474,13 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
       };
       viewportMovedByUserRef.current = false;
       const scrollRoot = scrollRootRef?.current ?? null;
-      // CodeMirror scrolls the shared root itself: the initial centering and
+      // CodeMirror scrolls the shared root itself: the initial placement and
       // its scroll anchoring when measured heights change (late parsing,
       // fonts, wrapping). Remember where its measure cycles leave the root;
       // any other scroll (wheel, scrollbar, keyboard) is the user's.
       let editorScrollTop: number | null = null;
+      // The opening line and where it belongs on screen, until CodeMirror has first measured.
+      let entryPlacement: { offset: number; screenTop: number } | null = null;
       const recordViewportMovement = () => {
         if (scrollRoot && editorScrollTop !== null
           && Math.abs(scrollRoot.scrollTop - editorScrollTop) > 1) viewportMovedByUserRef.current = true;
@@ -510,11 +535,22 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             history(),
             search({ top: true }),
             fileType === "markdown" ? Prec.highest(keymap.of([
-              { key: "Mod-b", run: () => { executeFormatting("bold"); return true; } },
-              { key: "Mod-i", run: () => { executeFormatting("italic"); return true; } },
+              ...FORMATTING_SHORTCUTS.map(({ command, key }) => ({ key: `Mod-${key}`, run: () => { executeFormatting(command); return true; } })),
               { key: "Alt-F10", run: () => { interactionRef.current.onFocusToolbar?.(); return true; } },
             ])) : [],
             fileType === "markdown" ? EditorView.domEventHandlers({
+              // Styled supplies task spans; Plain supplies none. A plain left
+              // click ticks without moving the cursor or starting a selection.
+              // Modified, composing and multi-cursor clicks stay CodeMirror's.
+              mousedown(event, editorView) {
+                const box = (event.target as Element | null)?.closest?.(".cm-md-task");
+                if (!box || event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey
+                  || compositionActive || editorView.composing || editorView.state.selection.ranges.length > 1) return false;
+                event.preventDefault();
+                // Swallow later presses in a double/triple click without ticking again.
+                if (event.detail <= 1) executeFormatting("toggleTask", editorView.posAtDOM(box));
+                return true;
+              },
               beforeinput(event) {
                 const command = event.inputType === "formatBold" ? "bold" : event.inputType === "formatItalic" ? "italic"
                   : event.inputType === "insertOrderedList" ? "numbered" : event.inputType === "insertUnorderedList" ? "bullets"
@@ -528,7 +564,17 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
             }) : [],
             keymap.of([...editorDefaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
-              if (scrollRoot && update.transactions.length === 0) editorScrollTop = scrollRoot.scrollTop;
+              if (scrollRoot && update.transactions.length === 0) {
+                // CodeMirror places the opening line using estimated heights for lines it has
+                // not drawn, then swaps in measured ones without holding the line. Once it has
+                // measured, move the line the rest of the way to its height in Read.
+                if (entryPlacement && update.geometryChanged) {
+                  const top = lineScreenTop(update.view, scrollRoot, sourcePointAt(update.state.doc, entryPlacement.offset));
+                  if (top !== null) scrollRoot.scrollTop += top - entryPlacement.screenTop;
+                  entryPlacement = null;
+                }
+                editorScrollTop = scrollRoot.scrollTop;
+              }
               if (update.docChanged && observedChanges) {
                 // setState/adoption and any unobserved replacement break ownership.
                 if (applyingExternalDocument || update.startState.doc !== observedDocument) observedChanges = null;
@@ -567,13 +613,23 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         markdownFormattingEnabled,
       );
 
-      const createdView = new EditorView({
-        state,
-        parent: host,
-        scrollTo: initialOffset === null
-          ? undefined
-          : EditorView.scrollIntoView(initialOffset, { y: "center" }),
-      });
+      const createdView = new EditorView({ state, parent: host });
+      if (initialOffset !== null) {
+        // Read the bar only now: before the editor has content, a Focus-mode bar cannot take its
+        // sticky offset yet. The scroll margins (stickyTopInset) are added back by CodeMirror.
+        const bar = formattingControlsRef?.current?.parentElement;
+        if (initialScreenTopPx == null || !bar || !scrollRoot) {
+          createdView.dispatch({ effects: EditorView.scrollIntoView(initialOffset, { y: "center" }) });
+        } else {
+          const stuckBarBottom = bar.offsetHeight + (Number.parseFloat(window.getComputedStyle(bar).top) || 0);
+          const rootTop = scrollRoot.getBoundingClientRect().top;
+          const wanted = editorEntryOffset(initialScreenTopPx, rootTop, stuckBarBottom);
+          entryPlacement = { offset: initialOffset, screenTop: rootTop + wanted };
+          createdView.dispatch({
+            effects: EditorView.scrollIntoView(initialOffset, { y: "start", yMargin: wanted - stickyTopInset() }),
+          });
+        }
+      }
       view = createdView;
       viewRef.current = createdView;
       observedChanges = fileType === "markdown" ? ChangeSet.empty(state.doc.length) : null;
@@ -620,13 +676,11 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorEditorHandle, CodeMirrorEdi
         applyLink(id, input, composing = false) {
           if (!link || link.id !== id || !linkCommandIsCurrent(createdView, link.intent, context())) {
             cancelLink(id, false);
-            return report({ available: false, active: false, handled: true, applied: false,
-              reason: "The document or selection changed. Open Link again." });
+            return report(refusalResult(LINK_STALE_REASON));
           }
           // A live form owns its one inline validation surface. Stale/no-form
           // submissions above use the notice path because no form can show it.
-          if (composing || compositionActive) return { available: false, active: false, handled: true, applied: false,
-            reason: COMPOSITION_REASON };
+          if (composing || compositionActive) return refusalResult(COMPOSITION_REASON);
           const result = applyLinkCommand(createdView, link.intent, input, context());
           if (result.applied) { cancelLink(undefined, false); createdView.focus(); }
           return result;

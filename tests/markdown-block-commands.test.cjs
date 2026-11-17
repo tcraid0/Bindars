@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EditorSelection, EditorState } = require('@codemirror/state');
 const { undo, redo, undoDepth } = require('@codemirror/commands');
-const { blockCommandStatus, applyBlockCommand } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
+const { blockCommandStatus, applyBlockCommand, formattingToolbarState } = require('../.tmp/workspace-tests/src/components/markdown-formatting-commands.js');
 const { useSpec, withView, selected } = require('./_helpers/markdown-command-view.cjs');
 const { markdownArticle } = require('./_helpers/markdown-reader.cjs');
 const { parseSlides } = require('../.tmp/workspace-tests/src/lib/slide-parser.js');
@@ -63,9 +63,18 @@ test('styles refuse Setext, multiline paragraphs, containers and exposed syntax 
   for (const source of ['Ti|tle\n---', 'Ti|tle\n===']) for (const command of ['paragraph','h1','h2','h3']) {
     useSpec(source, {}, view => refuse(view, command, /Setext/));
   }
-  for (const source of ['al|pha\nbeta', '[[one\n\ntwo]]', '- # Ti|tle', '> Ti|tle', '# - it|em', '# $$ma|th$$', '```\nco|de\n```', '---\nke|y: value\n---\n\nbody']) {
-    useSpec(source, {}, view => refuse(view, 'paragraph', /paragraph|heading|math|code|details/i));
+  const ordinary = /^Text styles work on one ordinary line at a time, not in lists or quotes\.$/;
+  for (const [source, reason] of [['al|pha\nbeta', ordinary], ['[[one\n\ntwo]]', ordinary], ['- # Ti|tle', ordinary],
+    ['> Ti|tle', ordinary], ['# - it|em', ordinary], ['# $$ma|th$$', /math/], ['```\nco|de\n```', /code/],
+    ['---\nke|y: value\n---\n\nbody', /details/]]) {
+    useSpec(source, {}, view => refuse(view, 'paragraph', reason));
   }
+  // The greyed style buttons give the command's own reason in code.
+  for (const source of ['```\nco|de\n```', '\talpha|']) useSpec(source, {}, view => {
+    const shown = formattingToolbarState(view.state, false).commands.h1;
+    assert.equal(shown.available, false);
+    assert.equal(shown.reason, applyBlockCommand(view, 'h1').reason);
+  });
 });
 
 test('divider preserves words and authored separators, uses blank boundaries and creates no slide', () => {
@@ -87,8 +96,10 @@ test('divider preserves words and authored separators, uses blank boundaries and
     assert.equal(undoDepth(view.state), 1); undo(view); assert.equal(view.state.sliceDoc(), before);
     redo(view); assert.equal(view.state.sliceDoc(), expected);
   });
-  for (const source of ['> - item|', '```\na|\n```', '[[plain\n\n`code`]]', '---\nkey: val|ue\n---\n\nbody']) {
-    useSpec(source, {}, view => refuse(view, 'divider', /paragraph|heading|code|details/i));
+  for (const [source, reason] of [['> - item|', /^Divider works on ordinary text and lists, not in quotes\.$/],
+    ['> quo|te', /^Divider works on ordinary text and lists, not in quotes\.$/], ['```\na|\n```', /code/],
+    ['[[plain\n\n`code`]]', /code/], ['---\nkey: val|ue\n---\n\nbody', /details/]]) {
+    useSpec(source, {}, view => refuse(view, 'divider', reason));
   }
 });
 
@@ -107,7 +118,7 @@ test('quote/unquote preserves paragraphs, inline structures, blank lines and hal
     assert.equal(article.querySelectorAll('blockquote').length, 0);
   });
   useSpec('[[> alpha\nlazy]]', {}, view => apply(view, 'quote', 'alpha\nlazy'));
-  useSpec('> a|\n> b', {}, view => refuse(view, 'quote', /complete simple quote/));
+  useSpec('> a|\n> b', {}, view => refuse(view, 'quote', /whole quote/));
   for (const source of ['[[> a\n\nb]]', '> > a|', '> - a|', '> `a|`', '> $$a|$$', '> # a|', '<div>\na|\n</div>']) {
     useSpec(source, {}, view => refuse(view, 'quote', /quote|code|math|HTML/i));
   }
@@ -115,7 +126,7 @@ test('quote/unquote preserves paragraphs, inline structures, blank lines and hal
 
 test('quote paragraph splits and joins use D30 inline boundaries, including reader single-tilde strike', () => {
   for (const source of ['**before\nmid|dle\nafter**', '*before\nmid|dle\nafter*', '~before\nmid|dle\nafter~', '[before\nmid|dle\nafter](https://example.com)', 'before\\\nmid|dle']) {
-    useSpec(source, {}, view => refuse(view, 'quote', /formatting|link|line break/));
+    useSpec(source, {}, view => refuse(view, 'quote', /^Formatting, a link or a line break runs across these lines, so nothing was changed\.$/));
   }
   useSpec('[[**before\nafter**]]', {}, view => {
     const article = apply(view, 'quote', '> **before\n> after**');
@@ -130,15 +141,15 @@ test('quote paragraph splits and joins use D30 inline boundaries, including read
 for (const command of ['paragraph','h1','divider','quote']) test(`${command} respects shared selection, IME and read-only guards`, () => {
   useSpec('text|', { readOnly: true }, view => refuse(view, command, /cannot be edited/));
   useSpec('text|', {}, view => {
-    Object.defineProperty(view, 'composing', { value: true }); refuse(view, command, /composition/);
+    Object.defineProperty(view, 'composing', { value: true }); refuse(view, command, /Finish typing first/);
   });
-  withView('alpha beta', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuse(view, command, /one selection/));
-  useSpec('text|', { markdown: false }, view => refuse(view, command, /loading/));
+  withView('alpha beta', EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)]), {}, view => refuse(view, command, /one cursor/));
+  useSpec('text|', { markdown: false }, view => refuse(view, command, /Still reading the document/));
 });
 
 test('headings retain literal words and divider refuses unsupported containers inside lists', () => {
-  useSpec('alpha #|##', {}, view => refuse(view, 'h1', /other Markdown/));
-  useSpec('- parent\n  > child|', {}, view => refuse(view, 'divider', /list/));
+  useSpec('alpha #|##', {}, view => refuse(view, 'h1', /nearby formatting/));
+  useSpec('- parent\n  > child|', {}, view => refuse(view, 'divider', /^This works on ordinary lines and lists only\.$/));
   useSpec('alpha|\n\n# next', {}, view => {
     apply(view, 'divider', 'alpha\n\n* * *\n\n\n\n# next');
     view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'prose' } });

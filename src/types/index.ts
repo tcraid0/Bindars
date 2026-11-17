@@ -94,6 +94,7 @@ export type NativeFileErrorCategory =
   | "alreadyExists"
   | "permissionDenied"
   | "readOnly"
+  | "storageFull"
   | "resourceUnavailable"
   | "invalidInput"
   | "incompleteWrite"
@@ -171,9 +172,8 @@ export interface WorkspaceState {
   status: WorkspaceStatus;
   indexedAt: number | null;
   error: string | null;
-  readFailedCount: number;
-  complexitySkippedCount: number;
   limitHit: boolean;
+  draftsLimitHit?: boolean;
   directories?: string[];
   issues?: string[];
   draftsError?: string | null;

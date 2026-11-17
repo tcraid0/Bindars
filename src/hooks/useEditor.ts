@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { save as showSaveDialog } from "@tauri-apps/plugin-dialog";
 import {
   actionableSaveError,
+  AUTOSAVE_OUTSIDE_CHANGE_WARNING,
+  isAnnotatedDestinationRefusal,
   normalizeDocumentSavePath,
   saveErrorBlocksCurrentPath,
   successfulSaveOutcome,
@@ -63,11 +65,13 @@ export type AdoptExternalDocument = (
   externalDocument: string,
 ) => boolean;
 
-function externalChangeMessage(): string {
-  return "The file changed outside Bindars. Your current draft is preserved and autosave is paused.";
-}
+// The editor banner has room for the reassurance the header label cannot fit.
+const EXTERNAL_CHANGE_BANNER = `${AUTOSAVE_OUTSIDE_CHANGE_WARNING} Your edits are still open.`;
 
 export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
+  // True only while the Save dialog is open: the save lock is held, but no
+  // write has started, so save progress must not be shown.
+  const [choosingSaveLocation, setChoosingSaveLocation] = useState(false);
   const [state, setState] = useState<EditorState>({
     buffer: null,
     dirty: false,
@@ -211,7 +215,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
           ...prev,
           dirty: true,
           externalChange: "changed",
-          saveError: prev.saveError ?? externalChangeMessage(),
+          saveError: prev.saveError ?? EXTERNAL_CHANGE_BANNER,
         }));
       }
       return false;
@@ -242,7 +246,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
       ...prev,
       dirty: true,
       externalChange: change,
-      saveError: prev.saveError ?? externalChangeMessage(),
+      saveError: prev.saveError ?? EXTERNAL_CHANGE_BANNER,
     }));
     return true;
   }, []);
@@ -305,7 +309,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         dirty: true,
         saveError: quiet
           ? null
-          : "This file changed outside Bindars. Reload or overwrite to continue.",
+          : "This file changed outside Bindars. Save to choose which version to keep.",
         saveErrorRecovery: null,
       }));
       return "conflict";
@@ -418,7 +422,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         setState((prev) => ({
           ...prev,
           saving: false,
-          saveError: "Couldn't verify file revision before save. Reload and try again.",
+          saveError: "Bindars couldn't check whether this file changed. Your edits are still open.",
           saveErrorRecovery: null,
         }));
         return { status: "error" };
@@ -494,13 +498,20 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
 
     let attemptedPath: string | undefined;
     try {
-      const selectedPath = await showSaveDialog({
-        defaultPath,
-        filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
-      });
+      setChoosingSaveLocation(true);
+      let selectedPath: string | null;
+      try {
+        selectedPath = await showSaveDialog({
+          defaultPath,
+          filters: [{ name: "Bindars document", extensions: [...OPENABLE_FILE_EXTENSIONS] }],
+        });
+      } finally {
+        setChoosingSaveLocation(false);
+      }
 
-      if (!syncCurrentSession(editSession)) return { status: "stale" };
+      if (editSessionRef.current !== editSession) return { status: "stale" };
       if (!selectedPath) {
+        if (!syncCurrentSession(editSession)) return { status: "stale" };
         setState((prev) => ({
           ...prev,
           saving: false,
@@ -512,6 +523,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
 
       const normalizedPath = normalizeDocumentSavePath(selectedPath, options?.extension);
       if (normalizedPath.status === "error") {
+        if (!syncCurrentSession(editSession)) return { status: "stale" };
         setState((prev) => ({
           ...prev,
           saving: false,
@@ -521,10 +533,21 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
         return { status: "error", ...(options?.copy ? { message: normalizedPath.message } : {}) };
       }
 
-      if (options?.copy) {
-        normalizedPath.path = await invoke<string>("check_copy_destination", { path: normalizedPath.path });
-        if (!syncCurrentSession(editSession)) return { status: "stale" };
+      if (options?.copy || normalizedPath.path !== currentPath) {
+        try {
+          normalizedPath.path = await invoke<string>("check_copy_destination", {
+            path: normalizedPath.path,
+            currentPath: options?.copy ? null : currentPath,
+          });
+        } catch (error) {
+          // An ordinary Save As is refused only for a destination with saved
+          // annotations. Any other failure of this check, such as unreadable
+          // annotation storage, must not stand between the text and a file;
+          // the write below reports its own errors.
+          if (options?.copy || isAnnotatedDestinationRefusal(error)) throw error;
+        }
       }
+      if (!syncCurrentSession(editSession)) return { status: "stale" };
       const currentBuffer = bufferRef.current;
       if (currentBuffer === null) return { status: "stale" };
 
@@ -593,6 +616,7 @@ export function useEditor(flushPendingBuffer?: FlushPendingBuffer) {
     buffer: state.buffer,
     dirty: state.dirty,
     saving: state.saving,
+    choosingSaveLocation,
     saveError: state.saveError,
     saveErrorRecovery: state.saveErrorRecovery,
     externalChange: state.externalChange,

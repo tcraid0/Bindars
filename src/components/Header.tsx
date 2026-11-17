@@ -6,6 +6,8 @@ import { useToast } from "./ToastProvider";
 import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 
+const textButtonClass = "rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120";
+
 interface HeaderProps {
   onFind?: () => void;
   onSearchDocuments?: () => void;
@@ -20,6 +22,9 @@ interface HeaderProps {
   onShowShortcuts: () => void;
   onToggleSidebar: () => void;
   onToggleToc: () => void;
+  sidebarVisible: boolean;
+  tocVisible: boolean;
+  notesVisible: boolean;
   onToggleReaderControls: () => void;
   readerControlsVisible: boolean;
   readerControlsId: string;
@@ -33,6 +38,7 @@ interface HeaderProps {
   isEditing: boolean;
   isDraft?: boolean;
   saveChoosesLocation?: boolean;
+  isSaving?: boolean;
   isDirty: boolean;
   isSavedFlash: boolean;
   saveWarning: string | null;
@@ -71,6 +77,9 @@ function HeaderComponent({
   onShowShortcuts,
   onToggleSidebar,
   onToggleToc,
+  sidebarVisible,
+  tocVisible,
+  notesVisible,
   onToggleReaderControls,
   readerControlsVisible,
   readerControlsId,
@@ -84,6 +93,7 @@ function HeaderComponent({
   isEditing,
   isDraft = false,
   saveChoosesLocation = isDraft,
+  isSaving = false,
   isDirty,
   isSavedFlash,
   saveWarning,
@@ -154,9 +164,10 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onToggleSidebar}
-          aria-label="Toggle sidebar"
+          aria-label="Sidebar"
+          aria-expanded={sidebarVisible}
           className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
-          title={`Toggle sidebar (${formatShortcutLabel("toggleSidebar")})`}
+          title={`${sidebarVisible ? "Hide" : "Show"} Sidebar (${formatShortcutLabel("toggleSidebar")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -213,6 +224,7 @@ function HeaderComponent({
               <div className="document-header-detail h-4 flex items-center overflow-hidden text-[11px] text-text-muted whitespace-nowrap" data-tauri-drag-region>
                 <SaveWhisper
                   isDraft={isDraft}
+                  saving={isSaving}
                   dirty={isDirty}
                   saved={isSavedFlash}
                   warning={saveWarning}
@@ -272,7 +284,7 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onNewFile}
-          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className={`px-2.5 py-1.5 ${textButtonClass}`}
           title={`New file (${formatShortcutLabel("newFile")})`}
         >
           New
@@ -280,7 +292,7 @@ function HeaderComponent({
         <button
           type="button"
           onClick={onOpenFile}
-          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className={`px-2.5 py-1.5 ${textButtonClass}`}
           title={`Open file (${formatShortcutLabel("openFile")})`}
         >
           Open
@@ -293,7 +305,7 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onSave}
-                className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                className={`px-2.5 py-1.5 ${textButtonClass}`}
                 title={`${saveChoosesLocation ? "Save to choose a filename and location" : "Save"} (${formatShortcutLabel("saveFile")})`}
               >
                 Save
@@ -355,7 +367,7 @@ function HeaderComponent({
                           <rect x="6" y="14" width="12" height="8" />
                         </svg>
                         Print to PDF
-                        <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("print")}</kbd>
+                        <kbd className="shortcut-hint">{formatShortcutLabel("print")}</kbd>
                       </button>
                       {fileType !== "fountain" && (
                         <button
@@ -370,7 +382,7 @@ function HeaderComponent({
                             <line x1="12" y1="17" x2="12" y2="21" />
                           </svg>
                           Present as Slides
-                          <kbd className="ml-auto text-[10px] text-text-muted font-mono">{formatShortcutLabel("presentation")}</kbd>
+                          <kbd className="shortcut-hint">{formatShortcutLabel("presentation")}</kbd>
                         </button>
                       )}
                       <div className="border-t border-border mt-1 pt-1 px-3 py-1.5">
@@ -385,11 +397,12 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onToggleAnnotations}
-                aria-label="Toggle Highlights & notes"
+                aria-label="Highlights & notes"
+                aria-expanded={notesVisible}
                 className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
                   hasAnnotations ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                 }`}
-                title={`Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
+                title={`${notesVisible ? "Hide" : "Show"} Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -398,9 +411,10 @@ function HeaderComponent({
               <button
                 type="button"
                 onClick={onToggleToc}
-                aria-label="Toggle table of contents"
+                aria-label="Contents"
+                aria-expanded={tocVisible}
                 className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-                title={`Toggle table of contents (${formatShortcutLabel("toggleTableOfContents")})`}
+                title={`${tocVisible ? "Hide" : "Show"} Contents (${formatShortcutLabel("toggleTableOfContents")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />
@@ -414,11 +428,14 @@ function HeaderComponent({
             </>
           )}
         </div>}
-        <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
-        {fileName && !isEditing && <button type="button" className="p-1.5 text-sm rounded hover:bg-bg-tertiary" onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        {/* Find is a Read action. Edit keeps its place, hidden and inert, so the
+          Read/Edit switch and the controls beside it never move. */}
+        {fileName && <button type="button" disabled={isEditing}
+          className={`p-1.5 ${textButtonClass}${isEditing ? " invisible" : ""}`} onClick={onFind} title={`Find in Document (${formatShortcutLabel("searchDocument")})`}>Find in Document</button>}
+        <button type="button" className={`p-1.5 ${textButtonClass}`} onClick={onSearchDocuments} title={`Search documents (${formatShortcutLabel("workspaceSwitcher")})`}>Search</button>
         <div className="relative text-sm">
           <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
-            className="p-1.5" onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
+            title="Interface zoom" className={`p-1.5 ${textButtonClass}`} onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
           {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="document-header-popover interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
             <p>Interface: {Math.round(zoom * 100)}%</p>
             <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
@@ -430,12 +447,12 @@ function HeaderComponent({
           type="button"
           onClick={onToggleReaderControls}
           ref={readerControlsTriggerRef}
-          aria-label="Toggle reader settings"
+          aria-label="Reader settings"
           aria-haspopup="dialog"
           aria-expanded={readerControlsVisible}
           aria-controls={readerControlsVisible ? readerControlsId : undefined}
           className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
-          title="Reader settings"
+          title={`${readerControlsVisible ? "Hide" : "Show"} Reader settings`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 7V4h16v3" />

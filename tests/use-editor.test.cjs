@@ -147,6 +147,7 @@ function mockPendingSaveAsTransactions() {
   const dialogs = [];
   const writes = [];
   mockIPC((cmd, args) => {
+    if (cmd === "check_copy_destination") return args.path;
     const operation = deferred();
     if (cmd === "plugin:dialog|save") {
       dialogs.push({ cmd, args, ...operation });
@@ -292,8 +293,10 @@ test("useEditor reports the in-flight save for the current session until its loc
 
     const saveAs = startSaveAs(rendered);
     assert.equal(rendered.api().saveInFlight(), true, "the Save As dialog holds the lock");
+    assert.equal(rendered.api().choosingSaveLocation, true, "an open dialog is not a running write");
     await act(async () => { dialogs[0].resolve(null); await saveAs; });
     assert.equal(rendered.api().saveInFlight(), false, "a cancelled dialog releases it too");
+    assert.equal(rendered.api().choosingSaveLocation, false);
 
     const abandoned = startSave(rendered);
     flushSync(() => { rendered.api().exitEditMode(); });
@@ -359,7 +362,7 @@ test("useEditor preserves newer typing when a save conflicts", async () => {
     assert.equal(rendered.api().saving, false);
     assert.equal(rendered.api().buffer, "Snapshot with newer words");
     assert.equal(rendered.api().dirty, true);
-    assert.match(rendered.api().saveError, /changed outside Bindars/);
+    assert.equal(rendered.api().saveError, "This file changed outside Bindars. Save to choose which version to keep.");
   } finally {
     rendered.cleanup();
   }
@@ -585,7 +588,7 @@ test("clean-editor reconciliation retains newer surface typing when atomic adopt
     assert.equal(rendered.api().buffer, "Newer surface typing");
     assert.equal(rendered.api().dirty, true);
     assert.equal(rendered.api().externalChange, "changed");
-    assert.equal(rendered.api().saveError, "The file changed outside Bindars. Your current draft is preserved and autosave is paused.");
+    assert.equal(rendered.api().saveError, "Autosave is paused. The file changed outside Bindars. Your edits are still open.");
     assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
   } finally {
     rendered.cleanup();
@@ -1695,6 +1698,89 @@ for (const scenario of ['created', 'notes-exist', 'cancelled']) {
       }
       if (scenario === 'notes-exist') assert.match(result.message, /saved notes/);
       assert.equal(rendered.api().saving, false);
+    } finally { rendered.cleanup(); }
+  });
+}
+
+test("outside-change warning leads with the autosave pause and preserves local text", async () => {
+  await installDom();
+  const rendered = renderUseEditor();
+  try {
+    enterEditMode(rendered, "original");
+    updateBuffer(rendered, "local words");
+    const { sessionId } = rendered.api().getReconciliationState();
+    flushSync(() => rendered.api().protectFromExternalChange(sessionId, "changed"));
+    assert.match(rendered.api().saveError, /^Autosave is paused/);
+    assert.equal(rendered.api().buffer, "local words");
+  } finally { rendered.cleanup(); }
+});
+
+test("Save As still writes when the destination check itself fails", async () => {
+  await installDom();
+  const writes = [];
+  mockIPC((command, args) => {
+    if (command === "plugin:dialog|save") return "/tmp/elsewhere.md";
+    if (command === "check_copy_destination") {
+      throw { category: "unknown", operation: "accessAnnotations",
+        message: "Couldn't open your saved highlights and notes.", detail: "damaged storage" };
+    }
+    if (command === "write_markdown_file_if_unmodified") {
+      writes.push(args);
+      return successfulWrite({ mtimeMs: 2, size: 11, contentHash: "saved" }, "/tmp/elsewhere.md");
+    }
+    throw new Error(`Unexpected IPC command: ${command}`);
+  });
+  const rendered = renderUseEditor();
+  try {
+    enterEditMode(rendered, "");
+    updateBuffer(rendered, "local words");
+    let result;
+    await act(async () => { result = await rendered.api().saveAs("Untitled.md", null); });
+    assert.equal(result.status, "saved");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].path, "/tmp/elsewhere.md");
+    assert.equal(writes[0].content, "local words");
+  } finally { rendered.cleanup(); }
+});
+
+for (const selectedPath of ["/tmp/annotated.md", "/tmp/current.md", "/tmp/current-alias.md"]) {
+  test(`Save As protects stored annotations while allowing the current file (${selectedPath})`, async () => {
+    await installDom();
+    const checks = [];
+    const writes = [];
+    mockIPC((command, args) => {
+      if (command === "plugin:dialog|save") return selectedPath;
+      if (command === "check_copy_destination") {
+        checks.push(args);
+        if (args.path === "/tmp/annotated.md") throw { category: "invalidInput", operation: "inspectWriteTarget",
+          message: "This name already has saved highlights, notes, or bookmarks. Choose a different name.", detail: "saved annotations" };
+        assert.equal(args.currentPath, "/tmp/current.md");
+        return "/tmp/current.md";
+      }
+      if (command === "write_markdown_file_if_unmodified") {
+        writes.push(args);
+        return successfulWrite(originalRevision, "/tmp/current.md");
+      }
+      throw new Error(`Unexpected IPC command: ${command}`);
+    });
+    const rendered = renderUseEditor();
+    try {
+      enterEditMode(rendered, "original");
+      updateBuffer(rendered, "local words");
+      let result;
+      await act(async () => { result = await rendered.api().saveAs("Current.md", "/tmp/current.md"); });
+      if (selectedPath === "/tmp/annotated.md") {
+        assert.equal(result.status, "error");
+        assert.equal(writes.length, 0);
+        assert.equal(rendered.api().buffer, "local words");
+        assert.equal(rendered.api().dirty, true);
+        assert.equal(rendered.api().saveErrorRecovery, "save-as");
+        assert.deepEqual(rendered.api().getReconciliationState().expectedRevision, originalRevision);
+      } else {
+        assert.equal(result.status, "saved");
+        assert.equal(writes[0].path, "/tmp/current.md");
+      }
+      assert.equal(checks.length, selectedPath === "/tmp/current.md" ? 0 : 1);
     } finally { rendered.cleanup(); }
   });
 }
