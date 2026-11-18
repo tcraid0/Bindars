@@ -13,7 +13,7 @@ import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 import { RecentRemovalNotice, type RecentRemovalRecovery } from "./RecentRemovalNotice";
-import { FolderIcon, ChevronRightIcon } from "./icons";
+import { FolderIcon, ChevronRightIcon, SearchIcon } from "./icons";
 
 interface SidebarProps {
   visible: boolean;
@@ -166,6 +166,7 @@ function SidebarComponent(props: SidebarProps) {
             className="navigation-search"
             onClick={props.onOpenCommandPalette}
           >
+            <SearchIcon />
             Search documents…
           </button>
           {view === "Folders" && root && (

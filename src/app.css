@@ -2323,7 +2323,9 @@ body[data-printing] .print-hide {
   font-weight: 600;
 }
 .navigation-search {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   width: calc(100% - 1.5rem);
   margin: 0.25rem 0.75rem 0.75rem;
   text-align: left;
@@ -2331,6 +2333,14 @@ body[data-printing] .print-hide {
   border-radius: 0.4rem;
   padding: 0.6rem;
   font-size: 0.875rem;
+  color: var(--text-secondary);
+  transition: background-color 120ms;
+}
+.navigation-search > svg {
+  flex-shrink: 0;
+}
+.navigation-search:hover {
+  background: var(--bg-tertiary);
 }
 .navigation-help {
   margin: 0.6rem 0.9rem;
@@ -2399,6 +2409,16 @@ body[data-printing] .print-hide {
 }
 .folder-row > svg:last-child {
   margin-left: auto;
+  color: var(--text-muted);
+}
+/* The ending stays readable but steps back, the same in every list. Inside a row the
+   second selector is needed to outrank `.document-open span` (a small grey block). */
+.document-ext,
+.document-open .document-ext {
+  display: inline;
+  margin-top: 0;
+  font-size: inherit;
+  font-weight: 400;
   color: var(--text-muted);
 }
 .document-row {

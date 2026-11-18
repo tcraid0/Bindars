@@ -111,6 +111,17 @@ test("filename fallbacks, generic titles, extensions and unbroken strings surviv
   for (const [i, button] of buttons.entries()) assert.ok(button.textContent.includes(files[i].name));
 });
 
+test("Recent fades a file's ending but keeps the whole name, and Home is unchanged", t => {
+  const files = [recent("/Documents/notes.md"), recent("/Documents/script.fountain")];
+  const view = mount(t, files);
+  const [notes, script] = rows(view.host).map(openButton);
+  assert.equal(notes.textContent, "notes.md");
+  assert.equal(notes.querySelector(".document-ext").textContent, ".md");
+  assert.equal(script.querySelector(".document-ext").textContent, ".fountain");
+  view.render({ welcome: true });
+  assert.equal(view.host.querySelectorAll(".document-ext").length, 0, "Home keeps its own name style");
+});
+
 test("focus describes without opening; Escape dismisses once; opening and unavailable retry still work", async t => {
   const files = [recent("/notes.md"), recent("/missing.md")];
   const opened = [], retried = [];

@@ -82,6 +82,9 @@ test("folder list and global Recent are distinct; removal keeps an untimed Add B
   });
   assert.match(host.textContent, /recent.md/);
   assert.doesNotMatch(host.textContent, /folder.md/);
+  const search = host.querySelector('.navigation-search');
+  assert.equal(search.textContent, 'Search documents…');
+  assert.ok(search.querySelector('svg[aria-hidden="true"]'));
   await act(async () => host.querySelector("#navigation-tab-Folders").click());
   assert.match(host.textContent, /folder.md/);
   assert.doesNotMatch(host.textContent, /recent.md/);
@@ -307,7 +310,6 @@ test('Folders hides empty descendants and keeps folder warnings only at the top'
   click(view.host.querySelector('#navigation-tab-Folders'));
   assert.equal(view.host.querySelectorAll('button[aria-label="Empty, folder"]').length, 0);
   assert.equal(view.host.querySelectorAll('button[aria-label="Other, folder"]').length, 0);
-  assert.ok(folderButton(view.host, 'Interviews'));
   const interviews = folderButton(view.host, 'Interviews');
   assert.equal(interviews.textContent, 'Interviews', 'the visible name has no arrow character');
   assert.equal(interviews.querySelectorAll('svg[aria-hidden="true"]').length, 2, 'folder picture and chevron are decorative');
@@ -335,4 +337,17 @@ test('document rows keep their names without text-search progress lines', t => {
   t.after(view.cleanup);
   assert.match(view.host.textContent, /first.mdsecond.md/);
   assert.doesNotMatch(view.host.textContent, /Preparing text search|characters searchable/);
+});
+
+test('document rows show a quieter file ending while keeping the full name', t => {
+  const { DocumentList } = require('../.tmp/workspace-tests/src/components/DocumentList.js');
+  const view = renderComponent(DocumentList, { docs: [
+    { path: '/notes.md', relPath: 'notes.md', name: 'notes.md', sources: ['folder'] },
+    { path: '/README', relPath: 'README', name: 'README', sources: ['folder'] },
+  ], onOpen() {}, onRetry() {} });
+  t.after(view.cleanup);
+  const [notes, readme] = view.host.querySelectorAll('strong');
+  assert.equal(notes.textContent, 'notes.md');
+  assert.equal(notes.querySelector('.document-ext').textContent, '.md');
+  assert.equal(readme.querySelectorAll('.document-ext').length, 0);
 });

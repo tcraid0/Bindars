@@ -3,6 +3,7 @@ import type { WorkspaceDocIndex } from "../types";
 import { PathDetails } from "./PathDetails";
 import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { useToast } from "./ToastProvider";
+import { FileName } from "./FileName";
 
 export function DocumentList({
   docs,
@@ -32,7 +33,7 @@ export function DocumentList({
               onClick={() => onOpen(doc.path)}
               className="document-open document-row"
             >
-              <strong>{drafts ? doc.draftLabel || doc.name : doc.name}</strong>
+              <strong>{drafts && doc.draftLabel ? doc.draftLabel : <FileName name={doc.name} />}</strong>
               {drafts && doc.draftLabel && doc.draftLabel !== doc.name && (
                 <span>{doc.name}</span>
               )}

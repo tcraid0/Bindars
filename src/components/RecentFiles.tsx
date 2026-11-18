@@ -5,6 +5,7 @@ import { focusAfterRemoval } from "../lib/focus-after-removal";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 import { documentTitle } from "../lib/document-title";
 import { useRecentFileDetails } from "./useRecentFileDetails";
+import { FileName } from "./FileName";
 
 /** What the search index knows about a recent file, keyed by path identity. */
 export type RecentDetails = ReadonlyMap<string, { title: string | null; section: string | null }>;
@@ -128,7 +129,7 @@ export function RecentFiles({
                     <div
                       className="recent-file-name text-sm font-medium text-text-primary"
                     >
-                      {title ?? file.name}
+                      {title ?? <FileName name={file.name} />}
                     </div>
                     {title && <div className="recent-file-name text-xs text-text-secondary mt-0.5">{file.name}</div>}
                     {location && <div className="recent-file-name text-xs text-text-muted mt-0.5">{location}</div>}
