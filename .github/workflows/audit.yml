@@ -10,6 +10,7 @@ on:
       - 'src-tauri/Cargo.lock'
       - '.cargo/audit.toml'
       - '.github/workflows/audit.yml'
+      - 'scripts/audit-dev-dependencies.mjs'
   pull_request:
     branches: [main]
     paths:
@@ -19,6 +20,7 @@ on:
       - 'src-tauri/Cargo.lock'
       - '.cargo/audit.toml'
       - '.github/workflows/audit.yml'
+      - 'scripts/audit-dev-dependencies.mjs'
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6am UTC
@@ -41,7 +43,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=moderate
 
       - name: Audit development dependencies
-        run: npm audit --include=dev --audit-level=moderate
+        run: node scripts/audit-dev-dependencies.mjs
 
   cargo-audit:
     name: cargo audit
