@@ -1,55 +1,35 @@
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.7.0_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
+- **Mac (Apple Silicon):** `Bindars_1.7.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
 Updates are manual. The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`.
 
-## Changes in 1.7.0
+## Changes in 1.7.1
 
-Writing in Bindars is easier, highlights survive more editing, and saving is safer in unusual situations.
+The sidebar is easier to use and easier to read.
 
-### A formatting bar for writing
+### Clicks that work every time
 
-- In **Edit**, a bar above a Markdown document offers Paragraph and heading styles, Bold, Bullets, Numbered and Checklist, with Italic, Link, Quote, Divider and list indenting under **More**. The saved file is still ordinary Markdown.
-- **Styled / Plain** changes how Markdown looks while you write. It does not change the file.
-- Finish a task by clicking its `[ ]` box in Styled, with Cmd+L (Ctrl+L on Linux), or with **More → Mark done**. Sub-tasks stay under their parent in Read and in print.
-- When an action cannot be applied safely, Bindars leaves the text alone and says why in plain words.
+- A document in Recent, or on Home, opens when you click anywhere on its row. Before, only the name itself opened it, and clicks elsewhere on the row did nothing.
+- If you click a document while another one is still opening, Bindars opens the one you clicked last. Before, that click could be ignored.
 
-### Read and Edit stay in the same place
+### Folders and documents look different
 
-- Edit opens on the lines you were reading, at the same height, and Read returns to where you were writing.
-- The Read/Edit switch and the formatting buttons no longer shift as you change mode. Find sits directly under the formatting bar.
-- Bindars remembers whether Contents is open.
+- In Folders, each folder has a folder symbol and an arrow, and the current folder's name has a folder symbol too. Documents are no longer bold, so folders and documents are easy to tell apart.
+- File endings such as `.md` and `.fountain` are shown in a lighter grey, so names are quicker to read. The full name is still there.
+- The search box at the top of the sidebar has a magnifying glass and a quieter look.
+- The extra line above the first document in Folders is gone.
 
-### Highlights keep their place through edits
+### Screenplay titles
 
-- A highlight stays on its passage when you edit elsewhere, format its paragraph, or change the words around it. Bindars follows the characters you highlighted and never guesses from similar text.
-- If a location can no longer be trusted, the highlight shows **Location uncertain** and its note is kept. **Choose passage** lets you place it again.
-- Dividers and highlights now print.
+- Screenplay titles in Recent and Search no longer show formatting marks such as `**` or `_`.
 
-### Safer saving
-
-- Pending edits are saved when you switch to another app and when the Mac is about to sleep.
-- A save that takes more than a moment shows **Saving…**, and after 30 seconds says the text is still safe in the window.
-- A full disk gets a plain message and offers **Save As**. Warnings that autosave has paused now begin with those words.
-- Save As and **Make a Copy** refuse a file that already has saved highlights, notes or bookmarks, so a new document cannot inherit them. Make a Copy no longer misses words typed a moment earlier.
-- On macOS, saving keeps the file's creation date.
-- Quit and closing the window work from the error screen.
-- A new document can no longer end up as two drafts.
-
-### Search, sidebar and wording
-
-- Search opens with its box and list first, sits beside View, and keeps its selection steady while the list scrolls.
-- The page holds still while a document opens, and a different document opens from its top unless it has a remembered place.
-- Folder problems, moved files and save choices are described in plain words, with buttons that say what will happen, such as **Keep my changes**.
-- Empty link sections under Contents are hidden.
-
-No new dependency, document format or annotation format is introduced. Highlights gain an optional field that 1.6.4 preserves.
+No new setting, dependency, document format or annotation format is introduced.
 
 ## Upgrading
 
-On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.6.4. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.0. The first time 1.7.1 starts, it rebuilds its search list once. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
 
 ## Known limitations
 
@@ -90,8 +70,6 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
   **Bindars recovered …** copy beside the document. Bindars never deletes these
   leftovers automatically; see [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md)
   before removing them.
-
-- Fountain titles containing emphasis markers can still display those markers. This release does not change title extraction.
 - A save that never finishes, for example on a stalled network share, still
   cannot be cancelled, and Quit waits for it. After a failed save, autosave
   stays paused until you save by hand.
@@ -100,10 +78,8 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. A trial build of the Linux package passed the release workflow's checks. The dependency audits pass for everything shipped in the app. One advisory with no fix yet (GHSA-fc5q-39xc-vjpf, in `picomatch`) is accepted for build tools only; that package is not part of the app.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass for everything shipped in the app. One advisory with no fix yet (GHSA-fc5q-39xc-vjpf, in `picomatch`) is accepted for build tools only; that package is not part of the app.
 
-The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The app inside the published disk image was tried by hand on macOS 26.6 (Apple Silicon) with made-up documents: saving when switching to another app, the formatting bar, Make a Copy straight after typing, a highlight kept through an edit to its paragraph, idle autosave, switching documents, and Quit straight after typing.
+The sidebar changes were checked in a browser engine with the app's own styles, in all four themes: where clicks land on each row, the text weights and colours, and the line above the first row. New tests cover each change.
 
-The formatting bar, the Read and Edit place, highlight continuity, Search and document switching were each checked by hand in isolated macOS builds during development. The save changes were checked by hand the same way: switching away in Edit and Focus mode, open dialogs, the header messages at narrow widths, a full disk with Save As recovery, the highlights refusal, creation dates, drafts, and Quit from the error screen.
-
-Not checked by hand: a save slower than two seconds, sleep, the print sheet taking focus, exFAT or network volumes with the new save behaviour, iCloud folders, a browser download on a clean Mac, macOS 15, and any Linux desktop session.
+The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
