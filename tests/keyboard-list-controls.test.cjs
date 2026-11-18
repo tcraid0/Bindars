@@ -248,7 +248,7 @@ for (const welcome of [false, true]) {
     } finally { view.cleanup(); }
   });
 
-  test(`opening a Recent row stays focusable and ignores repeated activation (welcome=${welcome})`, async () => {
+  test(`opening a Recent row stays focusable and forwards repeated activation (welcome=${welcome})`, async () => {
     await installDom();
     const opened = [];
     const view = renderComponent(Recents, { welcome, onOpen: path => opened.push(path) });
@@ -262,13 +262,13 @@ for (const welcome of [false, true]) {
       assert.equal(row.getAttribute("aria-busy"), "true");
       assert.match(row.textContent, /Opening…/);
       click(row);
-      assert.deepEqual(opened, ["/first.md"]);
+      assert.deepEqual(opened, ["/first.md", "/first.md"], "the App handles repeat clicks during an open");
       view.render({ openingPath: null, currentFilePath: "/first.md" });
       assert.equal(row.hasAttribute("aria-disabled"), false);
       assert.equal(row.getAttribute("aria-current"), "page");
       assert.ok(document.activeElement === row);
       click(row);
-      assert.deepEqual(opened, ["/first.md", "/first.md"]);
+      assert.deepEqual(opened, ["/first.md", "/first.md", "/first.md"]);
     } finally { view.cleanup(); }
   });
 }

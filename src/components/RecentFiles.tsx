@@ -91,7 +91,7 @@ export function RecentFiles({
               <button
                 {...(!welcome ? supplementary.triggerProps(file, index) : {})}
                 type="button"
-                onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
+                onClick={() => { if (!isUnavailable) onOpen(file.path); }}
                 className="recent-open block w-full min-w-0 text-left"
                 aria-label={`Open ${identity}${continueLabel ? `, ${continueLabel}` : ""}`}
                 title={welcome ? file.path : undefined}
