@@ -5,6 +5,11 @@ import { revealDocument, revealDocumentLabel } from "../lib/reveal-document";
 import { useToast } from "./ToastProvider";
 import { FileName } from "./FileName";
 
+/** A draft's own label, when it says more than its file name. A blank draft's label is its file name. */
+function distinctDraftLabel(doc: WorkspaceDocIndex, drafts: boolean): string | null {
+  return drafts && doc.draftLabel && doc.draftLabel !== doc.name ? doc.draftLabel : null;
+}
+
 export function DocumentList({
   docs,
   currentPath,
@@ -33,8 +38,8 @@ export function DocumentList({
               onClick={() => onOpen(doc.path)}
               className="document-open document-row"
             >
-              <strong>{drafts && doc.draftLabel ? doc.draftLabel : <FileName name={doc.name} />}</strong>
-              {drafts && doc.draftLabel && doc.draftLabel !== doc.name && (
+              <strong>{distinctDraftLabel(doc, drafts) ?? <FileName name={doc.name} />}</strong>
+              {distinctDraftLabel(doc, drafts) && (
                 <span>{doc.name}</span>
               )}
             </button>

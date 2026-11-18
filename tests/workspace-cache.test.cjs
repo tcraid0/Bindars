@@ -25,7 +25,8 @@ test("disposable cache survives a round trip without preferences", () => {
   assert.deepEqual(Object.keys(cache), ["version", "docs"]);
 });
 
-for (const version of [undefined, 0, 1, 99]) {
+// Version 2 stored Fountain titles with their emphasis marks.
+for (const version of [undefined, 0, 1, 2, 99]) {
   test(`unsupported extraction version is a safe cache miss: ${version}`, () => {
     assert.deepEqual(cachedDocuments({ version, docs: [doc] }), []);
   });

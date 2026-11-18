@@ -310,6 +310,8 @@ test('Folders hides empty descendants and keeps folder warnings only at the top'
   click(view.host.querySelector('#navigation-tab-Folders'));
   assert.equal(view.host.querySelectorAll('button[aria-label="Empty, folder"]').length, 0);
   assert.equal(view.host.querySelectorAll('button[aria-label="Other, folder"]').length, 0);
+  assert.deepEqual([...view.host.querySelectorAll('#navigation-view .document-open')].map(row => row.textContent), ['Interviews'],
+    'only folders that hold documents are shown, whatever their accessible names');
   const interviews = folderButton(view.host, 'Interviews');
   assert.equal(interviews.textContent, 'Interviews', 'the visible name has no arrow character');
   assert.equal(interviews.querySelectorAll('svg[aria-hidden="true"]').length, 2, 'folder picture and chevron are decorative');
@@ -350,4 +352,19 @@ test('document rows show a quieter file ending while keeping the full name', t =
   assert.equal(notes.textContent, 'notes.md');
   assert.equal(notes.querySelector('.document-ext').textContent, '.md');
   assert.equal(readme.querySelectorAll('.document-ext').length, 0);
+});
+
+test('a blank draft shows its file name with the quieter ending, once', t => {
+  const { DocumentList } = require('../.tmp/workspace-tests/src/components/DocumentList.js');
+  const { prepareCatalogDocument } = require('../.tmp/workspace-tests/src/lib/document-catalog.js');
+  const blank = prepareCatalogDocument({ path: '/Drafts/Untitled.md', relPath: 'Untitled.md', name: 'Untitled.md', size: 0, mtimeMs: 1 }, '');
+  const named = prepareCatalogDocument({ path: '/Drafts/Untitled 3.md', relPath: 'Untitled 3.md', name: 'Untitled 3.md', size: 20, mtimeMs: 1 }, 'Meeting with Steven\n');
+  assert.equal(blank.draftLabel, 'Untitled.md', 'the catalog labels a blank draft with its file name');
+  const view = renderComponent(DocumentList, { drafts: true, docs: [blank, named], onOpen() {}, onRetry() {} });
+  t.after(view.cleanup);
+  const [blankRow, namedRow] = view.host.querySelectorAll('.document-open');
+  assert.equal(blankRow.textContent, 'Untitled.md', 'the file name is not repeated on a second line');
+  assert.equal(blankRow.querySelector('.document-ext').textContent, '.md');
+  assert.equal(namedRow.querySelector('strong').textContent, 'Meeting with Steven');
+  assert.equal(namedRow.textContent, 'Meeting with StevenUntitled 3.md');
 });
