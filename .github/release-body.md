@@ -100,7 +100,7 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. A trial build of the Linux package passed the release workflow's checks.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. A trial build of the Linux package passed the release workflow's checks. The dependency audits pass for everything shipped in the app. One advisory with no fix yet (GHSA-fc5q-39xc-vjpf, in `picomatch`) is accepted for build tools only; that package is not part of the app.
 
 The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The app inside the published disk image was tried by hand on macOS 26.6 (Apple Silicon) with made-up documents: saving when switching to another app, the formatting bar, Make a Copy straight after typing, a highlight kept through an edit to its paragraph, idle autosave, switching documents, and Quit straight after typing.
 

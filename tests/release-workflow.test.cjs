@@ -70,11 +70,40 @@ test("security and release gates audit build and test dependencies", () => {
   const release = parse(fs.readFileSync(workflowPath, "utf8"));
   for (const job of [audit.jobs["npm-audit"], release.jobs.verify]) {
     assert.equal(namedStep(job, "Audit development dependencies").run,
-      "npm audit --include=dev --audit-level=moderate");
+      "node scripts/audit-dev-dependencies.mjs");
+    assert.ok(job.steps.some((step) => step.run === "npm audit --omit=dev --audit-level=moderate"),
+      "shipped dependencies are audited without exceptions");
   }
   for (const event of ["push", "pull_request"]) {
-    for (const file of ["package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", ".github/workflows/audit.yml"]) {
+    for (const file of ["package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", ".github/workflows/audit.yml", "scripts/audit-dev-dependencies.mjs"]) {
       assert.ok(audit.on[event].paths.includes(file), `${event} must audit changes to ${file}`);
     }
   }
+});
+
+test("the development audit accepts only listed advisories and rejects stale exceptions", async () => {
+  const { evaluateAudit } = await import("../scripts/audit-dev-dependencies.mjs");
+  const advisory = (id, name, severity) => ({
+    source: 1, name, title: `${name} advisory`, severity, url: `https://github.com/advisories/${id}`,
+  });
+  const report = (...advisories) => ({
+    vulnerabilities: Object.fromEntries([
+      ...advisories.map((item) => [item.name, { via: [item] }]),
+      ["a-parent", { via: advisories.map((item) => item.name) }],
+    ]),
+  });
+  const accepted = { "GHSA-aaaa-aaaa-aaaa": "globber" };
+  const known = advisory("GHSA-aaaa-aaaa-aaaa", "globber", "high");
+
+  assert.deepEqual(evaluateAudit(report(known), accepted).unaccepted, []);
+  assert.deepEqual(evaluateAudit(report(known), accepted).stale, []);
+
+  const other = evaluateAudit(report(known, advisory("GHSA-bbbb-bbbb-bbbb", "parser", "moderate")), accepted);
+  assert.deepEqual(other.unaccepted.map((item) => item.id), ["GHSA-bbbb-bbbb-bbbb"]);
+
+  const renamed = evaluateAudit(report(advisory("GHSA-aaaa-aaaa-aaaa", "another-package", "high")), accepted);
+  assert.deepEqual(renamed.unaccepted.map((item) => item.name), ["another-package"]);
+
+  assert.deepEqual(evaluateAudit(report(advisory("GHSA-cccc-cccc-cccc", "tool", "low")), {}).unaccepted, []);
+  assert.deepEqual(evaluateAudit(report(), accepted).stale, ["GHSA-aaaa-aaaa-aaaa"]);
 });
