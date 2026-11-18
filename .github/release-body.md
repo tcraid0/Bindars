@@ -100,8 +100,10 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. A trial build of the Linux package passed the release workflow's checks.
+
+The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The app inside the published disk image was tried by hand on macOS 26.6 (Apple Silicon) with made-up documents: saving when switching to another app, the formatting bar, Make a Copy straight after typing, a highlight kept through an edit to its paragraph, idle autosave, switching documents, and Quit straight after typing.
 
 The formatting bar, the Read and Edit place, highlight continuity, Search and document switching were each checked by hand in isolated macOS builds during development. The save changes were checked by hand the same way: switching away in Edit and Focus mode, open dialogs, the header messages at narrow widths, a full disk with Save As recovery, the highlights refusal, creation dates, drafts, and Quit from the error screen.
 
-Not checked by hand: a save slower than two seconds, sleep, the print sheet taking focus, exFAT or network volumes with the new save behaviour, iCloud folders, and any Linux desktop session.
+Not checked by hand: a save slower than two seconds, sleep, the print sheet taking focus, exFAT or network volumes with the new save behaviour, iCloud folders, a browser download on a clean Mac, macOS 15, and any Linux desktop session.
