@@ -21,6 +21,25 @@ function mount(t, files, overrides = {}) {
   return view;
 }
 
+test("Recent and Home stretch Open while keeping Retry and Remove above it", t => {
+  const files = [recent("/notes.md"), recent("/missing.md")];
+  for (const welcome of [false, true]) {
+    const view = mount(t, files, {
+      welcome, recovery: { path: files[1].path, retryDisabled: false }, onRetry() {},
+    });
+    for (const [index, row] of rows(view.host).entries()) {
+      assert.ok(row.classList.contains("recent-row"));
+      assert.ok(openButton(row).classList.contains("recent-open"));
+      const remove = row.querySelector('[aria-label^="Remove"]');
+      assert.ok(remove.classList.contains("z-[1]"));
+      assert.ok(remove.classList.contains(welcome && index === 0 ? "absolute" : "relative"));
+    }
+    const retry = view.host.querySelector('[aria-label^="Retry"]');
+    assert.ok(retry.classList.contains("relative"));
+    assert.ok(retry.classList.contains("z-[1]"));
+  }
+});
+
 test("collision ancestry extends beyond two folders, to roots/drives, using existing path identities", () => {
   for (const paths of [
     ["/Team A/shared/notes/plan.md", "/Team B/shared/notes/plan.md"],
