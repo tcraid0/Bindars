@@ -20,7 +20,7 @@ const doc = prepareCatalogDocument(
 
 test("disposable cache survives a round trip without preferences", () => {
   const cache = JSON.parse(JSON.stringify(buildSearchCache([doc])));
-  assert.equal(cache.version, 2);
+  assert.equal(cache.version, 3);
   assert.deepEqual(cachedDocuments(cache), [doc]);
   assert.deepEqual(Object.keys(cache), ["version", "docs"]);
 });
