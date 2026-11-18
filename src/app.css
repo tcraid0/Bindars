@@ -2247,6 +2247,10 @@ body[data-printing] .print-hide {
   padding: 0.4rem 0;
   font-size: 0.75rem;
 }
+.navigation-folder-heading > svg {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
 .folder-options {
   position: absolute;
   top: 100%;
@@ -2359,6 +2363,12 @@ body[data-printing] .print-hide {
 .document-list li {
   border-top: 1px solid var(--border);
 }
+/* The header already draws a line under itself; don't stack a second one on the first row.
+   With no subfolders, an empty subfolder list comes first. */
+#navigation-view > .document-list:first-child > li:first-child,
+#navigation-view > .document-list:first-child:empty + .document-list > li:first-child {
+  border-top: 0;
+}
 .document-open {
   display: block;
   width: 100%;
@@ -2371,6 +2381,25 @@ body[data-printing] .print-hide {
   color: var(--text-secondary);
   font-size: 0.75rem;
   margin-top: 0.25rem;
+}
+/* Document names are medium weight, like Recent; the folder heading (600) stays heavier. */
+.document-open strong {
+  font-weight: 500;
+}
+/* A subfolder: folder picture, name, and a › that says "go inside". */
+.document-open.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+.folder-row > svg {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+.folder-row > svg:last-child {
+  margin-left: auto;
+  color: var(--text-muted);
 }
 .document-row {
   padding: 0.5625rem 0.75rem;
