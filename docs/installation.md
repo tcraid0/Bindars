@@ -4,7 +4,7 @@
 
 ## macOS (Apple Silicon)
 
-Download [Bindars 1.6.4 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.6.4/Bindars_1.6.4_aarch64.dmg),
+Download [Bindars 1.7.0 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.7.0/Bindars_1.7.0_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
 macOS may show its normal first-open confirmation for an internet download.
 Do not disable Gatekeeper or bypass a security block to install it.
@@ -22,7 +22,7 @@ Do not disable Gatekeeper or bypass a security block to install it.
   horizontal scrolling. This existing behavior was reproduced at 300% in both
   1.6.3 and 1.6.4; Recent details stay within the window.
 
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.6.4) includes
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.7.0) includes
 `SHA256SUMS-macos.txt` for checking the download. Save it beside the DMG, open
 Terminal in that folder, and run:
 
