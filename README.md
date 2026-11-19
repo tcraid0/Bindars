@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tcraid0/Bindars/releases/download/v1.7.0/Bindars_1.7.0_aarch64.dmg">Mac download (Apple Silicon, macOS 15+)</a> ·
+  <a href="https://github.com/tcraid0/Bindars/releases/download/v1.7.1/Bindars_1.7.1_aarch64.dmg">Mac download (Apple Silicon, macOS 15+)</a> ·
   <a href="https://github.com/tcraid0/Bindars/releases/latest">Linux releases (.deb, x86_64)</a><br>
   <a href="https://bindars.dev">Website</a> ·
   <a href="#documentation">Documentation</a>
@@ -83,7 +83,7 @@ here too, so you can export your notes when you're ready to revise.
 
 ### macOS (Apple Silicon)
 
-[Download Bindars 1.7.0 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.7.0/Bindars_1.7.0_aarch64.dmg),
+[Download Bindars 1.7.1 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.7.1/Bindars_1.7.1_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Requires macOS 15 or
 later; Intel Macs aren't supported. The app is signed with Developer ID and
 notarized by Apple. Updates are manual.
