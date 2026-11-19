@@ -2426,15 +2426,6 @@ body[data-printing] .print-hide {
   border-left: 3px solid transparent;
   transition: background-color 120ms;
 }
-.recent-row {
-  position: relative;
-}
-/* Stretch the Open hit area without moving the button or its details anchor. */
-.recent-open::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
 .recent-file-name {
   overflow-wrap: anywhere;
 }

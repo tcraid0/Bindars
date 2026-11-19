@@ -21,22 +21,27 @@ function mount(t, files, overrides = {}) {
   return view;
 }
 
-test("Recent and Home stretch Open while keeping Retry and Remove above it", t => {
+test("a click anywhere on a Recent or Home row opens it, but not on Retry or Remove", t => {
   const files = [recent("/notes.md"), recent("/missing.md")];
   for (const welcome of [false, true]) {
+    const opened = [], removed = [];
+    let retried = 0;
     const view = mount(t, files, {
-      welcome, recovery: { path: files[1].path, retryDisabled: false }, onRetry() {},
+      welcome, recovery: { path: files[1].path, retryDisabled: false },
+      onOpen: path => opened.push(path), onRemove: path => removed.push(path), onRetry: () => { retried += 1; },
     });
-    for (const [index, row] of rows(view.host).entries()) {
-      assert.ok(row.classList.contains("recent-row"));
-      assert.ok(openButton(row).classList.contains("recent-open"));
-      const remove = row.querySelector('[aria-label^="Remove"]');
-      assert.ok(remove.classList.contains("z-[1]"));
-      assert.ok(remove.classList.contains(welcome && index === 0 ? "absolute" : "relative"));
-    }
-    const retry = view.host.querySelector('[aria-label^="Retry"]');
-    assert.ok(retry.classList.contains("relative"));
-    assert.ok(retry.classList.contains("z-[1]"));
+    const [available, unavailable] = rows(view.host);
+    // The row's padding and the space beside Open are outside the button in WebKit.
+    click(available);
+    click(available.firstElementChild);
+    click(openButton(available));
+    assert.deepEqual(opened, ["/notes.md", "/notes.md", "/notes.md"], "each click opens once");
+    click(unavailable);
+    click(unavailable.querySelector('[aria-label^="Retry"]'));
+    click(unavailable.querySelector('[aria-label^="Remove"]'));
+    assert.deepEqual(opened, ["/notes.md", "/notes.md", "/notes.md"], "an unavailable row, Retry and Remove do not open");
+    assert.equal(retried, 1);
+    assert.deepEqual(removed, ["/missing.md"]);
   }
 });
 

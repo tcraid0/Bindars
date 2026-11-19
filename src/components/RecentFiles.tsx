@@ -86,7 +86,13 @@ export function RecentFiles({
             key={file.path}
             data-path={file.path}
             data-current={isActive || undefined}
-            className={`document-row recent-row flex gap-2 group ${welcome ? "home-row items-baseline" : "items-center"}`}
+            className={`document-row flex gap-2 group ${welcome ? "home-row items-baseline" : "items-center"}`}
+            // WebKit keeps a button's hit area inside its own box, so a click on the
+            // row around Open lands here. Retry and Remove handle their own clicks.
+            onClick={(event) => {
+              if ((event.target as Element).closest("button")) return;
+              event.currentTarget.querySelector<HTMLButtonElement>(".recent-open")?.click();
+            }}
           >
             <div className="flex-1 min-w-0">
               <button
@@ -149,7 +155,7 @@ export function RecentFiles({
                   onRetry();
                 }}
                 disabled={isOpening || recovery.retryDisabled}
-                className="relative z-[1] text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                className="text-xs text-accent-text hover:underline disabled:opacity-50 disabled:pointer-events-none"
                 aria-label={`Retry opening ${welcome ? file.name : identity}`}
               >
                 Retry
@@ -168,7 +174,7 @@ export function RecentFiles({
               }}
               aria-label={`Remove ${welcome ? name : identity} from Recent`}
               disabled={isOpening}
-              className={`z-[1] ${welcome && !isUnavailable ? "" : "relative"} shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
+              className={`shrink-0 p-1.5 rounded ${isUnavailable ? "" : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                 welcome ? "absolute top-3 right-1.5 group-has-focus-visible:opacity-100" : ""}`} hover:bg-bg-primary text-text-muted hover:text-text-primary transition-all duration-120`}
               title={!welcome && isUnavailable ? undefined : "Remove from Recent"}
             >
