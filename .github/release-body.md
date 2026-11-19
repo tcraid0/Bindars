@@ -82,4 +82,13 @@ Automated source checks pass on Linux and on macOS 15: the workspace and Rust te
 
 The sidebar changes were checked in a browser engine with the app's own styles, in all four themes: where clicks land on each row, the text weights and colours, and the line above the first row. New tests cover each change.
 
-The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
+The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The finished app was also tried by hand on macOS 26.6 (Apple Silicon) with made-up documents, in a copy given its own app ID so it could not read or change real Bindars data. The checks covered:
+
+- the folder and document rows in Folders, including opening a subfolder and coming back;
+- Recent rows opening from their blank space above, below and beside the name, and Remove not opening anything;
+- a screenplay title shown without its formatting marks;
+- a large document clicked and another clicked straight after, with the second one ending up open.
+
+The first trial of this release found that a Recent row's blank space still did nothing in the Mac app, although it worked in the browser engine. That was fixed before release, and the fix was confirmed by the hand checks above.
+
+Not checked by hand: Home's rows, VoiceOver, Linux, macOS 15, and a browser download on a clean Mac.
