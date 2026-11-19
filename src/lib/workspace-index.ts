@@ -14,7 +14,7 @@ import type {
 import { extractFrontmatter } from "./frontmatter";
 import type { DocumentComplexityOptions } from "./document-complexity";
 import { assertDocumentComplexity, isDocumentComplexityError } from "./document-complexity";
-import { parseFountain, fountainToSearchableText, isMarkdownSceneHeadingText } from "./fountain";
+import { parseFountain, fountainToSearchableText, fountainPlainText, isMarkdownSceneHeadingText } from "./fountain";
 import { remarkPlugins } from "./markdown-plugins";
 import { resolveMarkdownLink, toPathIdentityKey } from "./paths";
 import { documentFileType, replaceOpenableDocumentExtension } from "./openable-files";
@@ -98,7 +98,9 @@ function buildFountainDoc(
   const parsed = parseFountain(content, complexityOptions);
 
   const titleEntry = parsed.titlePage.find((e) => e.key.toLowerCase() === "title");
-  const title = titleEntry?.value || replaceOpenableDocumentExtension(meta.name, "").trim() || null;
+  // Show the words, not Fountain's emphasis marks; join a title written over several lines.
+  const plainTitle = titleEntry ? fountainPlainText(titleEntry.value).replace(/\s+/g, " ").trim() : "";
+  const title = plainTitle || replaceOpenableDocumentExtension(meta.name, "").trim() || null;
 
   const headings: WorkspaceHeading[] = parsed.scenes.map((s) => ({
     id: s.id,

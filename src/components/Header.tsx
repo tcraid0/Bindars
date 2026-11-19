@@ -5,6 +5,7 @@ import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-lab
 import { useToast } from "./ToastProvider";
 import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
+import { FolderIcon } from "./icons";
 
 const textButtonClass = "rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120";
 
@@ -244,9 +245,7 @@ function HeaderComponent({
                   className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
                   title={`${revealLabel}\n${filePath}`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2z" />
-                  </svg>
+                  <FolderIcon />
                 </button>
               )}
             </div>

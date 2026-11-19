@@ -13,6 +13,7 @@ import { READER_PANEL_WIDTHS } from "../lib/reader-panels";
 import { detectShortcutPlatform } from "../lib/shortcut-labels";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 import { RecentRemovalNotice, type RecentRemovalRecovery } from "./RecentRemovalNotice";
+import { FolderIcon, ChevronRightIcon, SearchIcon } from "./icons";
 
 interface SidebarProps {
   visible: boolean;
@@ -165,6 +166,7 @@ function SidebarComponent(props: SidebarProps) {
             className="navigation-search"
             onClick={props.onOpenCommandPalette}
           >
+            <SearchIcon />
             Search documents…
           </button>
           {view === "Folders" && root && (
@@ -305,10 +307,13 @@ function SidebarComponent(props: SidebarProps) {
                       {subfolders.slice(0, folderLimit).map((path) => (
                         <li key={path}>
                           <button
-                            className="document-open document-row"
+                            className="document-open document-row folder-row"
+                            aria-label={`${fileName(path)}, folder`}
                             onClick={() => moveDirectory(path)}
                           >
-                            ▸ {fileName(path)}
+                            <FolderIcon />
+                            {fileName(path)}
+                            <ChevronRightIcon />
                           </button>
                         </li>
                       ))}

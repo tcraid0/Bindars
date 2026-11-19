@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 import { fileName, toPosixPath } from "../lib/paths";
 import { PathDetails } from "./PathDetails";
+import { FolderIcon } from "./icons";
 
 /** The browsing location and its infrequent maintenance actions. */
 export function FolderContext({ root, directory, onNavigate, onChoose, onRemove }: {
@@ -30,6 +31,7 @@ export function FolderContext({ root, directory, onNavigate, onChoose, onRemove 
   return (
     <div className="navigation-folder-context">
       <div className="navigation-folder-heading">
+        <FolderIcon />
         <h2 id="navigation-folder-name" className="navigation-folder-name" title={root} aria-current={!directory ? "location" : undefined}>{fileName(root)}</h2>
         <button ref={triggerRef} type="button" className="navigation-action"
           aria-expanded={open} aria-controls={open ? id : undefined}

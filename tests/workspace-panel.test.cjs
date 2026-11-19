@@ -9,6 +9,13 @@ const {
 const {
   ToastProvider,
 } = require("../.tmp/workspace-tests/src/components/ToastProvider.js");
+
+function folderButton(host, name) {
+  const button = host.querySelector(`button[aria-label="${name}, folder"]`);
+  assert.ok(button, `expected folder button: ${name}`);
+  return button;
+}
+
 test("folder list and global Recent are distinct; removal keeps an untimed Add Back", async (t) => {
   const host = document.createElement("div");
   document.body.append(host);
@@ -75,6 +82,9 @@ test("folder list and global Recent are distinct; removal keeps an untimed Add B
   });
   assert.match(host.textContent, /recent.md/);
   assert.doesNotMatch(host.textContent, /folder.md/);
+  const search = host.querySelector('.navigation-search');
+  assert.equal(search.textContent, 'Search documents…');
+  assert.ok(search.querySelector('svg[aria-hidden="true"]'));
   await act(async () => host.querySelector("#navigation-tab-Folders").click());
   assert.match(host.textContent, /folder.md/);
   assert.doesNotMatch(host.textContent, /recent.md/);
@@ -223,8 +233,8 @@ test('folder breadcrumbs keep the chosen directory, expose ancestors and full pa
   t.after(view.cleanup);
   click(view.host.querySelector('#navigation-tab-Folders'));
   assert.ok(view.host.querySelector('[aria-label="Folder location"]') === null, 'the root is named once, without a redundant breadcrumb');
-  click(buttonWithText(view.host, '▸ Interviews'));
-  click(buttonWithText(view.host, '▸ November'));
+  click(folderButton(view.host, 'Interviews'));
+  click(folderButton(view.host, 'November'));
   assert.equal(document.activeElement.getAttribute('role'), 'tabpanel');
   assert.equal(document.activeElement.getAttribute('aria-describedby'), 'navigation-folder-breadcrumbs');
   const crumbs = view.host.querySelector('nav');
@@ -284,7 +294,7 @@ test('folder and document pagination, errors, and discovery limits survive compa
   assert.match(view.host.textContent, /Unreadable directory/);
   click(buttonWithText(view.host, 'Retry'));
   assert.equal(retries, 1);
-  click(buttonWithText(view.host, '▸ Folder-0'));
+  click(folderButton(view.host, 'Folder-0'));
   view.render({ docs: [], workspaceState: { ...defaults.workspaceState, status: 'indexing', directories: [] } });
   assert.match(view.host.textContent, /Looking for documents/);
   view.render({ workspaceState: { ...defaults.workspaceState, directories: [] } });
@@ -298,14 +308,19 @@ test('Folders hides empty descendants and keeps folder warnings only at the top'
   });
   t.after(view.cleanup);
   click(view.host.querySelector('#navigation-tab-Folders'));
-  assert.ok(![...view.host.querySelectorAll('button')].some(button => button.textContent === '▸ Empty'));
-  assert.ok(![...view.host.querySelectorAll('button')].some(button => button.textContent === '▸ Other'));
-  assert.ok(buttonWithText(view.host, '▸ Interviews'));
+  assert.equal(view.host.querySelectorAll('button[aria-label="Empty, folder"]').length, 0);
+  assert.equal(view.host.querySelectorAll('button[aria-label="Other, folder"]').length, 0);
+  assert.deepEqual([...view.host.querySelectorAll('#navigation-view .document-open')].map(row => row.textContent), ['Interviews'],
+    'only folders that hold documents are shown, whatever their accessible names');
+  const interviews = folderButton(view.host, 'Interviews');
+  assert.equal(interviews.textContent, 'Interviews', 'the visible name has no arrow character');
+  assert.equal(interviews.querySelectorAll('svg[aria-hidden="true"]').length, 2, 'folder picture and chevron are decorative');
+  assert.ok(view.host.querySelector('.navigation-folder-heading > svg[aria-hidden="true"]'), 'the folder heading has a folder picture');
   assert.match(view.host.textContent, /Some places in this folder couldn't be opened/);
   assert.match(view.host.textContent, /Use Folder options to choose a folder inside it/);
   assert.doesNotMatch(view.host.textContent, /What appears here|Preparing text search|characters searchable/);
-  click(buttonWithText(view.host, '▸ Interviews'));
-  assert.ok(buttonWithText(view.host, '▸ November'), 'a document at any depth keeps its ancestors');
+  click(folderButton(view.host, 'Interviews'));
+  assert.ok(folderButton(view.host, 'November'), 'a document at any depth keeps its ancestors');
   assert.doesNotMatch(view.host.textContent, /couldn't be opened|Only part of this folder/);
   view.render({ workspaceState: { status: 'error', indexedAt: 1, directories: [], error: "Can't find this folder." } });
   assert.match(view.host.textContent, /Can't find this folder\./, 'a folder error is not hidden inside a subfolder');
@@ -324,4 +339,32 @@ test('document rows keep their names without text-search progress lines', t => {
   t.after(view.cleanup);
   assert.match(view.host.textContent, /first.mdsecond.md/);
   assert.doesNotMatch(view.host.textContent, /Preparing text search|characters searchable/);
+});
+
+test('document rows show a quieter file ending while keeping the full name', t => {
+  const { DocumentList } = require('../.tmp/workspace-tests/src/components/DocumentList.js');
+  const view = renderComponent(DocumentList, { docs: [
+    { path: '/notes.md', relPath: 'notes.md', name: 'notes.md', sources: ['folder'] },
+    { path: '/README', relPath: 'README', name: 'README', sources: ['folder'] },
+  ], onOpen() {}, onRetry() {} });
+  t.after(view.cleanup);
+  const [notes, readme] = view.host.querySelectorAll('strong');
+  assert.equal(notes.textContent, 'notes.md');
+  assert.equal(notes.querySelector('.document-ext').textContent, '.md');
+  assert.equal(readme.querySelectorAll('.document-ext').length, 0);
+});
+
+test('a blank draft shows its file name with the quieter ending, once', t => {
+  const { DocumentList } = require('../.tmp/workspace-tests/src/components/DocumentList.js');
+  const { prepareCatalogDocument } = require('../.tmp/workspace-tests/src/lib/document-catalog.js');
+  const blank = prepareCatalogDocument({ path: '/Drafts/Untitled.md', relPath: 'Untitled.md', name: 'Untitled.md', size: 0, mtimeMs: 1 }, '');
+  const named = prepareCatalogDocument({ path: '/Drafts/Untitled 3.md', relPath: 'Untitled 3.md', name: 'Untitled 3.md', size: 20, mtimeMs: 1 }, 'Meeting with Steven\n');
+  assert.equal(blank.draftLabel, 'Untitled.md', 'the catalog labels a blank draft with its file name');
+  const view = renderComponent(DocumentList, { drafts: true, docs: [blank, named], onOpen() {}, onRetry() {} });
+  t.after(view.cleanup);
+  const [blankRow, namedRow] = view.host.querySelectorAll('.document-open');
+  assert.equal(blankRow.textContent, 'Untitled.md', 'the file name is not repeated on a second line');
+  assert.equal(blankRow.querySelector('.document-ext').textContent, '.md');
+  assert.equal(namedRow.querySelector('strong').textContent, 'Meeting with Steven');
+  assert.equal(namedRow.textContent, 'Meeting with StevenUntitled 3.md');
 });

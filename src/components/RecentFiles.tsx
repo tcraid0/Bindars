@@ -5,6 +5,7 @@ import { focusAfterRemoval } from "../lib/focus-after-removal";
 import type { WelcomeRecovery } from "../lib/welcome-recovery";
 import { documentTitle } from "../lib/document-title";
 import { useRecentFileDetails } from "./useRecentFileDetails";
+import { FileName } from "./FileName";
 
 /** What the search index knows about a recent file, keyed by path identity. */
 export type RecentDetails = ReadonlyMap<string, { title: string | null; section: string | null }>;
@@ -86,13 +87,19 @@ export function RecentFiles({
             data-path={file.path}
             data-current={isActive || undefined}
             className={`document-row flex gap-2 group ${welcome ? "home-row items-baseline" : "items-center"}`}
+            // WebKit keeps a button's hit area inside its own box, so a click on the
+            // row around Open lands here. Retry and Remove handle their own clicks.
+            onClick={(event) => {
+              if ((event.target as Element).closest("button")) return;
+              event.currentTarget.querySelector<HTMLButtonElement>(".recent-open")?.click();
+            }}
           >
             <div className="flex-1 min-w-0">
               <button
                 {...(!welcome ? supplementary.triggerProps(file, index) : {})}
                 type="button"
-                onClick={() => { if (!isOpening && !isUnavailable) onOpen(file.path); }}
-                className="block w-full min-w-0 text-left"
+                onClick={() => { if (!isUnavailable) onOpen(file.path); }}
+                className="recent-open block w-full min-w-0 text-left"
                 aria-label={`Open ${identity}${continueLabel ? `, ${continueLabel}` : ""}`}
                 title={welcome ? file.path : undefined}
                 aria-current={isActive ? "page" : undefined}
@@ -128,7 +135,7 @@ export function RecentFiles({
                     <div
                       className="recent-file-name text-sm font-medium text-text-primary"
                     >
-                      {title ?? file.name}
+                      {title ?? <FileName name={file.name} />}
                     </div>
                     {title && <div className="recent-file-name text-xs text-text-secondary mt-0.5">{file.name}</div>}
                     {location && <div className="recent-file-name text-xs text-text-muted mt-0.5">{location}</div>}
