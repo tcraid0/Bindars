@@ -10,13 +10,9 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-export const ACCEPTED_ADVISORIES = {
-  // picomatch <= 4.0.7: slow matching of crafted glob patterns (CVE-2026-112366).
-  // Reviewed 2026-11-17. No fixed version exists. picomatch is locked only under
-  // vite and patch-package, which match patterns written in this repository and
-  // never patterns from documents or users. Remove once a fixed release is locked.
-  "GHSA-fc5q-39xc-vjpf": "picomatch",
-};
+// Each entry maps an advisory ID to its package name, with a comment giving the
+// reason and the review date. None are accepted at the moment.
+export const ACCEPTED_ADVISORIES = {};
 
 const BLOCKING = new Set(["moderate", "high", "critical"]);
 

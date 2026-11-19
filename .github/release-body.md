@@ -78,7 +78,7 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass for everything shipped in the app. One advisory with no fix yet (GHSA-fc5q-39xc-vjpf, in `picomatch`) is accepted for build tools only; that package is not part of the app.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass, for the app and for the build tools, with no accepted exceptions. The `picomatch` advisory accepted for build tools in 1.7.0 has since been withdrawn.
 
 The sidebar changes were checked in a browser engine with the app's own styles, in all four themes: where clicks land on each row, the text weights and colours, and the line above the first row. New tests cover each change.
 
