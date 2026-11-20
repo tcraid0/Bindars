@@ -3,7 +3,8 @@ import type { WorkspaceDocIndex } from "../types";
 
 // Bump when the cache schema or extracted text changes, even if files do not.
 // Version 2 excludes Markdown footnote backlinks from passage text.
-const SEARCH_CACHE_VERSION = 2;
+// Version 3 stores Fountain titles without emphasis marks.
+const SEARCH_CACHE_VERSION = 3;
 /** Bounds for derived text, on disk and in the session's retained entries. */
 export const CACHE_MAX_DOCS = 10_025;
 export const CACHE_MAX_CHARS = 2_000_000;

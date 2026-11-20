@@ -21,6 +21,30 @@ function mount(t, files, overrides = {}) {
   return view;
 }
 
+test("a click anywhere on a Recent or Home row opens it, but not on Retry or Remove", t => {
+  const files = [recent("/notes.md"), recent("/missing.md")];
+  for (const welcome of [false, true]) {
+    const opened = [], removed = [];
+    let retried = 0;
+    const view = mount(t, files, {
+      welcome, recovery: { path: files[1].path, retryDisabled: false },
+      onOpen: path => opened.push(path), onRemove: path => removed.push(path), onRetry: () => { retried += 1; },
+    });
+    const [available, unavailable] = rows(view.host);
+    // The row's padding and the space beside Open are outside the button in WebKit.
+    click(available);
+    click(available.firstElementChild);
+    click(openButton(available));
+    assert.deepEqual(opened, ["/notes.md", "/notes.md", "/notes.md"], "each click opens once");
+    click(unavailable);
+    click(unavailable.querySelector('[aria-label^="Retry"]'));
+    click(unavailable.querySelector('[aria-label^="Remove"]'));
+    assert.deepEqual(opened, ["/notes.md", "/notes.md", "/notes.md"], "an unavailable row, Retry and Remove do not open");
+    assert.equal(retried, 1);
+    assert.deepEqual(removed, ["/missing.md"]);
+  }
+});
+
 test("collision ancestry extends beyond two folders, to roots/drives, using existing path identities", () => {
   for (const paths of [
     ["/Team A/shared/notes/plan.md", "/Team B/shared/notes/plan.md"],
@@ -90,6 +114,17 @@ test("filename fallbacks, generic titles, extensions and unbroken strings surviv
   assert.equal(buttons[2].textContent, "notes.md", "the shared title rule removes its own filename fallback");
   assert.ok(buttons[3].textContent.startsWith("Untitled"), "no generic-title blacklist");
   for (const [i, button] of buttons.entries()) assert.ok(button.textContent.includes(files[i].name));
+});
+
+test("Recent fades a file's ending but keeps the whole name, and Home is unchanged", t => {
+  const files = [recent("/Documents/notes.md"), recent("/Documents/script.fountain")];
+  const view = mount(t, files);
+  const [notes, script] = rows(view.host).map(openButton);
+  assert.equal(notes.textContent, "notes.md");
+  assert.equal(notes.querySelector(".document-ext").textContent, ".md");
+  assert.equal(script.querySelector(".document-ext").textContent, ".fountain");
+  view.render({ welcome: true });
+  assert.equal(view.host.querySelectorAll(".document-ext").length, 0, "Home keeps its own name style");
 });
 
 test("focus describes without opening; Escape dismisses once; opening and unavailable retry still work", async t => {

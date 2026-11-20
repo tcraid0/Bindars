@@ -1,26 +1,35 @@
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.6.4_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
+- **Mac (Apple Silicon):** `Bindars_1.7.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
 Updates are manual. The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`.
 
-## Changes in 1.6.4
+## Changes in 1.7.1
 
-Recent is easier to scan while keeping the information needed to choose the correct document.
+The sidebar is easier to use and easier to read.
 
-- A readable title stays primary, with the exact filename beneath it when distinct. Numbered endings such as `(1).md`, punctuation and extensions remain visible. Filenames appear immediately while titles are being prepared.
-- Routine folder names and dates move into supplementary details. Same-named files retain enough visible folder ancestry to tell them apart, even when their last two parent folders also match.
-- Hover or focus a Recent row to see its full location and **Last opened** information. Escape dismisses the details. Page Up / Page Down scroll long details while keeping focus on the existing row.
-- Details stay inside the window at high interface zoom, and clicking a document does not flash a details panel. Hover details leave Find and Edit shortcuts working normally.
-- Drafts shows its shared location once above the list, with full paths retained for recovery notices. A failed refresh keeps the last known canonical Drafts location instead of guessing from a nested file.
-- Home keeps its dates and continuation cues, Search keeps locations and matching passages, and Folders keeps filenames primary. Recent keeps its stable order while the sidebar is open.
+### Clicks that work every time
 
-No new setting, dependency, document format, annotation format or migration is introduced.
+- A document in Recent, or on Home, opens when you click anywhere on its row. Before, only the name itself opened it, and clicks elsewhere on the row did nothing.
+- If you click a document while another one is still opening, Bindars opens the one you clicked last. Before, that click could be ignored.
+
+### Folders and documents look different
+
+- In Folders, each folder has a folder symbol and an arrow, and the current folder's name has a folder symbol too. Documents are no longer bold, so folders and documents are easy to tell apart.
+- File endings such as `.md` and `.fountain` are shown in a lighter grey, so names are quicker to read. The full name is still there.
+- The search box at the top of the sidebar has a magnifying glass and a quieter look.
+- The extra line above the first document in Folders is gone.
+
+### Screenplay titles
+
+- Screenplay titles in Recent and Search no longer show formatting marks such as `**` or `_`.
+
+No new setting, dependency, document format or annotation format is introduced.
 
 ## Upgrading
 
-On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.6.3. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.0. The first time 1.7.1 starts, it rebuilds its search list once. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
 
 ## Known limitations
 
@@ -33,13 +42,12 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
   misplaced formulas in WebKit. Default math rendering is unaffected.
 - Reading position restores a section rather than an exact pixel offset. Very
   last-moment scrolling or preference changes may not be recorded before quitting.
-- Opening a different file through the native Open dialog can retain the previous
-  reader scroll offset, placing a shorter document partway down or at its end.
-  Use the table of contents or scroll to the top. This behavior also exists in
-  1.6.2; it was identified during the 1.6.3 native checks.
+- A different document now opens from its top when it has no remembered place.
+  This was checked from Recent and Folders; the native Open dialog route, where
+  an earlier scroll offset could carry over, was not rechecked.
 - At extreme interface zoom with the sidebar open, the remaining reading pane
-  can require horizontal scrolling. This was reproduced at 300% in both 1.6.3
-  and 1.6.4; Recent details remain bounded within the window.
+  can require horizontal scrolling. This was reproduced at 300% in 1.6.3 and
+  1.6.4 and has not changed.
 - Some printed headings can be separated from their following content, and table
   headers may not repeat on continuation pages. Very wide tables can wrap words
   within cells. Native Linux and Windows printing remain unverified. The Mac
@@ -55,21 +63,32 @@ On Mac, quit Bindars and replace the application with the copy from the new DMG.
   original storage files first.
 - A program writing through an already-open file handle may continue writing
   to an older file after Bindars replaces it. Replacement saves do not preserve
-  owner/group, locked or hidden flags, or timestamps. Linux replacement saves
-  still do not preserve filesystem ACLs or extended attributes.
+  owner/group or locked and hidden flags. macOS now keeps the creation date;
+  Linux replacement saves still do not preserve filesystem ACLs or extended
+  attributes.
 - Interrupted saves or competing edits can leave temporary files or a
   **Bindars recovered …** copy beside the document. Bindars never deletes these
   leftovers automatically; see [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md)
   before removing them.
-
-- Fountain titles containing emphasis markers can still display those markers. This release does not change title extraction.
+- A save that never finishes, for example on a stalled network share, still
+  cannot be cancelled, and Quit waits for it. After a failed save, autosave
+  stays paused until you save by hand.
+- Saving when you switch away does not apply while a dialog or the print sheet
+  owns the window. Linux does not yet save on logout.
 
 ## Validation
 
-Source checks and independent reviews cover document identity, collision ancestry, delayed indexing, keyboard focus, Escape ownership, opening/removal/retry, Drafts recovery and Home/Search preservation. Isolated native WebKit fixtures passed all ten interface zoom steps from 75% to 300% across four window sizes and all four themes, including keyboard access to long details.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass, for the app and for the build tools, with no accepted exceptions. The `picomatch` advisory accepted for build tools in 1.7.0 has since been withdrawn.
 
-The Apple Silicon Mac download is Developer ID signed, notarized and stapled. The final DMG and its contained app passed signature, ticket and Gatekeeper checks; the contained app matches the native-tested app byte for byte. On macOS 26.6.2, native checks passed for filename/folder selection, focus and Escape, Search, exact saved fixture bytes, math/Mermaid rendering, unavailable-file retry, removal, Home and normal Quit. A narrow synthetic-state upgrade from 1.6.3 restored the document session, Recent identities and zoom preference. Native interface zoom was exercised through 300%.
+The sidebar changes were checked in a browser engine with the app's own styles, in all four themes: where clicks land on each row, the text weights and colours, and the line above the first row. New tests cover each change.
 
-The Debian package passes metadata/content checks, notice verification, installation and a headless launch test on Ubuntu 22.04. macOS 15 arm64 has automated source/build coverage.
+The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The finished app was also tried by hand on macOS 26.6 (Apple Silicon) with made-up documents, in a copy given its own app ID so it could not read or change real Bindars data. The checks covered:
 
-This is limited native coverage. A fresh account, quarantined browser-download and offline first launch, macOS 15 signed-app GUI, VoiceOver speech, permission grant/denial, and the complete lifecycle/conflict-recovery/printing matrix were not established for this candidate. The synthetic upgrade smoke test does not establish exhaustive annotation/recovery upgrade behavior. Interactive Linux/Windows behavior remains unverified. Windows binaries, AppImage and Arch distribution remain unpublished.
+- the folder and document rows in Folders, including opening a subfolder and coming back;
+- Recent rows opening from their blank space above, below and beside the name, and Remove not opening anything;
+- a screenplay title shown without its formatting marks;
+- a large document clicked and another clicked straight after, with the second one ending up open.
+
+The first trial of this release found that a Recent row's blank space still did nothing in the Mac app, although it worked in the browser engine. That was fixed before release, and the fix was confirmed by the hand checks above.
+
+Not checked by hand: Home's rows, VoiceOver, Linux, macOS 15, and a browser download on a clean Mac.

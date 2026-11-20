@@ -87,7 +87,7 @@ node --test tests/version-consistency.test.cjs
 npm run licenses:test
 npm run licenses:check
 npm audit --omit=dev --audit-level=moderate
-npm audit --include=dev --audit-level=moderate
+node scripts/audit-dev-dependencies.mjs
 cd src-tauri && cargo audit --file Cargo.lock
 ```
 
@@ -137,13 +137,17 @@ cd src-tauri && cargo fetch --locked
 cd .. && npm run licenses:generate
 npm run licenses:test
 npm run licenses:check
-npm audit --include=dev --audit-level=moderate
+node scripts/audit-dev-dependencies.mjs
 ```
 
 Commit `THIRD-PARTY-NOTICES` and `third-party-software.json` with the lockfile
 changes. This also applies to Dependabot PRs that update runtime packages.
 Review Rust audit warnings and `.cargo/audit.toml` against the resolved graph;
 a passing audit can still contain unsoundness or maintenance warnings.
+Build and test dependencies are audited by `scripts/audit-dev-dependencies.mjs`,
+which lists each accepted advisory with its reason and fails on any other, and
+on an accepted one that is no longer reported. Shipped npm dependencies have no
+exceptions.
 
 ## License
 

@@ -314,7 +314,7 @@ test("an old extraction cache reprocesses unchanged footnotes and stays correcte
     "unchanged metadata cannot validate old extracted text",
   );
   assert.equal(view.get().docs[0].bodyText, fresh.bodyText);
-  assert.equal(cache.version, 2);
+  assert.equal(cache.version, 3);
   assert.equal(cache.docs[0].bodyText, fresh.bodyText);
   const expected = searchWorkspaceDocs([fresh], "refund policy", new Map())[0];
   assert.deepEqual(

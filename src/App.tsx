@@ -399,6 +399,9 @@ function App() {
   // Each dialog owns its continuation, even if a later dialog has the same intent.
   const saveContinuationRef = useRef<{ intent: SaveContinuationIntent } | null>(null);
   const executePendingActionRef = useRef<(action: PendingAction, annotationVersion: number) => Promise<void>>(async () => {});
+  const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
+  const admittedActionRef = useRef<PendingAction | null>(null);
+  const nextOpenRef = useRef<PendingAction | null>(null);
   const actionAdmissionOwnerRef = useRef<ActionAdmissionId | null>(null);
   const documentTransitionInFlightRef = useRef(false);
   const nextActionAdmissionIdRef = useRef(0);
@@ -505,6 +508,7 @@ function App() {
 
   const handleCancelPendingOpen = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const keepFocus = focusChosenElsewhere(element => element === event.currentTarget);
+    nextOpenRef.current = null;
     cancelPendingOpen();
     if (!keepFocus) mainScrollRef.current?.focus({ preventScroll: true });
     toast("Opening canceled.", "info");
@@ -1242,6 +1246,7 @@ function App() {
     const admissionId = nextActionAdmissionIdRef.current + 1;
     nextActionAdmissionIdRef.current = admissionId;
     actionAdmissionOwnerRef.current = admissionId;
+    admittedActionRef.current = action;
     if (action.kind !== "close-window" && action.kind !== "quit-app") {
       startupRestoreSupersededRef.current = true;
     }
@@ -1255,9 +1260,14 @@ function App() {
   const finishActionAdmission = useCallback((admissionId: ActionAdmissionId) => {
     if (actionAdmissionOwnerRef.current !== admissionId) return;
     actionAdmissionOwnerRef.current = null;
+    admittedActionRef.current = null;
     documentTransitionInFlightRef.current = false;
     setActionAdmissionInFlight(false);
     setDocumentTransitionInFlight(false);
+    // Consume once, even if the guard refuses the replay.
+    const nextOpen = nextOpenRef.current;
+    nextOpenRef.current = null;
+    if (nextOpen) guardActionRef.current(nextOpen);
     resumeDeferredReconciliation();
   }, [resumeDeferredReconciliation]);
 
@@ -1474,8 +1484,29 @@ function App() {
   }, [beginActionAdmission, departureNeedsSettlement, executeAdmittedAction, presentationMode, leaveEditKeepingContinuity, resetEditSession, flushBeforeContinuation, supersedeReconciliation]);
   // The native close and quit listeners are registered once; these mirrors
   // keep them pointed at the current guard admission.
-  const guardActionRef = useRef<(action: PendingAction) => GuardAdmission>(() => "busy");
   guardActionRef.current = guardAction;
+
+  const guardSidebarOpen = useCallback((action: Extract<PendingAction, { kind: "open-recent" | "navigate" }>) => {
+    if (guardAction(action) !== "busy") return;
+    const admitted = admittedActionRef.current;
+    if (actionAdmissionOwnerRef.current === null || !admitted
+      || pendingActionRef.current || boundaryFlushInFlightRef.current
+      || showConfirmDialogRef.current || showConflictDialogRef.current || isPrintInvoked()) return;
+
+    switch (admitted.kind) {
+      case "open-recent":
+      case "navigate":
+      case "open-workspace-hit":
+      case "open-file-path":
+      case "go-back":
+      case "go-forward":
+      case "go-home": {
+        const target = "path" in admitted ? admitted.path : openingPath;
+        nextOpenRef.current = target && toPathIdentityKey(target) === toPathIdentityKey(action.path) ? null : action;
+        break;
+      }
+    }
+  }, [guardAction, openingPath]);
 
   const handleConfirmDiscard = useCallback(() => {
     setShowConfirmDialog(false);
@@ -2451,7 +2482,8 @@ function App() {
       anchor: string | null,
       retryAction: RetryablePendingAction = { kind: "navigate", path, anchor },
     ) => {
-      // Same-file shortcut: skip re-reading and scroll directly
+      // A replay can run after document publication but before React renders it.
+      const { filePath } = getPublishedDocument();
       if (filePath && toPathIdentityKey(path) === toPathIdentityKey(filePath)) {
         rememberReopenedRemoval();
         if (anchor) {
@@ -2464,7 +2496,7 @@ function App() {
 
       await openAndRecordHistory(path, anchor, retryAction);
     },
-    [filePath, openAndRecordHistory, scrollToFragment, toast, rememberReopenedRemoval],
+    [getPublishedDocument, openAndRecordHistory, scrollToFragment, toast, rememberReopenedRemoval],
   );
 
   // Back and Forward share one move, to Home or to a document at its heading.
@@ -2536,6 +2568,7 @@ function App() {
       retryAction: RetryablePendingAction = { kind: "open-recent", path },
     ) => {
       const targetPathKey = toPathIdentityKey(path);
+      const { filePath } = getPublishedDocument();
       const currentPathKey = filePath ? toPathIdentityKey(filePath) : "";
       const savedHeading = getScrollPosition(path);
       if (targetPathKey && currentPathKey === targetPathKey) {
@@ -2547,15 +2580,15 @@ function App() {
 
       await openAndRecordHistory(path, savedHeading, retryAction);
     },
-    [filePath, getActiveHeadingId, getScrollPosition, openAndRecordHistory, scrollToHeading],
+    [getPublishedDocument, getActiveHeadingId, getScrollPosition, openAndRecordHistory, scrollToHeading],
   );
 
   // Guarded versions that depend on navigation/file handlers
   const guardedOpenRecent = useCallback(
     (path: string) => {
-      guardAction({ kind: "open-recent", path });
+      guardSidebarOpen({ kind: "open-recent", path });
     },
-    [guardAction],
+    [guardSidebarOpen],
   );
 
   const guardedGoBack = useCallback(() => {
@@ -2684,9 +2717,9 @@ function App() {
 
   const openWorkspacePath = useCallback(
     (path: string) => {
-      guardAction({ kind: "navigate", path, anchor: null });
+      guardSidebarOpen({ kind: "navigate", path, anchor: null });
     },
-    [guardAction],
+    [guardSidebarOpen],
   );
 
   // Memoised so the Contents panel does not re-render on every App render.

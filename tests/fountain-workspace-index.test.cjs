@@ -235,3 +235,13 @@ test("normalizeCharacterName strips V.O., O.S., CONT'D extensions", () => {
   assert.equal(normalizeCharacterName("sarah"), "SARAH");
   assert.equal(normalizeCharacterName("  Bob  "), "BOB");
 });
+
+test("Fountain index titles show words without emphasis marks", () => {
+  const titleOf = (titleLines) =>
+    buildWorkspaceDoc(makeMeta("Brick-and-Steel.fountain"), `${titleLines}\nAuthor: Someone\n\nINT. GARAGE - DAY\n\nA car.\n`).title;
+
+  assert.equal(titleOf("Title: _**BRICK & STEEL**_\n    _**FULL RETIRED**_"), "BRICK & STEEL FULL RETIRED");
+  assert.equal(titleOf("Title: *The* Last Day"), "The Last Day");
+  assert.equal(titleOf("Title: Snake\\_case \\*star\\*"), "Snake_case *star*");
+  assert.equal(titleOf("Title: snake_case and 2*3"), "snake_case and 2*3");
+});

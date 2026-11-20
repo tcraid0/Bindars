@@ -1,6 +1,6 @@
 [package]
 name = "bindars"
-version = "1.6.4"
+version = "1.7.1"
 description = "Read markdown beautifully"
 authors = ["Thomas Coffman"]
 license = "MIT"
