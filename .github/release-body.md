@@ -3,7 +3,7 @@
 - **Mac (Apple Silicon):** `Bindars_1.7.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
-Updates are manual. The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`.
+The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`.
 
 ## Changes in 1.7.1
 
@@ -27,9 +27,17 @@ The sidebar is easier to use and easier to read.
 
 No new setting, dependency, document format or annotation format is introduced.
 
-## Upgrading
+## Updating
 
 On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.0. The first time 1.7.1 starts, it rebuilds its search list once. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+
+If you're on 1.7.x, download the first version with in-app updates by hand.
+Once you have a version with in-app updates, choose **Bindars → Check for
+Updates…** any time on Mac. When an update is ready, choose **Install and
+Restart**. Automatic checks are off by default. Bindars asks once on a later
+launch if you'd like it to check about once a day. Checks and downloads
+contact only GitHub. Your documents are never sent. On Linux, keep getting
+updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
 
 ## Known limitations
 

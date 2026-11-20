@@ -13,9 +13,7 @@ Do not disable Gatekeeper or bypass a security block to install it.
 - Requires macOS 15.0 or newer. The signed app was tested interactively on
   macOS 26.6.2. macOS 15 has automated source/build coverage; its signed-app GUI
   behavior has not been verified.
-- Updates are manual: quit Bindars, download the new DMG, and replace the app
-  in Applications. Keep a backup of your documents and [Bindars data](recovery-and-privacy.md)
-  before upgrading. This update introduces no new document or annotation format.
+- Bindars 1.7.1 introduces no new document or annotation format.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
 - At extreme interface zoom with the sidebar open, the reading pane can require
@@ -32,6 +30,23 @@ shasum -a 256 -c SHA256SUMS-macos.txt
 
 Notarization is Apple's automated security check, not a Mac App Store review.
 
+### Updating on Mac
+
+If you're on 1.7.x, download the first version with in-app updates from the
+[download page](https://github.com/tcraid0/Bindars/releases/latest). Quit Bindars
+and replace it in Applications with the copy from the new DMG. You can still
+update this way later. Back up your documents and [Bindars data](recovery-and-privacy.md)
+before upgrading.
+
+In a version with in-app updates, choose **Bindars → Check for Updates…** any
+time. If an update is ready, choose **Install and Restart**. If you're running
+Bindars from the DMG, move it to Applications to update from inside the app.
+
+Automatic checks are off by default. On a later launch, Bindars asks once if
+you'd like it to check about once a day. You can change your answer in the
+Updates dialog. Checks and downloads contact only GitHub. Your documents are
+never sent.
+
 ## Linux support
 
 Bindars currently publishes an x86_64 Debian package. Before publication, the
@@ -41,7 +56,8 @@ but do not receive the same automated test.
 
 ## Debian / Ubuntu / Linux Mint
 
-Download the `.deb` from the [latest release](https://github.com/tcraid0/Bindars/releases/latest) and install:
+To install or update on Linux, download the `.deb` from the
+[download page](https://github.com/tcraid0/Bindars/releases/latest) and run:
 
 ```bash
 sudo apt install ./Bindars_*_amd64.deb

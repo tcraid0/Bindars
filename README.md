@@ -28,7 +28,9 @@
 Open a Markdown document or Fountain screenplay, mark the passages you want to
 come back to, and leave yourself a note. Reading and highlighting leave the
 document unchanged; highlights, notes, and bookmarks are saved separately on
-your computer. There's no account, telemetry, or automatic update check.
+your computer. There's no account or telemetry. On Mac, Bindars checks for
+updates only if you ask or turn on automatic checks. GitHub sees your
+internet address. Your documents are never sent.
 
 Supported files are `.md`, `.markdown`, and `.fountain`. Bindars doesn't import
 Word or PDF documents.
@@ -86,7 +88,9 @@ here too, so you can export your notes when you're ready to revise.
 [Download Bindars 1.7.1 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.7.1/Bindars_1.7.1_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Requires macOS 15 or
 later; Intel Macs aren't supported. The app is signed with Developer ID and
-notarized by Apple. Updates are manual.
+notarized by Apple. In versions with in-app updates, choose
+**Bindars → Check for Updates…** any time. If you're on 1.7.x, install the
+first version with in-app updates from its DMG.
 
 Tested interactively on macOS 26.6.2; macOS 15 signed-app GUI testing remains
 pending. See the [installation notes](docs/installation.md#macos-apple-silicon) for tested scope,
