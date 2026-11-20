@@ -157,10 +157,11 @@ To restore one, open an original document, choose **Restore recovery copy** in
 Other paths in the copy are untouched; restore them by opening those documents.
 The copy is kept. Markdown export is a readable document, not an import format.
 
-To share your highlights and notes, export them as Markdown from **Highlights &
-notes**. Open that exported file in Bindars and choose **Print to PDF** if you
-want a PDF of the notes. Printing the original document does not append note
-text.
+To share your highlights and notes, choose **Copy** in **Highlights & notes**
+and paste them anywhere, or export them as a Markdown file. They are listed in
+document order, each note after its passage. Open that exported file in Bindars
+and choose **Print to PDF** if you want a PDF of the notes. Printing the original
+document does not append note text.
 
 ## Storage boundary
 

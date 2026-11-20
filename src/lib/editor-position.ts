@@ -18,7 +18,7 @@ export interface ReaderAnchor {
 
 /** Reader blocks stamped with the source point of their first text character. */
 export const SOURCE_SELECTOR = "[data-bindars-source-line][data-bindars-source-column]";
-const HEADING_SELECTOR = "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]";
+export const HEADING_SELECTOR = "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]";
 
 function positiveInteger(value: string | undefined): number | null {
   if (!value) return null;

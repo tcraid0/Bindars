@@ -6,7 +6,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { displayHighlightColor, readAnnotationRecord } from "../lib/annotation-record";
 import type { Highlight, Bookmark, HeadingItem } from "../types";
 import { useToast } from "./ToastProvider";
-import { buildAnnotationMarkdown } from "../lib/annotation-export";
+import { buildAnnotationMarkdown, type HighlightPlace } from "../lib/annotation-export";
+import { COPY_FAILED_MESSAGE, copyText } from "../lib/clipboard";
 import { normalizeFileError } from "../lib/native-file-error";
 import type { AnnotationLoadStatus } from "../lib/annotation-state";
 import { focusAfterRemoval } from "../lib/focus-after-removal";
@@ -42,6 +43,8 @@ interface AnnotationsPanelProps {
   onClose: () => void;
   fileName: string | null;
   headings: HeadingItem[];
+  /** Painted highlights in reading order. Passages without a mark go under "Location unavailable". */
+  getHighlightPlaces?: () => HighlightPlace[];
 }
 
 /** Reading state only; the panel retains ownership of editing and saving. */
@@ -107,6 +110,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
   onClose,
   fileName,
   headings,
+  getHighlightPlaces,
 }: AnnotationsPanelProps) {
   const isMac = detectShortcutPlatform() === "macos";
   const [recoveryRecord, setRecoveryRecord] = useState<unknown>(null);
@@ -230,15 +234,35 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
     finally { if (!confirming) finishRecovery(); }
   };
 
+  // Include the note still being typed in both Copy and Export.
+  const buildText = useCallback((name: string) => {
+    const currentDraft = draft.current;
+    const current = currentDraft ? highlights.map((hl) => hl.id === currentDraft.id
+      ? { ...hl, note: currentDraft.text.trim() || undefined } : hl) : highlights;
+    return buildAnnotationMarkdown({
+      fileName: name,
+      highlights: current,
+      bookmarks,
+      headings,
+      places: getHighlightPlaces?.() ?? [],
+    });
+  }, [highlights, bookmarks, headings, getHighlightPlaces]);
+
+  const handleCopy = useCallback(() => {
+    if (!fileName) return;
+    // Start the clipboard write before saving the note: WebKit accepts it only during the click.
+    void copyText(buildText(fileName))
+      .then(() => toast("Highlights and notes copied"))
+      .catch(() => toast(COPY_FAILED_MESSAGE, "error"));
+    saveNote();
+  }, [fileName, buildText, saveNote, toast]);
+
   const handleExport = useCallback(async () => {
     if (!fileName || exportBusy.current) return;
     exportBusy.current = true;
     setExporting(true);
-    const currentDraft = draft.current;
-    const exportHighlights = currentDraft ? highlights.map((hl) => hl.id === currentDraft.id
-      ? { ...hl, note: currentDraft.text.trim() || undefined } : hl) : highlights;
+    const markdown = buildText(fileName);
     saveNote();
-    const markdown = buildAnnotationMarkdown(fileName, exportHighlights, bookmarks, headings);
     const baseName = fileName.replace(/\.[^.]+$/, "");
     try {
       const savePath = await save({
@@ -254,7 +278,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       exportBusy.current = false;
       if (alive.current) setExporting(false);
     }
-  }, [fileName, highlights, bookmarks, headings, toast, saveNote]);
+  }, [fileName, buildText, saveNote, toast]);
 
   if (!visible) return null;
 
@@ -272,6 +296,19 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
           Highlights &amp; notes
         </h2>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            // Keep a note being typed open until the click. Closing it on mouse
+            // down made WebKit refuse the clipboard write on macOS.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleCopy}
+            disabled={!hasContent}
+            aria-label="Copy highlights & notes"
+            title="Copy highlights & notes as text"
+            className="px-2 py-0.5 rounded text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Copy
+          </button>
           <button
             type="button"
             onClick={handleExport}

@@ -98,6 +98,7 @@ import { createPrintCleanupController, preparePrintDocument } from "./lib/print-
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
 import { initializeAnnotationStorage } from "./lib/annotation-storage";
+import { readHighlightPlaces } from "./lib/annotation-export";
 import { signalAppReady, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import {
   captureReaderAnchor,
@@ -2416,6 +2417,8 @@ function App() {
     };
   }, [content, filePath, editing, highlights, readerDocumentReady, readerPublication, refreshPassages, getPublishedDocument, ownedPendingContinuity]);
 
+  const getHighlightPlaces = useCallback(() => readHighlightPlaces(contentRef.current), []);
+
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {
     const container = contentRef.current;
@@ -3703,6 +3706,7 @@ function App() {
           onClose={closeAnnotationsPanel}
           fileName={fileName}
           headings={headings}
+          getHighlightPlaces={getHighlightPlaces}
         />
 
         {!focusMode && !presentationMode && (

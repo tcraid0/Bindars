@@ -3,10 +3,12 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { clearMocks, mockIPC } = require("@tauri-apps/api/mocks");
 const { installDom } = require("./_helpers/dom.cjs");
+const { flushSync } = require("./_helpers/react.cjs");
 const { renderComponent, click, focus } = require("./_helpers/component-view.cjs");
 const {
-  buildAnnotationMarkdown,
+  buildAnnotationMarkdown, readHighlightPlaces,
 } = require("../.tmp/workspace-tests/src/lib/annotation-export.js");
+const { COPY_FAILED_MESSAGE } = require("../.tmp/workspace-tests/src/lib/clipboard.js");
 const { AnnotationsPanel } = require("../.tmp/workspace-tests/src/components/AnnotationsPanel.js");
 
 const headings = [
@@ -51,6 +53,8 @@ const highlights = [
   },
 ];
 
+const exportInput = { fileName: "notes.md", highlights, bookmarks, headings, places: [] };
+
 function ExportPanel(overrides = {}) {
   return React.createElement(AnnotationsPanel, {
     visible: true,
@@ -78,53 +82,102 @@ function exportButton(host) {
   return host.querySelector('[aria-label="Export highlights & notes as Markdown"]');
 }
 
+function copyButton(host) {
+  return host.querySelector('[aria-label="Copy highlights & notes"]');
+}
+
+function stubClipboard(t, writeText) {
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+    else delete navigator.clipboard;
+  });
+}
+
 function toastMessages(host) {
   return [...host.querySelectorAll('[role="status"] span, [role="alert"] span')].map(
     (node) => node.textContent,
   );
 }
 
-async function flushExport() {
+async function flushAction() {
   await React.act(async () => {
     await new Promise((resolve) => setImmediate(resolve));
   });
 }
 
-test("buildAnnotationMarkdown includes bookmarks, heading groups, and notes", () => {
-  const markdown = buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings);
+test("annotation text follows painted passages and lists bookmarks last in heading order", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput,
+    highlights: [{ ...highlights[0], originalExcerpt: "Old excerpt" }, ...highlights.slice(1)],
+    bookmarks: [bookmarks[1], bookmarks[0]],
+    places: [
+      { id: "h3", headingId: "intro" },
+      { id: "h1", headingId: "intro" },
+      { id: "h2", headingId: "later" },
+    ],
+  });
 
-  assert.match(markdown, /^# Highlights & notes: notes\\\.md\n/);
-  assert.match(markdown, /\*Exported from Bindars on .+\*/);
-  assert.match(markdown, /## Bookmarks\n\n- \*\*Introduction\*\*\n- \*\*Line break heading\*\*/);
-  assert.match(markdown, /## Highlights\n\n### Introduction\n\n> "First quote"\n>\n> — \*yellow highlight\*\n\n\*\*Note:\*\* Keep this/);
-  assert.doesNotMatch(markdown, /### Later/);
-  assert.doesNotMatch(markdown, /### missing/);
-  assert.match(markdown, /> "Orphan quote"\n>\n> — \*blue highlight\*/);
-  assert.match(markdown, /> "Multi\n> line\n> exact"/);
-  assert.match(markdown, /\*\*Note:\*\* first line  \n  \nsecond line/);
-  assert.doesNotMatch(markdown, /first line\n/);
+  assert.equal(markdown, [
+    "Highlights and notes from notes.md",
+    "## Introduction",
+    "> Multi\n> line\n> exact",
+    "first line\n\nsecond line",
+    "> First quote",
+    "Keep this",
+    "## Later",
+    "> Orphan quote",
+    "## Bookmarks",
+    "- Introduction\n- Line break heading\n",
+  ].join("\n\n"));
 });
 
-test("buildAnnotationMarkdown emits bookmarks-only output", () => {
-  const markdown = buildAnnotationMarkdown("script.fountain", [], bookmarks, headings);
+test("annotation text supports bookmarks-only output", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput, fileName: "script.fountain", highlights: [],
+  });
 
-  assert.match(markdown, /^# Highlights & notes: script\\\.fountain\n/);
-  assert.match(markdown, /## Bookmarks/);
-  assert.doesNotMatch(markdown, /## Highlights/);
-  assert.doesNotMatch(markdown, /> "/);
+  assert.equal(markdown, "Highlights and notes from script.fountain\n\n## Bookmarks\n\n- Introduction\n- Line break heading\n");
 });
 
-test("buildAnnotationMarkdown omits unknown heading titles without dropping highlights", () => {
-  const markdown = buildAnnotationMarkdown(
-    "notes.md",
-    [highlights[1]],
-    [],
-    headings,
-  );
+test("a passage with an unknown heading remains in place without a section label", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput,
+    highlights: [highlights[1]],
+    bookmarks: [],
+    places: [{ id: "h2", headingId: "missing" }],
+  });
 
-  assert.doesNotMatch(markdown, /## Bookmarks/);
-  assert.match(markdown, /## Highlights\n\n> "Orphan quote"/);
-  assert.doesNotMatch(markdown, /### /);
+  assert.equal(markdown, "Highlights and notes from notes.md\n\n> Orphan quote\n");
+});
+
+test("a passage before the first heading has no section label", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput,
+    highlights: [highlights[1], highlights[0]],
+    bookmarks: [],
+    places: [{ id: "h2", headingId: null }, { id: "h1", headingId: "intro" }],
+  });
+
+  assert.equal(markdown, "Highlights and notes from notes.md\n\n> Orphan quote\n\n## Introduction\n\n> First quote\n\nKeep this\n");
+});
+
+test("unplaced passages follow the located sections in stored order", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput, bookmarks: [], places: [{ id: "h3", headingId: "later" }],
+  });
+
+  assert.equal(markdown, [
+    "Highlights and notes from notes.md",
+    "## Later",
+    "> Multi\n> line\n> exact",
+    "first line\n\nsecond line",
+    "## Location unavailable",
+    "> First quote",
+    "Keep this",
+    "> Orphan quote\n",
+  ].join("\n\n"));
 });
 
 test("annotation export sends the chosen destination and formatted Markdown", async (t) => {
@@ -141,7 +194,7 @@ test("annotation export sends the chosen destination and formatted Markdown", as
   const view = renderComponent(ExportPanel);
   try {
     click(exportButton(view.host));
-    await flushExport();
+    await flushAction();
     assert.deepEqual(dialogs, [{
       defaultPath: "notes-highlights-and-notes.md",
       filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
@@ -151,7 +204,7 @@ test("annotation export sends the chosen destination and formatted Markdown", as
     assert.equal(writes[0].args.path, "/tmp/notes-annotations.md");
     assert.equal(
       writes[0].args.content,
-      buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings),
+      buildAnnotationMarkdown(exportInput),
     );
     assert.deepEqual(toastMessages(view.host), ["Highlights and notes exported"]);
     assert.equal(exportButton(view.host).disabled, false);
@@ -173,7 +226,7 @@ test("cancelled annotation export does not write and leaves the control usable",
     const button = exportButton(view.host);
     focus(button);
     click(button);
-    await flushExport();
+    await flushAction();
     assert.deepEqual(writes, []);
     assert.deepEqual(toastMessages(view.host), []);
     assert.equal(exportButton(view.host).disabled, false);
@@ -206,20 +259,20 @@ test("a failed annotation write can be retried with feedback and usable controls
   const view = renderComponent(ExportPanel);
   try {
     click(exportButton(view.host));
-    await flushExport();
+    await flushAction();
     assert.equal(writes.length, 1);
     assert.deepEqual(toastMessages(view.host), [nativeMessage]);
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.equal(exportButton(view.host).disabled, false);
 
     click(exportButton(view.host));
-    await flushExport();
+    await flushAction();
     assert.equal(writes.length, 2);
     assert.equal(writes[1].command, "export_markdown_file");
     assert.equal(writes[1].args.path, "/tmp/notes-annotations.md");
     assert.equal(
       writes[1].args.content,
-      buildAnnotationMarkdown("notes.md", highlights, bookmarks, headings),
+      buildAnnotationMarkdown(exportInput),
     );
     assert.ok(toastMessages(view.host).includes("Highlights and notes exported"));
     assert.equal(exportButton(view.host).disabled, false);
@@ -231,41 +284,153 @@ test("a failed annotation write can be retried with feedback and usable controls
   }
 });
 
+test("annotation text keeps punctuation and note lines and collapses repeated blank quote lines", () => {
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput,
+    highlights: [{
+      ...highlights[0],
+      exact: " v1.7.1 - fix (now).\r\n\r\n\r\nKeep * _ | here.  ",
+      note: " First line\nSecond line\n\nLast line. ",
+    }],
+    bookmarks: [],
+    places: [{ id: "h1", headingId: "intro" }],
+  });
 
-test("export renders punctuation and multiline notes as literal text", async () => {
-  await installDom();
+  assert.equal(markdown, [
+    "Highlights and notes from notes.md",
+    "## Introduction",
+    "> v1.7.1 - fix (now).\n>\n> Keep * _ | here.",
+    "First line\nSecond line\n\nLast line.\n",
+  ].join("\n\n"));
+});
+
+const guardedLines = [
+  "# x", "###", "> x", "```", "~~~", "---", "===", "--", "[1]: u", "<div>",
+  "***", "___", "* * *", "- - -", '<p class="x"',
+];
+
+test("annotation passages and notes guard Markdown block starts and HTML tags", () => {
+  for (const [line, expected] of [
+    ...guardedLines.map(line => [line, `\\${line}`]),
+    ...["#tag", "- item", "* item", "1. item", "a < b", "a<b", "x < y > z"].map(line => [line, line]),
+    ["text <div>", "text \\<div>"],
+    ["vector<int> and <!-- c -->", "vector\\<int> and \\<!-- c -->"],
+  ]) {
+    const markdown = buildAnnotationMarkdown({
+      ...exportInput,
+      highlights: [{ ...highlights[0], exact: line, note: line }],
+      bookmarks: [],
+      places: [{ id: "h1", headingId: "intro" }],
+    });
+    assert.equal(markdown, `Highlights and notes from notes.md\n\n## Introduction\n\n> ${expected}\n\n${expected}\n`, line);
+  }
+});
+
+test("Markdown renders annotation sections and passages without extra block structure", async () => {
   const { renderToStaticMarkup } = require("react-dom/server");
   const { default: Markdown } = await import("react-markdown");
   const { default: gfm } = await import("remark-gfm");
-  const note = "<tag> & **literal** [link](https://example.org)\n- list-looking\n1. number-looking\nhttps://example.org";
-  const exact = "first\n+ second `code` $math$";
-  const markdown = buildAnnotationMarkdown("notes.md", [{ ...highlights[0], exact, note }], [], headings);
+  const hostile = guardedLines.join("\n\n");
+  const markdown = buildAnnotationMarkdown({
+    ...exportInput,
+    fileName: "notes<tag>.md",
+    headings: [{ ...headings[0], text: "Intro <tag>" }, headings[1]],
+    highlights: [{ ...highlights[0], exact: hostile, note: hostile }, highlights[1]],
+    bookmarks: [{ ...bookmarks[0], headingText: "Bookmark <tag>" }],
+    places: [{ id: "h1", headingId: "intro" }, { id: "h2", headingId: "later" }],
+  });
   const host = document.createElement("div");
   host.innerHTML = renderToStaticMarkup(React.createElement(Markdown, { remarkPlugins: [gfm] }, markdown));
-  assert.equal(host.querySelectorAll("code, ul, ol, tag").length, 0);
-  assert.ok(host.textContent.includes("<tag> & **literal** [link](https://example.org)"));
-  assert.ok(host.textContent.includes("- list-looking"));
-  assert.ok(host.textContent.includes("1. number-looking"));
-  assert.ok(host.textContent.includes("+ second `code` $math$"));
-  assert.equal(host.querySelectorAll("br").length, 3);
+
+  assert.deepEqual([...host.querySelectorAll("h2")].map(node => node.textContent), ["Intro <tag>", "Later", "Bookmarks"]);
+  assert.equal(host.querySelectorAll("blockquote").length, 2);
+  assert.equal(host.querySelectorAll("h1, hr, pre, div, tag").length, 0);
+  assert.ok(host.textContent.includes("notes<tag>.md"));
+  assert.ok(host.textContent.includes("Bookmark <tag>"));
+  assert.ok(host.textContent.includes("[1]: u"));
+  assert.ok(host.textContent.includes("<div>"));
 });
 
+test("painted marks give document order and use the first mark and last visible heading", () => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <p><mark data-highlight-id="before">Before any heading</mark></p>
+    <h2 id="a">First section</h2>
+    <p><mark data-highlight-id="h1">Passage</mark></p>
+    <p><mark data-highlight-id="split">First part</mark></p>
+    <h2 id="b">Second section</h2>
+    <p><mark data-highlight-id="split">Second part</mark></p>
+    <h2 id="footnote-label" class="sr-only">Footnotes</h2>
+    <p><mark data-highlight-id="footnote">Footnote passage</mark></p>
+  `;
 
-test("unknown color names export literally without introducing Markdown or HTML", async () => {
+  assert.deepEqual(readHighlightPlaces(container), [
+    { id: "before", headingId: null },
+    { id: "h1", headingId: "a" },
+    { id: "split", headingId: "a" },
+    { id: "footnote", headingId: "b" },
+  ]);
+});
+
+test("Copy writes the annotation text during the click and confirms success", async t => {
   await installDom();
-  const { renderToStaticMarkup } = require("react-dom/server");
-  const { default: Markdown } = await import("react-markdown");
-  const color = "purple* <tag>\n# heading";
-  const markdown = buildAnnotationMarkdown("notes.md", [{ ...highlights[0], color, note: undefined }], [], []);
-  const host = document.createElement("div");
-  host.innerHTML = renderToStaticMarkup(React.createElement(Markdown, null, markdown));
-  assert.equal(host.querySelectorAll("h1").length, 1);
-  assert.equal(host.querySelectorAll("tag").length, 0);
-  assert.ok(host.textContent.includes("purple* <tag> # heading highlight"));
+  const writes = [];
+  stubClipboard(t, async text => { writes.push(text); });
+  const places = [{ id: "h1", headingId: "intro" }];
+  const view = renderComponent(ExportPanel, { getHighlightPlaces: () => places });
+  t.after(view.cleanup);
+
+  click(copyButton(view.host));
+  assert.deepEqual(writes, [buildAnnotationMarkdown({ ...exportInput, places })]);
+  await flushAction();
+  assert.deepEqual(toastMessages(view.host), ["Highlights and notes copied"]);
 });
 
-test('export explicitly labels and escapes the preserved original excerpt', () => {
-  const text = buildAnnotationMarkdown('note.md', [{ ...highlights[0], originalExcerpt: 'old **quote** <script>' }], [], []);
-  assert.match(text, /\*\*Original excerpt:\*\* old \\\*\\\*quote\\\*\\\* &lt;script&gt;/);
-  assert.ok(text.includes('First quote'));
+test("Copy reports a rejected clipboard write", async t => {
+  await installDom();
+  stubClipboard(t, async () => { throw new Error("clipboard blocked"); });
+  const view = renderComponent(ExportPanel);
+  t.after(view.cleanup);
+
+  click(copyButton(view.host));
+  await flushAction();
+  assert.equal(view.host.querySelector('[role="alert"]').textContent, COPY_FAILED_MESSAGE);
+});
+
+test("Copy writes an unsaved note draft before saving it, and mouse down keeps it open", async t => {
+  await installDom();
+  const events = [];
+  stubClipboard(t, async text => { events.push(["write", text]); });
+  const view = renderComponent(ExportPanel, {
+    onUpdateHighlight: (id, updates) => events.push(["commit", id, updates]),
+  });
+  t.after(view.cleanup);
+
+  click(view.host.querySelector('[aria-label="Edit note"]'));
+  const textarea = view.host.querySelector("textarea");
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  setValue.call(textarea, "  Draft note  ");
+  flushSync(() => textarea.dispatchEvent(new Event("input", { bubbles: true })));
+  assert.deepEqual(events, []);
+
+  const copy = copyButton(view.host);
+  const press = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  copy.dispatchEvent(press);
+  assert.equal(press.defaultPrevented, true);
+
+  click(copy);
+  await flushAction();
+  assert.deepEqual(events, [
+    ["write", buildAnnotationMarkdown({
+      ...exportInput, highlights: [{ ...highlights[0], note: "Draft note" }, ...highlights.slice(1)],
+    })],
+    ["commit", "h1", { note: "Draft note" }],
+  ]);
+});
+
+test("Copy is disabled with no highlights or bookmarks", async t => {
+  await installDom();
+  const view = renderComponent(ExportPanel, { highlights: [], bookmarks: [] });
+  t.after(view.cleanup);
+  assert.equal(copyButton(view.host).disabled, true);
 });
