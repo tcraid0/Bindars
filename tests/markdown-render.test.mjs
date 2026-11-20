@@ -157,6 +157,12 @@ test("reader surfaces do not animate same-document remounts", () => {
   assert.doesNotMatch(renderFountainRenderer("INT. OFFICE - DAY"), /file-content-enter/);
 });
 
+test("MarkdownRenderer preserves right and center column alignment on table headers", () => {
+  const html = renderMarkdownRenderer("| A | B | C |\n|:--|--:|:-:|\n| 1 | 2 | 3 |\n");
+  assert.ok(html.includes('<th style="text-align:right">B</th>'));
+  assert.ok(html.includes('<th style="text-align:center">C</th>'));
+});
+
 test("GFM render includes tables, task lists, strikethrough, footnotes, and autolinks", () => {
   const html = renderMarkdown(
     [

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const css = fs.readFileSync(path.join(__dirname, "../src/app.css"), "utf8");
+const screenCss = css.slice(0, css.indexOf("@media print"));
 const mermaidBlock = fs.readFileSync(path.join(__dirname, "../src/components/MermaidBlock.tsx"), "utf8");
 
 // These are CSS contracts, not layout/PDF tests. Match declarations attached
@@ -129,6 +130,38 @@ test("screen css lets mermaid diagrams keep intrinsic width", () => {
     mermaidSvgRule[0].includes("flex: 0 0 auto;"),
     "screen mermaid svg rule should prevent flexbox shrinking",
   );
+});
+
+test("reader headings scale with the reading size and stay at least as large as body text", () => {
+  for (const selector of [
+    ...[1, 2, 3, 4, 5, 6].map(level => `.markdown-body h${level}`),
+    ...[1, 2, 3].map(level => `.presentation-slide .markdown-body h${level}`),
+  ]) {
+    const size = declarations(screenCss, selector).match(/font-size:\s*(\d+(?:\.\d+)?)em\s*;/);
+    assert.ok(size && Number(size[1]) >= 1, selector);
+  }
+});
+
+test("code and title metadata scale with the reader, while printed code stays at 10.5pt", () => {
+  for (const selector of [
+    ".markdown-body pre", ".frontmatter-meta", ".frontmatter-description",
+    ".fountain-title", ".fountain-credit", ".fountain-author", ".fountain-draft-date", ".fountain-title-entry",
+  ]) {
+    assert.match(declarations(screenCss, selector), /font-size:\s*\d+(?:\.\d+)?em\s*;/, selector);
+  }
+  assert.match(declarations(screenCss, ".markdown-body pre code"), /font-size:\s*inherit\s*;/);
+  assert.match(printDeclarations(".markdown-body pre"), /font-size:\s*10\.5pt\s*!important/);
+});
+
+test("Mermaid centers diagrams with free space and lets wide diagrams overflow from the start", () => {
+  assert.doesNotMatch(declarations(screenCss, ".mermaid-diagram"), /justify-content:/);
+  assert.match(declarations(screenCss, ".mermaid-diagram > *"), /margin-inline:\s*auto\s*;/);
+});
+
+test("the default table header alignment yields to inline column alignment", () => {
+  const rule = declarations(screenCss, ".markdown-body thead th");
+  assert.match(rule, /text-align:\s*left\s*;/);
+  assert.doesNotMatch(rule, /!important/);
 });
 
 test("markdown css styles strikethrough explicitly", () => {

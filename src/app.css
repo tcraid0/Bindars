@@ -482,7 +482,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body h1 {
-  font-size: 2.25rem;
+  font-size: 2.125em;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
@@ -492,7 +492,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body h2 {
-  font-size: 1.625rem;
+  font-size: 1.53em;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -501,21 +501,21 @@ button:active:not(:disabled),
 }
 
 .markdown-body h3 {
-  font-size: 1.25rem;
+  font-size: 1.175em;
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.01em;
 }
 
 .markdown-body h4 {
-  font-size: 1.125rem;
+  font-size: 1.06em;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .markdown-body h5,
 .markdown-body h6 {
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -653,6 +653,7 @@ button:active:not(:disabled),
 
 .markdown-body pre {
   position: relative;
+  font-size: 0.825em;
   margin: 1.5em 0;
   padding: 20px;
   background: var(--code-bg);
@@ -669,7 +670,7 @@ button:active:not(:disabled),
 
 .markdown-body pre code {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: inherit;
   line-height: 1.6;
   background: none;
   padding: 0;
@@ -1195,7 +1196,6 @@ mark.search-highlight mark {
 .mermaid-diagram {
   margin: 1.5em 0;
   display: flex;
-  justify-content: center;
   padding: 1em;
   font-family: var(--font-ui);
   font-size: 14px;
@@ -1203,6 +1203,11 @@ mark.search-highlight mark {
   background: var(--bg-secondary);
   border-radius: 10px;
   overflow-x: auto;
+}
+
+/* Auto margins keep the start of a wide diagram reachable by scrolling. */
+.mermaid-diagram > * {
+  margin-inline: auto;
 }
 
 .mermaid-diagram svg {
@@ -1277,7 +1282,7 @@ mark.search-highlight mark {
   align-items: center;
   gap: 0.5em;
   font-family: var(--font-ui);
-  font-size: 0.95rem;
+  font-size: 0.895em;
   color: var(--text-secondary);
   margin-bottom: 0.75em;
 }
@@ -1287,7 +1292,7 @@ mark.search-highlight mark {
 }
 
 .frontmatter-description {
-  font-size: 1.15rem;
+  font-size: 1.08em;
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0 0 0.75em;
@@ -1420,7 +1425,7 @@ mark.search-highlight mark {
 }
 
 .fountain-title {
-  font-size: 2rem;
+  font-size: 2em;
   font-weight: 700;
   text-transform: uppercase;
   margin: 0 0 1em;
@@ -1428,13 +1433,13 @@ mark.search-highlight mark {
 }
 
 .fountain-credit {
-  font-size: 1rem;
+  font-size: 1em;
   margin: 0 0 0.25em;
   color: var(--text-secondary);
 }
 
 .fountain-author {
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 700;
   margin: 0 0 1em;
   color: var(--text-primary);
@@ -1442,7 +1447,7 @@ mark.search-highlight mark {
 
 .fountain-draft-date,
 .fountain-title-entry {
-  font-size: 0.9rem;
+  font-size: 0.9em;
   margin: 0 0 0.25em;
   color: var(--text-secondary);
 }
@@ -1629,17 +1634,17 @@ mark.search-highlight mark {
 }
 
 .presentation-slide .markdown-body h1 {
-  font-size: 3rem;
+  font-size: 2.825em;
 }
 
 .presentation-slide .markdown-body h2 {
-  font-size: 2.25rem;
+  font-size: 2.12em;
   border-bottom: none;
   padding-bottom: 0;
 }
 
 .presentation-slide .markdown-body h3 {
-  font-size: 1.75rem;
+  font-size: 1.65em;
 }
 
 /* ── Print: hide app chrome via data-printing attribute ── */
@@ -1874,7 +1879,7 @@ body[data-printing] .print-hide {
 
   /* ── Code blocks ── */
   .markdown-body pre {
-    font-size: 9pt !important;
+    font-size: 10.5pt !important;
     line-height: 1.4 !important;
     padding: 0.5cm !important;
     background: #f8f8f8 !important;

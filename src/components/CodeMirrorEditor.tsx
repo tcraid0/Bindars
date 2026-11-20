@@ -187,8 +187,7 @@ const editorTheme = EditorView.theme({
     fontFamily: "var(--font-ui)",
     lineHeight: "1.35",
   },
-  // This compact, relative scale belongs to the editor. It intentionally does
-  // not mirror the reader's rem-based display scale or decorative borders.
+  // The editor uses its own compact heading scale and keeps headings borderless.
   ".cm-md-h1": {
     fontSize: "1.6em",
     fontWeight: "700",
