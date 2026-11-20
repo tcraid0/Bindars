@@ -394,8 +394,7 @@ body {
 
 /* ── Focus-visible styles for keyboard accessibility ── */
 
-/* Keep the document's ring stationary and clear of its scrollbar. The frame
-   adds no padding or tab stop, and child focus never activates the ring. */
+/* The reader's scrollbar lane. */
 .reading-pane {
   --reader-scrollbar-width: 8px;
 }
@@ -414,17 +413,9 @@ body {
   user-select: text;
 }
 
-.reading-surface:focus-visible {
+/* The app focuses the document so Space and the arrow keys scroll it. */
+.reading-surface:focus {
   outline: none;
-}
-
-.reading-pane:has(> .reading-surface:focus-visible)::after {
-  content: "";
-  position: absolute;
-  inset: 0 calc(var(--reader-scrollbar-width) + 2px) 0 0;
-  border: 2px solid var(--accent-indicator);
-  pointer-events: none;
-  z-index: 1;
 }
 
 @layer base {
@@ -848,11 +839,9 @@ button:active:not(:disabled),
   margin-bottom: auto;
 }
 
-/* Going Home focuses the page heading; show it like the toolbar's focus ring. */
-.empty-state h1:focus-visible {
-  outline: 2px solid var(--accent-indicator);
-  outline-offset: 4px;
-  border-radius: 4px;
+/* Going Home uses the page heading as a focus landing point. */
+.empty-state h1:focus {
+  outline: none;
 }
 
 /* Home reads like a page: a reading-width column near the top, not centred. */
@@ -1731,10 +1720,6 @@ body[data-printing] .print-hide {
     overflow: visible !important;
     min-height: 0 !important;
     display: block !important;
-  }
-
-  .reading-pane::after {
-    display: none !important;
   }
 
   /* Print colors must survive cleanup of the temporary print session. */

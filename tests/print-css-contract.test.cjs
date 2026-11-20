@@ -42,6 +42,15 @@ test("reader selection ownership is focus-scoped and retains the WebKit prefix",
   assert.match(css, /#root:has\(\.reading-surface:focus-within\) \.reading-surface\s*\{\s*-webkit-user-select:\s*text;\s*user-select:\s*text;\s*\}/);
 });
 
+test("the document and Home heading have no focus outline", () => {
+  for (const selector of [".reading-surface:focus", ".empty-state h1:focus"]) {
+    assert.match(declarations(css, selector), /outline:\s*none;/, selector);
+  }
+  const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(rules, /\.reading-pane[^{]*::after/);
+  assert.doesNotMatch(rules, /\.empty-state h1:focus-visible/);
+});
+
 test("print has one format without themed or book selectors", () => {
   assert.doesNotMatch(css, /data-print-themed|data-print-layout/);
 });

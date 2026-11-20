@@ -128,7 +128,7 @@ export const SHORTCUT_SECTIONS = [
     title: "General",
     shortcuts: [
       { id: "showShortcuts", label: "Show keyboard shortcuts" },
-      { id: "escape", label: "Close overlay / exit focus" },
+      { id: "escape", label: "Close overlay, exit Focus or Edit, or return to the document" },
     ],
   },
 ] as const satisfies readonly ShortcutSection[];

@@ -3254,6 +3254,13 @@ function App() {
       } else if (focusedCharacter) {
         e.preventDefault();
         setFocusedCharacter(null);
+      } else if (documentOpen) {
+        // Bring the keyboard back to the page after other Escape handlers.
+        const main = mainScrollRef.current;
+        if (main && !main.contains(document.activeElement)) {
+          e.preventDefault();
+          main.focus({ preventScroll: true });
+        }
       }
     } else if (e.altKey && key === "arrowleft") {
       e.preventDefault();
