@@ -2,12 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  DEFAULT_READER_SETTINGS,
   FONT_CSS_MAP,
   PARAGRAPH_SPACING_MAP,
   isFontFamily,
   isParagraphSpacing,
   resolveFontCss,
   resolveParagraphSpacingCss,
+  readerColumnWidthPx,
+  resolveReaderSurfaceStyle,
 } = require("../.tmp/workspace-tests/src/lib/reader-settings.js");
 
 test("font family type guard accepts only supported values", () => {
@@ -53,4 +56,16 @@ test("paragraph spacing resolver falls back to comfortable when invalid", () => 
   assert.equal(resolveParagraphSpacingCss("spacious"), "1.5em");
   assert.equal(resolveParagraphSpacingCss("wide"), "1.25em");
   assert.equal(resolveParagraphSpacingCss(undefined), "1.25em");
+});
+
+test("the outer reader layout uses the same column width as the rendered text", () => {
+  for (const settings of [
+    DEFAULT_READER_SETTINGS,
+    { ...DEFAULT_READER_SETTINGS, fontSize: 14, contentWidth: 50 },
+    { ...DEFAULT_READER_SETTINGS, fontSize: 24, contentWidth: 80 },
+    { ...DEFAULT_READER_SETTINGS, fontSize: 18, contentWidth: 62.5 },
+  ]) {
+    const { maxWidth } = resolveReaderSurfaceStyle(settings);
+    assert.equal(readerColumnWidthPx(settings), parseFloat(maxWidth) * settings.fontSize);
+  }
 });

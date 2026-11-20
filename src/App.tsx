@@ -45,6 +45,8 @@ import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useReaderPanels } from "./hooks/useReaderPanels";
+import { readerPanelBalance } from "./lib/reader-panels";
+import { readerColumnWidthPx } from "./lib/reader-settings";
 import { displayHighlightColor } from "./lib/annotation-record";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
 import type { OpenFilePathResult } from "./hooks/useMarkdownFile";
@@ -3516,23 +3518,29 @@ function App() {
             />
           )}
 
-          <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
+          <div
+            className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative"
+            style={{
+              "--reader-column-width": `${readerColumnWidthPx(settings)}px`,
+              ...(documentOpen ? { "--reader-panel-balance": `${readerPanelBalance(visiblePanels)}px` } : {}),
+            } as CSSProperties}
+          >
             {showReadingHint && (
               <HintBar text="Select text to highlight it or add a note." dismissLabel="Dismiss reading hint"
                 icon={<><path d="m9 11 8-8 4 4-8 8-4-4Z" /><path d="m9 11-4 4 4 4 4-4M5 19l-2 2h6" /></>}
-                onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+                onDismiss={dismissReadingHint} readerRef={mainScrollRef} hiddenForSearch={searchVisible} />
             )}
             {sidebarHintRequested && sidebarHintAvailable && !sidebarVisible && !showReadingHint && canShowDocumentHint && (
               <HintBar text="Your recent documents are in the sidebar." dismissLabel="Dismiss sidebar hint"
                 icon={<><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>}
                 action={{ label: "Show Sidebar", onClick: () => { dismissSidebarHint(); toggleSidebar(); } }}
-                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}
               tabIndex={-1}
               aria-label="Document"
-              className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
+              className={`flex-1 ${documentOpen ? "overflow-y-scroll" : "overflow-y-auto"} reading-surface bg-bg-primary min-w-0 min-h-0 relative`}
             >
               {loading && (
                 // Over a shown document a quick open stays off the page, so it cannot

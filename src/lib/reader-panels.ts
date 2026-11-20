@@ -16,3 +16,9 @@ export function fitReaderPanels(width: number, requested: ReaderPanels, preferre
   }
   return visible;
 }
+
+/** Net width of the visible right-hand panels relative to the Sidebar. */
+export function readerPanelBalance(visible: ReaderPanels): number {
+  const width = (panel: ReaderPanel) => (visible[panel] ? READER_PANEL_WIDTHS[panel] : 0);
+  return width("toc") + width("notes") - width("sidebar");
+}

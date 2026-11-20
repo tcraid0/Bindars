@@ -394,9 +394,19 @@ body {
 
 /* ── Focus-visible styles for keyboard accessibility ── */
 
-/* The reader's scrollbar lane. */
+/* Use the space outside the text column to lean toward the window centre.
+   Keep a gutter next to the panels when space allows. */
 .reading-pane {
   --reader-scrollbar-width: 8px;
+  --reader-panel-gutter: 48px;
+  --reader-free-space: max(0px, 100% - var(--reader-column-width, 100%) - var(--reader-scrollbar-width) - 2 * var(--reader-panel-gutter));
+  --reader-lean-start: clamp(0px, var(--reader-panel-balance, 0px), var(--reader-free-space));
+  --reader-lean-end: clamp(0px, calc(-1 * var(--reader-panel-balance, 0px)), var(--reader-free-space));
+}
+
+.reading-surface {
+  padding-left: var(--reader-lean-start);
+  padding-right: var(--reader-lean-end);
 }
 
 .reading-surface::-webkit-scrollbar {
@@ -912,6 +922,9 @@ button:active:not(:disabled),
 }
 
 .hint-bar {
+  position: relative;
+  left: calc((var(--reader-lean-start) - var(--reader-lean-end) - var(--reader-scrollbar-width)) / 2);
+  max-width: var(--reader-column-width);
   margin: 1.5rem auto 0;
   padding: 0 1.5rem 0.75rem;
 }
@@ -1748,6 +1761,7 @@ body[data-printing] .print-hide {
   main {
     overflow: visible !important;
     position: static !important;
+    padding: 0 !important;
   }
 
   /* ── Frontmatter: compact and continuous ── */

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { reader } = require("./_helpers/reader-app.cjs");
+const { reader, waitFor } = require("./_helpers/reader-app.cjs");
 const { click, focus, pressKey } = require("./_helpers/component-view.cjs");
 
 test("Escape from the toolbar returns focus to the document in Read mode", async t => {
@@ -50,4 +50,21 @@ test("Export handles Escape and returns focus to its trigger before the reader f
   assert.ok(document.activeElement === trigger);
   assert.equal(pressKey("Escape").defaultPrevented, true);
   assert.ok(document.activeElement === main);
+});
+
+test("reader layout accounts for Contents when visible and recenters in Edit", async t => {
+  const { host, main } = await reader(t);
+  const pane = host.querySelector(".reading-pane");
+  const balance = () => pane.style.getPropertyValue("--reader-panel-balance");
+
+  assert.equal(balance(), "220px");
+  assert.ok(main.classList.contains("overflow-y-scroll"));
+  pressKey("j", { ctrlKey: true });
+  assert.equal(balance(), "0px");
+  pressKey("j", { ctrlKey: true });
+  assert.equal(balance(), "220px");
+
+  pressKey("e", { ctrlKey: true });
+  await waitFor(() => assert.ok(main.querySelector(".cm-editor")));
+  assert.equal(balance(), "0px");
 });

@@ -85,6 +85,15 @@ test("print css resets viewport height and overflow on root containers", () => {
   }
 });
 
+test("the reader and hint bar share the window alignment and print clears the padding", () => {
+  assert.match(declarations(screenCss, ".reading-pane"), /--reader-panel-gutter:\s*48px\s*;/);
+  const surface = declarations(screenCss, ".reading-surface");
+  assert.match(surface, /padding-left:\s*var\(--reader-lean-start\)/);
+  assert.match(surface, /padding-right:\s*var\(--reader-lean-end\)/);
+  assert.match(declarations(screenCss, ".hint-bar"), /max-width:\s*var\(--reader-column-width\)/);
+  assert.match(printDeclarations("main"), /padding:\s*0\s*!important/);
+});
+
 test("print tables remove screen clipping and allow unbroken cell text to wrap", () => {
   assert.match(printDeclarations(".markdown-table-wrapper"), /overflow:\s*visible !important;/);
   assert.match(printDeclarations(".markdown-body table"), /table-layout:\s*fixed;/);
