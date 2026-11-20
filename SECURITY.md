@@ -4,7 +4,7 @@
 
 Bindars reads and renders Markdown files from the user's filesystem. Documents cannot cause network requests. The web view's CSP enforces `connect-src 'none'`.
 
-Only the macOS updater makes network requests. It runs in native code and contacts GitHub for checks and downloads. Automatic checks are off by default, and a download starts only when the user chooses to install. An update is installed only if it is newer and signed for the version it claims.
+The only network requests Bindars can make are the macOS update check and download. They run in native code, go only to this repository's GitHub releases, and happen only when the user asks for a check, has turned on automatic checks (off by default), or chooses to install an update. An update is installed only if it is newer and signed for the version it claims.
 
 The primary trust boundary is **untrusted markdown content**: a malicious `.md` file should not be able to execute code, access files outside its directory, or crash the application.
 

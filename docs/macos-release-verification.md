@@ -264,8 +264,10 @@ that coverage limitation. Record the decision and disclose relevant compatibilit
 and upgrade limitations in the release notes; never turn an unrun check into a
 pass or claim full validation of that environment.
 
-Installation instructions must state the tested architecture and minimum OS,
-and describe both the in-app and manual update routes.
+Publish only the artifact represented by that record. Installation
+instructions must state the tested architecture and minimum OS, and describe
+both the in-app and manual update routes. An accepted notarization submission
+does not replace application testing or responsibility for untrusted documents.
 
 ## 8. Publish the draft
 

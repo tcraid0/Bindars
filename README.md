@@ -29,8 +29,8 @@ Open a Markdown document or Fountain screenplay, mark the passages you want to
 come back to, and leave yourself a note. Reading and highlighting leave the
 document unchanged; highlights, notes, and bookmarks are saved separately on
 your computer. There's no account or telemetry. On Mac, Bindars checks for
-updates only if you ask or turn on automatic checks. GitHub sees your
-internet address. Your documents are never sent.
+updates only if you ask it to or turn on automatic checks. That contacts
+GitHub, which sees your internet address. Your documents are never sent.
 
 Supported files are `.md`, `.markdown`, and `.fountain`. Bindars doesn't import
 Word or PDF documents.
