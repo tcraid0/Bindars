@@ -15,15 +15,15 @@ function namedStep(job, name) {
   return step;
 }
 
-test("release candidates are verified before tag-only publication", () => {
+test("release candidates are verified before creating tag-only drafts", () => {
   const workflowText = fs.readFileSync(workflowPath, "utf8");
   const workflow = parse(workflowText);
 
   assert.ok(Object.hasOwn(workflow.on, "workflow_dispatch"));
   assert.deepEqual(workflow.on.push.tags, ["v*"]);
   assert.equal(workflow.jobs.package.needs, "verify");
-  assert.equal(workflow.jobs.publish.needs, "package");
-  assert.equal(workflow.jobs.publish.if, "startsWith(github.ref, 'refs/tags/v')");
+  assert.equal(workflow.jobs.draft.needs, "package");
+  assert.equal(workflow.jobs.draft.if, "startsWith(github.ref, 'refs/tags/v')");
   assert.equal(
     namedStep(workflow.jobs.package, "Build Debian package").run,
     "npm run tauri -- build --bundles deb --ci",
@@ -43,10 +43,14 @@ test("release candidates are verified before tag-only publication", () => {
   ).run;
   assert.match(installStep, /deb_path="\$\(realpath "\$deb_path"\)"/);
   assert.match(installStep, /sudo apt-get install -y "\$deb_path"/);
-  assert.match(
-    namedStep(workflow.jobs.publish, "Publish GitHub release").run,
-    /gh release create/,
-  );
+  const createDraft = namedStep(workflow.jobs.draft, "Create draft GitHub release").run;
+  assert.match(createDraft, /gh release create "\$GITHUB_REF_NAME"/);
+  assert.match(createDraft, /^\s+--draft\s+\\$/m);
+  assert.match(createDraft, /^\s+--verify-tag\s+\\$/m);
+  assert.match(createDraft, /\[\[ "\$GITHUB_REF_NAME" == \*-\* \]\]/);
+  assert.match(createDraft, /release_flags\+=\(--prerelease\)/);
+  assert.match(createDraft, /"\$\{release_flags\[@\]\}"/);
+  execFileSync("bash", ["-n"], { input: createDraft });
   assert.doesNotMatch(workflowText, /tauri-action|--bundles appimage/i);
 });
 
