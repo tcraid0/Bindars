@@ -4,7 +4,7 @@
 
 ## macOS (Apple Silicon)
 
-Download [Bindars 1.7.1 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.7.1/Bindars_1.7.1_aarch64.dmg),
+Download [Bindars 1.8.0 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.8.0/Bindars_1.8.0_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
 macOS may show its normal first-open confirmation for an internet download.
 Do not disable Gatekeeper or bypass a security block to install it.
@@ -13,14 +13,14 @@ Do not disable Gatekeeper or bypass a security block to install it.
 - Requires macOS 15.0 or newer. The signed app was tested interactively on
   macOS 26.6.2. macOS 15 has automated source/build coverage; its signed-app GUI
   behavior has not been verified.
-- Bindars 1.7.1 introduces no new document or annotation format.
+- Bindars 1.8.0 introduces no new document or annotation format.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
 - At extreme interface zoom with the sidebar open, the reading pane can require
   horizontal scrolling. This existing behavior was reproduced at 300% in both
   1.6.3 and 1.6.4; Recent details stay within the window.
 
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.7.1) includes
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.8.0) includes
 `SHA256SUMS-macos.txt` for checking the download. Save it beside the DMG, open
 Terminal in that folder, and run:
 
@@ -32,8 +32,8 @@ Notarization is Apple's automated security check, not a Mac App Store review.
 
 ### Updating on Mac
 
-If you're on 1.7.x, download the first version with in-app updates from the
-[download page](https://github.com/tcraid0/Bindars/releases/latest). Quit Bindars
+If you're on 1.7.x or earlier, download 1.8.0, the first version with in-app
+updates, from the [download page](https://github.com/tcraid0/Bindars/releases/latest). Quit Bindars
 and replace it in Applications with the copy from the new DMG. You can still
 update this way later. Back up your documents and [Bindars data](recovery-and-privacy.md)
 before upgrading.
