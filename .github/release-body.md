@@ -1,43 +1,41 @@
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.7.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
+- **Mac (Apple Silicon):** `Bindars_1.8.0_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
-The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`.
+The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`. The other Mac files (`.app.tar.gz`, `.sig` and `latest.json`) are used by the in-app update; you don't need to download them.
 
-## Changes in 1.7.1
+## Changes in 1.8.0
 
-The sidebar is easier to use and easier to read.
+Bindars can now update itself on Mac, and the text stays still while you read.
 
-### Clicks that work every time
+### Updates from inside the app (Mac)
 
-- A document in Recent, or on Home, opens when you click anywhere on its row. Before, only the name itself opened it, and clicks elsewhere on the row did nothing.
-- If you click a document while another one is still opening, Bindars opens the one you clicked last. Before, that click could be ignored.
+- Choose **Bindars → Check for Updates…** to look for a newer version. When there is one, **Install and Restart** downloads it, checks it, replaces Bindars and opens it again. Unsaved work is saved first, as when you quit.
+- Nothing is checked unless you ask. Automatic checks are off. On a later launch, Bindars asks once whether you'd like it to check about once a day, and you can change this in the Updates window.
+- Checks and downloads contact only GitHub, which sees your internet address. Your documents are never sent. An update is installed only if it is newer and signed for the version it claims.
+- If you run Bindars from the disk image, it asks you to move it to Applications before updating.
 
-### Folders and documents look different
+### Reading
 
-- In Folders, each folder has a folder symbol and an arrow, and the current folder's name has a folder symbol too. Documents are no longer bold, so folders and documents are easy to tell apart.
-- File endings such as `.md` and `.fountain` are shown in a lighter grey, so names are quicker to read. The full name is still there.
-- The search box at the top of the sidebar has a magnifying glass and a quieter look.
-- The extra line above the first document in Folders is gone.
+- The blue frame around the document when it opened is gone.
+- Escape moves the keyboard back to the document from the toolbar, Contents or the Sidebar.
+- The text column stays centred on the window. Opening Contents, the Sidebar or Highlights & notes, or switching between Read and Edit, no longer slides the text sideways. When a panel needs the room, the text moves only as far as it must.
+- Headings and code blocks follow the text size, so at large sizes headings stay larger than the text around them.
+- Wide diagrams can be scrolled to their left edge instead of being cut off.
 
-### Screenplay titles
+### Highlights and notes
 
-- Screenplay titles in Recent and Search no longer show formatting marks such as `**` or `_`.
+- **Copy** in Highlights & notes puts all your highlights and notes on the clipboard as text, ready to paste.
+- Copy and Export give the same text: highlights in reading order under their section headings, each passage quoted with its note below it, then any highlight whose place could not be found under "Location unavailable", then bookmarks. Colour and date are no longer included.
 
-No new setting, dependency, document format or annotation format is introduced.
+Two settings are new: automatic update checks (off by default) and whether Bindars has asked about them. Documents and annotations are stored as before.
 
 ## Updating
 
-On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.0. The first time 1.7.1 starts, it rebuilds its search list once. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+1.8.0 is the first version with in-app updates, so install it by hand once. On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.1. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
 
-If you're on 1.7.x, download the first version with in-app updates by hand.
-Once you have a version with in-app updates, choose **Bindars → Check for
-Updates…** any time on Mac. When an update is ready, choose **Install and
-Restart**. Automatic checks are off by default. Bindars asks once on a later
-launch if you'd like it to check about once a day. Checks and downloads
-contact only GitHub. Your documents are never sent. On Linux, keep getting
-updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
+From 1.8.0 on, choose **Bindars → Check for Updates…** any time on Mac. When an update is ready, choose **Install and Restart**. On Linux, keep getting updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
 
 ## Known limitations
 
@@ -56,6 +54,12 @@ updates from the [download page](https://github.com/tcraid0/Bindars/releases/lat
 - At extreme interface zoom with the sidebar open, the remaining reading pane
   can require horizontal scrolling. This was reproduced at 300% in 1.6.3 and
   1.6.4 and has not changed.
+- When Contents or another panel is open, the Find bar can cover the ends of
+  lines. This happened in 1.7 too and is more frequent now that the text stays
+  centred on the window.
+- After an in-app update, the Dock's recent apps can show Bindars twice. Only
+  one copy is running; the extra icon goes away when removed from the Dock.
+- The update check does not use a proxy set in macOS System Settings.
 - Some printed headings can be separated from their following content, and table
   headers may not repeat on continuation pages. Very wide tables can wrap words
   within cells. Native Linux and Windows printing remain unverified. The Mac
@@ -86,17 +90,20 @@ updates from the [download page](https://github.com/tcraid0/Bindars/releases/lat
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass, for the app and for the build tools, with no accepted exceptions. The `picomatch` advisory accepted for build tools in 1.7.0 has since been withdrawn.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass, for the app and for the build tools, with no accepted exceptions.
 
-The sidebar changes were checked in a browser engine with the app's own styles, in all four themes: where clicks land on each row, the text weights and colours, and the line above the first row. New tests cover each change.
+The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
 
-The Mac app and its disk image are signed with a Developer ID and notarized by Apple. The finished app was also tried by hand on macOS 26.6 (Apple Silicon) with made-up documents, in a copy given its own app ID so it could not read or change real Bindars data. The checks covered:
+In-app updates were rehearsed on macOS 26.6 (Apple Silicon) between two signed and notarized test builds with their own app ID, a temporary test release and a test signing key:
 
-- the folder and document rows in Folders, including opening a subfolder and coming back;
-- Recent rows opening from their blank space above, below and beside the name, and Remove not opening anything;
-- a screenplay title shown without its formatting marks;
-- a large document clicked and another clicked straight after, with the second one ending up open.
+- the update installed and reopened in about two seconds, at the same place, with no system prompt, and kept an unsaved edit, highlights and notes;
+- nothing was sent while automatic checks were off;
+- a changed update file, a version the signature was not made for, a signature from another key and a download address outside GitHub were all refused, and the app stayed as it was;
+- the copy run from the disk image asked to be moved to Applications;
+- with automatic checks on, the Update button appeared after about 11 seconds without interrupting.
 
-The first trial of this release found that a Recent row's blank space still did nothing in the Mac app, although it worked in the browser engine. That was fixed before release, and the fix was confirmed by the hand checks above.
+The rehearsal found that **Check for Updates…** showed an update found earlier instead of checking again. That was fixed before release.
 
-Not checked by hand: Home's rows, VoiceOver, Linux, macOS 15, and a browser download on a clean Mac.
+The reading changes were checked by hand on macOS 26.6 in a copy with its own app ID: the frame is gone, headings and code at text sizes 17 and 24, a wide diagram, Copy and Export giving the same text, all four themes, and Focus mode.
+
+Not checked by hand: the save question during Install and Restart (autosave had already saved the edit), Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
