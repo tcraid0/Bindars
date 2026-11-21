@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { COPY_FAILED_MESSAGE, copyText } from "../lib/clipboard";
 import type { SourcePositionAttributes } from "../lib/markdown-source-position";
 
 interface CodeBlockProps {
@@ -8,26 +9,6 @@ interface CodeBlockProps {
   className?: string;
   sourcePosition?: SourcePositionAttributes;
   onCopyError?: (message: string) => void;
-}
-
-function fallbackCopy(text: string): boolean {
-  try {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    textarea.style.pointerEvents = "none";
-    textarea.style.left = "-9999px";
-    document.body.append(textarea);
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    return copied;
-  } catch {
-    return false;
-  }
 }
 
 export const CodeBlock = memo(function CodeBlock({
@@ -61,22 +42,11 @@ export const CodeBlock = memo(function CodeBlock({
       }, 2000);
     };
 
-    const writeText = async () => {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(rawText);
-        return;
-      }
-
-      if (!fallbackCopy(rawText)) {
-        throw new Error("Clipboard API unavailable");
-      }
-    };
-
-    void writeText()
+    void copyText(rawText)
       .then(markCopied)
       .catch(() => {
         setCopied(false);
-        onCopyError?.("Copy failed. Clipboard access was blocked.");
+        onCopyError?.(COPY_FAILED_MESSAGE);
       });
   }, [rawText, onCopyError]);
 

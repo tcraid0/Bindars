@@ -29,7 +29,7 @@ confirming replacement writes the example text over the file you choose.
 - Autosave within 10 seconds, and new documents saved as ordinary files in a Bindars Drafts folder ([how saving works](recovery-and-privacy.md)), with external-change reconciliation. Save updates an ordinary open file at its current location; the filename and location dialog is used for new documents and drafts, Make a copy, and errors that offer Save As
 - A Markdown formatting toolbar, with Styled and Plain writing views
 - macOS spelling underlines and native right-click suggestions while editing
-- Print the document or save it as PDF; export highlights and notes separately as Markdown
+- Print the document or save it as PDF. Copy highlights and notes as text, or export them as Markdown
 - Keyboard-driven workflow - choose **Help > Keyboard Shortcuts** on macOS or
   press Ctrl+? on Linux for the full shortcut list
 

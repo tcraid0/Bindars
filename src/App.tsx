@@ -34,6 +34,8 @@ import type { MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
 import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { UpdateDialog } from "./components/UpdateDialog";
+import { UpdateQuestion } from "./components/UpdateQuestion";
 import { HighlightToolbar } from "./components/HighlightToolbar";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { documentTitle } from "./lib/document-title";
@@ -45,6 +47,8 @@ import { useTheme } from "./hooks/useTheme";
 import { useEditor } from "./hooks/useEditor";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useReaderPanels } from "./hooks/useReaderPanels";
+import { readerPanelBalance } from "./lib/reader-panels";
+import { readerColumnWidthPx } from "./lib/reader-settings";
 import { displayHighlightColor } from "./lib/annotation-record";
 import { useMarkdownFile } from "./hooks/useMarkdownFile";
 import type { OpenFilePathResult } from "./hooks/useMarkdownFile";
@@ -61,6 +65,8 @@ import { useOneTimeHint } from "./hooks/useOneTimeHint";
 import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
+import { useUpdates } from "./hooks/useUpdates";
+import { installUpdateAndRestart } from "./lib/updates";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useSearch } from "./hooks/useSearch";
 import { useReducedMotion } from "./hooks/useReducedMotion";
@@ -98,6 +104,7 @@ import { createPrintCleanupController, preparePrintDocument } from "./lib/print-
 import { hasNativePrintCompletion, invokePrint } from "./lib/print-invocation";
 import { useToast } from "./components/ToastProvider";
 import { initializeAnnotationStorage } from "./lib/annotation-storage";
+import { readHighlightPlaces } from "./lib/annotation-export";
 import { signalAppReady, STARTUP_TIMEOUT_MS } from "./lib/app-ready";
 import {
   captureReaderAnchor,
@@ -113,7 +120,7 @@ import type { DraftRetirement, FileRevision, HighlightColor, NavigationEntry, Sc
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type MenuAction = "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
-  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar";
+  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" | "check-for-updates";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -1680,6 +1687,15 @@ function App() {
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
+  const requestRestartForUpdate = useCallback(
+    () => guardActionRef.current({ kind: "quit-app", restartForUpdate: true }),
+    [],
+  );
+  const notifyUpdateError = useCallback((message: string) => toast(message, "error"), [toast]);
+  const updates = useUpdates({ requestRestartForUpdate, notifyError: notifyUpdateError });
+  const reportUpdateInstallFailureRef = useRef(updates.reportInstallFailure);
+  reportUpdateInstallFailureRef.current = updates.reportInstallFailure;
+
   // Tauri window close guard. Every request is prevented and routed through
   // the action guard before the continuation hides the window (macOS, so the
   // process stays available for Dock reopen) or closes it (other platforms, exiting on the last close).
@@ -2416,6 +2432,8 @@ function App() {
     };
   }, [content, filePath, editing, highlights, readerDocumentReady, readerPublication, refreshPassages, getPublishedDocument, ownedPendingContinuity]);
 
+  const getHighlightPlaces = useCallback(() => readHighlightPlaces(contentRef.current), []);
+
   // Scroll to highlight when clicked in panel
   const handleClickHighlight = useCallback((id: string) => {
     const container = contentRef.current;
@@ -2782,6 +2800,14 @@ function App() {
             console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
             return;
           }
+          if (action.restartForUpdate) {
+            try {
+              await installUpdateAndRestart();
+            } catch (installError) {
+              reportUpdateInstallFailureRef.current(installError);
+            }
+            return;
+          }
           await invoke("exit_after_guarded_quit");
         } catch (error) {
           console.error("[quit-guard] Failed to exit after the guard completed:", error);
@@ -2991,6 +3017,7 @@ function App() {
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
       case "toggle-sidebar": changeSidebarVisibility(!sidebarMenuVisible); break;
+      case "check-for-updates": updates.openDialog(); break;
     }
   };
   const menuActionRef = useRef(dispatchMenuAction);
@@ -3254,6 +3281,13 @@ function App() {
       } else if (focusedCharacter) {
         e.preventDefault();
         setFocusedCharacter(null);
+      } else if (documentOpen) {
+        // Bring the keyboard back to the page after other Escape handlers.
+        const main = mainScrollRef.current;
+        if (main && !main.contains(document.activeElement)) {
+          e.preventDefault();
+          main.focus({ preventScroll: true });
+        }
       }
     } else if (e.altKey && key === "arrowleft") {
       e.preventDefault();
@@ -3444,6 +3478,8 @@ function App() {
           onPresent={enterPresentation}
           canPresent={canPresent}
           fileType={fileType}
+          updateAvailable={updates.markerVisible}
+          onShowUpdate={updates.showUpdate}
         />
       )}
 
@@ -3506,23 +3542,29 @@ function App() {
             />
           )}
 
-          <div className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative">
+          <div
+            className="reading-pane flex flex-col flex-1 min-w-0 min-h-0 relative"
+            style={{
+              "--reader-column-width": `${readerColumnWidthPx(settings)}px`,
+              ...(documentOpen ? { "--reader-panel-balance": `${readerPanelBalance(visiblePanels)}px` } : {}),
+            } as CSSProperties}
+          >
             {showReadingHint && (
               <HintBar text="Select text to highlight it or add a note." dismissLabel="Dismiss reading hint"
                 icon={<><path d="m9 11 8-8 4 4-8 8-4-4Z" /><path d="m9 11-4 4 4 4 4-4M5 19l-2 2h6" /></>}
-                onDismiss={dismissReadingHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+                onDismiss={dismissReadingHint} readerRef={mainScrollRef} hiddenForSearch={searchVisible} />
             )}
             {sidebarHintRequested && sidebarHintAvailable && !sidebarVisible && !showReadingHint && canShowDocumentHint && (
               <HintBar text="Your recent documents are in the sidebar." dismissLabel="Dismiss sidebar hint"
                 icon={<><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>}
                 action={{ label: "Show Sidebar", onClick: () => { dismissSidebarHint(); toggleSidebar(); } }}
-                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} settings={settings} hiddenForSearch={searchVisible} />
+                onDismiss={dismissSidebarHint} readerRef={mainScrollRef} hiddenForSearch={searchVisible} />
             )}
             <main
               ref={mainScrollRef}
               tabIndex={-1}
               aria-label="Document"
-              className="flex-1 overflow-y-auto reading-surface bg-bg-primary min-w-0 min-h-0 relative"
+              className={`flex-1 ${documentOpen ? "overflow-y-scroll" : "overflow-y-auto"} reading-surface bg-bg-primary min-w-0 min-h-0 relative`}
             >
               {loading && (
                 // Over a shown document a quick open stays off the page, so it cannot
@@ -3696,6 +3738,7 @@ function App() {
           onClose={closeAnnotationsPanel}
           fileName={fileName}
           headings={headings}
+          getHighlightPlaces={getHighlightPlaces}
         />
 
         {!focusMode && !presentationMode && (
@@ -3797,6 +3840,21 @@ function App() {
       <AnnotationExitDialog paths={annotationExit.paths} waiting={annotationExit.waiting}
         onKeepOpen={annotationExit.keepOpen} onRetry={annotationExit.retry}
         onQuit={annotationExit.quitWithoutSaving} pendingRecords={pendingAnnotationRecords} />
+      <UpdateQuestion
+        visible={updates.askVisible && documentOpen && !editing && !focusMode && !presentationMode}
+        onAnswer={updates.answerQuestion}
+      />
+      <UpdateDialog
+        visible={updates.dialogOpen}
+        phase={updates.phase}
+        problem={updates.problem}
+        autoCheck={updates.autoCheck}
+        onClose={updates.closeDialog}
+        onCheck={updates.checkNow}
+        onInstall={updates.install}
+        onDownloadPage={updates.openDownloadPage}
+        onAutoCheckChange={updates.setAutoCheck}
+      />
       <ConfirmDialog
         visible={showConfirmDialog}
         title={fileName ? `Save changes to “${fileName}”?` : "Save changes to this document?"}

@@ -139,6 +139,9 @@ async function renderLifecycleApp({ platform = "mac", openName = null, content =
   let failedHidesRemaining = 0;
   let failedClosesRemaining = 0;
   let failedExitsRemaining = 0;
+  let updateCheckResponse = { kind: "up-to-date", current: "1.6.4" };
+  let failNextInstall = false;
+  let writesWhenInstalled = null;
   const operationLog = [];
   const openedPaths = [];
   const fileWrites = [];
@@ -189,6 +192,21 @@ async function renderLifecycleApp({ platform = "mac", openName = null, content =
           throw new Error("guarded exit failed");
         }
         operationLog.push("exit");
+        return null;
+      case "check_for_update":
+        operationLog.push("check-for-update");
+        return updateCheckResponse;
+      case "download_update":
+        operationLog.push("download-update");
+        return null;
+      case "install_update_and_restart":
+        if (failNextInstall) {
+          failNextInstall = false;
+          operationLog.push("install-failed");
+          throw { kind: "failed", detail: "install failed" };
+        }
+        writesWhenInstalled = fileWrites.length;
+        operationLog.push("install-restart");
         return null;
       case "open_markdown_file": {
         openedPaths.push(args.path);
@@ -306,6 +324,22 @@ async function renderLifecycleApp({ platform = "mac", openName = null, content =
     failNextClose() { failedClosesRemaining += 1; },
     failNextExit(times = 1) { failedExitsRemaining += times; },
     conflictNextWrite() { conflictNextWrite = true; },
+    setUpdateCheckResponse(value) { updateCheckResponse = value; },
+    failNextInstall() { failNextInstall = true; },
+    writesWhenInstalled() { return writesWhenInstalled; },
+    async pressInstallAndRestart() {
+      updateCheckResponse = { kind: "available", current: "1.6.4", version: "1.6.5", installable: true };
+      await act(async () => {
+        await emit("bindars://menu-action", { action: "check-for-updates" });
+      });
+      const dialog = await waitFor(() => {
+        const candidate = Array.from(document.querySelectorAll('[role="dialog"]'))
+          .find((element) => /Install and Restart/.test(element.textContent));
+        assert.ok(candidate, "expected the Updates dialog to offer the install");
+        return candidate;
+      });
+      clickButton(host, "Install and Restart", dialog);
+    },
     deferNextOpen(operation) { deferredOpen = operation; },
     deferNextWrite(operation) { deferredWrite = operation; },
     openLifecycleDocument,
@@ -920,6 +954,105 @@ test("macOS quit with a clean document exits only through the guarded command", 
     assert.equal(rendered.hideCount(), 0);
     assert.equal(rendered.destroyCount(), 0);
     noDialog(rendered.host);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a restart-for-update quit installs the update through the guard instead of exiting", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    rendered.setUpdateCheckResponse({ kind: "available", current: "1.6.4", version: "1.6.5", installable: true });
+
+    await act(async () => {
+      await emit("bindars://menu-action", { action: "check-for-updates" });
+    });
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate, "expected the Updates dialog");
+      assert.match(candidate.textContent, /Install and Restart/);
+      return candidate;
+    });
+
+    clickButton(rendered.host, "Install and Restart", dialog);
+
+    await waitFor(() => assert.ok(rendered.operationLog().includes("install-restart")));
+    assert.ok(rendered.operationLog().includes("download-update"));
+    assert.ok(!rendered.operationLog().includes("exit"), "the update restart must not exit through the guarded quit command");
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("a failed update install keeps Bindars running and says so", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    rendered.setUpdateCheckResponse({ kind: "available", current: "1.6.4", version: "1.6.5", installable: true });
+    rendered.failNextInstall();
+
+    await act(async () => {
+      await emit("bindars://menu-action", { action: "check-for-updates" });
+    });
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('[role="dialog"]');
+      assert.ok(candidate, "expected the Updates dialog");
+      assert.match(candidate.textContent, /Install and Restart/);
+      return candidate;
+    });
+    clickButton(rendered.host, "Install and Restart", dialog);
+
+    await waitFor(() => {
+      const reopened = document.querySelector('[role="dialog"]');
+      assert.ok(reopened, "expected the Updates dialog to reopen");
+      assert.match(reopened.textContent, /The update could not be completed\. Bindars has not restarted\./);
+      assert.match(reopened.textContent, /Install and Restart/, "the update stays available for another try");
+    });
+    assert.ok(rendered.operationLog().includes("install-failed"));
+    assert.ok(!rendered.operationLog().includes("install-restart"));
+    assert.ok(!rendered.operationLog().includes("exit"), "a failed update must not quit the app");
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("an update restart saves a dirty document before the app is replaced", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nSaved before the update.`);
+
+    await rendered.pressInstallAndRestart();
+
+    await waitFor(() => assert.ok(rendered.operationLog().includes("install-restart")));
+    assert.equal(rendered.writesWhenInstalled(), 1, "the document is written before the install starts");
+    assert.equal(rendered.fileWrites()[0].content, `${DOC_CONTENT}\n\nSaved before the update.`);
+    assert.equal(rendered.exitCalls().length, 0);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("cancelling the unsaved-changes dialog stops an update restart", async () => {
+  const rendered = await renderLifecycleApp({ platform: "mac" });
+  try {
+    await rendered.openLifecycleDocument();
+    await rendered.enterEditingWithDirtyText(`${DOC_CONTENT}\n\nKept through a cancelled update.`);
+    rendered.failNextWrite(); // the boundary autosave fails and raises the dialog
+
+    await rendered.pressInstallAndRestart();
+    await waitFor(() => confirmDialog(rendered.host));
+    await cancelDialog(rendered.host);
+
+    assert.ok(!rendered.operationLog().includes("install-restart"), "a cancelled guard must not replace the app");
+    assert.equal(rendered.exitCalls().length, 0);
+    assert.equal(
+      findEditorView(rendered.host).state.sliceDoc(),
+      `${DOC_CONTENT}\n\nKept through a cancelled update.`,
+    );
   } finally {
     await rendered.cleanup();
   }

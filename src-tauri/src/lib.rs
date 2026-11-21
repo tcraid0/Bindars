@@ -23,6 +23,7 @@ mod search_cache;
 mod settings;
 #[cfg(test)]
 mod test_support;
+mod updates;
 mod workspace;
 
 use document_io::{
@@ -156,7 +157,10 @@ pub fn run() {
             workspace::inspect_document_files,
             drafts::list_draft_documents,
             search_cache::load_search_cache,
-            search_cache::save_search_cache
+            search_cache::save_search_cache,
+            updates::check_for_update,
+            updates::download_update,
+            updates::install_update_and_restart
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -165,6 +169,12 @@ pub fn run() {
                 macos_termination::install(move || {
                     native_lifecycle::request_macos_quit(&handle);
                 })?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.manage(updates::Updates::default());
             }
             #[cfg(desktop)]
             app.handle().plugin(

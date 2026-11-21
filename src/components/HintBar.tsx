@@ -1,6 +1,4 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
-import type { ReaderSettings } from "../types";
-import { CONTENT_WIDTH_EM_PER_UNIT } from "../lib/reader-settings";
 
 interface HintBarProps {
   icon: ReactNode;
@@ -9,11 +7,10 @@ interface HintBarProps {
   action?: { label: string; onClick: () => void };
   onDismiss: () => void;
   readerRef: RefObject<HTMLElement | null>;
-  settings: ReaderSettings;
   hiddenForSearch?: boolean;
 }
 
-export function HintBar({ icon, text, dismissLabel, action, onDismiss, readerRef, settings, hiddenForSearch }: HintBarProps) {
+export function HintBar({ icon, text, dismissLabel, action, onDismiss, readerRef, hiddenForSearch }: HintBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => () => {
     // A sidebar/menu action can retire the hint while one of its controls has focus.
@@ -24,8 +21,7 @@ export function HintBar({ icon, text, dismissLabel, action, onDismiss, readerRef
     callback();
   };
   return (
-    <div ref={barRef} className={`hint-bar print-hide w-full shrink-0 flex flex-wrap items-center gap-3 text-xs text-text-muted border-b border-border${hiddenForSearch ? " invisible" : ""}`}
-      style={{ maxWidth: settings.contentWidth * CONTENT_WIDTH_EM_PER_UNIT * settings.fontSize }}>
+    <div ref={barRef} className={`hint-bar print-hide w-full shrink-0 flex flex-wrap items-center gap-3 text-xs text-text-muted border-b border-border${hiddenForSearch ? " invisible" : ""}`}>
       <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {icon}
       </svg>

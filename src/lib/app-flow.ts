@@ -3,7 +3,7 @@ import type { ShortcutPlatform } from "./shortcut-labels";
 
 export type PendingAction =
   | { kind: "close-window" }
-  | { kind: "quit-app" }
+  | { kind: "quit-app"; restartForUpdate?: true }
   | { kind: "new-file" }
   | { kind: "find-notes"; path?: string }
   | { kind: "open-file-dialog" }

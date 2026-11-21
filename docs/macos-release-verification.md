@@ -9,9 +9,9 @@ architecture validation and runtime coverage.
 Keep certificate backups, credentials, account details, and private release
 evidence outside the repository. Use an existing Keychain profile for
 notarization checks; never put passwords or private keys in commands or logs.
-Signing, submission, stapling, and publication are separate release operations.
-The commands below inspect artifacts and write verification logs; they do not
-perform those operations.
+Sign and notarize the application first, then staple it before creating the
+disk image. Sign, notarize, and staple the disk image before preparing the
+update assets.
 
 ## 1. Freeze the source and record the candidate
 
@@ -160,7 +160,7 @@ substitute for launching a quarantined download on another clean environment.
 For a signed, notarized, stapled DMG, also inspect the actual distribution file:
 
 ```sh
-bindars_dmg="/absolute/path/to/final-Bindars.dmg"
+bindars_dmg="/absolute/path/to/Bindars_<version>_aarch64.dmg"
 /usr/bin/hdiutil verify "$bindars_dmg" \
   > "$bindars_evidence/dmg-integrity.log" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$bindars_dmg" \
@@ -183,7 +183,60 @@ artifact's hash; retain both submission and final-download hashes. Rebuilding,
 resigning, or changing packaged content invalidates the previous artifact's
 acceptance record and requires renewed verification as applicable.
 
-## 5. Test the packaged application
+## 5. Prepare the macOS update assets
+
+From the frozen release checkout, use the final stapled app from step 4 and
+the final DMG. Make a fresh local directory for the files that will go on
+GitHub. Use the exact release tag. For a pre-release, set
+`bindars_tag` to the actual tag, for example `v1.8.0-rehearsal.1`.
+
+```sh
+bindars_version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+bindars_tag="v$bindars_version"
+bindars_release_dir="/absolute/path/to/new-release-assets"
+mkdir "$bindars_release_dir"
+cp "$bindars_dmg" "$bindars_release_dir/Bindars_${bindars_version}_aarch64.dmg"
+node scripts/pack-macos-update.mjs "$bindars_app" \
+  "$bindars_release_dir/Bindars_${bindars_version}_aarch64.dmg" "$bindars_release_dir"
+bindars_archive="$bindars_release_dir/Bindars_${bindars_version}_aarch64.app.tar.gz"
+```
+
+The packer validates the input app's staple before creating the archive. It
+unpacks the archive into a temporary directory and checks the signature,
+staple, Gatekeeper assessment, version, and architecture. It mounts the DMG
+read-only and hidden from Finder, compares the directory entries and file
+bytes, and detaches the image. The archive has a single `Bindars.app` root
+and excludes macOS tar metadata such as AppleDouble sidecar files. Use the
+archive produced by this check for signing.
+
+Run the signer yourself in a terminal. Enter the key password when prompted.
+Keep the private key and its password on the release Mac, with an offline
+backup of the key.
+
+```sh
+unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PATH TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+npx tauri signer sign -f "$HOME/.tauri/bindars-updates.key" \
+  --app-version "$bindars_version" "$bindars_archive"
+node scripts/update-manifest.mjs "$bindars_version" "$bindars_tag" "$bindars_archive"
+```
+
+The manifest script verifies the archive and the signed version using the
+public key in the release configuration. It writes `latest.json` beside the
+archive and its `.sig` file, with the download URL for this tag and the
+`darwin-aarch64` entry. If you replace the archive, repeat the verification
+and signing and regenerate the manifest and checksums in a fresh staging
+directory.
+
+```sh
+(
+  cd "$bindars_release_dir"
+  shasum -a 256 "Bindars_${bindars_version}_aarch64.dmg" \
+    "${bindars_archive##*/}" "${bindars_archive##*/}.sig" latest.json > SHA256SUMS-macos.txt
+  shasum -a 256 -c SHA256SUMS-macos.txt
+)
+```
+
+## 6. Test the packaged application
 
 Use disposable documents and a fresh test account or machine. Record OS version,
 architecture, candidate hash, steps, and actual outcomes. Test both macOS 15 and
@@ -194,11 +247,12 @@ a current supported macOS; do not label an unavailable environment as passed.
 | Install and launch | Browser-download the exact artifact, retain quarantine, install, and launch normally. Test offline launch after ticket validation. Do not remove quarantine or use an Open Anyway override to establish success. |
 | Save and departure | Dirty save, conflict Use other version/Keep my changes/Cancel, delayed and failed writes, later edits, recovery messages, normal Quit, and Dock Quit. Confirm preserved bytes and buffers, not just dismissed dialogs. |
 | Native lifecycle | Quit with the window hidden, reopen from the Dock, Finder open/double-click and Dock file drop. Test logout/shutdown with disposable work; the cancel-first quit guard can require repeating the OS request. |
+| In-app update | Rehearse with two signed test versions and a pre-release endpoint. Check install and restart from Applications, a cancelled administrator prompt, a read-only or translocated app, network interruption, a rejected tampered or wrong-version archive, and preservation of open edits and notes. Check that automatic checks stay silent until enabled. |
 | Existing data and permissions | Upgrade from the supported earlier app using its production identity; verify synthetic documents, notes, preferences, session/recovery data, Drafts creation, and Documents/Desktop/Downloads permission grant and denial. |
 | Rendering and input | Packaged CSP, local fonts, ordinary math and default Mermaid diagrams, Find navigation/cleanup, dark selects, spellcheck, native printing, cancellation, and PDF output. |
 | Known limits | Check that unsupported-swap volumes refuse overwrites and offer Save As; keep large-document limitations visible. A limited smoke test does not establish simultaneous-writer safety or unlimited document-size support. |
 
-## 6. Record the release decision
+## 7. Record the release decision
 
 Keep a private candidate record with source identity, build/configuration,
 signature/entitlements inventory, submission UUID/result/log, ticket checks,
@@ -210,7 +264,28 @@ that coverage limitation. Record the decision and disclose relevant compatibilit
 and upgrade limitations in the release notes; never turn an unrun check into a
 pass or claim full validation of that environment.
 
-Publish only the artifact represented by that record. Installation instructions
-must state the tested architecture/minimum OS and the manual update process;
-Bindars currently has no automatic updater. An accepted notarization submission
+Publish only the artifact represented by that record. Installation
+instructions must state the tested architecture and minimum OS, and describe
+both the in-app and manual update routes. An accepted notarization submission
 does not replace application testing or responsibility for untrusted documents.
+
+## 8. Publish the draft
+
+Wait for the tagged GitHub release workflow to create the draft with the tested
+Debian package and its `SHA256SUMS`. Verify the draft tag matches the tag used
+for the Mac manifest. Attach the final DMG, the update archive, its `.sig`,
+`latest.json`, and `SHA256SUMS-macos.txt`. Confirm the attached filenames
+match the manifest URL and the checksum files, and check the attached files
+against their checksums.
+
+Publish once all assets are present. For a stable release, use GitHub's latest
+release setting. Keep the pre-release flag on test releases so GitHub's latest
+release endpoint skips them. After publishing a stable release, check that the
+latest release serves the expected manifest and that its update archive URL
+downloads the asset you signed.
+
+To stop offering a bad update, delete `latest.json` and the update archive
+from the affected release. A running copy that found the update before it was
+withdrawn keeps offering it until it checks again, and without the archive its
+download fails. Clients that already downloaded the archive may still have it. Publish a
+corrected release with a higher version to update copies already installed.

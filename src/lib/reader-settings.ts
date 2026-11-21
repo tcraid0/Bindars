@@ -112,11 +112,20 @@ export function resolveFontCss(value: unknown): string {
 // character count: other families fit more or fewer characters per line.
 export const CONTENT_WIDTH_EM_PER_UNIT = 0.567;
 
+function columnWidthEm(contentWidth: number): number {
+  return Math.round(contentWidth * CONTENT_WIDTH_EM_PER_UNIT * 1000) / 1000;
+}
+
+/** The text column's outer width in CSS pixels, for layout outside the column. */
+export function readerColumnWidthPx(settings: Pick<ReaderSettings, "contentWidth" | "fontSize">): number {
+  return columnWidthEm(settings.contentWidth) * settings.fontSize;
+}
+
 export function resolveReaderSurfaceStyle(
   settings: Pick<ReaderSettings, "contentWidth" | "fontSize" | "lineHeight" | "fontFamily">,
 ): ReaderSurfaceStyle {
   return {
-    maxWidth: `${Math.round(settings.contentWidth * CONTENT_WIDTH_EM_PER_UNIT * 1000) / 1000}em`,
+    maxWidth: `${columnWidthEm(settings.contentWidth)}em`,
     fontSize: `${settings.fontSize}px`,
     lineHeight: settings.lineHeight,
     fontFamily: resolveFontCss(settings.fontFamily),

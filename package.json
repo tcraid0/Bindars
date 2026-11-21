@@ -1,6 +1,6 @@
 {
   "name": "bindars",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,6 +15,7 @@
     "licenses:generate": "node scripts/third-party-notices.mjs generate",
     "licenses:check": "node scripts/third-party-notices.mjs check",
     "licenses:test": "node --test tests/third-party-notices.test.cjs tests/third-party-notices.integration.cjs",
+    "updates:test": "node --test tests/update-manifest.test.cjs",
     "build": "tsc && vite build",
     "tauri": "npx tauri",
     "test:workspace": "rm -rf .tmp/workspace-tests && npx tsc -p tsconfig.workspace-tests.json && mkdir -p .tmp/workspace-tests && printf '{\"type\":\"commonjs\"}' > .tmp/workspace-tests/package.json && node --import=./tests/_helpers/dom-setup.mjs --test"

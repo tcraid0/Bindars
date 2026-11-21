@@ -7,6 +7,15 @@ save or a competing version can leave such a file behind. This page describes
 where your work is saved, what a save can leave in the document's folder, and
 what older builds may have left behind.
 
+## What Bindars sends
+
+Bindars has no account or telemetry. On Mac, Bindars contacts GitHub when you
+choose **Check for Updates…**, turn on automatic checks, or choose to install
+an update. Automatic checks are off by default. If you leave them off and
+never check for updates, Bindars sends nothing. GitHub sees your internet
+address. Bindars never sends your documents. On Linux, get updates from the
+[download page](https://github.com/tcraid0/Bindars/releases/latest).
+
 ## Autosave and the Drafts folder
 
 While editing, autosave runs after 2.5 seconds of idle time, or within 10 seconds
