@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const css = fs.readFileSync(path.join(__dirname, "../src/app.css"), "utf8");
+const screenCss = css.slice(0, css.indexOf("@media print"));
 const mermaidBlock = fs.readFileSync(path.join(__dirname, "../src/components/MermaidBlock.tsx"), "utf8");
 
 // These are CSS contracts, not layout/PDF tests. Match declarations attached
@@ -42,6 +43,15 @@ test("reader selection ownership is focus-scoped and retains the WebKit prefix",
   assert.match(css, /#root:has\(\.reading-surface:focus-within\) \.reading-surface\s*\{\s*-webkit-user-select:\s*text;\s*user-select:\s*text;\s*\}/);
 });
 
+test("the document and Home heading have no focus outline", () => {
+  for (const selector of [".reading-surface:focus", ".empty-state h1:focus"]) {
+    assert.match(declarations(css, selector), /outline:\s*none;/, selector);
+  }
+  const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(rules, /\.reading-pane[^{]*::after/);
+  assert.doesNotMatch(rules, /\.empty-state h1:focus-visible/);
+});
+
 test("print has one format without themed or book selectors", () => {
   assert.doesNotMatch(css, /data-print-themed|data-print-layout/);
 });
@@ -73,6 +83,15 @@ test("print css resets viewport height and overflow on root containers", () => {
   for (const selector of ["#root > div > .flex", ".reader-column"]) {
     assert.match(printDeclarations(selector), /display:\s*block !important;/, selector);
   }
+});
+
+test("the reader and hint bar share the window alignment and print clears the padding", () => {
+  assert.match(declarations(screenCss, ".reading-pane"), /--reader-panel-gutter:\s*48px\s*;/);
+  const surface = declarations(screenCss, ".reading-surface");
+  assert.match(surface, /padding-left:\s*var\(--reader-lean-start\)/);
+  assert.match(surface, /padding-right:\s*var\(--reader-lean-end\)/);
+  assert.match(declarations(screenCss, ".hint-bar"), /max-width:\s*var\(--reader-column-width\)/);
+  assert.match(printDeclarations("main"), /padding:\s*0\s*!important/);
 });
 
 test("print tables remove screen clipping and allow unbroken cell text to wrap", () => {
@@ -120,6 +139,38 @@ test("screen css lets mermaid diagrams keep intrinsic width", () => {
     mermaidSvgRule[0].includes("flex: 0 0 auto;"),
     "screen mermaid svg rule should prevent flexbox shrinking",
   );
+});
+
+test("reader headings scale with the reading size and stay at least as large as body text", () => {
+  for (const selector of [
+    ...[1, 2, 3, 4, 5, 6].map(level => `.markdown-body h${level}`),
+    ...[1, 2, 3].map(level => `.presentation-slide .markdown-body h${level}`),
+  ]) {
+    const size = declarations(screenCss, selector).match(/font-size:\s*(\d+(?:\.\d+)?)em\s*;/);
+    assert.ok(size && Number(size[1]) >= 1, selector);
+  }
+});
+
+test("code and title metadata scale with the reader, while printed code stays at 10.5pt", () => {
+  for (const selector of [
+    ".markdown-body pre", ".frontmatter-meta", ".frontmatter-description",
+    ".fountain-title", ".fountain-credit", ".fountain-author", ".fountain-draft-date", ".fountain-title-entry",
+  ]) {
+    assert.match(declarations(screenCss, selector), /font-size:\s*\d+(?:\.\d+)?em\s*;/, selector);
+  }
+  assert.match(declarations(screenCss, ".markdown-body pre code"), /font-size:\s*inherit\s*;/);
+  assert.match(printDeclarations(".markdown-body pre"), /font-size:\s*10\.5pt\s*!important/);
+});
+
+test("Mermaid centers diagrams with free space and lets wide diagrams overflow from the start", () => {
+  assert.doesNotMatch(declarations(screenCss, ".mermaid-diagram"), /justify-content:/);
+  assert.match(declarations(screenCss, ".mermaid-diagram > *"), /margin-inline:\s*auto\s*;/);
+});
+
+test("the default table header alignment yields to inline column alignment", () => {
+  const rule = declarations(screenCss, ".markdown-body thead th");
+  assert.match(rule, /text-align:\s*left\s*;/);
+  assert.doesNotMatch(rule, /!important/);
 });
 
 test("markdown css styles strikethrough explicitly", () => {

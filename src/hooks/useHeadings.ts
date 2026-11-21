@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { HeadingItem } from "../types";
+import { HEADING_SELECTOR } from "../lib/editor-position";
 
 /**
  * Clean heading text for the TOC. KaTeX renders each formula twice: an
@@ -34,7 +35,7 @@ export function useHeadings(
     // has committed its synchronous Markdown/Fountain children before effects.
     const el = contentRef.current;
 
-    const nodes = el.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]");
+    const nodes = el.querySelectorAll(HEADING_SELECTOR);
     const items: HeadingItem[] = [];
 
     nodes.forEach((node) => {

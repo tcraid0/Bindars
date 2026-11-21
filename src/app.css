@@ -394,10 +394,19 @@ body {
 
 /* ── Focus-visible styles for keyboard accessibility ── */
 
-/* Keep the document's ring stationary and clear of its scrollbar. The frame
-   adds no padding or tab stop, and child focus never activates the ring. */
+/* Use the space outside the text column to lean toward the window centre.
+   Keep a gutter next to the panels when space allows. */
 .reading-pane {
   --reader-scrollbar-width: 8px;
+  --reader-panel-gutter: 48px;
+  --reader-free-space: max(0px, 100% - var(--reader-column-width, 100%) - var(--reader-scrollbar-width) - 2 * var(--reader-panel-gutter));
+  --reader-lean-start: clamp(0px, var(--reader-panel-balance, 0px), var(--reader-free-space));
+  --reader-lean-end: clamp(0px, calc(-1 * var(--reader-panel-balance, 0px)), var(--reader-free-space));
+}
+
+.reading-surface {
+  padding-left: var(--reader-lean-start);
+  padding-right: var(--reader-lean-end);
 }
 
 .reading-surface::-webkit-scrollbar {
@@ -414,17 +423,9 @@ body {
   user-select: text;
 }
 
-.reading-surface:focus-visible {
+/* The app focuses the document so Space and the arrow keys scroll it. */
+.reading-surface:focus {
   outline: none;
-}
-
-.reading-pane:has(> .reading-surface:focus-visible)::after {
-  content: "";
-  position: absolute;
-  inset: 0 calc(var(--reader-scrollbar-width) + 2px) 0 0;
-  border: 2px solid var(--accent-indicator);
-  pointer-events: none;
-  z-index: 1;
 }
 
 @layer base {
@@ -491,7 +492,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body h1 {
-  font-size: 2.25rem;
+  font-size: 2.125em;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
@@ -501,7 +502,7 @@ button:active:not(:disabled),
 }
 
 .markdown-body h2 {
-  font-size: 1.625rem;
+  font-size: 1.53em;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -510,21 +511,21 @@ button:active:not(:disabled),
 }
 
 .markdown-body h3 {
-  font-size: 1.25rem;
+  font-size: 1.175em;
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.01em;
 }
 
 .markdown-body h4 {
-  font-size: 1.125rem;
+  font-size: 1.06em;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .markdown-body h5,
 .markdown-body h6 {
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -662,6 +663,7 @@ button:active:not(:disabled),
 
 .markdown-body pre {
   position: relative;
+  font-size: 0.825em;
   margin: 1.5em 0;
   padding: 20px;
   background: var(--code-bg);
@@ -678,7 +680,7 @@ button:active:not(:disabled),
 
 .markdown-body pre code {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: inherit;
   line-height: 1.6;
   background: none;
   padding: 0;
@@ -848,11 +850,9 @@ button:active:not(:disabled),
   margin-bottom: auto;
 }
 
-/* Going Home focuses the page heading; show it like the toolbar's focus ring. */
-.empty-state h1:focus-visible {
-  outline: 2px solid var(--accent-indicator);
-  outline-offset: 4px;
-  border-radius: 4px;
+/* Going Home uses the page heading as a focus landing point. */
+.empty-state h1:focus {
+  outline: none;
 }
 
 /* Home reads like a page: a reading-width column near the top, not centred. */
@@ -922,6 +922,9 @@ button:active:not(:disabled),
 }
 
 .hint-bar {
+  position: relative;
+  left: calc((var(--reader-lean-start) - var(--reader-lean-end) - var(--reader-scrollbar-width)) / 2);
+  max-width: var(--reader-column-width);
   margin: 1.5rem auto 0;
   padding: 0 1.5rem 0.75rem;
 }
@@ -1206,7 +1209,6 @@ mark.search-highlight mark {
 .mermaid-diagram {
   margin: 1.5em 0;
   display: flex;
-  justify-content: center;
   padding: 1em;
   font-family: var(--font-ui);
   font-size: 14px;
@@ -1214,6 +1216,11 @@ mark.search-highlight mark {
   background: var(--bg-secondary);
   border-radius: 10px;
   overflow-x: auto;
+}
+
+/* Auto margins keep the start of a wide diagram reachable by scrolling. */
+.mermaid-diagram > * {
+  margin-inline: auto;
 }
 
 .mermaid-diagram svg {
@@ -1288,7 +1295,7 @@ mark.search-highlight mark {
   align-items: center;
   gap: 0.5em;
   font-family: var(--font-ui);
-  font-size: 0.95rem;
+  font-size: 0.895em;
   color: var(--text-secondary);
   margin-bottom: 0.75em;
 }
@@ -1298,7 +1305,7 @@ mark.search-highlight mark {
 }
 
 .frontmatter-description {
-  font-size: 1.15rem;
+  font-size: 1.08em;
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0 0 0.75em;
@@ -1431,7 +1438,7 @@ mark.search-highlight mark {
 }
 
 .fountain-title {
-  font-size: 2rem;
+  font-size: 2em;
   font-weight: 700;
   text-transform: uppercase;
   margin: 0 0 1em;
@@ -1439,13 +1446,13 @@ mark.search-highlight mark {
 }
 
 .fountain-credit {
-  font-size: 1rem;
+  font-size: 1em;
   margin: 0 0 0.25em;
   color: var(--text-secondary);
 }
 
 .fountain-author {
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 700;
   margin: 0 0 1em;
   color: var(--text-primary);
@@ -1453,7 +1460,7 @@ mark.search-highlight mark {
 
 .fountain-draft-date,
 .fountain-title-entry {
-  font-size: 0.9rem;
+  font-size: 0.9em;
   margin: 0 0 0.25em;
   color: var(--text-secondary);
 }
@@ -1640,17 +1647,17 @@ mark.search-highlight mark {
 }
 
 .presentation-slide .markdown-body h1 {
-  font-size: 3rem;
+  font-size: 2.825em;
 }
 
 .presentation-slide .markdown-body h2 {
-  font-size: 2.25rem;
+  font-size: 2.12em;
   border-bottom: none;
   padding-bottom: 0;
 }
 
 .presentation-slide .markdown-body h3 {
-  font-size: 1.75rem;
+  font-size: 1.65em;
 }
 
 /* ── Print: hide app chrome via data-printing attribute ── */
@@ -1733,10 +1740,6 @@ body[data-printing] .print-hide {
     display: block !important;
   }
 
-  .reading-pane::after {
-    display: none !important;
-  }
-
   /* Print colors must survive cleanup of the temporary print session. */
   .reading-surface {
     background: white !important;
@@ -1758,6 +1761,7 @@ body[data-printing] .print-hide {
   main {
     overflow: visible !important;
     position: static !important;
+    padding: 0 !important;
   }
 
   /* ── Frontmatter: compact and continuous ── */
@@ -1889,7 +1893,7 @@ body[data-printing] .print-hide {
 
   /* ── Code blocks ── */
   .markdown-body pre {
-    font-size: 9pt !important;
+    font-size: 10.5pt !important;
     line-height: 1.4 !important;
     padding: 0.5cm !important;
     background: #f8f8f8 !important;
