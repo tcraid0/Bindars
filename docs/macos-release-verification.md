@@ -284,6 +284,8 @@ release endpoint skips them. After publishing a stable release, check that the
 latest release serves the expected manifest and that its update archive URL
 downloads the asset you signed.
 
-To stop offering a bad update, delete `latest.json` from the affected release.
-Clients that already downloaded the archive may still have it. Publish a
+To stop offering a bad update, delete `latest.json` and the update archive
+from the affected release. A running copy that found the update before it was
+withdrawn keeps offering it until it checks again, and without the archive its
+download fails. Clients that already downloaded the archive may still have it. Publish a
 corrected release with a higher version to update copies already installed.

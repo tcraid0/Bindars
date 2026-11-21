@@ -149,10 +149,21 @@ export function useUpdates(args: UseUpdatesArgs) {
       });
   }, [macos, setPhase]);
 
+  // Check for Updates… always asks again: an update found earlier may have
+  // been replaced or withdrawn since. A download in progress is only shown.
   const openDialog = useCallback(() => {
     if (!macos) return;
     showDialog(true);
-    if (phaseRef.current.kind !== "available") checkNow();
+    checkNow();
+  }, [macos, showDialog, checkNow]);
+
+  // The toolbar marker shows the update already found without asking again,
+  // so a package downloaded earlier is kept for Install and Restart.
+  const showUpdate = useCallback(() => {
+    if (!macos) return;
+    showDialog(true);
+    const now = phaseRef.current.kind;
+    if (now !== "available" && now !== "downloading") checkNow();
   }, [macos, showDialog, checkNow]);
 
   // Closing while a download runs only hides the dialog; the header marker
@@ -259,6 +270,7 @@ export function useUpdates(args: UseUpdatesArgs) {
     markerVisible,
     askVisible,
     openDialog,
+    showUpdate,
     closeDialog,
     checkNow,
     setAutoCheck,

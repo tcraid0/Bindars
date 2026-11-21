@@ -3467,7 +3467,7 @@ function App() {
           canPresent={canPresent}
           fileType={fileType}
           updateAvailable={updates.markerVisible}
-          onShowUpdate={updates.openDialog}
+          onShowUpdate={updates.showUpdate}
         />
       )}
 

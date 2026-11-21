@@ -128,6 +128,39 @@ test("a manual check from the Updates dialog reports an available update", async
   assert.deepEqual(called(mounted, "check_for_update"), [["check_for_update", { manual: true }]]);
 });
 
+test("Check for Updates… asks again even when an update was already found", async (t) => {
+  const NEWER = { ...AVAILABLE, version: "1.6.6" };
+  const answers = [AVAILABLE, NEWER, { kind: "up-to-date", current: "1.6.4" }];
+  const mounted = await mountUpdates(t, { ipc: { check_for_update: () => answers.shift() } });
+  await act(async () => { mounted.api.openDialog(); });
+  await settle();
+  assert.deepEqual(mounted.api.phase, AVAILABLE);
+
+  await act(async () => { mounted.api.closeDialog(); });
+  await act(async () => { mounted.api.openDialog(); });
+  await settle();
+  assert.deepEqual(mounted.api.phase, NEWER);
+
+  // A withdrawn update stops being offered, and the toolbar marker goes away.
+  await act(async () => { mounted.api.openDialog(); });
+  await settle();
+  assert.equal(mounted.api.phase.kind, "up-to-date");
+  assert.equal(mounted.api.markerVisible, false);
+  assert.equal(called(mounted, "check_for_update").length, 3);
+});
+
+test("the toolbar Update button shows the update already found without checking again", async (t) => {
+  const mounted = await mountUpdates(t, { ipc: { check_for_update: () => AVAILABLE } });
+  await act(async () => { mounted.api.openDialog(); });
+  await settle();
+  await act(async () => { mounted.api.closeDialog(); });
+  await act(async () => { mounted.api.showUpdate(); });
+  await settle();
+  assert.equal(mounted.api.dialogOpen, true);
+  assert.deepEqual(mounted.api.phase, AVAILABLE);
+  assert.equal(called(mounted, "check_for_update").length, 1);
+});
+
 test("a failed check says so and leaves Check Again available", async (t) => {
   const mounted = await mountUpdates(t, {
     ipc: { check_for_update: () => { throw { kind: "failed", detail: "offline" }; } },
@@ -160,9 +193,11 @@ test("a download the user hid does not restart the app by itself", async (t) => 
   assert.deepEqual(mounted.api.phase, AVAILABLE);
   assert.equal(mounted.restartRequests, 0);
 
-  // Pressing Install and Restart again, with the dialog open, hands over to the guard.
+  // The toolbar marker reopens the dialog without checking again; pressing
+  // Install and Restart there hands over to the guard.
   download = deferred();
-  await act(async () => { mounted.api.openDialog(); });
+  await act(async () => { mounted.api.showUpdate(); });
+  assert.equal(called(mounted, "check_for_update").length, 1);
   await act(async () => { mounted.api.install(); });
   await settle();
   await act(async () => { download.resolve(null); });
