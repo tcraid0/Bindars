@@ -12,11 +12,11 @@ package in src-tauri/Cargo.lock. Rust packages are classified using the union
 of the supported macOS, Windows, and Linux linked-runtime graphs.
 
 Inventoried npm packages: 299
-Inventoried Rust packages: 496
-Distinct license/notice documents: 365
+Inventoried Rust packages: 518
+Distinct license/notice documents: 378
 Packages requiring human follow-up: 0
 Inventory-only unresolved packages: 14
-Reviewed standard-license overrides: 11
+Reviewed standard-license overrides: 12
 
 `Human-review: required` blocks distribution because a runtime or build-output
 entry lacks complete license evidence. `Inventory-warning` records the same gap
@@ -55,6 +55,7 @@ cargo:objc2-core-services@0.3.2 — MIT
 cargo:objc2-encode@4.1.0 — MIT
 cargo:objc2-exception-helper@0.1.1 — MIT
 cargo:objc2-foundation@0.3.2 — MIT
+cargo:objc2-osa-kit@0.3.2 — MIT
 cargo:objc2-quartz-core@0.3.2 — MIT
 cargo:objc2-web-kit@0.3.2 — MIT
 cargo:objc2@0.6.5 — MIT
@@ -1713,6 +1714,17 @@ License-text: available
 License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
 License-document-ref: sha256:f4bc3f3c5bfd943cf580c98e44270ba5cbea44cb8eff388a73140568ebf2cd52
 
+Package-ID: cargo:filetime@0.2.29
+License: MIT/Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Alex Crichton <alex@alexcrichton.com>
+Project: https://github.com/alexcrichton/filetime
+License-text: available
+License-document-ref: sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
 Package-ID: cargo:find-msvc-tools@0.1.15
 License: MIT OR Apache-2.0
 Distribution-class: inventory-only
@@ -1765,9 +1777,31 @@ License-text: available
 License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
 License-document-ref: sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27
 
+Package-ID: cargo:foreign-types-shared@0.1.1
+License: MIT/Apache-2.0
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Fackler <sfackler@gmail.com>
+Project: https://github.com/sfackler/foreign-types
+License-text: available
+License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+License-document-ref: sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27
+
 Package-ID: cargo:foreign-types-shared@0.3.1
 License: MIT/Apache-2.0
 Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Fackler <sfackler@gmail.com>
+Project: https://github.com/sfackler/foreign-types
+License-text: available
+License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+License-document-ref: sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27
+
+Package-ID: cargo:foreign-types@0.3.2
+License: MIT/Apache-2.0
+Distribution-class: inventory-only
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: Steven Fackler <sfackler@gmail.com>
@@ -1875,7 +1909,7 @@ License-document-ref: sha256:b420d8add23b5cf7663f17f012b06a4c16b722c5dd8fb049b28
 
 Package-ID: cargo:futures-sink@0.3.34
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Project: https://github.com/rust-lang/futures-rs
@@ -1991,7 +2025,7 @@ License-document-ref: sha256:e7330bf53074b4a9c5896f4a03d782be7f163381e45923d5e23
 
 Package-ID: cargo:getrandom@0.4.3
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: The Rand Project Developers
@@ -2173,7 +2207,7 @@ License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d
 
 Package-ID: cargo:http-body-util@0.1.5
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Carl Lerche <me@carllerche.com>; Lucio Franco <luciofranco14@gmail.com>; Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/hyperium/http-body
@@ -2182,7 +2216,7 @@ License-document-ref: sha256:57f841bc9767b5b843e0c0c471bd50a95ddb00f13b1f4a2c6d6
 
 Package-ID: cargo:http-body@1.1.0
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Carl Lerche <me@carllerche.com>; Lucio Franco <luciofranco14@gmail.com>; Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/hyperium/http-body
@@ -2202,7 +2236,7 @@ License-document-ref: sha256:f47894ff9c86dc7e364e3c161a13b4b7414da6192b91d0eccf0
 
 Package-ID: cargo:httparse@1.10.1
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: Sean McArthur <sean@seanmonstar.com>
@@ -2211,9 +2245,20 @@ License-text: available
 License-document-ref: sha256:8502803cebb30a728a7589325d3a9fa666d259013201558c1362d8900596a0de
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 
+Package-ID: cargo:hyper-tls@0.6.0
+License: MIT/Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Sean McArthur <sean@seanmonstar.com>
+Project: https://github.com/hyperium/hyper-tls
+License-text: available
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+License-document-ref: sha256:ef31af832fed9fa9d86febbc8143a7e916482321e5de3675ef3620cbffa596d8
+
 Package-ID: cargo:hyper-util@0.1.21
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/hyperium/hyper-util
@@ -2222,7 +2267,7 @@ License-document-ref: sha256:e7d622e4783e8c97aba7ddccb4469d7b495d550e95b9dc7b2e2
 
 Package-ID: cargo:hyper@1.12.0
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/hyperium/hyper
@@ -2818,6 +2863,15 @@ License-text: available
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 License-document-ref: sha256:a302dc760d97dc623f8549327a3db1793dd22efc5cce07ec583c278c50b4c3b7
 
+Package-ID: cargo:minisign-verify@0.3.0
+License: MIT
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+Authors: Frank Denis <github@pureftpd.org>
+Project: https://github.com/jedisct1/rust-minisign-verify
+License-text: available
+License-document-ref: sha256:58f66933c7bba2f45abff7ace6d580120b32452685dc849b4ca56b53393fdbbd
+
 Package-ID: cargo:miniz_oxide@0.8.9
 License: MIT OR Zlib OR Apache-2.0
 Distribution-class: runtime-linked
@@ -2863,6 +2917,17 @@ License-text: available
 License-document-ref: sha256:859a90323b684e4618786eb5affa0454d3a14872d433f0bb7e70e8e6f05d8ad4
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 License-document-ref: sha256:b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d
+
+Package-ID: cargo:native-tls@0.2.18
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Fackler <sfackler@gmail.com>
+Project: https://github.com/rust-native-tls/rust-native-tls
+License-text: available
+License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+License-document-ref: sha256:d826e1bb47ee79e25ec8ed74470f20e519c92e1836b0686dc1f13d017b696198
 
 Package-ID: cargo:ndk-context@0.1.1
 License: MIT OR Apache-2.0
@@ -3125,6 +3190,18 @@ License-text: unresolved
 Inventory-warning: license text unresolved
 License-document-ref: sha256:1aa0a34224480ff916817aafd48263c880fe53a1d116261a7bb8c952ee0173ab
 
+Package-ID: cargo:objc2-osa-kit@0.3.2
+License: Zlib OR Apache-2.0 OR MIT
+Distribution-class: runtime-linked
+Disposition: reviewed-standard-license-override
+License-choice: MIT
+Standard-license-override: MIT
+Project: https://github.com/madsmtm/objc2
+Evidence: Published crate source commit 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b
+License-text: available
+License-document-ref: sha256:1847e0e0698142ed4347c1441a9fa81c8fbddd44b1d8bbcd5e3647f991759d7f
+License-document-ref: sha256:1aa0a34224480ff916817aafd48263c880fe53a1d116261a7bb8c952ee0173ab
+
 Package-ID: cargo:objc2-quartz-core@0.3.2
 License: Zlib OR Apache-2.0 OR MIT
 Distribution-class: runtime-linked
@@ -3202,6 +3279,45 @@ Project: https://github.com/Byron/open-rs
 License-text: available
 License-document-ref: sha256:c3ca23514163a6fe592466d3a6c4dd28ba8998dc1f012916ebf64bdb7764c1d4
 
+Package-ID: cargo:openssl-macros@0.1.1
+License: MIT/Apache-2.0
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+License-choice: MIT
+License-text: available
+License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+License-document-ref: sha256:f73e51eb49941a3d270525016f2815da8f1282a74083884fa2784ad565f61b7a
+
+Package-ID: cargo:openssl-probe@0.2.2
+License: MIT OR Apache-2.0
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Alex Crichton <alex@alexcrichton.com>
+Project: https://github.com/rustls/openssl-probe
+License-text: available
+License-document-ref: sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
+Package-ID: cargo:openssl-sys@0.9.118
+License: MIT
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+Authors: Alex Crichton <alex@alexcrichton.com>; Steven Fackler <sfackler@gmail.com>
+Project: https://github.com/rust-openssl/rust-openssl
+License-text: available
+License-document-ref: sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d
+
+Package-ID: cargo:openssl@0.10.82
+License: Apache-2.0
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+Authors: Steven Fackler <sfackler@gmail.com>
+Project: https://github.com/rust-openssl/rust-openssl
+License-text: available
+License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+License-document-ref: sha256:ea7995081a3b9c02bed66de54332241b112ab38d382b0ba78e9aeb243b3cd941
+
 Package-ID: cargo:option-ext@0.2.0
 License: MPL-2.0
 Distribution-class: runtime-linked
@@ -3223,6 +3339,17 @@ Project: https://github.com/danieldg/ordered-stream
 License-text: available
 License-document-ref: sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
+Package-ID: cargo:osakit@0.3.1
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Marat Dulin <mdevils@gmail.com>
+Project: https://github.com/mdevils/rust-osakit
+License-text: available
+License-document-ref: sha256:6ca34f7d0a4213575eb16aafd2a9e3d4008003f081ab8859bcf046fb778b4c4a
+License-document-ref: sha256:85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179
 
 Package-ID: cargo:pango-sys@0.18.0
 License: MIT
@@ -3635,7 +3762,7 @@ License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d
 
 Package-ID: cargo:reqwest@0.13.5
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: Sean McArthur <sean@seanmonstar.com>
@@ -3700,6 +3827,16 @@ License-document-ref: sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 License-document-ref: sha256:fde2a68c47d279384c0113efbc29bb43e263dd4cb33137c87365b0218a11d6aa
 
+Package-ID: cargo:rustls-pki-types@1.16.0
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Project: https://github.com/rustls/pki-types
+License-text: available
+License-document-ref: sha256:430e912c26cec30cdf52f4367b6d15dd3f898d2a19db349a62a9f3095ca98a5b
+License-document-ref: sha256:c5e7f780f961f850c7ac6e80e29b6aa3e5c3a503677eb7b7a9826fc6d735eb2e
+
 Package-ID: cargo:rustversion@1.0.23
 License: MIT OR Apache-2.0
 Distribution-class: inventory-only
@@ -3722,6 +3859,15 @@ License-text: available
 License-document-ref: sha256:65314a6c96683f76f7495709bb0ddecb4eaa6fa244b28f23c4812ef8e5524066
 License-document-ref: sha256:739620ea44ad8f99e96ea272e583b63a7d44a83a71250d7550b2544ea6b49fbf
 License-document-ref: sha256:ca2abdf695884c77ea4b4a5b64ca7b732d9d9dbade4eebc1c2e76c53e9e3bc83
+
+Package-ID: cargo:schannel@0.1.30
+License: MIT
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+Authors: Steven Fackler <sfackler@gmail.com>; Steffen Butzer <steffen.butzer@outlook.com>
+Project: https://github.com/steffengy/schannel-rs
+License-text: available
+License-document-ref: sha256:1ecbb241444ad7feca24a4a99f13ffa757eef72e5f9eae08ba8d6ffb268c14fc
 
 Package-ID: cargo:schemars_derive@0.8.22
 License: MIT
@@ -3768,6 +3914,28 @@ Authors: bluss
 Project: https://github.com/bluss/scopeguard
 License-text: available
 License-document-ref: sha256:1a6aa2616e74056910aa02ac3a764d45c1b5309eac53768153ad2119637c95cb
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
+Package-ID: cargo:security-framework-sys@2.17.0
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Fackler <sfackler@gmail.com>; Kornel <kornel@geekhood.net>
+Project: https://github.com/kornelski/rust-security-framework
+License-text: available
+License-document-ref: sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
+Package-ID: cargo:security-framework@3.7.0
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Fackler <sfackler@gmail.com>; Kornel <kornel@geekhood.net>
+Project: https://github.com/kornelski/rust-security-framework
+License-text: available
+License-document-ref: sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 
 Package-ID: cargo:selectors@0.38.0
@@ -4017,7 +4185,7 @@ License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d
 
 Package-ID: cargo:socket2@0.6.5
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: Alex Crichton <alex@alexcrichton.com>; Thomas de Zeeuw <thomasdezeeuw@gmail.com>
@@ -4153,7 +4321,7 @@ License-document-ref: sha256:85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1
 
 Package-ID: cargo:sync_wrapper@1.0.2
 License: Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Actyx AG <developer@actyx.io>
 Project: https://github.com/Actyx/sync_wrapper
@@ -4201,6 +4369,17 @@ Project: https://github.com/tauri-apps/tao
 License-text: available
 License-document-ref: sha256:28694f36acab4f505232fc18954400c323a43402098abd2ce0f8510d510ed04d
 License-document-ref: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
+
+Package-ID: cargo:tar@0.4.46
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Alex Crichton <alex@alexcrichton.com>
+Project: https://github.com/composefs/tar-rs
+License-text: available
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+License-document-ref: sha256:e6e853531994cb4721d5fa84d5b27bc408720ade2204ff307c76c778b7108bc5
 
 Package-ID: cargo:target-lexicon@0.12.16
 License: Apache-2.0 WITH LLVM-exception
@@ -4292,6 +4471,18 @@ License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08a
 License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
 License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
 
+Package-ID: cargo:tauri-plugin-updater@2.14.1
+License: Apache-2.0 OR MIT
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Tauri Programme within The Commons Conservancy
+Project: https://github.com/tauri-apps/plugins-workspace
+License-text: available
+License-document-ref: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
+License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
+License-document-ref: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
+
 Package-ID: cargo:tauri-plugin-window-state@2.5.0
 License: Apache-2.0 OR MIT
 Distribution-class: runtime-linked
@@ -4368,7 +4559,7 @@ License-document-ref: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b
 
 Package-ID: cargo:tempfile@3.27.0
 License: MIT OR Apache-2.0
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 License-choice: MIT
 Authors: Steven Allen <steven@stebalien.com>; The Rust Project Developers; Ashley Mannix <ashleymannix@live.com.au>; Jason White <me@jasonwhite.io>
@@ -4486,9 +4677,18 @@ License-document-ref: sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b6519
 License-document-ref: sha256:943f36fd309fb5ea67a82f577433f4ed3bc877e5b00f9b874e2f8b7f72bf0bdc
 License-document-ref: sha256:bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3
 
+Package-ID: cargo:tokio-native-tls@0.3.1
+License: MIT
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+Authors: Tokio Contributors <team@tokio.rs>
+Project: https://github.com/tokio-rs/tls
+License-text: available
+License-document-ref: sha256:c1e08ee9a7288bf649d6a78f6079006333df4212f5fcda85be1a0a451f71852d
+
 Package-ID: cargo:tokio-util@0.7.20
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Tokio Contributors <team@tokio.rs>
 Project: https://github.com/tokio-rs/tokio
@@ -4600,7 +4800,7 @@ License-document-ref: sha256:9b689eac99cd74074238eacc6355aa7f26971ad99fcef4a2fa0
 
 Package-ID: cargo:tower-http@0.6.11
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Tower Maintainers <team@tower-rs.com>
 Project: https://github.com/tower-rs/tower-http
@@ -4609,7 +4809,7 @@ License-document-ref: sha256:edd4b164997f67092b618b91fa823c3143ca080c1914b3d6f9b
 
 Package-ID: cargo:tower-layer@0.3.3
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Tower Maintainers <team@tower-rs.com>
 Project: https://github.com/tower-rs/tower
@@ -4618,7 +4818,7 @@ License-document-ref: sha256:da6b30502badfa054473f2f0df66b8014e0636c1ccfe9725fc2
 
 Package-ID: cargo:tower-service@0.3.3
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Tower Maintainers <team@tower-rs.com>
 Project: https://github.com/tower-rs/tower
@@ -4627,7 +4827,7 @@ License-document-ref: sha256:da6b30502badfa054473f2f0df66b8014e0636c1ccfe9725fc2
 
 Package-ID: cargo:tower@0.5.3
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Tower Maintainers <team@tower-rs.com>
 Project: https://github.com/tower-rs/tower
@@ -4674,7 +4874,7 @@ License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d
 
 Package-ID: cargo:try-lock@0.2.5
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/seanmonstar/try-lock
@@ -4791,6 +4991,17 @@ License-text: available
 License-document-ref: sha256:11cd7e6caed4b2377bdc3a08deb5a565efb76f0d747cfb2e26c7f7c1f6302e54
 License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
 
+Package-ID: cargo:vcpkg@0.2.15
+License: MIT/Apache-2.0
+Distribution-class: inventory-only
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Jim McGrath <jimmc2@gmail.com>
+Project: https://github.com/mcgoo/vcpkg-rs
+License-text: available
+License-document-ref: sha256:6196143cbaf5e1450026efcc5e612333f19a262cba8ca9d0434a335812466113
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
 Package-ID: cargo:version_check@0.9.5
 License: MIT/Apache-2.0
 Distribution-class: inventory-only
@@ -4843,7 +5054,7 @@ License-document-ref: sha256:ca2abdf695884c77ea4b4a5b64ca7b732d9d9dbade4eebc1c2e
 
 Package-ID: cargo:want@0.3.2
 License: MIT
-Distribution-class: inventory-only
+Distribution-class: runtime-linked
 Disposition: packaged-license-document
 Authors: Sean McArthur <sean@seanmonstar.com>
 Project: https://github.com/seanmonstar/want
@@ -5598,6 +5809,17 @@ Project: https://github.com/AltF02/x11-rs.git
 License-text: available
 License-document-ref: sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652
 
+Package-ID: cargo:xattr@1.7.0
+License: MIT OR Apache-2.0
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: Steven Allen <steven@stebalien.com>
+Project: https://github.com/Stebalien/xattr
+License-text: available
+License-document-ref: sha256:7bdd5c5e8ad0c973e00ae0cc281ad93c5991cae17dcee281198a625475beb3dc
+License-document-ref: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
+
 Package-ID: cargo:yoke-derive@0.8.4
 License: Unicode-3.0
 Distribution-class: inventory-only
@@ -5669,6 +5891,17 @@ Authors: The ICU4X Project Developers
 Project: https://github.com/unicode-org/icu4x
 License-text: available
 License-document-ref: sha256:cde87abe221f413fede55ded0f17985f37b8fdc23e5f6cba9a3955437facb3ae
+
+Package-ID: cargo:zeroize@1.9.1
+License: Apache-2.0 OR MIT
+Distribution-class: runtime-linked
+Disposition: packaged-license-document
+License-choice: MIT
+Authors: The RustCrypto Project Developers
+Project: https://github.com/RustCrypto/utils
+License-text: available
+License-document-ref: sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b
+License-document-ref: sha256:836ed921bbad486c21fe437f1f565aef73cf20f242f7344eae04b01ed53a2d57
 
 Package-ID: cargo:zerotrie@0.2.5
 License: Unicode-3.0
@@ -9555,7 +9788,7 @@ License-Document-End: sha256:16e34a46fa584c2cc09682bd36edae63e88c4696371b5d95476
 --------------------------------------------------------------------------------
 
 License-Document: sha256:1847e0e0698142ed4347c1441a9fa81c8fbddd44b1d8bbcd5e3647f991759d7f
-Applies-to: cargo:block2@0.6.2, cargo:dispatch2@0.3.1, cargo:ident_case@1.0.1, cargo:ndk-sys@0.6.0+11769913, cargo:ndk@0.9.0, cargo:objc2-app-kit@0.3.2, cargo:objc2-core-foundation@0.3.2, cargo:objc2-core-services@0.3.2, cargo:objc2-encode@4.1.0, cargo:objc2-exception-helper@0.1.1, cargo:objc2-foundation@0.3.2, cargo:objc2-quartz-core@0.3.2, cargo:objc2-web-kit@0.3.2, cargo:objc2@0.6.5
+Applies-to: cargo:block2@0.6.2, cargo:dispatch2@0.3.1, cargo:ident_case@1.0.1, cargo:ndk-sys@0.6.0+11769913, cargo:ndk@0.9.0, cargo:objc2-app-kit@0.3.2, cargo:objc2-core-foundation@0.3.2, cargo:objc2-core-services@0.3.2, cargo:objc2-encode@4.1.0, cargo:objc2-exception-helper@0.1.1, cargo:objc2-foundation@0.3.2, cargo:objc2-osa-kit@0.3.2, cargo:objc2-quartz-core@0.3.2, cargo:objc2-web-kit@0.3.2, cargo:objc2@0.6.5
 Source-files: LICENSE, https://github.com/rust-mobile/ndk/blob/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT, https://opensource.org/license/mit
 
 MIT License
@@ -9720,7 +9953,7 @@ License-Document-End: sha256:1a6dd9555214dc748e8b80dbfa3432092e210b3068f79c6ce76
 --------------------------------------------------------------------------------
 
 License-Document: sha256:1aa0a34224480ff916817aafd48263c880fe53a1d116261a7bb8c952ee0173ab
-Applies-to: cargo:block2@0.6.2, cargo:dispatch2@0.3.1, cargo:objc2-app-kit@0.3.2, cargo:objc2-cloud-kit@0.3.2, cargo:objc2-core-data@0.3.2, cargo:objc2-core-foundation@0.3.2, cargo:objc2-core-graphics@0.3.2, cargo:objc2-core-image@0.3.2, cargo:objc2-core-location@0.3.2, cargo:objc2-core-services@0.3.2, cargo:objc2-core-text@0.3.2, cargo:objc2-encode@4.1.0, cargo:objc2-exception-helper@0.1.1, cargo:objc2-foundation@0.3.2, cargo:objc2-io-surface@0.3.2, cargo:objc2-quartz-core@0.3.2, cargo:objc2-ui-kit@0.3.2, cargo:objc2-user-notifications@0.3.2, cargo:objc2-web-kit@0.3.2, cargo:objc2@0.6.5
+Applies-to: cargo:block2@0.6.2, cargo:dispatch2@0.3.1, cargo:objc2-app-kit@0.3.2, cargo:objc2-cloud-kit@0.3.2, cargo:objc2-core-data@0.3.2, cargo:objc2-core-foundation@0.3.2, cargo:objc2-core-graphics@0.3.2, cargo:objc2-core-image@0.3.2, cargo:objc2-core-location@0.3.2, cargo:objc2-core-services@0.3.2, cargo:objc2-core-text@0.3.2, cargo:objc2-encode@4.1.0, cargo:objc2-exception-helper@0.1.1, cargo:objc2-foundation@0.3.2, cargo:objc2-io-surface@0.3.2, cargo:objc2-osa-kit@0.3.2, cargo:objc2-quartz-core@0.3.2, cargo:objc2-ui-kit@0.3.2, cargo:objc2-user-notifications@0.3.2, cargo:objc2-web-kit@0.3.2, cargo:objc2@0.6.5
 Source-files: https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md, https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md, https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md, https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md, https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md
 
 # License
@@ -10245,6 +10478,21 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 License-Document-End: sha256:1e18298f7a841f8e63e40b3e8bcd773b5c8555e87ad798fd40b46fdf10ab835f
+--------------------------------------------------------------------------------
+
+License-Document: sha256:1ecbb241444ad7feca24a4a99f13ffa757eef72e5f9eae08ba8d6ffb268c14fc
+Applies-to: cargo:schannel@0.1.30
+Source-files: LICENSE.md
+
+Copyright (c) 2015 steffengy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:1ecbb241444ad7feca24a4a99f13ffa757eef72e5f9eae08ba8d6ffb268c14fc
 --------------------------------------------------------------------------------
 
 License-Document: sha256:1f7269cdcd8d4d3006402f765e3ff6abc082a7a27dc52e61045f2f5792ed8c59
@@ -11112,7 +11360,7 @@ License-Document-End: sha256:27480f391bd92f66f0261466abd9456bcd58a7d8552955af6d2
 --------------------------------------------------------------------------------
 
 License-Document: sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b
-Applies-to: cargo:embed_plist@1.2.2, cargo:ndk-sys@0.6.0+11769913, cargo:ndk@0.9.0, cargo:serialize-to-javascript-impl@0.1.2, cargo:serialize-to-javascript@0.1.2, cargo:siphasher@1.0.4, cargo:tinyvec@1.13.3, cargo:utf8_iter@1.1.0, cargo:utf_types@1.0.0, npm:@chevrotain/types@11.1.2, npm:dompurify@3.4.17
+Applies-to: cargo:embed_plist@1.2.2, cargo:ndk-sys@0.6.0+11769913, cargo:ndk@0.9.0, cargo:serialize-to-javascript-impl@0.1.2, cargo:serialize-to-javascript@0.1.2, cargo:siphasher@1.0.4, cargo:tinyvec@1.13.3, cargo:utf8_iter@1.1.0, cargo:utf_types@1.0.0, cargo:zeroize@1.9.1, npm:@chevrotain/types@11.1.2, npm:dompurify@3.4.17
 Source-files: LICENSE, LICENSE-APACHE, LICENSE-APACHE.md, LICENSE.txt, https://github.com/rust-mobile/ndk/blob/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-APACHE
 
 Apache License
@@ -12501,6 +12749,34 @@ DEALINGS IN THE SOFTWARE.
 License-Document-End: sha256:36c68b249eb6de0491d8162d9c886af98800bbfb5bc767b1e373390402c9888d
 --------------------------------------------------------------------------------
 
+License-Document: sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62
+Applies-to: cargo:security-framework-sys@2.17.0, cargo:security-framework@3.7.0
+Source-files: LICENSE-MIT
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Steven Fackler
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62
+--------------------------------------------------------------------------------
+
 License-Document: sha256:381f992f70f7089ddd7c450295f7a3c5e7ee776ded8771991281a6b146c5e5b9
 Applies-to: cargo:try-lock@0.2.5
 Source-files: LICENSE
@@ -13167,6 +13443,215 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 License-Document-End: sha256:42d8a095dbffdf17dba2e5ab859b56bf19909eace29d1ece1357e2044a7ab8f6
+--------------------------------------------------------------------------------
+
+License-Document: sha256:430e912c26cec30cdf52f4367b6d15dd3f898d2a19db349a62a9f3095ca98a5b
+Applies-to: cargo:rustls-pki-types@1.16.0
+Source-files: LICENSE-APACHE
+
+Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+   To apply the Apache License to your work, attach the following
+   boilerplate notice, with the fields enclosed by brackets "[]"
+   replaced with your own identifying information. (Don't include
+   the brackets!)  The text should be enclosed in the appropriate
+   comment syntax for the file format. We also recommend that a
+   file or class name and description of purpose be included on the
+   same "printed page" as the copyright notice for easier
+   identification within third-party archives.
+
+Copyright 2023 Dirkjan Ochtman
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+License-Document-End: sha256:430e912c26cec30cdf52f4367b6d15dd3f898d2a19db349a62a9f3095ca98a5b
 --------------------------------------------------------------------------------
 
 License-Document: sha256:4428cd87371acbd49f9f6380125492cd1e89df621d2fd7f55e30a0891f96a433
@@ -14132,7 +14617,7 @@ License-Document-End: sha256:4be46afa7981dcef58b82523ff2d5f203fd93fd32cc596d5983
 --------------------------------------------------------------------------------
 
 License-Document: sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
-Applies-to: cargo:fdeflate@0.3.7, cargo:field-offset@0.3.6, cargo:miniz_oxide@0.8.9, cargo:miniz_oxide@0.9.1, cargo:num-conv@0.2.2, cargo:pin-project-lite@0.2.17, cargo:portable-atomic-util@0.2.8, cargo:portable-atomic@1.15.0, cargo:raw-window-handle@0.6.2, cargo:sync_wrapper@1.0.2, cargo:tauri-build@2.7.4, cargo:tauri-codegen@2.7.4, cargo:tauri-macros@2.7.4, cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-window-state@2.5.0, cargo:tauri-runtime-wry@2.12.3, cargo:tauri-runtime@2.12.2, cargo:tauri-utils@2.10.2, cargo:tauri@2.12.5, cargo:time-core@0.1.9, cargo:time-macros@0.2.32, cargo:time@0.3.55, npm:@tauri-apps/api@2.12.4, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
+Applies-to: cargo:fdeflate@0.3.7, cargo:field-offset@0.3.6, cargo:miniz_oxide@0.8.9, cargo:miniz_oxide@0.9.1, cargo:num-conv@0.2.2, cargo:pin-project-lite@0.2.17, cargo:portable-atomic-util@0.2.8, cargo:portable-atomic@1.15.0, cargo:raw-window-handle@0.6.2, cargo:sync_wrapper@1.0.2, cargo:tauri-build@2.7.4, cargo:tauri-codegen@2.7.4, cargo:tauri-macros@2.7.4, cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-updater@2.14.1, cargo:tauri-plugin-window-state@2.5.0, cargo:tauri-runtime-wry@2.12.3, cargo:tauri-runtime@2.12.2, cargo:tauri-utils@2.10.2, cargo:tauri@2.12.5, cargo:time-core@0.1.9, cargo:time-macros@0.2.32, cargo:time@0.3.55, npm:@tauri-apps/api@2.12.4, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
 Source-files: LICENSE, LICENSE-APACHE, LICENSE-APACHE-2.0, LICENSE-APACHE.md, LICENSE-Apache, LICENSE_APACHE-2.0
 
 Apache License
@@ -14738,6 +15223,73 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 License-Document-End: sha256:586409690da31408c8348e6acb0bdbabdf4611308778edfc6210eb09492f23a1
+--------------------------------------------------------------------------------
+
+License-Document: sha256:58f66933c7bba2f45abff7ace6d580120b32452685dc849b4ca56b53393fdbbd
+Applies-to: cargo:minisign-verify@0.3.0
+Source-files: LICENSE
+
+Copyright (c) 2019-2025 Frank Denis
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+--
+
+Code in the src/crypto folder is derived from the rust-crypto project:
+https://github.com/DaGenix/rust-crypto
+
+Original ISC license follows:
+
+Copyright (c) 2006-2009 Graydon Hoare
+Copyright (c) 2009-2013 Mozilla Foundation
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:58f66933c7bba2f45abff7ace6d580120b32452685dc849b4ca56b53393fdbbd
 --------------------------------------------------------------------------------
 
 License-Document: sha256:58f959e2911ca1fdd6812a2cebe42193c6137922ecbcce86d8233873706181ab
@@ -15356,6 +15908,39 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 License-Document-End: sha256:6019bf3451952141c4561a8a814c965b71166df316a8c7f3f435f090b3c329c1
+--------------------------------------------------------------------------------
+
+License-Document: sha256:6196143cbaf5e1450026efcc5e612333f19a262cba8ca9d0434a335812466113
+Applies-to: cargo:vcpkg@0.2.15
+Source-files: LICENSE-MIT
+
+Copyright (c) 2017 Jim McGrath
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:6196143cbaf5e1450026efcc5e612333f19a262cba8ca9d0434a335812466113
 --------------------------------------------------------------------------------
 
 License-Document: sha256:627eff66d6c4b984355e737e8a92b262d584865956e93a1ece6e285a083d8be9
@@ -16061,6 +16646,39 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 License-Document-End: sha256:6c91ec82929f91ffa341a9928e5c98b44767c6a1bb8d7789edad88d3fa5681af
 --------------------------------------------------------------------------------
 
+License-Document: sha256:6ca34f7d0a4213575eb16aafd2a9e3d4008003f081ab8859bcf046fb778b4c4a
+Applies-to: cargo:osakit@0.3.1
+Source-files: LICENSE-MIT
+
+Copyright (c) 2024 Marat Dulin
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:6ca34f7d0a4213575eb16aafd2a9e3d4008003f081ab8859bcf046fb778b4c4a
+--------------------------------------------------------------------------------
+
 License-Document: sha256:6d182023b788976deff7d098a1fe99810e1062e692e50b90cf6480eb598d8a47
 Applies-to: cargo:cfg-expr@0.15.8
 Source-files: LICENSE-MIT
@@ -16224,7 +16842,7 @@ License-Document-End: sha256:6d489af6292662d9e36d34ce49423784984a5f6e41d7b58f49b
 --------------------------------------------------------------------------------
 
 License-Document: sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a
-Applies-to: cargo:crc32fast@1.5.4, cargo:ctor@1.0.13, cargo:dpi@0.1.2, cargo:env_filter@0.1.4, cargo:foreign-types-macros@0.2.4, cargo:foreign-types-shared@0.3.1, cargo:foreign-types@0.5.0, cargo:hex@0.4.3, cargo:jni-sys@0.3.1, cargo:jni-sys@0.4.1, cargo:json-patch@4.2.0, cargo:serde_spanned@0.6.9, cargo:tao@0.37.2, cargo:toml@0.8.2, cargo:toml_edit@0.19.15, cargo:toml_edit@0.20.2, cargo:winapi-i686-pc-windows-gnu@0.4.0, cargo:winapi-x86_64-pc-windows-gnu@0.4.0, cargo:winapi@0.3.9
+Applies-to: cargo:crc32fast@1.5.4, cargo:ctor@1.0.13, cargo:dpi@0.1.2, cargo:env_filter@0.1.4, cargo:foreign-types-macros@0.2.4, cargo:foreign-types-shared@0.1.1, cargo:foreign-types-shared@0.3.1, cargo:foreign-types@0.3.2, cargo:foreign-types@0.5.0, cargo:hex@0.4.3, cargo:jni-sys@0.3.1, cargo:jni-sys@0.4.1, cargo:json-patch@4.2.0, cargo:native-tls@0.2.18, cargo:openssl-macros@0.1.1, cargo:openssl@0.10.82, cargo:serde_spanned@0.6.9, cargo:tao@0.37.2, cargo:toml@0.8.2, cargo:toml_edit@0.19.15, cargo:toml_edit@0.20.2, cargo:winapi-i686-pc-windows-gnu@0.4.0, cargo:winapi-x86_64-pc-windows-gnu@0.4.0, cargo:winapi@0.3.9
 Source-files: LICENSE, LICENSE-APACHE
 
 Apache License
@@ -17750,7 +18368,7 @@ License-Document-End: sha256:7bdac5ba137b8460596d8a7148ddf6e453c662bd22733a333ce
 --------------------------------------------------------------------------------
 
 License-Document: sha256:7bdd5c5e8ad0c973e00ae0cc281ad93c5991cae17dcee281198a625475beb3dc
-Applies-to: cargo:tempfile@3.27.0
+Applies-to: cargo:tempfile@3.27.0, cargo:xattr@1.7.0
 Source-files: LICENSE-MIT
 
 Copyright (c) 2015 Steven Allen
@@ -18428,8 +19046,41 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 License-Document-End: sha256:831ba45aa53d1c181dbc2e8d120598d7ec3e0bc909e35376cc64630745af2ced
 --------------------------------------------------------------------------------
 
+License-Document: sha256:836ed921bbad486c21fe437f1f565aef73cf20f242f7344eae04b01ed53a2d57
+Applies-to: cargo:zeroize@1.9.1
+Source-files: LICENSE-MIT
+
+Copyright (c) 2018-2026 The RustCrypto Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:836ed921bbad486c21fe437f1f565aef73cf20f242f7344eae04b01ed53a2d57
+--------------------------------------------------------------------------------
+
 License-Document: sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d
-Applies-to: cargo:cc@1.10.0, cargo:cfg-if@1.0.5, cargo:find-msvc-tools@0.1.15, cargo:js-sys@0.3.107, cargo:pkg-config@0.3.34, cargo:socket2@0.6.5, cargo:toml_datetime@0.6.3, cargo:wasm-bindgen-futures@0.4.80, cargo:wasm-bindgen-macro-support@0.2.130, cargo:wasm-bindgen-macro@0.2.130, cargo:wasm-bindgen-shared@0.2.130, cargo:wasm-bindgen@0.2.130, cargo:web-sys@0.3.107
+Applies-to: cargo:cc@1.10.0, cargo:cfg-if@1.0.5, cargo:filetime@0.2.29, cargo:find-msvc-tools@0.1.15, cargo:js-sys@0.3.107, cargo:openssl-probe@0.2.2, cargo:openssl-sys@0.9.118, cargo:pkg-config@0.3.34, cargo:socket2@0.6.5, cargo:toml_datetime@0.6.3, cargo:wasm-bindgen-futures@0.4.80, cargo:wasm-bindgen-macro-support@0.2.130, cargo:wasm-bindgen-macro@0.2.130, cargo:wasm-bindgen-shared@0.2.130, cargo:wasm-bindgen@0.2.130, cargo:web-sys@0.3.107
 Source-files: LICENSE-MIT
 
 Copyright (c) 2014 Alex Crichton
@@ -18518,7 +19169,7 @@ License-Document-End: sha256:859a90323b684e4618786eb5affa0454d3a14872d433f0bb7e7
 --------------------------------------------------------------------------------
 
 License-Document: sha256:85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179
-Applies-to: cargo:anyhow@1.0.104, cargo:async-trait@0.1.92, cargo:dtoa@1.0.11, cargo:dyn-clone@1.0.20, cargo:erased-serde@0.4.11, cargo:itoa@1.0.18, cargo:libc@0.2.191, cargo:num_enum@0.7.6, cargo:num_enum_derive@0.7.6, cargo:proc-macro2@1.0.107, cargo:quote@1.0.47, cargo:ref-cast-impl@1.0.27, cargo:ref-cast@1.0.27, cargo:rustc-hash@2.1.3, cargo:rustversion@1.0.23, cargo:semver@1.0.28, cargo:serde-untagged@0.1.9, cargo:serde@1.0.229, cargo:serde_core@1.0.229, cargo:serde_derive@1.0.229, cargo:serde_derive_internals@0.29.1, cargo:serde_json@1.0.154, cargo:serde_repr@0.1.21, cargo:syn@2.0.119, cargo:syn@3.0.9, cargo:thiserror-impl@1.0.69, cargo:thiserror-impl@2.0.21, cargo:thiserror@1.0.69, cargo:thiserror@2.0.21, cargo:typeid@1.0.3, cargo:unicode-ident@1.0.27, cargo:wasm-streams@0.5.0
+Applies-to: cargo:anyhow@1.0.104, cargo:async-trait@0.1.92, cargo:dtoa@1.0.11, cargo:dyn-clone@1.0.20, cargo:erased-serde@0.4.11, cargo:itoa@1.0.18, cargo:libc@0.2.191, cargo:num_enum@0.7.6, cargo:num_enum_derive@0.7.6, cargo:osakit@0.3.1, cargo:proc-macro2@1.0.107, cargo:quote@1.0.47, cargo:ref-cast-impl@1.0.27, cargo:ref-cast@1.0.27, cargo:rustc-hash@2.1.3, cargo:rustversion@1.0.23, cargo:semver@1.0.28, cargo:serde-untagged@0.1.9, cargo:serde@1.0.229, cargo:serde_core@1.0.229, cargo:serde_derive@1.0.229, cargo:serde_derive_internals@0.29.1, cargo:serde_json@1.0.154, cargo:serde_repr@0.1.21, cargo:syn@2.0.119, cargo:syn@3.0.9, cargo:thiserror-impl@1.0.69, cargo:thiserror-impl@2.0.21, cargo:thiserror@1.0.69, cargo:thiserror@2.0.21, cargo:typeid@1.0.3, cargo:unicode-ident@1.0.27, cargo:wasm-streams@0.5.0
 Source-files: LICENSE-APACHE
 
 Apache License
@@ -19571,7 +20222,7 @@ License-Document-End: sha256:89204184891f65c98db6e4e5ba84b6291fa6aa68ba1d589f948
 --------------------------------------------------------------------------------
 
 License-Document: sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607
-Applies-to: cargo:tauri-build@2.7.4, cargo:tauri-codegen@2.7.4, cargo:tauri-macros@2.7.4, cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-window-state@2.5.0, cargo:tauri-runtime-wry@2.12.3, cargo:tauri-runtime@2.12.2, cargo:tauri-utils@2.10.2, cargo:tauri@2.12.5, npm:@tauri-apps/api@2.12.4, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
+Applies-to: cargo:tauri-build@2.7.4, cargo:tauri-codegen@2.7.4, cargo:tauri-macros@2.7.4, cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-updater@2.14.1, cargo:tauri-plugin-window-state@2.5.0, cargo:tauri-runtime-wry@2.12.3, cargo:tauri-runtime@2.12.2, cargo:tauri-utils@2.10.2, cargo:tauri@2.12.5, npm:@tauri-apps/api@2.12.4, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
 Source-files: LICENSE-MIT, LICENSE_MIT
 
 MIT License
@@ -20162,7 +20813,7 @@ License-Document-End: sha256:94b1870d380ccf537d5bdfda2de882965c9afb814acc375cb1b
 --------------------------------------------------------------------------------
 
 License-Document: sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76
-Applies-to: cargo:ambient-authority@0.0.2, cargo:async-channel@2.5.0, cargo:async-executor@1.14.1, cargo:async-io@2.6.0, cargo:async-lock@3.4.2, cargo:async-process@2.5.0, cargo:async-recursion@1.2.0, cargo:async-signal@0.2.14, cargo:async-task@4.7.1, cargo:atomic-waker@1.1.2, cargo:autocfg@1.5.1, cargo:base64@0.21.7, cargo:base64@0.23.1, cargo:bitflags@1.3.2, cargo:bitflags@2.13.2, cargo:blocking@1.7.0, cargo:bs58@0.5.1, cargo:bumpalo@3.20.3, cargo:camino@1.2.6, cargo:cap-fs-ext@4.0.3, cargo:cap-primitives@4.0.3, cargo:cap-std@4.0.3, cargo:cc@1.10.0, cargo:cfg-if@1.0.5, cargo:concurrent-queue@2.5.0, cargo:core-foundation-sys@0.8.7, cargo:core-foundation@0.10.1, cargo:core-graphics-types@0.2.0, cargo:core-graphics@0.25.0, cargo:crossbeam-channel@0.5.17, cargo:crossbeam-utils@0.8.23, cargo:displaydoc@0.2.7, cargo:equivalent@1.0.3, cargo:errno@0.3.14, cargo:event-listener-strategy@0.5.4, cargo:event-listener@5.4.2, cargo:fastrand@2.5.0, cargo:find-msvc-tools@0.1.15, cargo:flate2@1.1.10, cargo:fnv@1.0.7, cargo:form_urlencoded@1.2.2, cargo:fs-set-times@0.20.3, cargo:futures-lite@2.6.1, cargo:glob@0.3.4, cargo:hashbrown@0.12.3, cargo:hashbrown@0.17.1, cargo:heck@0.4.1, cargo:heck@0.5.0, cargo:hermit-abi@0.5.3, cargo:html5ever@0.39.0, cargo:httparse@1.10.1, cargo:idna@1.1.0, cargo:idna_adapter@1.2.2, cargo:indexmap@1.9.3, cargo:indexmap@2.14.2, cargo:io-extras@0.19.0, cargo:io-lifetimes@2.0.4, cargo:io-lifetimes@3.0.1, cargo:jni@0.21.1, cargo:js-sys@0.3.107, cargo:keyboard-types@0.8.3, cargo:libappindicator-sys@0.9.0, cargo:libappindicator@0.9.0, cargo:linux-raw-sys@0.12.1, cargo:lock_api@0.4.14, cargo:log@0.4.35, cargo:markup5ever@0.39.0, cargo:mime@0.3.17, cargo:muda@0.20.0, cargo:num-traits@0.2.19, cargo:once_cell@1.21.4, cargo:ordered-stream@0.2.0, cargo:parking@2.2.1, cargo:parking_lot@0.12.5, cargo:parking_lot_core@0.9.12, cargo:percent-encoding@2.3.2, cargo:piper@0.2.5, cargo:pkg-config@0.3.34, cargo:png@0.18.1, cargo:polling@3.11.0, cargo:regex-automata@0.4.18, cargo:regex-syntax@0.8.11, cargo:regex@1.13.1, cargo:rustc_version@0.4.1, cargo:rustix-linux-procfs@0.1.1, cargo:rustix@1.1.6, cargo:scopeguard@1.2.0, cargo:serde_with@3.24.0, cargo:serde_with_macros@3.24.0, cargo:servo_arc@0.4.3, cargo:signal-hook-registry@1.4.8, cargo:smallvec@1.16.4, cargo:socket2@0.6.5, cargo:stable_deref_trait@1.2.1, cargo:string_cache@0.9.0, cargo:string_cache_codegen@0.6.1, cargo:syn@1.0.109, cargo:system-deps@6.2.2, cargo:tao-macros@0.1.4, cargo:tempfile@3.27.0, cargo:tendril@0.5.1, cargo:toml_datetime@0.6.3, cargo:tray-icon@0.25.1, cargo:unicode-segmentation@1.13.3, cargo:url@2.5.8, cargo:uuid@1.26.1, cargo:version_check@0.9.5, cargo:wasi@0.11.1+wasi-snapshot-preview1, cargo:wasip2@1.0.4+wasi-0.2.12, cargo:wasm-bindgen-futures@0.4.80, cargo:wasm-bindgen-macro-support@0.2.130, cargo:wasm-bindgen-macro@0.2.130, cargo:wasm-bindgen-shared@0.2.130, cargo:wasm-bindgen@0.2.130, cargo:web-sys@0.3.107, cargo:web_atoms@0.2.6, cargo:window-vibrancy@0.8.1, cargo:wit-bindgen@0.57.1, cargo:wry@0.57.1
+Applies-to: cargo:ambient-authority@0.0.2, cargo:async-channel@2.5.0, cargo:async-executor@1.14.1, cargo:async-io@2.6.0, cargo:async-lock@3.4.2, cargo:async-process@2.5.0, cargo:async-recursion@1.2.0, cargo:async-signal@0.2.14, cargo:async-task@4.7.1, cargo:atomic-waker@1.1.2, cargo:autocfg@1.5.1, cargo:base64@0.21.7, cargo:base64@0.23.1, cargo:bitflags@1.3.2, cargo:bitflags@2.13.2, cargo:blocking@1.7.0, cargo:bs58@0.5.1, cargo:bumpalo@3.20.3, cargo:camino@1.2.6, cargo:cap-fs-ext@4.0.3, cargo:cap-primitives@4.0.3, cargo:cap-std@4.0.3, cargo:cc@1.10.0, cargo:cfg-if@1.0.5, cargo:concurrent-queue@2.5.0, cargo:core-foundation-sys@0.8.7, cargo:core-foundation@0.10.1, cargo:core-graphics-types@0.2.0, cargo:core-graphics@0.25.0, cargo:crossbeam-channel@0.5.17, cargo:crossbeam-utils@0.8.23, cargo:displaydoc@0.2.7, cargo:equivalent@1.0.3, cargo:errno@0.3.14, cargo:event-listener-strategy@0.5.4, cargo:event-listener@5.4.2, cargo:fastrand@2.5.0, cargo:filetime@0.2.29, cargo:find-msvc-tools@0.1.15, cargo:flate2@1.1.10, cargo:fnv@1.0.7, cargo:form_urlencoded@1.2.2, cargo:fs-set-times@0.20.3, cargo:futures-lite@2.6.1, cargo:glob@0.3.4, cargo:hashbrown@0.12.3, cargo:hashbrown@0.17.1, cargo:heck@0.4.1, cargo:heck@0.5.0, cargo:hermit-abi@0.5.3, cargo:html5ever@0.39.0, cargo:httparse@1.10.1, cargo:hyper-tls@0.6.0, cargo:idna@1.1.0, cargo:idna_adapter@1.2.2, cargo:indexmap@1.9.3, cargo:indexmap@2.14.2, cargo:io-extras@0.19.0, cargo:io-lifetimes@2.0.4, cargo:io-lifetimes@3.0.1, cargo:jni@0.21.1, cargo:js-sys@0.3.107, cargo:keyboard-types@0.8.3, cargo:libappindicator-sys@0.9.0, cargo:libappindicator@0.9.0, cargo:linux-raw-sys@0.12.1, cargo:lock_api@0.4.14, cargo:log@0.4.35, cargo:markup5ever@0.39.0, cargo:mime@0.3.17, cargo:muda@0.20.0, cargo:num-traits@0.2.19, cargo:once_cell@1.21.4, cargo:openssl-probe@0.2.2, cargo:ordered-stream@0.2.0, cargo:parking@2.2.1, cargo:parking_lot@0.12.5, cargo:parking_lot_core@0.9.12, cargo:percent-encoding@2.3.2, cargo:piper@0.2.5, cargo:pkg-config@0.3.34, cargo:png@0.18.1, cargo:polling@3.11.0, cargo:regex-automata@0.4.18, cargo:regex-syntax@0.8.11, cargo:regex@1.13.1, cargo:rustc_version@0.4.1, cargo:rustix-linux-procfs@0.1.1, cargo:rustix@1.1.6, cargo:scopeguard@1.2.0, cargo:security-framework-sys@2.17.0, cargo:security-framework@3.7.0, cargo:serde_with@3.24.0, cargo:serde_with_macros@3.24.0, cargo:servo_arc@0.4.3, cargo:signal-hook-registry@1.4.8, cargo:smallvec@1.16.4, cargo:socket2@0.6.5, cargo:stable_deref_trait@1.2.1, cargo:string_cache@0.9.0, cargo:string_cache_codegen@0.6.1, cargo:syn@1.0.109, cargo:system-deps@6.2.2, cargo:tao-macros@0.1.4, cargo:tar@0.4.46, cargo:tempfile@3.27.0, cargo:tendril@0.5.1, cargo:toml_datetime@0.6.3, cargo:tray-icon@0.25.1, cargo:unicode-segmentation@1.13.3, cargo:url@2.5.8, cargo:uuid@1.26.1, cargo:vcpkg@0.2.15, cargo:version_check@0.9.5, cargo:wasi@0.11.1+wasi-snapshot-preview1, cargo:wasip2@1.0.4+wasi-0.2.12, cargo:wasm-bindgen-futures@0.4.80, cargo:wasm-bindgen-macro-support@0.2.130, cargo:wasm-bindgen-macro@0.2.130, cargo:wasm-bindgen-shared@0.2.130, cargo:wasm-bindgen@0.2.130, cargo:web-sys@0.3.107, cargo:web_atoms@0.2.6, cargo:window-vibrancy@0.8.1, cargo:wit-bindgen@0.57.1, cargo:wry@0.57.1, cargo:xattr@1.7.0
 Source-files: LICENSE-APACHE
 
 Apache License
@@ -25879,7 +26530,7 @@ License-Document-End: sha256:c0fb98161c4fbc6e50a7e6265e538009d09a5758c2bf17d5182
 --------------------------------------------------------------------------------
 
 License-Document: sha256:c1e08ee9a7288bf649d6a78f6079006333df4212f5fcda85be1a0a451f71852d
-Applies-to: cargo:tracing-attributes@0.1.31, cargo:tracing-core@0.1.36, cargo:tracing@0.1.44
+Applies-to: cargo:tokio-native-tls@0.3.1, cargo:tracing-attributes@0.1.31, cargo:tracing-core@0.1.36, cargo:tracing@0.1.44
 Source-files: LICENSE
 
 Copyright (c) 2019 Tokio Contributors
@@ -26091,6 +26742,39 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 License-Document-End: sha256:c52012f8f02eac31b78d5278be30cdb8ccf8602f97e25ff365baf6156c375695
+--------------------------------------------------------------------------------
+
+License-Document: sha256:c5e7f780f961f850c7ac6e80e29b6aa3e5c3a503677eb7b7a9826fc6d735eb2e
+Applies-to: cargo:rustls-pki-types@1.16.0
+Source-files: LICENSE-MIT
+
+Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:c5e7f780f961f850c7ac6e80e29b6aa3e5c3a503677eb7b7a9826fc6d735eb2e
 --------------------------------------------------------------------------------
 
 License-Document: sha256:c7495b7b3a525563d3a3f4003277a9db6ef7fd02ce4a3bd4b8103944c4037a32
@@ -26441,7 +27125,7 @@ License-Document-End: sha256:c8ea45f591c25c2a96e7a59f87ecc5adf64010c10cfd7938f4c
 --------------------------------------------------------------------------------
 
 License-Document: sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27
-Applies-to: cargo:foreign-types-macros@0.2.4, cargo:foreign-types-shared@0.3.1, cargo:foreign-types@0.5.0
+Applies-to: cargo:foreign-types-macros@0.2.4, cargo:foreign-types-shared@0.1.1, cargo:foreign-types-shared@0.3.1, cargo:foreign-types@0.3.2, cargo:foreign-types@0.5.0
 Source-files: LICENSE-MIT
 
 Copyright (c) 2017 The foreign-types Developers
@@ -28206,6 +28890,33 @@ Apache License
 License-Document-End: sha256:d588236a8ad8c104805ac94661ae858b780d84700ec7a55493e37a598cf226e9
 --------------------------------------------------------------------------------
 
+License-Document: sha256:d826e1bb47ee79e25ec8ed74470f20e519c92e1836b0686dc1f13d017b696198
+Applies-to: cargo:native-tls@0.2.18
+Source-files: LICENSE-MIT
+
+Copyright (c) 2016 The rust-native-tls Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+License-Document-End: sha256:d826e1bb47ee79e25ec8ed74470f20e519c92e1836b0686dc1f13d017b696198
+--------------------------------------------------------------------------------
+
 License-Document: sha256:d872b89e34b794519bb00f82dbad5710435fe5eb37a0a80ed0b72a92db47ced5
 Applies-to: npm:@mermaid-js/parser@1.2.1
 Source-files: LICENSE
@@ -28814,6 +29525,39 @@ THE SOFTWARE.
 License-Document-End: sha256:e453dafb35c9b3cb911a8d2f1a0b37526ee15d1bc21cfc689756bed25e9483b8
 --------------------------------------------------------------------------------
 
+License-Document: sha256:e6e853531994cb4721d5fa84d5b27bc408720ade2204ff307c76c778b7108bc5
+Applies-to: cargo:tar@0.4.46
+Source-files: LICENSE-MIT
+
+Copyright (c) The tar-rs Project Contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+License-Document-End: sha256:e6e853531994cb4721d5fa84d5b27bc408720ade2204ff307c76c778b7108bc5
+--------------------------------------------------------------------------------
+
 License-Document: sha256:e7330bf53074b4a9c5896f4a03d782be7f163381e45923d5e2369fe194a19f99
 Applies-to: cargo:getrandom@0.3.4, cargo:getrandom@0.4.3
 Source-files: LICENSE-APACHE
@@ -29360,6 +30104,29 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 License-Document-End: sha256:ea559213e0e927a249bd60f4f6a27d1a272fb5d38d2babbd723099c66a17c5af
 --------------------------------------------------------------------------------
 
+License-Document: sha256:ea7995081a3b9c02bed66de54332241b112ab38d382b0ba78e9aeb243b3cd941
+Applies-to: cargo:openssl@0.10.82
+Source-files: LICENSE
+
+Copyright 2011-2017 Google Inc.
+          2013 Jack Lloyd
+          2013-2014 Steven Fackler
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+License-Document-End: sha256:ea7995081a3b9c02bed66de54332241b112ab38d382b0ba78e9aeb243b3cd941
+--------------------------------------------------------------------------------
+
 License-Document: sha256:eabb8d3cadaf8d4e2ff98951db8df859157d48f534cbfc4790c789b840c4ff4b
 Applies-to: npm:highlight.js@11.11.2, npm:highlight.js@11.12.0
 Source-files: LICENSE
@@ -29447,7 +30214,7 @@ License-Document-End: sha256:eb319c6e6f233607f71e8e2f450391751883cfc0eeb3ca7ef57
 --------------------------------------------------------------------------------
 
 License-Document: sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef
-Applies-to: cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-window-state@2.5.0, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
+Applies-to: cargo:tauri-plugin-dialog@2.8.4, cargo:tauri-plugin-fs@2.7.1, cargo:tauri-plugin-log@2.10.1, cargo:tauri-plugin-opener@2.7.2, cargo:tauri-plugin-updater@2.14.1, cargo:tauri-plugin-window-state@2.5.0, npm:@tauri-apps/plugin-dialog@2.8.4, npm:@tauri-apps/plugin-opener@2.7.2
 Source-files: LICENSE.spdx
 
 SPDXVersion: SPDX-2.1
@@ -29560,6 +30327,33 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 License-Document-End: sha256:edd4b164997f67092b618b91fa823c3143ca080c1914b3d6f9bf2071f3e47359
+--------------------------------------------------------------------------------
+
+License-Document: sha256:ef31af832fed9fa9d86febbc8143a7e916482321e5de3675ef3620cbffa596d8
+Applies-to: cargo:hyper-tls@0.6.0
+Source-files: LICENSE-MIT
+
+Copyright (c) 2017 Sean McArthur
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+License-Document-End: sha256:ef31af832fed9fa9d86febbc8143a7e916482321e5de3675ef3620cbffa596d8
 --------------------------------------------------------------------------------
 
 License-Document: sha256:f2459c4b106b4bee2204dde164c673160c9292d4177a5f92e0b116213c72a3b7
@@ -29823,6 +30617,33 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 License-Document-End: sha256:f68878c9ca61b25d4b2c470de571cb85ce97804a62bb153607f7e0e0d2684c8a
+--------------------------------------------------------------------------------
+
+License-Document: sha256:f73e51eb49941a3d270525016f2815da8f1282a74083884fa2784ad565f61b7a
+Applies-to: cargo:openssl-macros@0.1.1
+Source-files: LICENSE-MIT
+
+Copyright (c) 2022 Steven Fackler
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+License-Document-End: sha256:f73e51eb49941a3d270525016f2815da8f1282a74083884fa2784ad565f61b7a
 --------------------------------------------------------------------------------
 
 License-Document: sha256:f78777570e325f82b885c1f8ec8ee15009beb786b97ef054fa4007781c9d4e1c

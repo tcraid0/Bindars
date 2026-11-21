@@ -34,6 +34,8 @@ import type { MarkdownEditorHandle } from "./components/MarkdownEditor";
 import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
 import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { UpdateDialog } from "./components/UpdateDialog";
+import { UpdateQuestion } from "./components/UpdateQuestion";
 import { HighlightToolbar } from "./components/HighlightToolbar";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { documentTitle } from "./lib/document-title";
@@ -61,6 +63,8 @@ import { useOneTimeHint } from "./hooks/useOneTimeHint";
 import type { WelcomeRecovery } from "./lib/welcome-recovery";
 import { useNativeOpen } from "./hooks/useNativeOpen";
 import { useNativeQuit } from "./hooks/useNativeQuit";
+import { useUpdates } from "./hooks/useUpdates";
+import { installUpdateAndRestart } from "./lib/updates";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useSearch } from "./hooks/useSearch";
 import { useReducedMotion } from "./hooks/useReducedMotion";
@@ -113,7 +117,7 @@ import type { DraftRetirement, FileRevision, HighlightColor, NavigationEntry, Sc
 import welcomeTemplate from "./assets/welcome.md?raw";
 
 type MenuAction = "new" | "open" | "search-documents" | "home" | "save" | "copy-document" | "print"
-  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar";
+  | "find" | "find-next" | "find-previous" | "show-shortcuts" | "toggle-sidebar" | "check-for-updates";
 
 type EditExitPositionOutcome = "none" | "clean" | "saved" | "discarded";
 type SaveContinuationIntent = "stay-editing" | "continue";
@@ -1680,6 +1684,15 @@ function App() {
 
   useNativeQuit({ onQuitRequested: requestGuardedQuit });
 
+  const requestRestartForUpdate = useCallback(
+    () => guardActionRef.current({ kind: "quit-app", restartForUpdate: true }),
+    [],
+  );
+  const notifyUpdateError = useCallback((message: string) => toast(message, "error"), [toast]);
+  const updates = useUpdates({ requestRestartForUpdate, notifyError: notifyUpdateError });
+  const reportUpdateInstallFailureRef = useRef(updates.reportInstallFailure);
+  reportUpdateInstallFailureRef.current = updates.reportInstallFailure;
+
   // Tauri window close guard. Every request is prevented and routed through
   // the action guard before the continuation hides the window (macOS, so the
   // process stays available for Dock reopen) or closes it (other platforms, exiting on the last close).
@@ -2782,6 +2795,14 @@ function App() {
             console.warn("[quit-guard] A new edit session started before the quit completed; keeping the app running.");
             return;
           }
+          if (action.restartForUpdate) {
+            try {
+              await installUpdateAndRestart();
+            } catch (installError) {
+              reportUpdateInstallFailureRef.current(installError);
+            }
+            return;
+          }
           await invoke("exit_after_guarded_quit");
         } catch (error) {
           console.error("[quit-guard] Failed to exit after the guard completed:", error);
@@ -2991,6 +3012,7 @@ function App() {
         break;
       case "show-shortcuts": setShortcutsVisible(true); break;
       case "toggle-sidebar": changeSidebarVisibility(!sidebarMenuVisible); break;
+      case "check-for-updates": updates.openDialog(); break;
     }
   };
   const menuActionRef = useRef(dispatchMenuAction);
@@ -3444,6 +3466,8 @@ function App() {
           onPresent={enterPresentation}
           canPresent={canPresent}
           fileType={fileType}
+          updateAvailable={updates.markerVisible}
+          onShowUpdate={updates.showUpdate}
         />
       )}
 
@@ -3797,6 +3821,21 @@ function App() {
       <AnnotationExitDialog paths={annotationExit.paths} waiting={annotationExit.waiting}
         onKeepOpen={annotationExit.keepOpen} onRetry={annotationExit.retry}
         onQuit={annotationExit.quitWithoutSaving} pendingRecords={pendingAnnotationRecords} />
+      <UpdateQuestion
+        visible={updates.askVisible && documentOpen && !editing && !focusMode && !presentationMode}
+        onAnswer={updates.answerQuestion}
+      />
+      <UpdateDialog
+        visible={updates.dialogOpen}
+        phase={updates.phase}
+        problem={updates.problem}
+        autoCheck={updates.autoCheck}
+        onClose={updates.closeDialog}
+        onCheck={updates.checkNow}
+        onInstall={updates.install}
+        onDownloadPage={updates.openDownloadPage}
+        onAutoCheckChange={updates.setAutoCheck}
+      />
       <ConfirmDialog
         visible={showConfirmDialog}
         title={fileName ? `Save changes to “${fileName}”?` : "Save changes to this document?"}

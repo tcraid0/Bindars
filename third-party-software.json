@@ -6,11 +6,11 @@
   },
   "summary": {
     "npmPackages": 299,
-    "cargoPackages": 496,
-    "documents": 365,
+    "cargoPackages": 518,
+    "documents": 378,
     "reviewRequired": 0,
     "inventoryWarnings": 14,
-    "standardLicenseOverrides": 11
+    "standardLicenseOverrides": 12
   },
   "packages": [
     {
@@ -2930,6 +2930,33 @@
       ]
     },
     {
+      "id": "cargo:filetime@0.2.29",
+      "kind": "cargo",
+      "name": "filetime",
+      "version": "0.2.29",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>"
+      ],
+      "repository": "https://github.com/alexcrichton/filetime",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
       "id": "cargo:find-msvc-tools@0.1.15",
       "kind": "cargo",
       "name": "find-msvc-tools",
@@ -3063,6 +3090,33 @@
       ]
     },
     {
+      "id": "cargo:foreign-types-shared@0.1.1",
+      "kind": "cargo",
+      "name": "foreign-types-shared",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>"
+      ],
+      "repository": "https://github.com/sfackler/foreign-types",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+        "sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27"
+      ]
+    },
+    {
       "id": "cargo:foreign-types-shared@0.3.1",
       "kind": "cargo",
       "name": "foreign-types-shared",
@@ -3076,6 +3130,33 @@
       "repository": "https://github.com/sfackler/foreign-types",
       "attribution": null,
       "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+        "sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27"
+      ]
+    },
+    {
+      "id": "cargo:foreign-types@0.3.2",
+      "kind": "cargo",
+      "name": "foreign-types",
+      "version": "0.3.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>"
+      ],
+      "repository": "https://github.com/sfackler/foreign-types",
+      "attribution": null,
+      "distributionClass": "inventory-only",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -3337,7 +3418,7 @@
       "authors": [],
       "repository": "https://github.com/rust-lang/futures-rs",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -3653,7 +3734,7 @@
       ],
       "repository": "https://github.com/rust-random/getrandom",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -4131,7 +4212,7 @@
       ],
       "repository": "https://github.com/hyperium/http-body",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -4159,7 +4240,7 @@
       ],
       "repository": "https://github.com/hyperium/http-body",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -4214,7 +4295,7 @@
       ],
       "repository": "https://github.com/seanmonstar/httparse",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -4226,6 +4307,33 @@
       "documentRefs": [
         "sha256:8502803cebb30a728a7589325d3a9fa666d259013201558c1362d8900596a0de",
         "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:hyper-tls@0.6.0",
+      "kind": "cargo",
+      "name": "hyper-tls",
+      "version": "0.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [
+        "Sean McArthur <sean@seanmonstar.com>"
+      ],
+      "repository": "https://github.com/hyperium/hyper-tls",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:ef31af832fed9fa9d86febbc8143a7e916482321e5de3675ef3620cbffa596d8"
       ]
     },
     {
@@ -4241,7 +4349,7 @@
       ],
       "repository": "https://github.com/hyperium/hyper-util",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -4267,7 +4375,7 @@
       ],
       "repository": "https://github.com/hyperium/hyper",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -5805,6 +5913,32 @@
       ]
     },
     {
+      "id": "cargo:minisign-verify@0.3.0",
+      "kind": "cargo",
+      "name": "minisign-verify",
+      "version": "0.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "871285dc19d8d0ebe0eef3d0e99a205f2a71363b122632cbbfa4a6c370a960ce",
+      "declaredLicense": "MIT",
+      "authors": [
+        "Frank Denis <github@pureftpd.org>"
+      ],
+      "repository": "https://github.com/jedisct1/rust-minisign-verify",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:58f66933c7bba2f45abff7ace6d580120b32452685dc849b4ca56b53393fdbbd"
+      ]
+    },
+    {
       "id": "cargo:miniz_oxide@0.8.9",
       "kind": "cargo",
       "name": "miniz_oxide",
@@ -5918,6 +6052,33 @@
         "sha256:859a90323b684e4618786eb5affa0454d3a14872d433f0bb7e70e8e6f05d8ad4",
         "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
         "sha256:b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d"
+      ]
+    },
+    {
+      "id": "cargo:native-tls@0.2.18",
+      "kind": "cargo",
+      "name": "native-tls",
+      "version": "0.2.18",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>"
+      ],
+      "repository": "https://github.com/rust-native-tls/rust-native-tls",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+        "sha256:d826e1bb47ee79e25ec8ed74470f20e519c92e1836b0686dc1f13d017b696198"
       ]
     },
     {
@@ -6544,6 +6705,31 @@
       ]
     },
     {
+      "id": "cargo:objc2-osa-kit@0.3.2",
+      "kind": "cargo",
+      "name": "objc2-osa-kit",
+      "version": "0.3.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f112d1746737b0da274ef79a23aac283376f335f4095a083a267a082f21db0c0",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "authors": [],
+      "repository": "https://github.com/madsmtm/objc2",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": "MIT",
+      "sourceAvailability": null,
+      "disposition": "reviewed-standard-license-override",
+      "evidence": "Published crate source commit 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:1847e0e0698142ed4347c1441a9fa81c8fbddd44b1d8bbcd5e3647f991759d7f",
+        "sha256:1aa0a34224480ff916817aafd48263c880fe53a1d116261a7bb8c952ee0173ab"
+      ]
+    },
+    {
       "id": "cargo:objc2-quartz-core@0.3.2",
       "kind": "cargo",
       "name": "objc2-quartz-core",
@@ -6722,6 +6908,112 @@
       ]
     },
     {
+      "id": "cargo:openssl-macros@0.1.1",
+      "kind": "cargo",
+      "name": "openssl-macros",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [],
+      "repository": null,
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+        "sha256:f73e51eb49941a3d270525016f2815da8f1282a74083884fa2784ad565f61b7a"
+      ]
+    },
+    {
+      "id": "cargo:openssl-probe@0.2.2",
+      "kind": "cargo",
+      "name": "openssl-probe",
+      "version": "0.2.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>"
+      ],
+      "repository": "https://github.com/rustls/openssl-probe",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:openssl-sys@0.9.118",
+      "kind": "cargo",
+      "name": "openssl-sys",
+      "version": "0.9.118",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "19c413d6ec9ebaf5e1c829d355cb3e9f783778d700f135be0921d52fce3c60ae",
+      "declaredLicense": "MIT",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>",
+        "Steven Fackler <sfackler@gmail.com>"
+      ],
+      "repository": "https://github.com/rust-openssl/rust-openssl",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d"
+      ]
+    },
+    {
+      "id": "cargo:openssl@0.10.82",
+      "kind": "cargo",
+      "name": "openssl",
+      "version": "0.10.82",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "4de8111e94a56adca7ebfe6c365b6d42f99deb69b74b6becacd4204e2f193aa2",
+      "declaredLicense": "Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>"
+      ],
+      "repository": "https://github.com/rust-openssl/rust-openssl",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+        "sha256:ea7995081a3b9c02bed66de54332241b112ab38d382b0ba78e9aeb243b3cd941"
+      ]
+    },
+    {
       "id": "cargo:option-ext@0.2.0",
       "kind": "cargo",
       "name": "option-ext",
@@ -6776,6 +7068,33 @@
       "documentRefs": [
         "sha256:30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
         "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:osakit@0.3.1",
+      "kind": "cargo",
+      "name": "osakit",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "732c71caeaa72c065bb69d7ea08717bd3f4863a4f451402fc9513e29dbd5261b",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Marat Dulin <mdevils@gmail.com>"
+      ],
+      "repository": "https://github.com/mdevils/rust-osakit",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6ca34f7d0a4213575eb16aafd2a9e3d4008003f081ab8859bcf046fb778b4c4a",
+        "sha256:85ad950cce8752f716dbf49be95b2639172cb49f291336d57f1fdc9989e38179"
       ]
     },
     {
@@ -7855,7 +8174,7 @@
       ],
       "repository": "https://github.com/seanmonstar/reqwest",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -8007,6 +8326,31 @@
       ]
     },
     {
+      "id": "cargo:rustls-pki-types@1.16.0",
+      "kind": "cargo",
+      "name": "rustls-pki-types",
+      "version": "1.16.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "102f35f7de7b06d8c61f1cff6592f5253e0dea431c74867aad5dfd70f44663fb",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [],
+      "repository": "https://github.com/rustls/pki-types",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:430e912c26cec30cdf52f4367b6d15dd3f898d2a19db349a62a9f3095ca98a5b",
+        "sha256:c5e7f780f961f850c7ac6e80e29b6aa3e5c3a503677eb7b7a9826fc6d735eb2e"
+      ]
+    },
+    {
       "id": "cargo:rustversion@1.0.23",
       "kind": "cargo",
       "name": "rustversion",
@@ -8059,6 +8403,33 @@
         "sha256:65314a6c96683f76f7495709bb0ddecb4eaa6fa244b28f23c4812ef8e5524066",
         "sha256:739620ea44ad8f99e96ea272e583b63a7d44a83a71250d7550b2544ea6b49fbf",
         "sha256:ca2abdf695884c77ea4b4a5b64ca7b732d9d9dbade4eebc1c2e76c53e9e3bc83"
+      ]
+    },
+    {
+      "id": "cargo:schannel@0.1.30",
+      "kind": "cargo",
+      "name": "schannel",
+      "version": "0.1.30",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5",
+      "declaredLicense": "MIT",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>",
+        "Steffen Butzer <steffen.butzer@outlook.com>"
+      ],
+      "repository": "https://github.com/steffengy/schannel-rs",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:1ecbb241444ad7feca24a4a99f13ffa757eef72e5f9eae08ba8d6ffb268c14fc"
       ]
     },
     {
@@ -8189,6 +8560,62 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:1a6aa2616e74056910aa02ac3a764d45c1b5309eac53768153ad2119637c95cb",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:security-framework-sys@2.17.0",
+      "kind": "cargo",
+      "name": "security-framework-sys",
+      "version": "2.17.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>",
+        "Kornel <kornel@geekhood.net>"
+      ],
+      "repository": "https://github.com/kornelski/rust-security-framework",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
+      "id": "cargo:security-framework@3.7.0",
+      "kind": "cargo",
+      "name": "security-framework",
+      "version": "3.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Steven Fackler <sfackler@gmail.com>",
+        "Kornel <kornel@geekhood.net>"
+      ],
+      "repository": "https://github.com/kornelski/rust-security-framework",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62",
         "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
       ]
     },
@@ -8828,7 +9255,7 @@
       ],
       "repository": "https://github.com/rust-lang/socket2",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -9173,7 +9600,7 @@
       ],
       "repository": "https://github.com/Actyx/sync_wrapper",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -9294,6 +9721,33 @@
       "documentRefs": [
         "sha256:28694f36acab4f505232fc18954400c323a43402098abd2ce0f8510d510ed04d",
         "sha256:6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
+      ]
+    },
+    {
+      "id": "cargo:tar@0.4.46",
+      "kind": "cargo",
+      "name": "tar",
+      "version": "0.4.46",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>"
+      ],
+      "repository": "https://github.com/composefs/tar-rs",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76",
+        "sha256:e6e853531994cb4721d5fa84d5b27bc408720ade2204ff307c76c778b7108bc5"
       ]
     },
     {
@@ -9494,6 +9948,34 @@
       "version": "2.7.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "53810be1b4fed22bb6ac3f4cab5a2b80d9391d1af436bda145607532bc0bb219",
+      "declaredLicense": "Apache-2.0 OR MIT",
+      "authors": [
+        "Tauri Programme within The Commons Conservancy"
+      ],
+      "repository": "https://github.com/tauri-apps/plugins-workspace",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe",
+        "sha256:89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607",
+        "sha256:eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
+      ]
+    },
+    {
+      "id": "cargo:tauri-plugin-updater@2.14.1",
+      "kind": "cargo",
+      "name": "tauri-plugin-updater",
+      "version": "2.14.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "d957abbcb3f9f6c76d22a3a0f012f30880640d0bccb5634d2b12a9937e4c872b",
       "declaredLicense": "Apache-2.0 OR MIT",
       "authors": [
         "Tauri Programme within The Commons Conservancy"
@@ -9718,7 +10200,7 @@
       ],
       "repository": "https://github.com/Stebalien/tempfile",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": "MIT",
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10008,6 +10490,32 @@
       ]
     },
     {
+      "id": "cargo:tokio-native-tls@0.3.1",
+      "kind": "cargo",
+      "name": "tokio-native-tls",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2",
+      "declaredLicense": "MIT",
+      "authors": [
+        "Tokio Contributors <team@tokio.rs>"
+      ],
+      "repository": "https://github.com/tokio-rs/tls",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": null,
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:c1e08ee9a7288bf649d6a78f6079006333df4212f5fcda85be1a0a451f71852d"
+      ]
+    },
+    {
       "id": "cargo:tokio-util@0.7.20",
       "kind": "cargo",
       "name": "tokio-util",
@@ -10020,7 +10528,7 @@
       ],
       "repository": "https://github.com/tokio-rs/tokio",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10307,7 +10815,7 @@
       ],
       "repository": "https://github.com/tower-rs/tower-http",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10333,7 +10841,7 @@
       ],
       "repository": "https://github.com/tower-rs/tower",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10359,7 +10867,7 @@
       ],
       "repository": "https://github.com/tower-rs/tower",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10385,7 +10893,7 @@
       ],
       "repository": "https://github.com/tower-rs/tower",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10518,7 +11026,7 @@
       ],
       "repository": "https://github.com/seanmonstar/try-lock",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -10808,6 +11316,33 @@
       ]
     },
     {
+      "id": "cargo:vcpkg@0.2.15",
+      "kind": "cargo",
+      "name": "vcpkg",
+      "version": "0.2.15",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426",
+      "declaredLicense": "MIT/Apache-2.0",
+      "authors": [
+        "Jim McGrath <jimmc2@gmail.com>"
+      ],
+      "repository": "https://github.com/mcgoo/vcpkg-rs",
+      "attribution": null,
+      "distributionClass": "inventory-only",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:6196143cbaf5e1450026efcc5e612333f19a262cba8ca9d0434a335812466113",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
       "id": "cargo:version_check@0.9.5",
       "kind": "cargo",
       "name": "version_check",
@@ -10954,7 +11489,7 @@
       ],
       "repository": "https://github.com/seanmonstar/want",
       "attribution": null,
-      "distributionClass": "inventory-only",
+      "distributionClass": "runtime-linked",
       "selectedLicense": null,
       "standardLicenseOverride": null,
       "sourceAvailability": null,
@@ -12849,6 +13384,33 @@
       ]
     },
     {
+      "id": "cargo:xattr@1.7.0",
+      "kind": "cargo",
+      "name": "xattr",
+      "version": "1.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "963d6fab92d5504b971dc8bd90ca743c2575e590bc8071ea5bc571598667ae08",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "authors": [
+        "Steven Allen <steven@stebalien.com>"
+      ],
+      "repository": "https://github.com/Stebalien/xattr",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:7bdd5c5e8ad0c973e00ae0cc281ad93c5991cae17dcee281198a625475beb3dc",
+        "sha256:954f335b8baf5e1a5748b3a1bf6eeb2ec0b28ae19813f02063d64be005765a76"
+      ]
+    },
+    {
       "id": "cargo:yoke-derive@0.8.4",
       "kind": "cargo",
       "name": "yoke-derive",
@@ -13055,6 +13617,33 @@
       "inventoryWarning": false,
       "documentRefs": [
         "sha256:cde87abe221f413fede55ded0f17985f37b8fdc23e5f6cba9a3955437facb3ae"
+      ]
+    },
+    {
+      "id": "cargo:zeroize@1.9.1",
+      "kind": "cargo",
+      "name": "zeroize",
+      "version": "1.9.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879",
+      "declaredLicense": "Apache-2.0 OR MIT",
+      "authors": [
+        "The RustCrypto Project Developers"
+      ],
+      "repository": "https://github.com/RustCrypto/utils",
+      "attribution": null,
+      "distributionClass": "runtime-linked",
+      "selectedLicense": "MIT",
+      "standardLicenseOverride": null,
+      "sourceAvailability": null,
+      "disposition": "packaged-license-document",
+      "evidence": null,
+      "licenseTextAvailable": true,
+      "reviewRequired": false,
+      "inventoryWarning": false,
+      "documentRefs": [
+        "sha256:283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+        "sha256:836ed921bbad486c21fe437f1f565aef73cf20f242f7344eae04b01ed53a2d57"
       ]
     },
     {
@@ -20761,6 +21350,7 @@
         "cargo:objc2-encode@4.1.0",
         "cargo:objc2-exception-helper@0.1.1",
         "cargo:objc2-foundation@0.3.2",
+        "cargo:objc2-osa-kit@0.3.2",
         "cargo:objc2-quartz-core@0.3.2",
         "cargo:objc2-web-kit@0.3.2",
         "cargo:objc2@0.6.5"
@@ -20834,6 +21424,7 @@
         "cargo:objc2-exception-helper@0.1.1",
         "cargo:objc2-foundation@0.3.2",
         "cargo:objc2-io-surface@0.3.2",
+        "cargo:objc2-osa-kit@0.3.2",
         "cargo:objc2-quartz-core@0.3.2",
         "cargo:objc2-ui-kit@0.3.2",
         "cargo:objc2-user-notifications@0.3.2",
@@ -20926,6 +21517,15 @@
       ],
       "sources": [
         "license"
+      ]
+    },
+    {
+      "id": "sha256:1ecbb241444ad7feca24a4a99f13ffa757eef72e5f9eae08ba8d6ffb268c14fc",
+      "packages": [
+        "cargo:schannel@0.1.30"
+      ],
+      "sources": [
+        "LICENSE.md"
       ]
     },
     {
@@ -21128,6 +21728,7 @@
         "cargo:tinyvec@1.13.3",
         "cargo:utf8_iter@1.1.0",
         "cargo:utf_types@1.0.0",
+        "cargo:zeroize@1.9.1",
         "npm:@chevrotain/types@11.1.2",
         "npm:dompurify@3.4.17"
       ],
@@ -21455,6 +22056,16 @@
       ]
     },
     {
+      "id": "sha256:37412fff76e3ad06d95d677566b2b771ad595aada257e204eaf040ca938bcb62",
+      "packages": [
+        "cargo:security-framework-sys@2.17.0",
+        "cargo:security-framework@3.7.0"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:381f992f70f7089ddd7c450295f7a3c5e7ee776ded8771991281a6b146c5e5b9",
       "packages": [
         "cargo:try-lock@0.2.5"
@@ -21604,6 +22215,15 @@
       ],
       "sources": [
         "LICENSE-MIT"
+      ]
+    },
+    {
+      "id": "sha256:430e912c26cec30cdf52f4367b6d15dd3f898d2a19db349a62a9f3095ca98a5b",
+      "packages": [
+        "cargo:rustls-pki-types@1.16.0"
+      ],
+      "sources": [
+        "LICENSE-APACHE"
       ]
     },
     {
@@ -21771,6 +22391,7 @@
         "cargo:tauri-plugin-fs@2.7.1",
         "cargo:tauri-plugin-log@2.10.1",
         "cargo:tauri-plugin-opener@2.7.2",
+        "cargo:tauri-plugin-updater@2.14.1",
         "cargo:tauri-plugin-window-state@2.5.0",
         "cargo:tauri-runtime-wry@2.12.3",
         "cargo:tauri-runtime@2.12.2",
@@ -21934,6 +22555,15 @@
       ]
     },
     {
+      "id": "sha256:58f66933c7bba2f45abff7ace6d580120b32452685dc849b4ca56b53393fdbbd",
+      "packages": [
+        "cargo:minisign-verify@0.3.0"
+      ],
+      "sources": [
+        "LICENSE"
+      ]
+    },
+    {
       "id": "sha256:58f959e2911ca1fdd6812a2cebe42193c6137922ecbcce86d8233873706181ab",
       "packages": [
         "npm:d3-path@3.1.0"
@@ -22029,6 +22659,15 @@
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:6196143cbaf5e1450026efcc5e612333f19a262cba8ca9d0434a335812466113",
+      "packages": [
+        "cargo:vcpkg@0.2.15"
+      ],
+      "sources": [
+        "LICENSE-MIT"
       ]
     },
     {
@@ -22201,6 +22840,15 @@
       ]
     },
     {
+      "id": "sha256:6ca34f7d0a4213575eb16aafd2a9e3d4008003f081ab8859bcf046fb778b4c4a",
+      "packages": [
+        "cargo:osakit@0.3.1"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:6d182023b788976deff7d098a1fe99810e1062e692e50b90cf6480eb598d8a47",
       "packages": [
         "cargo:cfg-expr@0.15.8"
@@ -22226,12 +22874,17 @@
         "cargo:dpi@0.1.2",
         "cargo:env_filter@0.1.4",
         "cargo:foreign-types-macros@0.2.4",
+        "cargo:foreign-types-shared@0.1.1",
         "cargo:foreign-types-shared@0.3.1",
+        "cargo:foreign-types@0.3.2",
         "cargo:foreign-types@0.5.0",
         "cargo:hex@0.4.3",
         "cargo:jni-sys@0.3.1",
         "cargo:jni-sys@0.4.1",
         "cargo:json-patch@4.2.0",
+        "cargo:native-tls@0.2.18",
+        "cargo:openssl-macros@0.1.1",
+        "cargo:openssl@0.10.82",
         "cargo:serde_spanned@0.6.9",
         "cargo:tao@0.37.2",
         "cargo:toml@0.8.2",
@@ -22478,7 +23131,8 @@
     {
       "id": "sha256:7bdd5c5e8ad0c973e00ae0cc281ad93c5991cae17dcee281198a625475beb3dc",
       "packages": [
-        "cargo:tempfile@3.27.0"
+        "cargo:tempfile@3.27.0",
+        "cargo:xattr@1.7.0"
       ],
       "sources": [
         "LICENSE-MIT"
@@ -22594,12 +23248,24 @@
       ]
     },
     {
+      "id": "sha256:836ed921bbad486c21fe437f1f565aef73cf20f242f7344eae04b01ed53a2d57",
+      "packages": [
+        "cargo:zeroize@1.9.1"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:84e1bbfebd74e4196cfa0ea5cf58e677aa24b47c6661adbb19fb07920d089d1d",
       "packages": [
         "cargo:cc@1.10.0",
         "cargo:cfg-if@1.0.5",
+        "cargo:filetime@0.2.29",
         "cargo:find-msvc-tools@0.1.15",
         "cargo:js-sys@0.3.107",
+        "cargo:openssl-probe@0.2.2",
+        "cargo:openssl-sys@0.9.118",
         "cargo:pkg-config@0.3.34",
         "cargo:socket2@0.6.5",
         "cargo:toml_datetime@0.6.3",
@@ -22645,6 +23311,7 @@
         "cargo:libc@0.2.191",
         "cargo:num_enum@0.7.6",
         "cargo:num_enum_derive@0.7.6",
+        "cargo:osakit@0.3.1",
         "cargo:proc-macro2@1.0.107",
         "cargo:quote@1.0.47",
         "cargo:ref-cast-impl@1.0.27",
@@ -22771,6 +23438,7 @@
         "cargo:tauri-plugin-fs@2.7.1",
         "cargo:tauri-plugin-log@2.10.1",
         "cargo:tauri-plugin-opener@2.7.2",
+        "cargo:tauri-plugin-updater@2.14.1",
         "cargo:tauri-plugin-window-state@2.5.0",
         "cargo:tauri-runtime-wry@2.12.3",
         "cargo:tauri-runtime@2.12.2",
@@ -22949,6 +23617,7 @@
         "cargo:event-listener-strategy@0.5.4",
         "cargo:event-listener@5.4.2",
         "cargo:fastrand@2.5.0",
+        "cargo:filetime@0.2.29",
         "cargo:find-msvc-tools@0.1.15",
         "cargo:flate2@1.1.10",
         "cargo:fnv@1.0.7",
@@ -22963,6 +23632,7 @@
         "cargo:hermit-abi@0.5.3",
         "cargo:html5ever@0.39.0",
         "cargo:httparse@1.10.1",
+        "cargo:hyper-tls@0.6.0",
         "cargo:idna@1.1.0",
         "cargo:idna_adapter@1.2.2",
         "cargo:indexmap@1.9.3",
@@ -22983,6 +23653,7 @@
         "cargo:muda@0.20.0",
         "cargo:num-traits@0.2.19",
         "cargo:once_cell@1.21.4",
+        "cargo:openssl-probe@0.2.2",
         "cargo:ordered-stream@0.2.0",
         "cargo:parking@2.2.1",
         "cargo:parking_lot@0.12.5",
@@ -22999,6 +23670,8 @@
         "cargo:rustix-linux-procfs@0.1.1",
         "cargo:rustix@1.1.6",
         "cargo:scopeguard@1.2.0",
+        "cargo:security-framework-sys@2.17.0",
+        "cargo:security-framework@3.7.0",
         "cargo:serde_with@3.24.0",
         "cargo:serde_with_macros@3.24.0",
         "cargo:servo_arc@0.4.3",
@@ -23011,6 +23684,7 @@
         "cargo:syn@1.0.109",
         "cargo:system-deps@6.2.2",
         "cargo:tao-macros@0.1.4",
+        "cargo:tar@0.4.46",
         "cargo:tempfile@3.27.0",
         "cargo:tendril@0.5.1",
         "cargo:toml_datetime@0.6.3",
@@ -23018,6 +23692,7 @@
         "cargo:unicode-segmentation@1.13.3",
         "cargo:url@2.5.8",
         "cargo:uuid@1.26.1",
+        "cargo:vcpkg@0.2.15",
         "cargo:version_check@0.9.5",
         "cargo:wasi@0.11.1+wasi-snapshot-preview1",
         "cargo:wasip2@1.0.4+wasi-0.2.12",
@@ -23030,7 +23705,8 @@
         "cargo:web_atoms@0.2.6",
         "cargo:window-vibrancy@0.8.1",
         "cargo:wit-bindgen@0.57.1",
-        "cargo:wry@0.57.1"
+        "cargo:wry@0.57.1",
+        "cargo:xattr@1.7.0"
       ],
       "sources": [
         "LICENSE-APACHE"
@@ -23594,6 +24270,7 @@
     {
       "id": "sha256:c1e08ee9a7288bf649d6a78f6079006333df4212f5fcda85be1a0a451f71852d",
       "packages": [
+        "cargo:tokio-native-tls@0.3.1",
         "cargo:tracing-attributes@0.1.31",
         "cargo:tracing-core@0.1.36",
         "cargo:tracing@0.1.44"
@@ -23676,6 +24353,15 @@
       ]
     },
     {
+      "id": "sha256:c5e7f780f961f850c7ac6e80e29b6aa3e5c3a503677eb7b7a9826fc6d735eb2e",
+      "packages": [
+        "cargo:rustls-pki-types@1.16.0"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:c7495b7b3a525563d3a3f4003277a9db6ef7fd02ce4a3bd4b8103944c4037a32",
       "packages": [
         "cargo:proc-macro-error-attr@1.0.4",
@@ -23735,7 +24421,9 @@
       "id": "sha256:c9067b1cc20b89f5ab1a690ef204e81cc030a636ee11d60613ea03c62e326e27",
       "packages": [
         "cargo:foreign-types-macros@0.2.4",
+        "cargo:foreign-types-shared@0.1.1",
         "cargo:foreign-types-shared@0.3.1",
+        "cargo:foreign-types@0.3.2",
         "cargo:foreign-types@0.5.0"
       ],
       "sources": [
@@ -23947,6 +24635,15 @@
       ]
     },
     {
+      "id": "sha256:d826e1bb47ee79e25ec8ed74470f20e519c92e1836b0686dc1f13d017b696198",
+      "packages": [
+        "cargo:native-tls@0.2.18"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:d872b89e34b794519bb00f82dbad5710435fe5eb37a0a80ed0b72a92db47ced5",
       "packages": [
         "npm:@mermaid-js/parser@1.2.1"
@@ -24139,6 +24836,15 @@
       ]
     },
     {
+      "id": "sha256:e6e853531994cb4721d5fa84d5b27bc408720ade2204ff307c76c778b7108bc5",
+      "packages": [
+        "cargo:tar@0.4.46"
+      ],
+      "sources": [
+        "LICENSE-MIT"
+      ]
+    },
+    {
       "id": "sha256:e7330bf53074b4a9c5896f4a03d782be7f163381e45923d5e2369fe194a19f99",
       "packages": [
         "cargo:getrandom@0.3.4",
@@ -24245,6 +24951,15 @@
       ]
     },
     {
+      "id": "sha256:ea7995081a3b9c02bed66de54332241b112ab38d382b0ba78e9aeb243b3cd941",
+      "packages": [
+        "cargo:openssl@0.10.82"
+      ],
+      "sources": [
+        "LICENSE"
+      ]
+    },
+    {
       "id": "sha256:eabb8d3cadaf8d4e2ff98951db8df859157d48f534cbfc4790c789b840c4ff4b",
       "packages": [
         "npm:highlight.js@11.11.2",
@@ -24280,6 +24995,7 @@
         "cargo:tauri-plugin-fs@2.7.1",
         "cargo:tauri-plugin-log@2.10.1",
         "cargo:tauri-plugin-opener@2.7.2",
+        "cargo:tauri-plugin-updater@2.14.1",
         "cargo:tauri-plugin-window-state@2.5.0",
         "npm:@tauri-apps/plugin-dialog@2.8.4",
         "npm:@tauri-apps/plugin-opener@2.7.2"
@@ -24317,6 +25033,15 @@
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:ef31af832fed9fa9d86febbc8143a7e916482321e5de3675ef3620cbffa596d8",
+      "packages": [
+        "cargo:hyper-tls@0.6.0"
+      ],
+      "sources": [
+        "LICENSE-MIT"
       ]
     },
     {
@@ -24393,6 +25118,15 @@
       ],
       "sources": [
         "LICENSE"
+      ]
+    },
+    {
+      "id": "sha256:f73e51eb49941a3d270525016f2815da8f1282a74083884fa2784ad565f61b7a",
+      "packages": [
+        "cargo:openssl-macros@0.1.1"
+      ],
+      "sources": [
+        "LICENSE-MIT"
       ]
     },
     {

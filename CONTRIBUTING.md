@@ -86,6 +86,7 @@ Before creating a release candidate, run:
 node --test tests/version-consistency.test.cjs
 npm run licenses:test
 npm run licenses:check
+npm run updates:test
 npm audit --omit=dev --audit-level=moderate
 node scripts/audit-dev-dependencies.mjs
 cd src-tauri && cargo audit --file Cargo.lock
@@ -100,11 +101,12 @@ contents, verifies the bundled notices, installs it on Ubuntu 22.04, and runs a
 headless launch test. Review the uploaded control file, file manifest, linked
 libraries, checksum, and smoke-test log before creating a version tag.
 
-A `v*` tag rebuilds, runs the same verification, and publishes that exact tested
-Debian package only after every check passes. A manually dispatched candidate
-and a later tag build are separate artifacts; manually checking the candidate
-does not validate the exact bytes published by the tag run. The current workflow
-has no manual approval step between testing the tag artifact and publishing it.
+A `v*` tag rebuilds, runs the same verification, and drafts a GitHub release
+with the tested Debian package and its checksums. A manually dispatched
+candidate and a later tag build are separate artifacts. Review the tag build's
+results before publishing. Attach the verified Mac DMG, signed update archive,
+signature, manifest, and Mac checksums to the draft, then publish it once all
+the files are present. Leave pre-release drafts marked as pre-releases.
 
 Finalize `.github/release-body.md` and synchronize the package, lockfile, Cargo,
 and Tauri versions before creating the tag: release notes come from the tagged

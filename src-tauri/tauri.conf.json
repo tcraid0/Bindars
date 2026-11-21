@@ -69,5 +69,14 @@
     "macOS": {
       "minimumSystemVersion": "15.0"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzNkYyMDA0NEQwNTBFQzEKUldUQkRnVk5CQ0J2NHlLdVcxbGszbTZoS3d1ZUYvSmVybzU0TVYzdWtseUNuRmhMbHBuY0x4R3kK",
+      "endpoints": [
+        "https://github.com/tcraid0/Bindars/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
   }
 }

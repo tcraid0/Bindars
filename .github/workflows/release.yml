@@ -160,8 +160,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
-    name: Publish verified Debian release
+  draft:
+    name: Draft release with the verified Debian package
     if: startsWith(github.ref, 'refs/tags/v')
     needs: package
     permissions:
@@ -176,7 +176,7 @@ jobs:
           name: bindars-deb-${{ github.sha }}
           path: release-artifacts
 
-      - name: Publish GitHub release
+      - name: Create draft GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -188,6 +188,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             release-artifacts/*.deb \
             release-artifacts/SHA256SUMS \
+            --draft \
             --verify-tag \
             --title "Bindars $GITHUB_REF_NAME" \
             --notes-file .github/release-body.md \

@@ -188,6 +188,14 @@
         "madsmtm/objc2@7b1abfd750a2cacaea71d6a56ecfb83cb7de560b:LICENSE.md"
       ]
     },
+    "cargo:objc2-osa-kit@0.3.2": {
+      "evidence": "Published crate source commit 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "selectedLicense": "MIT",
+      "standardLicense": "MIT",
+      "documents": [
+        "madsmtm/objc2@7b1abfd750a2cacaea71d6a56ecfb83cb7de560b:LICENSE.md"
+      ]
+    },
     "cargo:objc2-quartz-core@0.3.2": {
       "evidence": "Published crate source commit 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "documents": [

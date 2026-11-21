@@ -56,6 +56,8 @@ interface HeaderProps {
   onPresent: () => void;
   canPresent: boolean;
   fileType: FileType;
+  updateAvailable?: boolean;
+  onShowUpdate?: () => void;
 }
 
 const themeLabels: Record<Theme, string> = {
@@ -109,6 +111,8 @@ function HeaderComponent({
   onPresent,
   canPresent,
   fileType,
+  updateAvailable,
+  onShowUpdate,
 }: HeaderProps) {
   const { toast } = useToast();
   const isMac = detectShortcutPlatform() === "macos";
@@ -500,6 +504,15 @@ function HeaderComponent({
             </svg>
           )}
         </button>
+        {updateAvailable && (
+          <button
+            type="button"
+            onClick={onShowUpdate}
+            className="px-2 py-1 rounded-md text-xs font-medium text-text-primary border border-border hover:bg-bg-tertiary transition-colors duration-120"
+          >
+            Update
+          </button>
+        )}
         <button
           type="button"
           onClick={onShowShortcuts}
