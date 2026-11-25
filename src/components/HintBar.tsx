@@ -28,7 +28,7 @@ export function HintBar({ icon, text, dismissLabel, action, onDismiss, readerRef
       <span className="flex-1">{text}</span>
       {action && <button type="button" className="text-accent-text hover:underline" onClick={() => finish(action.onClick)}>{action.label}</button>}
       <button type="button" aria-label={dismissLabel}
-        className="p-1.5 rounded hover:bg-bg-tertiary hover:text-text-primary"
+        className="p-1.5 rounded-control hover:bg-bg-tertiary hover:text-text-primary"
         onClick={() => finish(onDismiss)}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="m6 6 12 12M6 18 18 6" />

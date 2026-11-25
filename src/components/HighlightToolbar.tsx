@@ -269,7 +269,7 @@ function HighlightToolbarComponent({ source, contentRef, isEditing, getActiveHea
         if (current && !event.currentTarget.contains(event.relatedTarget as Node | null)
           && !(pending.current && !event.relatedTarget)) clearOwnedSelection(current);
       }}
-      className="print-hide fixed z-50 flex w-max items-center gap-1.5 px-2 py-1.5 rounded-lg bg-bg-secondary border border-border shadow-lg"
+      className="print-hide fixed z-50 flex w-max items-center gap-1.5 px-2 py-1.5 rounded-surface bg-bg-secondary border border-border shadow-lg"
     >
       {passageChoice ? <>
         <span className="text-xs text-text-secondary" role="status">{selection ? "Replace this highlighted passage?" : "Select a passage in Read."}</span>

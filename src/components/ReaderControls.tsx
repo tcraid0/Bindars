@@ -100,7 +100,7 @@ function ReaderControlsComponent({
       ref={panelRef}
       role="dialog"
       aria-labelledby={titleId}
-      className="print-hide absolute right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-xl shadow-lg p-4 mt-2 overflow-y-auto"
+      className="print-hide absolute right-4 z-50 w-[272px] bg-bg-secondary border border-border rounded-surface shadow-lg p-4 mt-2 overflow-y-auto"
       style={{
         // The positioned body container starts below the header and stays out
         // of document scrolling. Use its available height without counting the
@@ -116,7 +116,7 @@ function ReaderControlsComponent({
           ref={closeRef}
           onClick={() => dismiss(true)}
           aria-label="Close reader settings"
-          className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
+          className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -167,7 +167,7 @@ function ReaderControlsComponent({
               type="button"
               onClick={() => onUpdate({ fontFamily: opt.value })}
               aria-pressed={settings.fontFamily === opt.value}
-              className={`px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 text-left leading-tight ${
+              className={`px-2 py-1.5 text-[11px] rounded-control transition-colors duration-120 text-left leading-tight ${
                 settings.fontFamily === opt.value
                   ? "bg-accent-fill text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
@@ -191,7 +191,7 @@ function ReaderControlsComponent({
               type="button"
               onClick={() => onUpdate({ paragraphSpacing: opt.value })}
               aria-pressed={settings.paragraphSpacing === opt.value}
-              className={`flex-1 px-2 py-1.5 text-[11px] rounded-md transition-colors duration-120 ${
+              className={`flex-1 px-2 py-1.5 text-[11px] rounded-control transition-colors duration-120 ${
                 settings.paragraphSpacing === opt.value
                   ? "bg-accent-fill text-on-accent font-medium"
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary"
@@ -220,7 +220,7 @@ function ReaderControlsComponent({
       <button
         type="button"
         onClick={onReset}
-        className="w-full mt-3 py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-md transition-colors duration-120"
+        className="w-full mt-3 py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-control transition-colors duration-120"
       >
         Reset to defaults
       </button>
@@ -335,7 +335,7 @@ function ControlRow({
           onClick={onDecrease}
           disabled={!canDecrease}
           aria-label={`Decrease ${label.toLowerCase()}`}
-          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+          className="w-6 h-6 flex items-center justify-center rounded-control bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
         >
           -
         </button>
@@ -345,7 +345,7 @@ function ControlRow({
           onClick={onIncrease}
           disabled={!canIncrease}
           aria-label={`Increase ${label.toLowerCase()}`}
-          className="w-6 h-6 flex items-center justify-center rounded bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+          className="w-6 h-6 flex items-center justify-center rounded-control bg-bg-tertiary text-text-secondary hover:text-text-primary text-sm font-medium transition-colors duration-120 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
         >
           +
         </button>

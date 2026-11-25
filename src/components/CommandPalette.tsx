@@ -68,7 +68,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
       initialFocusRef={inputRef}
       onDismiss={onClose}
       backdropClassName="print-hide fixed inset-0 z-50 flex items-start justify-center bg-bg-primary/90"
-      className="command-palette-shell mt-[5vh] w-full max-w-[720px] mx-3 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-y-auto max-h-[90vh]"
+      className="command-palette-shell mt-[5vh] w-full max-w-[720px] mx-3 rounded-surface border border-border bg-bg-secondary shadow-2xl overflow-y-auto max-h-[90vh]"
       renderHeader={(title) => (
         <div className="p-4 border-b border-border">
           <div className="flex items-baseline justify-between gap-3">
@@ -113,7 +113,7 @@ function CommandPaletteComponent(props: CommandPaletteProps) {
             placeholder={`Search ${places} by name or words`}
             autoCorrect="off"
             spellCheck={false}
-            className="w-full p-2 border border-border rounded text-sm bg-bg-primary placeholder:text-text-muted placeholder:opacity-100"
+            className="w-full p-2 border border-border rounded-control text-sm bg-bg-primary placeholder:text-text-muted placeholder:opacity-100"
           />
           <p id="document-search-help" className="sr-only">
             Words match in any order. Use "double quotes" around a phrase. Arrow

@@ -55,7 +55,7 @@ function SearchBarComponent({
   };
 
   return (
-    <div className="search-bar print-hide absolute top-0 right-4 max-w-[calc(100%-2rem)] z-30 flex items-center gap-2 bg-bg-secondary border border-border rounded-b-lg px-3 py-2 shadow-sm"
+    <div className="search-bar print-hide absolute top-0 right-4 max-w-[calc(100%-2rem)] z-30 flex items-center gap-2 bg-bg-secondary border border-border rounded-b-surface px-3 py-2 shadow-sm"
       style={{ animation: "searchBarIn 150ms cubic-bezier(0.2, 0, 0, 1)" }}
     >
       <input
@@ -83,7 +83,7 @@ function SearchBarComponent({
         type="button"
         onClick={onPrevious}
         aria-label="Previous match"
-        className="p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
+        className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
         disabled={matchCount === 0}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,7 +95,7 @@ function SearchBarComponent({
         type="button"
         onClick={onNext}
         aria-label="Next match"
-        className="p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
+        className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
         disabled={matchCount === 0}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -107,7 +107,7 @@ function SearchBarComponent({
         type="button"
         onClick={onClose}
         aria-label="Close search"
-        className="p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
+        className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <line x1="18" y1="6" x2="6" y2="18" />
