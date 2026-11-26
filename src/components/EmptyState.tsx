@@ -6,12 +6,12 @@ import { welcomeRecoveryMessage, type WelcomeRecovery } from "../lib/welcome-rec
 import { toPathIdentityKey } from "../lib/paths";
 import { detectShortcutPlatform, formatShortcutLabel } from "../lib/shortcut-labels";
 
-const buttonBase = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg font-medium text-sm transition-colors duration-120";
+const buttonBase = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-control font-medium text-sm transition-colors duration-120";
 const outline = " border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary";
 const primaryButton = buttonBase + " bg-accent-fill text-on-accent hover:bg-accent-fill-hover shadow-sm";
 const secondaryButton = buttonBase + outline;
 // Home's actions stay quiet: the documents are what you came for.
-const quietButton = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg font-medium text-[13px] transition-colors duration-120" + outline;
+const quietButton = "inline-flex items-center gap-1.5 h-8 px-3 rounded-control font-medium text-[13px] transition-colors duration-120" + outline;
 const listLabel = "text-xs font-medium text-text-muted mb-2 px-3";
 
 const OPEN_ICON = "M3 9V5a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1M3 21h15l4-12H7L3 21Zm0 0L2 9h5";
@@ -194,7 +194,7 @@ function EmptyStateComponent({
         <button key={row.title} ref={row.primary ? openRef : undefined} type="button" onClick={row.onClick} disabled={row.disabled}
           aria-label={`${row.title}, ${row.detail}`}
           className="home-row flex items-center gap-3.5 w-full px-3 text-left hover:bg-bg-tertiary disabled:opacity-50 disabled:pointer-events-none transition-colors duration-120">
-          <span className={`grid place-items-center size-9 shrink-0 rounded-[9px] ${row.primary ? "bg-accent/15 text-accent-text" : "bg-bg-tertiary text-text-secondary"}`}>
+          <span className={`grid place-items-center size-9 shrink-0 rounded-surface ${row.primary ? "bg-accent/15 text-accent-text" : "bg-bg-tertiary text-text-secondary"}`}>
             {icon(row.path)}
           </span>
           <span className="flex-1 min-w-0">
@@ -212,7 +212,7 @@ function EmptyStateComponent({
   );
   const shortcuts = (
     <button type="button" onClick={onShowShortcuts}
-      className="text-xs text-accent-text hover:underline rounded px-2 py-1.5 mt-5">
+      className="text-xs text-accent-text hover:underline rounded-control px-2 py-1.5 mt-5">
       Keyboard Shortcuts
     </button>
   );

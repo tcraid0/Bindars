@@ -85,7 +85,7 @@ const TOCItem = memo(function TOCItem({
             e.stopPropagation();
             onToggleBookmark(heading.id, heading.text);
           }}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-accent-text transition-opacity duration-150 ${
+          className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-control text-text-muted hover:text-accent-text transition-opacity duration-150 ${
             bookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
         >
@@ -179,10 +179,10 @@ function TableOfContentsComponent({
                   type="button"
                   disabled={!scene.headingId}
                   onClick={() => onOpenScene?.(scene)}
-                  className="w-full text-left px-2 py-1 rounded text-xs text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
+                  className="w-full text-left px-2 py-1 rounded-control text-xs text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   {scene.headingId && sceneStatsByHeadingId[scene.headingId]?.parsed.intExt && (
-                    <span className="inline-block mr-1.5 rounded border border-border px-1 py-0 text-[9px] font-medium uppercase tracking-wide text-text-muted">
+                    <span className="inline-block mr-1.5 rounded-control border border-border px-1 py-0 text-[9px] font-medium uppercase tracking-wide text-text-muted">
                       {sceneStatsByHeadingId[scene.headingId]?.parsed.intExt}
                     </span>
                   )}
@@ -211,7 +211,7 @@ function TableOfContentsComponent({
                     type="button"
                     onClick={() => onToggleCharacterFocus?.(char.name)}
                     aria-pressed={focusedCharacter === char.name}
-                    className={`w-full text-left px-2 py-1 rounded text-xs flex items-start gap-1 transition-colors ${
+                    className={`w-full text-left px-2 py-1 rounded-control text-xs flex items-start gap-1 transition-colors ${
                       focusedCharacter === char.name
                         ? "bg-accent/15 text-accent-text font-medium"
                         : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"

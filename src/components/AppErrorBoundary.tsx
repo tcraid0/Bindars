@@ -77,19 +77,19 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
         className="h-screen flex items-center justify-center bg-bg-primary text-text-primary px-6"
         data-testid="app-error-boundary"
       >
-        <div className="max-w-[560px] w-full rounded-xl border border-border bg-bg-secondary p-6">
+        <div className="max-w-[560px] w-full rounded-surface border border-border bg-bg-secondary p-6">
           <h1 className="text-xl font-semibold">Bindars hit an unexpected error</h1>
           <p className="mt-2 text-sm text-text-secondary">
             The view crashed while rendering. Reload to recover.
           </p>
-          <pre className="mt-4 max-h-[180px] overflow-auto rounded-md bg-bg-tertiary p-3 text-xs text-text-muted whitespace-pre-wrap break-words">
+          <pre className="mt-4 max-h-[180px] overflow-auto rounded-surface bg-bg-tertiary p-3 text-xs text-text-muted whitespace-pre-wrap break-words">
             {this.state.error.message}
           </pre>
           <div className="mt-4">
             <button
               type="button"
               onClick={this.handleReload}
-              className="px-4 py-2 rounded-md bg-accent-fill text-on-accent text-sm hover:bg-accent-fill-hover transition-colors"
+              className="px-4 py-2 rounded-control bg-accent-fill text-on-accent text-sm hover:bg-accent-fill-hover transition-colors"
             >
               Reload
             </button>

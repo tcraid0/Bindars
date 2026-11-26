@@ -15,7 +15,7 @@ interface UpdateDialogProps {
   onAutoCheckChange: (value: boolean) => void;
 }
 
-const BUTTON = "px-3 py-1.5 rounded-md text-sm hover:bg-bg-tertiary transition-colors duration-120";
+const BUTTON = "px-3 py-1.5 rounded-control text-sm hover:bg-bg-tertiary transition-colors duration-120";
 const QUIET_BUTTON = `${BUTTON} text-text-secondary`;
 const MAIN_BUTTON = `${BUTTON} font-medium text-accent-text`;
 
