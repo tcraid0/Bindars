@@ -6,6 +6,7 @@ import { svgArtwork } from "./scripts/brand-artwork.mjs";
 
 const host = process.env.TAURI_DEV_HOST;
 const documentPerformanceProbe = process.env.BINDARS_DOCUMENT_PERFORMANCE_PROBE === "1";
+const appVersion: string = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 
 // The startup screen must show the icon in its very first frame, and the welcome
 // screen continues from it, so the brand sources are inlined into index.html
@@ -31,6 +32,7 @@ export default defineConfig(async () => ({
   plugins: [react(), tailwindcss(), brandArtwork()],
   define: {
     __BINDARS_DOCUMENT_PERFORMANCE_PROBE__: JSON.stringify(documentPerformanceProbe),
+    __BINDARS_APP_VERSION__: JSON.stringify(appVersion),
   },
   clearScreen: false,
   build: {

@@ -263,6 +263,8 @@ export function useUpdates(args: UseUpdatesArgs) {
     && shouldAskAboutUpdates(previousLaunchCount, autoCheck);
 
   return {
+    /** This platform can check for and install updates from inside the app. */
+    supported: macos,
     phase,
     problem,
     dialogOpen,
