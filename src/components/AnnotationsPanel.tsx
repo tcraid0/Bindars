@@ -305,7 +305,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
             disabled={!hasContent}
             aria-label="Copy highlights & notes"
             title="Copy highlights & notes as text"
-            className="px-2 py-0.5 rounded text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+            className="px-2 py-0.5 rounded-control text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Copy
           </button>
@@ -315,7 +315,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
             disabled={!hasContent || exporting}
             aria-label="Export highlights & notes as Markdown"
             title="Export highlights & notes as Markdown"
-            className="p-1 rounded hover:bg-bg-tertiary text-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -328,7 +328,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
             onClick={onClose}
             ref={closeRef}
             aria-label="Close highlights & notes"
-            className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
+            className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -352,7 +352,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       {dataWarning && <p className="px-4 pb-2 text-xs text-text-muted" role="alert">{dataWarning}</p>}
       <button className="navigation-action" onClick={onFindNotes}>Reconnect notes…</button>
       {loadError && (
-        <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
+        <div className="mx-4 mb-3 rounded-surface border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{loadError}</p>
           <button
             type="button"
@@ -365,7 +365,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
       )}
 
       {saveError && (
-        <div className="mx-4 mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
+        <div className="mx-4 mb-3 rounded-surface border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
           <p>{saveError}</p>
           <button
             type="button"
@@ -407,7 +407,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 <button
                   type="button"
                   onClick={() => onClickBookmark(bm.headingId)}
-                  className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                  className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-control text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent-text shrink-0">
                     <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -438,7 +438,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                 <button
                   type="button"
                   onClick={() => onClickHighlight(hl.id)}
-                  className="w-full text-left flex items-start gap-2 px-2 py-1.5 pr-8 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                  className="w-full text-left flex items-start gap-2 px-2 py-1.5 pr-8 rounded-control text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
@@ -450,7 +450,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                   type="button"
                   disabled={mutationsDisabled}
                   aria-label="Remove highlight"
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary shrink-0 p-0.5 rounded transition-opacity duration-100"
+                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary shrink-0 p-0.5 rounded-control transition-opacity duration-100"
                   onClick={(event) => {
                     focusAfterRemoval(event.currentTarget.parentElement, closeRef.current);
                     onRemoveHighlight(hl.id);
@@ -487,7 +487,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       onKeyDown={handleNoteKeyDown}
                       aria-label="Highlight note"
                       rows={3}
-                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent-indicator"
+                      className="w-full text-xs bg-bg-tertiary text-text-primary border border-border rounded-control px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-accent-indicator"
                       placeholder="Add a note..."
                     />
                   </div>
@@ -500,7 +500,7 @@ export const AnnotationsPanel = memo(function AnnotationsPanel({
                       aria-label="Edit note"
                       data-note-action={hl.id}
                       onClick={() => startNote(hl.id, hl.note || "")}
-                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary p-0.5 rounded transition-opacity duration-100 shrink-0"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-text-primary p-0.5 rounded-control transition-opacity duration-100 shrink-0"
                     >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />

@@ -3583,7 +3583,7 @@ function App() {
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={handleCancelPendingOpen}
-                      className="min-h-6 px-2 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
+                      className="min-h-6 px-2 rounded-control border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors duration-120 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-indicator"
                     >
                       Cancel
                     </button>

@@ -55,7 +55,7 @@ function ConfirmDialogComponent({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="px-3 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
+          className="px-3 py-1.5 rounded-control text-sm text-text-secondary hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
         >
           {cancelLabel}
         </button>
@@ -64,7 +64,7 @@ function ConfirmDialogComponent({
           type="button"
           onClick={onConfirm}
           disabled={busy}
-          className="px-3 py-1.5 rounded-md text-sm font-medium text-accent-text hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
+          className="px-3 py-1.5 rounded-control text-sm font-medium text-accent-text hover:bg-bg-tertiary transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait"
         >
           {confirmLabel}
         </button>
@@ -73,7 +73,7 @@ function ConfirmDialogComponent({
             type="button"
             onClick={onSecondary}
             disabled={busy}
-            className={`px-3 py-1.5 rounded-md text-sm transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait ${
+            className={`px-3 py-1.5 rounded-control text-sm transition-colors duration-120 disabled:opacity-50 disabled:cursor-wait ${
               secondaryTone === "danger"
                 ? "text-danger hover:bg-danger/10"
                 : "text-text-secondary hover:bg-bg-tertiary"

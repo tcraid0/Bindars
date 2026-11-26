@@ -7,7 +7,7 @@ import { SaveWhisper } from "./SaveWhisper";
 import { useDismissiblePopover } from "../hooks/useDismissiblePopover";
 import { FolderIcon } from "./icons";
 
-const textButtonClass = "rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120";
+const textButtonClass = "rounded-control text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120";
 
 interface HeaderProps {
   onFind?: () => void;
@@ -167,7 +167,7 @@ function HeaderComponent({
           onClick={onToggleSidebar}
           aria-label="Sidebar"
           aria-expanded={sidebarVisible}
-          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
+          className="p-1.5 rounded-control hover:bg-bg-tertiary text-text-secondary transition-colors duration-120"
           title={`${sidebarVisible ? "Hide" : "Show"} Sidebar (${formatShortcutLabel("toggleSidebar")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -180,7 +180,7 @@ function HeaderComponent({
           onClick={onGoBack}
           disabled={!canGoBack}
           aria-label="Go back"
-          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
+          className="p-1.5 rounded-control hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
           title={`Go back (${formatShortcutLabel("goBack")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -193,7 +193,7 @@ function HeaderComponent({
           onClick={onGoForward}
           disabled={!canGoForward}
           aria-label="Go forward"
-          className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
+          className="p-1.5 rounded-control hover:bg-bg-tertiary text-text-secondary transition-colors duration-120 disabled:opacity-30 disabled:pointer-events-none"
           title={`Go forward (${formatShortcutLabel("goForward")})`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -206,7 +206,7 @@ function HeaderComponent({
           type="button"
           onClick={onGoHome}
           aria-current={atHome ? "page" : undefined}
-          className="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary aria-[current=page]:bg-bg-tertiary aria-[current=page]:text-text-primary transition-colors duration-120"
+          className="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-control text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary aria-[current=page]:bg-bg-tertiary aria-[current=page]:text-text-primary transition-colors duration-120"
           title={`Home (${formatShortcutLabel("goHome")})`}
         >
           <svg className="size-5 overflow-visible" aria-hidden="true"><use href="#bindars-symbol" /></svg>
@@ -246,14 +246,15 @@ function HeaderComponent({
                   type="button"
                   onClick={handleRevealFile}
                   aria-label={revealLabel}
-                  className="p-1.5 rounded-md hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
+                  className="p-1.5 rounded-control hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors duration-120"
                   title={`${revealLabel}\n${filePath}`}
                 >
                   <FolderIcon />
                 </button>
               )}
             </div>
-            <div role="group" aria-label="Document mode" className="flex items-center shrink-0 rounded-md border border-border p-0.5">
+            {/* The buttons use rounded (4px): the group's corner less its 2px padding, so the corners nest. */}
+            <div role="group" aria-label="Document mode" className="flex items-center shrink-0 rounded-control border border-border p-0.5">
               <button
                 type="button"
                 onClick={() => { if (isEditing) onToggleEdit(); }}
@@ -327,7 +328,7 @@ function HeaderComponent({
                     aria-label="Export options"
                     aria-expanded={exportOpen}
                     aria-controls={exportOpen ? exportId : undefined}
-                    className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
+                    className={`p-1.5 rounded-control hover:bg-bg-tertiary transition-colors duration-120 ${
                       exportOpen ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                     }`}
                     title={`Export (${formatShortcutLabel("print")})`}
@@ -344,7 +345,7 @@ function HeaderComponent({
                       ref={exportPanelRef}
                       role="group"
                       aria-label="Export options"
-                      className="document-header-popover absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50"
+                      className="document-header-popover absolute right-0 mt-1 w-[220px] bg-bg-secondary border border-border rounded-surface shadow-lg py-1 z-50"
                       style={{ animation: "fadeIn 100ms ease" }}
                     >
                       {onMakeCopy && filePath && (
@@ -398,7 +399,7 @@ function HeaderComponent({
                 onClick={onToggleAnnotations}
                 aria-label="Highlights & notes"
                 aria-expanded={notesVisible}
-                className={`p-1.5 rounded-md hover:bg-bg-tertiary transition-colors duration-120 ${
+                className={`p-1.5 rounded-control hover:bg-bg-tertiary transition-colors duration-120 ${
                   hasAnnotations ? "text-accent-text" : "text-text-secondary hover:text-text-primary"
                 }`}
                 title={`${notesVisible ? "Hide" : "Show"} Highlights & notes (${formatShortcutLabel("toggleAnnotations")})`}
@@ -412,7 +413,7 @@ function HeaderComponent({
                 onClick={onToggleToc}
                 aria-label="Contents"
                 aria-expanded={tocVisible}
-                className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+                className="p-1.5 rounded-control text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
                 title={`${tocVisible ? "Hide" : "Show"} Contents (${formatShortcutLabel("toggleTableOfContents")})`}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -435,7 +436,7 @@ function HeaderComponent({
         <div className="relative text-sm">
           <button ref={viewTriggerRef} aria-expanded={viewOpen} aria-controls={viewOpen ? viewId : undefined}
             title="Interface zoom" className={`p-1.5 ${textButtonClass}`} onClick={event => { event.currentTarget.focus(); setViewOpen(open => !open); }}>View</button>
-          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="document-header-popover interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded p-2 w-44">
+          {viewOpen && <div id={viewId} ref={viewPanelRef} role="group" aria-label="Interface zoom" className="document-header-popover interface-zoom-controls absolute right-0 z-50 bg-bg-secondary border border-border rounded-surface p-2 w-44">
             <p>Interface: {Math.round(zoom * 100)}%</p>
             <button className="block p-2" onClick={() => onZoom?.(1)}>Zoom In</button>
             <button className="block p-2" onClick={() => onZoom?.(-1)}>Zoom Out</button>
@@ -450,7 +451,7 @@ function HeaderComponent({
           aria-haspopup="dialog"
           aria-expanded={readerControlsVisible}
           aria-controls={readerControlsVisible ? readerControlsId : undefined}
-          className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className="p-1.5 rounded-control text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
           title={`${readerControlsVisible ? "Hide" : "Show"} Reader settings`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -463,7 +464,7 @@ function HeaderComponent({
           type="button"
           onClick={onCycleTheme}
           aria-label={`Switch theme (current: ${themeLabels[theme]})`}
-          className="px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className="px-2.5 py-1.5 rounded-control text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
           title={`Theme: ${themeLabels[theme]} (${formatShortcutLabel("cycleTheme")})`}
         >
           {theme === "light" ? (
@@ -508,7 +509,7 @@ function HeaderComponent({
           <button
             type="button"
             onClick={onShowUpdate}
-            className="px-2 py-1 rounded-md text-xs font-medium text-text-primary border border-border hover:bg-bg-tertiary transition-colors duration-120"
+            className="px-2 py-1 rounded-control text-xs font-medium text-text-primary border border-border hover:bg-bg-tertiary transition-colors duration-120"
           >
             Update
           </button>
@@ -517,7 +518,7 @@ function HeaderComponent({
           type="button"
           onClick={onShowShortcuts}
           aria-label="Keyboard Shortcuts"
-          className="p-1.5 rounded-md text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
+          className="p-1.5 rounded-control text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120"
           title={`Keyboard Shortcuts${formatShortcutLabel("showShortcuts") ? ` (${formatShortcutLabel("showShortcuts")})` : ""}`}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

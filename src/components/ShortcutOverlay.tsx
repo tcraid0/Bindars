@@ -18,7 +18,7 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
       initialFocusRef={closeRef}
       onDismiss={onClose}
       backdropClassName="print-hide fixed inset-0 z-50 flex items-center justify-center"
-      className="shortcut-card w-full max-w-[420px] max-h-[calc(100vh-2rem)] overflow-y-auto mx-4 bg-bg-secondary border border-border rounded-xl shadow-lg p-6"
+      className="shortcut-card w-full max-w-[420px] max-h-[calc(100vh-2rem)] overflow-y-auto mx-4 bg-bg-secondary border border-border rounded-surface shadow-lg p-6"
       titleClassName="font-reading italic text-lg text-text-primary"
       renderHeader={(title) => (
         <div className="flex items-center justify-between mb-5">
@@ -28,7 +28,7 @@ function ShortcutOverlayComponent({ visible, onClose }: ShortcutOverlayProps) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="p-1 rounded hover:bg-bg-tertiary text-text-muted"
+            className="p-1 rounded-control hover:bg-bg-tertiary text-text-muted"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />

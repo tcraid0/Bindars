@@ -99,7 +99,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role={t.variant === "error" ? "alert" : undefined}
             aria-live={t.variant === "error" ? "assertive" : undefined}
-            className="pointer-events-auto flex items-center gap-2 bg-bg-secondary border border-border rounded-lg shadow-lg px-4 py-2.5 border-l-4"
+            className="pointer-events-auto flex items-center gap-2 bg-bg-secondary border border-border rounded-surface shadow-lg px-4 py-2.5 border-l-4"
             style={{
               borderLeftColor:
                 t.variant === "error"
@@ -107,7 +107,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   : t.variant === "success"
                     ? "var(--accent-text)"
                     : "var(--color-border)",
-              animation: "toastIn 250ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+              animation: "toastIn 250ms cubic-bezier(0.2, 0, 0, 1)",
             }}
           >
             {t.variant === "success" ? (
@@ -133,7 +133,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               type="button"
               aria-label="Dismiss notification"
               onClick={() => dismiss(t.id)}
-              className="text-text-muted hover:text-text-primary p-0.5 rounded transition-colors duration-120"
+              className="text-text-muted hover:text-text-primary p-0.5 rounded-control transition-colors duration-120"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />

@@ -142,7 +142,7 @@ const editorTheme = EditorView.theme({
   },
   ".cm-panel.cm-search .cm-textfield": {
     border: "1px solid var(--border)",
-    borderRadius: "6px",
+    borderRadius: "var(--radius-control)",
     backgroundColor: "var(--bg-primary)",
     color: "var(--text-primary)",
     padding: "4px 7px",
@@ -157,7 +157,7 @@ const editorTheme = EditorView.theme({
   },
   ".cm-panel.cm-search .cm-button": {
     border: "1px solid var(--border)",
-    borderRadius: "6px",
+    borderRadius: "var(--radius-control)",
     // The base theme paints buttons with a light gradient backgroundImage,
     // which would override backgroundColor and hide light text on light.
     backgroundImage: "none",

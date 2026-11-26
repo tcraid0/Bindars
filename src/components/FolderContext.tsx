@@ -41,7 +41,7 @@ export function FolderContext({ root, directory, onNavigate, onChoose, onRemove 
       </div>
       {open && (
         <div ref={panelRef} id={id} role="group" aria-label="Folder options"
-          className="folder-options bg-bg-secondary border border-border rounded-lg shadow-lg py-1 z-50">
+          className="folder-options bg-bg-secondary border border-border rounded-surface shadow-lg py-1 z-50">
           <button ref={chooseRef} type="button" className="navigation-action"
             onClick={() => { dismiss(true); onChoose(); }}>Choose another folder…</button>
           <div className="navigation-help"><PathDetails path={root} label="Folder location" /></div>

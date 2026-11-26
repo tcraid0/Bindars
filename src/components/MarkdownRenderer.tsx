@@ -102,7 +102,7 @@ function MarkdownImage({
 
 function ImageNotice({ reason, label }: { reason: string; label?: string }) {
   return (
-    <span className="image-notice inline-block px-3 py-2 bg-bg-tertiary rounded text-sm text-text-muted">
+    <span className="image-notice inline-block px-3 py-2 bg-bg-tertiary rounded-surface text-sm text-text-muted">
       [image not shown: {reason}{label ? `: ${label}` : ""}]
     </span>
   );

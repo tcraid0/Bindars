@@ -215,7 +215,7 @@ export function ReconnectNotesDialog({
       onDismiss={() => {
         if (!busy) onClose();
       }}
-      className="w-full max-w-xl mx-3 rounded-xl border border-border bg-bg-secondary p-5 max-h-[90vh] overflow-y-auto"
+      className="w-full max-w-xl mx-3 rounded-surface border border-border bg-bg-secondary p-5 max-h-[90vh] overflow-y-auto"
     >
       {!sourceHasNoNotes && (
         <p className="text-sm my-3">
