@@ -75,4 +75,6 @@ Automated source checks pass on Linux and on macOS 15: the workspace and Rust te
 
 The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
 
+The new version line was checked by hand on macOS 26.6 in a copy with its own app ID: on the first-run welcome and on Home with a recent document, and its symbol opened Updates, which checked and named the running version.
+
 Not checked by hand: Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
