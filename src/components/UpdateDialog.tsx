@@ -8,6 +8,8 @@ interface UpdateDialogProps {
   phase: UpdatePhase;
   problem: string | null;
   autoCheck: boolean;
+  /** The running version, shown before a check has answered. */
+  currentVersion?: string | null;
   onClose: () => void;
   onCheck: () => void;
   onInstall: () => void;
@@ -19,12 +21,14 @@ const BUTTON = "px-3 py-1.5 rounded-control text-sm hover:bg-bg-tertiary transit
 const QUIET_BUTTON = `${BUTTON} text-text-secondary`;
 const MAIN_BUTTON = `${BUTTON} font-medium text-accent-text`;
 
-function updateMessage(phase: UpdatePhase): string {
+function updateMessage(phase: UpdatePhase, currentVersion: string | null): string {
   switch (phase.kind) {
     case "idle":
-      return "Check for a newer version of Bindars.";
+      return currentVersion
+        ? `You have Bindars ${currentVersion}. Check for a newer version.`
+        : "Check for a newer version of Bindars.";
     case "checking":
-      return "Checking for updates…";
+      return currentVersion ? `You have Bindars ${currentVersion}. Checking for updates…` : "Checking for updates…";
     case "up-to-date":
       return `Bindars ${phase.current} is the newest version.`;
     case "available":
@@ -48,6 +52,7 @@ function UpdateDialogComponent({
   phase,
   problem,
   autoCheck,
+  currentVersion = null,
   onClose,
   onCheck,
   onInstall,
@@ -74,7 +79,7 @@ function UpdateDialogComponent({
       initialFocusRef={dismissRef}
       onDismiss={onClose}
     >
-      <p id={messageId} role="status" className="text-sm text-text-secondary mb-4">{updateMessage(phase)}</p>
+      <p id={messageId} role="status" className="text-sm text-text-secondary mb-4">{updateMessage(phase, currentVersion)}</p>
       {problem && <p role="alert" className="text-sm text-danger mb-4">{problem}</p>}
       {!downloading && (
         <>

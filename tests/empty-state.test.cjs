@@ -448,3 +448,32 @@ test("a launch onto Home focuses its heading after the startup screen; a chosen 
     assert.ok(document.activeElement === opener);
   } finally { chosen.cleanup(); opener.remove(); }
 });
+
+test("the foot of the page names the version, with a symbol that opens Updates where Bindars can update", async () => {
+  await installDom();
+  for (const props of [{}, { recentFiles }]) {
+    let opened = 0;
+    const view = renderEmptyState({ ...props, appVersion: "1.8.1", onCheckForUpdates() { opened += 1; } });
+    try {
+      assert.match(view.host.textContent, /Bindars 1\.8\.1/);
+      const check = view.host.querySelector('button[aria-label="Check for Updates"]');
+      assert.ok(check, "the symbol is a named button");
+      assert.equal(check.getAttribute("title"), "Check for Updates");
+      assert.equal(check.textContent, "");
+      click(check);
+      assert.equal(opened, 1);
+    } finally { view.cleanup(); }
+  }
+
+  // Linux cannot update from inside the app: the version alone, no dead button.
+  const linux = renderEmptyState({ recentFiles, appVersion: "1.8.1" });
+  try {
+    assert.match(linux.host.textContent, /Bindars 1\.8\.1/);
+    assert.ok(!linux.host.querySelector('button[aria-label="Check for Updates"]'));
+  } finally { linux.cleanup(); }
+
+  const unknown = renderEmptyState({ recentFiles });
+  try {
+    assert.doesNotMatch(unknown.host.textContent, /Bindars \d/);
+  } finally { unknown.cleanup(); }
+});

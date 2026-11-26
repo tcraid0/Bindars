@@ -332,3 +332,26 @@ test("the Updates dialog keeps keyboard focus inside when its buttons change", a
   await render({ kind: "downloading", current: "1.6.4", version: "1.6.5", percent: 10 });
   assert.equal(document.activeElement?.textContent, "Hide");
 });
+
+test("the Updates dialog names the running version before a check answers", async (t) => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  const noop = () => {};
+  const render = (phase, currentVersion) => act(async () => root.render(React.createElement(UpdateDialog, {
+    visible: true, phase, problem: null, autoCheck: false, currentVersion,
+    onClose: noop, onCheck: noop, onInstall: noop, onDownloadPage: noop, onAutoCheckChange: noop,
+  })));
+  const message = () => document.querySelector('[role="dialog"] [role="status"]').textContent;
+
+  await render({ kind: "checking" }, "1.8.1");
+  assert.equal(message(), "You have Bindars 1.8.1. Checking for updates…");
+  await render({ kind: "idle" }, "1.8.1");
+  assert.equal(message(), "You have Bindars 1.8.1. Check for a newer version.");
+  await render({ kind: "idle" }, null);
+  assert.equal(message(), "Check for a newer version of Bindars.");
+});

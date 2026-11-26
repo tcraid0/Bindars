@@ -17,6 +17,8 @@ const listLabel = "text-xs font-medium text-text-muted mb-2 px-3";
 const OPEN_ICON = "M3 9V5a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1M3 21h15l4-12H7L3 21Zm0 0L2 9h5";
 const EXAMPLE_ICON = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M8 13h8M8 17h6";
 const NEW_ICON = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M12 18v-6M9 15h6";
+// A circle of arrow: look again for something newer.
+const UPDATE_ICON = "M20 12a8 8 0 1 1-2.34-5.66L20 8.5M20 4v4.5h-4.5";
 const icon = (path: string) => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d={path} />
@@ -44,12 +46,16 @@ interface EmptyStateProps {
   recovery?: WelcomeRecovery | null;
   onRetry: () => void;
   onDismiss: () => void;
+  /** Shown at the foot of the page. Nothing is shown without it. */
+  appVersion?: string | null;
+  /** Opens Updates. Left out where Bindars cannot update itself. */
+  onCheckForUpdates?: () => void;
 }
 
 function EmptyStateComponent({
   onOpenFile, onNewFile, onTrySample, onShowShortcuts, canTrySample = true, canFocus = false, preferHome = false,
   recentFiles, recentDetails, recentRemoval, recentHistoryUnavailable = false, continuePath = null, onOpenRecent, onRemoveRecent,
-  openingPath, recovery, onRetry, onDismiss,
+  openingPath, recovery, onRetry, onDismiss, appVersion = null, onCheckForUpdates,
 }: EmptyStateProps) {
   const recentList = recentFiles.slice(0, 5);
   // Until Home lists three documents, ways to start fill the page below them.
@@ -217,6 +223,20 @@ function EmptyStateComponent({
     </button>
   );
 
+  const versionLine = appVersion && (
+    <div className={`flex items-center gap-1 text-xs text-text-muted ${firstRun ? "justify-center mt-2" : "mt-8 px-3"}`}>
+      <span>Bindars {appVersion}</span>
+      {onCheckForUpdates && (
+        <button type="button" onClick={onCheckForUpdates} aria-label="Check for Updates" title="Check for Updates"
+          className="grid place-items-center size-6 rounded-control hover:bg-bg-tertiary hover:text-text-primary transition-colors duration-120">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d={UPDATE_ICON} />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
   if (!firstRun) {
     return (
       <div className={["empty-state empty-state-home px-8 select-none",
@@ -238,6 +258,7 @@ function EmptyStateComponent({
           <p className="text-xs text-text-muted mt-5 px-3">
             {blank ? "You can also drop a Markdown or Fountain file anywhere in this window." : "Drop a Markdown or Fountain file anywhere to open it."}
           </p>
+          {versionLine}
         </div>
       </div>
     );
@@ -272,6 +293,7 @@ function EmptyStateComponent({
         {(recentList.length > 0 || recentHistoryUnavailable) && recents}
         <RecentRemovalNotice recovery={recentRemoval} onLeave={() => openRef.current?.focus({ preventScroll: true })} />
         {shortcuts}
+        {versionLine}
       </div>
     </div>
   );

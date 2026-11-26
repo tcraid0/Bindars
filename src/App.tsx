@@ -35,6 +35,7 @@ import { AnnotationExitDialog } from "./components/AnnotationExitDialog";
 import { useAnnotationExit } from "./hooks/useAnnotationExit";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
+import { APP_VERSION } from "./lib/app-version";
 import { UpdateQuestion } from "./components/UpdateQuestion";
 import { HighlightToolbar } from "./components/HighlightToolbar";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
@@ -3682,6 +3683,8 @@ function App() {
                   recovery={welcomeRecovery}
                   onRetry={retryDocumentOpen}
                   onDismiss={dismissRecentRecovery}
+                  appVersion={APP_VERSION}
+                  onCheckForUpdates={updates.supported ? updates.openDialog : undefined}
                 />
               )}
             </main>
@@ -3849,6 +3852,7 @@ function App() {
         phase={updates.phase}
         problem={updates.problem}
         autoCheck={updates.autoCheck}
+        currentVersion={APP_VERSION}
         onClose={updates.closeDialog}
         onCheck={updates.checkNow}
         onInstall={updates.install}
