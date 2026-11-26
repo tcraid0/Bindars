@@ -17,6 +17,7 @@ A maintenance release: security fixes in the libraries underneath Bindars, curre
 
 - Tauri 2.12.7, with its window and web-view layers and the opener plugin.
 - The editor (CodeMirror), the Markdown grammar it uses, the styling tools and the build tool, each at its latest bug-fix version.
+- Building Bindars from source now needs Rust 1.91 or newer (was 1.90).
 
 ### Look
 
