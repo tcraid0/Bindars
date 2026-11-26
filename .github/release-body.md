@@ -1,41 +1,35 @@
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.8.0_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
+- **Mac (Apple Silicon):** `Bindars_1.8.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
 The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`. The other Mac files (`.app.tar.gz`, `.sig` and `latest.json`) are used by the in-app update; you don't need to download them.
 
-## Changes in 1.8.0
+## Changes in 1.8.1
 
-Bindars can now update itself on Mac, and the text stays still while you read.
+A maintenance release: security fixes in the libraries underneath Bindars, current bug-fix versions of its components, and a tidier look.
 
-### Updates from inside the app (Mac)
+### Security
 
-- Choose **Bindars → Check for Updates…** to look for a newer version. When there is one, **Install and Restart** downloads it, checks it, replaces Bindars and opens it again. Unsaved work is saved first, as when you quit.
-- Nothing is checked unless you ask. Automatic checks are off. On a later launch, Bindars asks once whether you'd like it to check about once a day, and you can change this in the Updates window.
-- Checks and downloads contact only GitHub, which sees your internet address. Your documents are never sent. An update is installed only if it is newer and signed for the version it claims.
-- If you run Bindars from the disk image, it asks you to move it to Applications before updating.
+- Two libraries that Tauri, the framework Bindars is built on, depends on had security advisories published this week: `url` (a specially made web address could crash it) and `cookie` (a weakness in one kind of protected cookie). Both are updated. The risk to Bindars was low, since it is a local reader and does not use that kind of cookie.
 
-### Reading
+### Updated components
 
-- The blue frame around the document when it opened is gone.
-- Escape moves the keyboard back to the document from the toolbar, Contents or the Sidebar.
-- The text column stays centred on the window. Opening Contents, the Sidebar or Highlights & notes, or switching between Read and Edit, no longer slides the text sideways. When a panel needs the room, the text moves only as far as it must.
-- Headings and code blocks follow the text size, so at large sizes headings stay larger than the text around them.
-- Wide diagrams can be scrolled to their left edge instead of being cut off.
+- Tauri 2.12.7, with its window and web-view layers and the opener plugin.
+- The editor (CodeMirror), the Markdown grammar it uses, the styling tools and the build tool, each at its latest bug-fix version.
 
-### Highlights and notes
+### Look
 
-- **Copy** in Highlights & notes puts all your highlights and notes on the clipboard as text, ready to paste.
-- Copy and Export give the same text: highlights in reading order under their section headings, each passage quoted with its note below it, then any highlight whose place could not be found under "Location unavailable", then bookmarks. Colour and date are no longer included.
+- Buttons, fields, menus, popups and panels now share two corner sizes, one for things you click or type in and one for things that hold content, instead of about ten slightly different ones. Dialogs are a little less rounded; messages and small menus a little more.
+- Messages at the bottom of the window slide in and stop instead of bouncing.
 
-Two settings are new: automatic update checks (off by default) and whether Bindars has asked about them. Documents and annotations are stored as before.
+Nothing about how documents, notes or settings are stored has changed.
 
 ## Updating
 
-1.8.0 is the first version with in-app updates, so install it by hand once. On Mac, quit Bindars and replace the application with the copy from the new DMG. Back up documents and Bindars data first. No format migration is needed from 1.7.1. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+On Mac with 1.8.0, choose **Bindars → Check for Updates…**, then **Install and Restart**. This is the first release that 1.8.0 can install by itself. From 1.7.1 or earlier, quit Bindars and replace the application with the copy from the new DMG once. No format migration is needed. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
 
-From 1.8.0 on, choose **Bindars → Check for Updates…** any time on Mac. When an update is ready, choose **Install and Restart**. On Linux, keep getting updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
+On Linux, keep getting updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
 
 ## Known limitations
 
@@ -90,20 +84,10 @@ From 1.8.0 on, choose **Bindars → Check for Updates…** any time on Mac. When
 
 ## Validation
 
-Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the licence inventory and the production build. The dependency audits pass, for the app and for the build tools, with no accepted exceptions.
+Automated source checks pass on Linux and on macOS 15: the workspace and Rust tests, lints, the type check, the minimum supported Rust version, the licence inventory and the production build. The dependency audits pass for the app and for the build tools. The Rust audit still lists five maintenance or soundness notices with no fixed version available: four are Linux-only parts of GTK and D-Bus, and one is a library that is locked but never built.
 
 The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
 
-In-app updates were rehearsed on macOS 26.6 (Apple Silicon) between two signed and notarized test builds with their own app ID, a temporary test release and a test signing key:
+The new corners and messages were checked by hand on macOS 26.6 in a copy with its own app ID, across the light and dark themes.
 
-- the update installed and reopened in about two seconds, at the same place, with no system prompt, and kept an unsaved edit, highlights and notes;
-- nothing was sent while automatic checks were off;
-- a changed update file, a version the signature was not made for, a signature from another key and a download address outside GitHub were all refused, and the app stayed as it was;
-- the copy run from the disk image asked to be moved to Applications;
-- with automatic checks on, the Update button appeared after about 11 seconds without interrupting.
-
-The rehearsal found that **Check for Updates…** showed an update found earlier instead of checking again. That was fixed before release.
-
-The reading changes were checked by hand on macOS 26.6 in a copy with its own app ID: the frame is gone, headings and code at text sizes 17 and 24, a wide diagram, Copy and Export giving the same text, all four themes, and Focus mode.
-
-Not checked by hand: the save question during Install and Restart (autosave had already saved the edit), Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
+Not checked by hand: an in-app update from 1.8.0 to 1.8.1 before publishing (the update path was rehearsed for 1.8.0), Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
