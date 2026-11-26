@@ -4,7 +4,7 @@
 
 ## macOS (Apple Silicon)
 
-Download [Bindars 1.8.1 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.8.1/Bindars_1.8.1_aarch64.dmg),
+Download [Bindars 1.8.2 for Mac](https://github.com/tcraid0/Bindars/releases/download/v1.8.2/Bindars_1.8.2_aarch64.dmg),
 open the DMG, and drag **Bindars** into **Applications**. Open Bindars from there;
 macOS may show its normal first-open confirmation for an internet download.
 Do not disable Gatekeeper or bypass a security block to install it.
@@ -13,14 +13,14 @@ Do not disable Gatekeeper or bypass a security block to install it.
 - Requires macOS 15.0 or newer. The signed app was tested interactively on
   macOS 26.6.2. macOS 15 has automated source/build coverage; its signed-app GUI
   behavior has not been verified.
-- Bindars 1.8.1 introduces no new document or annotation format.
+- Bindars 1.8.2 introduces no new document or annotation format.
 - Clean-account, first-use folder-permission, and logout/shutdown tests remain
   pending. The release notes record the tested scope and known limitations.
 - At extreme interface zoom with the sidebar open, the reading pane can require
   horizontal scrolling. This existing behavior was reproduced at 300% in both
   1.6.3 and 1.6.4; Recent details stay within the window.
 
-The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.8.1) includes
+The [release](https://github.com/tcraid0/Bindars/releases/tag/v1.8.2) includes
 `SHA256SUMS-macos.txt` for checking the download. Save it beside the DMG, open
 Terminal in that folder, and run:
 
