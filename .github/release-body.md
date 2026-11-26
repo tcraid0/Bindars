@@ -1,34 +1,20 @@
 ## Downloads
 
-- **Mac (Apple Silicon):** `Bindars_1.8.1_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
+- **Mac (Apple Silicon):** `Bindars_1.8.2_aarch64.dmg`. Requires macOS 15.0 or newer; no Intel build.
 - **Linux (x86_64):** install the `.deb` with `sudo apt install ./Bindars_*_amd64.deb`.
 
 The Mac download is accompanied by `SHA256SUMS-macos.txt`; the Debian package has `SHA256SUMS`. The other Mac files (`.app.tar.gz`, `.sig` and `latest.json`) are used by the in-app update; you don't need to download them.
 
-## Changes in 1.8.1
+## Changes in 1.8.2
 
-A maintenance release: security fixes in the libraries underneath Bindars, current bug-fix versions of its components, and a tidier look.
-
-### Security
-
-- Two libraries that Tauri, the framework Bindars is built on, depends on had security advisories published this week: `url` (a specially made web address could crash it) and `cookie` (a weakness in one kind of protected cookie). Both are updated. The risk to Bindars was low, since it is a local reader and does not use that kind of cookie.
-
-### Updated components
-
-- Tauri 2.12.7, with its window and web-view layers and the opener plugin.
-- The editor (CodeMirror), the Markdown grammar it uses, the styling tools and the build tool, each at its latest bug-fix version.
-- Building Bindars from source now needs Rust 1.91 or newer (was 1.90).
-
-### Look
-
-- Buttons, fields, menus, popups and panels now share two corner sizes, one for things you click or type in and one for things that hold content, instead of about ten slightly different ones. Dialogs are a little less rounded; messages and small menus a little more.
-- Messages at the bottom of the window slide in and stop instead of bouncing.
+- Home now shows which version of Bindars you have, at the bottom of the page. On Mac, the small circular-arrow symbol beside it checks for updates; it opens the same Updates window as **Bindars → Check for Updates…**. Linux shows the version alone.
+- The Updates window says which version you have as soon as it opens, instead of only after the check finishes.
 
 Nothing about how documents, notes or settings are stored has changed.
 
 ## Updating
 
-On Mac with 1.8.0, choose **Bindars → Check for Updates…**, then **Install and Restart**. This is the first release that 1.8.0 can install by itself. From 1.7.1 or earlier, quit Bindars and replace the application with the copy from the new DMG once. No format migration is needed. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
+On Mac with 1.8.0 or 1.8.1, choose **Bindars → Check for Updates…**, then **Install and Restart**. From 1.7.1 or earlier, quit Bindars and replace the application with the copy from the new DMG once. No format migration is needed. See [Saving your work](https://github.com/tcraid0/Bindars/blob/main/docs/recovery-and-privacy.md) for storage locations and downgrade limitations.
 
 On Linux, keep getting updates from the [download page](https://github.com/tcraid0/Bindars/releases/latest).
 
@@ -89,6 +75,4 @@ Automated source checks pass on Linux and on macOS 15: the workspace and Rust te
 
 The Mac app and its disk image are signed with a Developer ID and notarized by Apple.
 
-The new corners and messages were checked by hand on macOS 26.6 in a copy with its own app ID, across the light and dark themes.
-
-Not checked by hand: an in-app update from 1.8.0 to 1.8.1 before publishing (the update path was rehearsed for 1.8.0), Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
+Not checked by hand: Linux, VoiceOver, macOS 15, and a browser download on a clean Mac.
