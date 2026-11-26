@@ -1,5 +1,5 @@
-# Reviewed against Tauri 2.12.5 and the locked desktop dependency graph.
-# Last reviewed: 2026-11-01 (RustSec database 2295466c4e9df26647fd67d8fa1c705ac2fc7f81).
+# Reviewed against Tauri 2.12.7 and the locked desktop dependency graph.
+# Last reviewed: 2026-11-26 (cargo-audit 0.23.0, 1,568 advisories).
 # Checked aarch64-apple-darwin, x86_64-unknown-linux-gnu,
 # x86_64-pc-windows-msvc and --target all. Runtime classification excludes
 # build dependencies and proc-macro paths. Reassess after dependency changes.
@@ -12,10 +12,14 @@
 #   zvariant_derive 5.15.1 maintenance notices remain through Linux zbus 5.
 #   Their replacements are in zbus 6; tauri-plugin-opener must migrate upstream.
 #   zvariant/zbus_names are runtime dependencies; zvariant_derive is a macro.
+# - RUSTSEC-2026-0543: chrono 0.4.45 is unmaintained. It is locked only as an
+#   optional dependency of serde_with that nothing enables; `cargo tree
+#   --target all -e all -i chrono` prints nothing, so it is never built.
 #
 # Removed obsolete exceptions for instant, fxhash, unic-* and rkyv: these
 # packages are no longer locked. The old rand 0.7 warning is also gone.
-# Tokio is updated to 1.54.1, fixing RUSTSEC-2026-0386.
+# Tokio is updated to 1.54.1, fixing RUSTSEC-2026-0386. cookie 0.18.3 and
+# url 2.5.9 fix RUSTSEC-2026-0594 and RUSTSEC-2026-0592.
 
 [advisories]
 ignore = [
