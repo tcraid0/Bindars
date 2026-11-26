@@ -16,8 +16,8 @@ cd .. && npm run test:workspace            # Workspace integration tests
 ```
 
 Use Node 24 LTS (selected by `.nvmrc`) for development and builds. Node 22.12
-or newer is supported; CI covers Node 22 and 24. Rust 1.90 or newer is required.
-CI runs the full Rust suite on stable and a compile check on Rust 1.90.
+or newer is supported; CI covers Node 22 and 24. Rust 1.91 or newer is required.
+CI runs the full Rust suite on stable and a compile check on Rust 1.91.
 
 On macOS and Linux, the Rust suite includes a real filesystem-watcher test for
 external saves and atomic file replacements, with a bounded wait for events.

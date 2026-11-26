@@ -131,7 +131,7 @@ Raw HTML and remote images aren't rendered; see the
 ## Build from source
 
 Built with Tauri v2, React 19, TypeScript, and Tailwind CSS v4.
-Use Node 24 LTS (`.nvmrc`); Node 22.12 or newer and Rust 1.90 or newer are required.
+Use Node 24 LTS (`.nvmrc`); Node 22.12 or newer and Rust 1.91 or newer are required.
 
 ```bash
 npm ci

@@ -102,11 +102,11 @@ jobs:
         run: cargo clippy --lib --tests --locked -- -D warnings
 
       - name: Install minimum supported Rust
-        uses: dtolnay/rust-toolchain@1.90.0
+        uses: dtolnay/rust-toolchain@1.91.0
 
       - name: Check minimum supported Rust
         working-directory: src-tauri
-        run: cargo +1.90.0 check --locked
+        run: cargo +1.91.0 check --locked
 
   macos:
     name: macOS 15 arm64
